@@ -1,0 +1,660 @@
+{
+  "info": {
+    "name": "航材交易平台 Webhook API",
+    "description": "完整的 Webhook 端点管理、订阅、投递日志和重试接口集合",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "your_jwt_bearer_token_here",
+      "type": "string"
+    },
+    {
+      "key": "webhook_secret",
+      "value": "your_webhook_secret_here",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Webhook 端点管理",
+      "item": [
+        {
+          "name": "创建 Webhook 端点",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://example.com/webhooks/receiver\",\n  \"authMethod\": \"HMAC\",\n  \"secret\": \"{{webhook_secret}}\",\n  \"headers\": {\n    \"X-Custom-Header\": \"custom-value\"\n  },\n  \"maxRetries\": 5,\n  \"timeoutSeconds\": 30\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "查看所有 Webhook 端点",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "更新 Webhook 端点",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://example.com/webhooks/receiver-v2\",\n  \"status\": \"ACTIVE\",\n  \"maxRetries\": 10\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "删除 Webhook 端点",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints", ":id"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Webhook 订阅管理",
+      "item": [
+        {
+          "name": "创建事件订阅（RFQ 事件）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpointId\": \"endpoint_uuid_here\",\n  \"eventTypes\": [\"rfq.created\", \"rfq.status.changed\"],\n  \"filters\": {\n    \"urgency\": [\"AOG\"],\n    \"status\": [\"PENDING\", \"QUOTED\"]\n  },\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/subscriptions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "subscriptions"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "创建事件订阅（报价事件）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpointId\": \"endpoint_uuid_here\",\n  \"eventTypes\": [\"quotation.created\", \"quotation.submitted\", \"quotation.approved\"],\n  \"filters\": {\n    \"status\": [\"APPROVED\"]\n  },\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/subscriptions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "subscriptions"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "创建事件订阅（订单事件）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpointId\": \"endpoint_uuid_here\",\n  \"eventTypes\": [\"order.created\", \"order.status.changed\"],\n  \"filters\": {\n    \"status\": [\"CONFIRMED\", \"SHIPPED\"]\n  },\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/subscriptions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "subscriptions"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "创建事件订阅（Agent 任务事件）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpointId\": \"endpoint_uuid_here\",\n  \"eventTypes\": [\"agent.task.completed\", \"agent.task.failed\"],\n  \"filters\": {\n    \"taskType\": [\"PRICE_ANALYSIS\", \"COMPETITOR_ANALYSIS\"]\n  },\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/subscriptions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "subscriptions"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "查看所有订阅",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/subscriptions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "subscriptions"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "更新订阅",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventTypes\": [\"rfq.created\"],\n  \"filters\": {\n    \"urgency\": [\"AOG\", \"STOCK\"]\n  },\n  \"active\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/subscriptions/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "subscriptions", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "删除订阅",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/subscriptions/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "subscriptions", ":id"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Webhook 测试与投递",
+      "item": [
+        {
+          "name": "测试 Webhook 端点连接",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpointId\": \"endpoint_uuid_here\",\n  \"eventType\": \"test.delivery\",\n  \"payload\": {\n    \"message\": \"This is a test webhook delivery\",\n    \"timestamp\": \"2026-05-12T10:00:00Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/test",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "test"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "查看投递日志（所有）",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/deliveries?limit=50&offset=0",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "deliveries"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "查看投递日志（按端点过滤）",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/deliveries?endpointId=endpoint_uuid_here&status=FAILED",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "deliveries"],
+              "query": [
+                {
+                  "key": "endpointId",
+                  "value": "endpoint_uuid_here"
+                },
+                {
+                  "key": "status",
+                  "value": "FAILED"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "查看单条投递详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/deliveries/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "deliveries", ":id"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "手动重试失败的投递",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/deliveries/:id/retry",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "deliveries", ":id", "retry"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "事件 Payload 示例",
+      "item": [
+        {
+          "name": "RFQ 创建事件 (rfq.created)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Webhook-Signature",
+                "value": "sha256=calculated_hmac_here",
+                "type": "text"
+              },
+              {
+                "key": "X-Webhook-ID",
+                "value": "delivery_uuid_here",
+                "type": "text"
+              },
+              {
+                "key": "X-Event-ID",
+                "value": "event_uuid_here",
+                "type": "text"
+              },
+              {
+                "key": "X-Event-Timestamp",
+                "value": "1715504400",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventType\": \"rfq.created\",\n  \"eventId\": \"evt_1234567890\",\n  \"timestamp\": \"2026-05-12T10:00:00Z\",\n  \"data\": {\n    \"rfqId\": \"rfq_1234567890\",\n    \"rfqNumber\": \"RFQ-2026-05-001\",\n    \"customerId\": \"cust_9876543210\",\n    \"partNumber\": \"SN72-5001-11-01\",\n    \"partName\": \"主螺杆主轴承\",\n    \"quantity\": 50,\n    \"quantityUnit\": \"EA\",\n    \"urgency\": \"AOG\",\n    \"status\": \"PENDING\",\n    \"createdAt\": \"2026-05-12T10:00:00Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "https://example.com/webhooks/receiver",
+              "protocol": "https",
+              "host": ["example", "com"],
+              "path": ["webhooks", "receiver"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "RFQ 状态变更事件 (rfq.status.changed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Webhook-Signature",
+                "value": "sha256=calculated_hmac_here",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventType\": \"rfq.status.changed\",\n  \"eventId\": \"evt_1234567891\",\n  \"timestamp\": \"2026-05-12T11:30:00Z\",\n  \"data\": {\n    \"rfqId\": \"rfq_1234567890\",\n    \"rfqNumber\": \"RFQ-2026-05-001\",\n    \"previousStatus\": \"PENDING\",\n    \"newStatus\": \"QUOTED\",\n    \"supplierCount\": 3,\n    \"updatedAt\": \"2026-05-12T11:30:00Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "https://example.com/webhooks/receiver",
+              "protocol": "https",
+              "host": ["example", "com"],
+              "path": ["webhooks", "receiver"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "报价提交事件 (quotation.submitted)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Webhook-Signature",
+                "value": "sha256=calculated_hmac_here",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventType\": \"quotation.submitted\",\n  \"eventId\": \"evt_1234567892\",\n  \"timestamp\": \"2026-05-12T12:15:00Z\",\n  \"data\": {\n    \"quotationId\": \"quot_1234567890\",\n    \"quotationNumber\": \"QT-2026-05-001\",\n    \"rfqId\": \"rfq_1234567890\",\n    \"supplierId\": \"supp_1111111111\",\n    \"supplierName\": \"供应商 A\",\n    \"unitPrice\": 250.00,\n    \"currency\": \"USD\",\n    \"leadTime\": 14,\n    \"status\": \"SUBMITTED\",\n    \"submittedAt\": \"2026-05-12T12:15:00Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "https://example.com/webhooks/receiver",
+              "protocol": "https",
+              "host": ["example", "com"],
+              "path": ["webhooks", "receiver"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "报价批准事件 (quotation.approved)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Webhook-Signature",
+                "value": "sha256=calculated_hmac_here",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventType\": \"quotation.approved\",\n  \"eventId\": \"evt_1234567893\",\n  \"timestamp\": \"2026-05-12T13:45:00Z\",\n  \"data\": {\n    \"quotationId\": \"quot_1234567890\",\n    \"quotationNumber\": \"QT-2026-05-001\",\n    \"rfqId\": \"rfq_1234567890\",\n    \"supplierId\": \"supp_1111111111\",\n    \"approvalStatus\": \"APPROVED\",\n    \"approvedAt\": \"2026-05-12T13:45:00Z\",\n    \"approvedBy\": \"user_1234567890\"\n  }\n}"
+            },
+            "url": {
+              "raw": "https://example.com/webhooks/receiver",
+              "protocol": "https",
+              "host": ["example", "com"],
+              "path": ["webhooks", "receiver"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "订单创建事件 (order.created)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Webhook-Signature",
+                "value": "sha256=calculated_hmac_here",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventType\": \"order.created\",\n  \"eventId\": \"evt_1234567894\",\n  \"timestamp\": \"2026-05-12T14:20:00Z\",\n  \"data\": {\n    \"orderId\": \"ord_1234567890\",\n    \"orderNumber\": \"PO-2026-05-001\",\n    \"customerId\": \"cust_9876543210\",\n    \"supplierId\": \"supp_1111111111\",\n    \"rfqId\": \"rfq_1234567890\",\n    \"quotationId\": \"quot_1234567890\",\n    \"partNumber\": \"SN72-5001-11-01\",\n    \"quantity\": 50,\n    \"unitPrice\": 250.00,\n    \"totalAmount\": 12500.00,\n    \"currency\": \"USD\",\n    \"deliveryDate\": \"2026-05-26\",\n    \"status\": \"CONFIRMED\",\n    \"createdAt\": \"2026-05-12T14:20:00Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "https://example.com/webhooks/receiver",
+              "protocol": "https",
+              "host": ["example", "com"],
+              "path": ["webhooks", "receiver"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "订单状态变更事件 (order.status.changed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Webhook-Signature",
+                "value": "sha256=calculated_hmac_here",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventType\": \"order.status.changed\",\n  \"eventId\": \"evt_1234567895\",\n  \"timestamp\": \"2026-05-19T15:30:00Z\",\n  \"data\": {\n    \"orderId\": \"ord_1234567890\",\n    \"orderNumber\": \"PO-2026-05-001\",\n    \"previousStatus\": \"CONFIRMED\",\n    \"newStatus\": \"SHIPPED\",\n    \"trackingNumber\": \"DHL1234567890\",\n    \"carrier\": \"DHL\",\n    \"shippedAt\": \"2026-05-19T15:30:00Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "https://example.com/webhooks/receiver",
+              "protocol": "https",
+              "host": ["example", "com"],
+              "path": ["webhooks", "receiver"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Agent 任务完成事件 (agent.task.completed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Webhook-Signature",
+                "value": "sha256=calculated_hmac_here",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventType\": \"agent.task.completed\",\n  \"eventId\": \"evt_1234567896\",\n  \"timestamp\": \"2026-05-12T16:45:00Z\",\n  \"data\": {\n    \"taskId\": \"task_1234567890\",\n    \"taskType\": \"PRICE_ANALYSIS\",\n    \"status\": \"COMPLETED\",\n    \"rfqId\": \"rfq_1234567890\",\n    \"result\": {\n      \"averagePrice\": 245.50,\n      \"marketTrend\": \"STABLE\",\n      \"recommendation\": \"COMPETITIVE\",\n      \"confidence\": 0.92\n    },\n    \"completedAt\": \"2026-05-12T16:45:00Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "https://example.com/webhooks/receiver",
+              "protocol": "https",
+              "host": ["example", "com"],
+              "path": ["webhooks", "receiver"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+node_modules
+dist
+.git
+.gitignore
+*.md
+.env
+.env.local
+.env.*.local
+.vscode
+.idea
+*.log
+npm-debug.log*
+.DS_Store
+# Office temp files
+~$*
+*.tmp
+# Windows
+Thumbs.db
+desktop.ini

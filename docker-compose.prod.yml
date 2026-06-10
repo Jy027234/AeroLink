@@ -1,0 +1,48 @@
+name: aerolink-prod
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+      args:
+        VITE_API_URL: /api
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    networks:
+      - aerolink-prod
+
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.server
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      CLIENT_URL: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      DATABASE_URL: file:./data/prod.db
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+    volumes:
+      - backend-data:/app/data
+      - backend-uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - aerolink-prod
+
+volumes:
+  backend-data:
+  backend-uploads:
+
+networks:
+  aerolink-prod:
+    driver: bridge

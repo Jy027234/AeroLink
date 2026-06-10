@@ -1,0 +1,105 @@
+# ============================================
+# AeroLink 航材交易平台 - Docker Compose 配置
+# ============================================
+# 用于开发环境，支持热更新
+
+name: aerohelp
+
+services:
+  # ==========================================
+  # PostgreSQL 数据库
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aerolink
+      POSTGRES_PASSWORD: aerolink_password
+      POSTGRES_DB: aerolink
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - aerodinetwork
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aerolink -d aerolink"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================
+  # 前端服务 (React + Vite)
+  # ==========================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    ports:
+      - "5175:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/dist
+    env_file:
+      - .env.docker
+    environment:
+      - VITE_API_URL=http://localhost:3005/api
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    networks:
+      - aerodinetwork
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5173"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ==========================================
+  # 后端服务 (Express + Prisma + PostgreSQL)
+  # ==========================================
+  backend:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: development
+    ports:
+      - "3005:3000"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    env_file:
+      - server/.env.docker
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - CLIENT_URL=http://localhost:5175
+      - DATABASE_URL=postgresql://aerolink:aerolink_password@postgres:5432/aerolink?schema=public
+    working_dir: /app
+    networks:
+      - aerodinetwork
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: >
+      sh -c "
+        npx prisma generate &&
+        npx prisma db push &&
+        npm run db:seed &&
+        npm run dev
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
+networks:
+  aerodinetwork:
+    driver: bridge

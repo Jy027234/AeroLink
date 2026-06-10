@@ -1,0 +1,1655 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String    @id @default(uuid())
+  email       String    @unique
+  name        String
+  password    String
+  role        String    @default("SALES")
+  department  String?
+  avatar      String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
+
+  createdRFQs       RFQ[]
+  createdQuotations Quotation[]
+  approvedQuotations Quotation[] @relation("Approver")
+  approvals         Approval[]
+  supplierFollowUpLogs SupplierFollowUpLog[]
+  notificationPreferences NotificationPreference[]
+  channelBindings     UserChannelBinding[]
+  pushSubscriptions   PushSubscription[]
+
+  @@map("users")
+}
+
+model NotificationPreference {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  emailNotify   Boolean  @default(true)
+  systemNotify  Boolean  @default(true)
+  approvalNotify Boolean @default(true)
+  aogAlert      Boolean  @default(true)
+  weeklyReport  Boolean  @default(false)
+  wechatNotify  Boolean  @default(false)
+  dingtalkNotify Boolean @default(false)
+  larkNotify    Boolean  @default(false)
+  smsNotify     Boolean  @default(false)
+  pushNotify    Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+model Customer {
+  id                String   @id @default(uuid())
+  name              String
+  buyerType         String   @default("End User")
+  businessDescription String?
+  contactName       String
+  email             String
+  phone             String?
+  registeredAddress String?
+  shipToAddress     String?
+  shipForAddress    String?
+  shippingContactName  String?
+  shippingContactPhone String?
+  creditLimit       Float?
+  creditRating      String?
+  paymentTerms      String?
+  paymentMethod     String?
+  annualRevenue     Float?
+  vatNumber         String?
+  iataCode          String?
+  icaoCode          String?
+  aocNumber         String?
+  preferredIncoterm String?
+  customsBroker     String?
+  qualityApprovalStatus String @default("Pending")
+  status            String   @default("ACTIVE")
+  lastOrderAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  decisionMakers   DecisionMaker[]
+  rfqs             RFQ[]
+  quotations       Quotation[]
+  orders           Order[]
+  vmiAgreements    VMIAgreement[]
+  generatedDocuments GeneratedDocument[]
+  outboundEmails   OutboundEmail[]
+  contacts         CustomerContact[]
+  competitorListings CompetitorListing[]
+
+  @@map("customers")
+}
+
+model CustomerContact {
+  id         String  @id @default(uuid())
+  customerId String
+  name       String
+  email      String
+  phone      String?
+  role       String
+  isDefault  Boolean @default(false)
+  receiveRFQ Boolean @default(false)
+  receivePO  Boolean @default(false)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  @@map("customer_contacts")
+}
+
+model CompetitorListing {
+  id          String  @id @default(uuid())
+  customerId  String
+  competitorName String
+  advantageParts String?
+  priceLevel  String?
+  notes       String?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  @@map("competitor_listings")
+}
+
+model DecisionMaker {
+  id         String  @id @default(uuid())
+  customerId String
+  name       String
+  title      String
+  role       String
+  concerns   String?
+  vetoItems  String?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("decision_makers")
+}
+
+model Supplier {
+  id                String   @id @default(uuid())
+  name              String
+  contactName       String?
+  email             String?  @unique
+  phone             String?
+  address           String?
+  // 供应商资质与合规（P2）
+  supplierType      String   @default("Distributor")
+  cageCode          String?
+  caac145CertificateNo String?
+  caac145CertificateUrl String?
+  pmaHolder         Boolean @default(false)
+  ctsoaHolder       Boolean @default(false)
+  oemAuthorized     Boolean @default(false)
+  oemAuthorizationUrl String?
+  qualityApprovalExpiry DateTime?
+  lastAuditDate     DateTime?
+  nextAuditDue      DateTime?
+  approvedPartCategories String?
+  specializesInAircraft String?
+  incotermsOffered  String?
+  // Phase 4: 供应能力标签
+  canSupplyRotable  Boolean @default(false)
+  canSupplyChemical Boolean @default(false)
+  hasDangerousGoodsLicense Boolean @default(false)
+  hasColdChain      Boolean @default(false)
+  // 绩效与商务
+  level             String   @default("C")
+  status            String   @default("active")
+  paymentTerms      String?
+  leadTime          Int?
+  leadTimeAverage   Int?
+  onTimeDeliveryRate Float?
+  performanceScore   Int?
+  certificateTypesProvided String?
+  moqPolicy         String?
+  warrantyPolicy    String?
+  returnPolicy      String?
+  bankAccountInfo   String?
+  lastOrderAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  inventory         Inventory[]
+  inventoryDetails  InventoryDetail[]
+  inquiries         Inquiry[]
+  portalUsers       SupplierPortalUser[]
+  supplierQuotes    SupplierQuote[]
+  followUpLogs      SupplierFollowUpLog[]
+  certificates      Certificate[]
+
+  @@map("suppliers")
+}
+
+model SupplierPortalUser {
+  id         String    @id @default(uuid())
+  supplierId String
+  email      String
+  name       String
+  role       String
+  lastLoginAt DateTime?
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@map("supplier_portal_users")
+}
+
+model Inventory {
+  id                String   @id @default(uuid())
+  partNumber        String
+  description       String
+  quantity          Int
+
+  // 航材核心标识
+  serialNumber      String?
+  batchNumber       String?
+  
+  // ===== 新增：航材分类体系 =====
+  partCategory      String   @default("CONSUMABLE")
+  // 枚举值：ROTABLE | REPAIRABLE | CONSUMABLE | CHEMICAL | STANDARD_PART | RAW_MATERIAL
+  trackingType      String   @default("BATCH")
+  // 枚举值：SERIAL | BATCH
+  
+  manufacturer      String?
+  manufacturerCageCode String?
+  ataChapter        String?
+  alternatePartNumbers String?
+
+  // 状态与条件
+  conditionCode     String   @default("NE")
+  certificateType   String   @default("NONE")
+  certificateNumber String?
+  certificateFileUrl String?
+
+  // 时寿与寿命（LLP/Time-Controlled）
+  lifeLimited       Boolean @default(false)
+  totalHours        Float?
+  totalCycles       Float?
+  remainingHours    Float?
+  remainingCycles   Float?
+  manufactureDate   DateTime?
+  shelfLifeDate     DateTime?
+  overhaulDate      DateTime?
+  nextOverhaulDue   DateTime?
+
+  // 适航与维修状态
+  adStatus          String?
+  sbStatus          String?
+  repairScheme      String?
+
+  // 来源追溯（二手件）
+  previousOperator  String?
+  removalAircraftReg String?
+  removalDate       DateTime?
+  removalReason     String?
+  nonIncidentStatement Boolean @default(false)
+  militarySource    Boolean @default(false)
+  traceabilityDocs  String?
+
+  // 存储与包装
+  location          String
+  warehouse         String?
+  shelf             String?
+  storageCondition  String?
+  ata300Packaging   Boolean @default(false)
+  
+  // ===== 新增：化工品专用字段 =====
+  shelfLifeDays     Int?     // 保质期（天）
+  storageTempMin    Float?   // 最低存储温度（℃）
+  storageTempMax    Float?   // 最高存储温度（℃）
+  hazardClass       String?  // 危险品等级
+
+  // 商务属性
+  unitCost          Float
+  unitOfMeasure     String   @default("EA")
+  countryOfOrigin   String?
+  hsCode            String?
+
+  type              String   @default("OWN")
+  supplierId        String?
+  eta               DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  certificates Certificate[]
+
+  @@map("inventory")
+}
+
+// ===== 新增：件号级聚合表（Phase 3）=====
+model InventoryItem {
+  id                String   @id @default(uuid())
+  partNumber        String   @unique
+  description       String
+  partCategory      String   @default("CONSUMABLE")
+  trackingType      String   @default("BATCH")
+  manufacturer      String?
+  manufacturerCageCode String?
+  ataChapter        String?
+  alternatePartNumbers String?
+  unitOfMeasure     String   @default("EA")
+  countryOfOrigin   String?
+  hsCode            String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  details           InventoryDetail[]
+
+  @@map("inventory_items")
+}
+
+// ===== 新增：批次/序号级明细表（Phase 3）=====
+model InventoryDetail {
+  id                String   @id @default(uuid())
+  inventoryItemId   String
+
+  // 追踪标识
+  serialNumber      String?
+  batchNumber       String?
+
+  // 数量与状态
+  quantity          Int      @default(1)
+  conditionCode     String   @default("NE")
+  status            String   @default("AVAILABLE")
+
+  // 位置
+  warehouse         String?
+  shelf             String?
+  location          String
+
+  // 证书
+  certificateType   String   @default("NONE")
+  certificateNumber String?
+  certificateFileUrl String?
+
+  // 时寿与寿命
+  lifeLimited       Boolean  @default(false)
+  totalHours        Float?
+  remainingHours    Float?
+  totalCycles       Float?
+  remainingCycles   Float?
+  manufactureDate   DateTime?
+  shelfLifeDate     DateTime?
+  overhaulDate      DateTime?
+  nextOverhaulDue   DateTime?
+
+  // 适航与维修状态
+  adStatus          String?
+  sbStatus          String?
+  repairScheme      String?
+
+  // 来源追溯（二手件）
+  previousOperator  String?
+  removalAircraftReg String?
+  removalDate       DateTime?
+  removalReason     String?
+  nonIncidentStatement Boolean @default(false)
+  militarySource    Boolean @default(false)
+  traceabilityDocs  String?
+
+  // 存储与包装
+  storageCondition  String?
+  ata300Packaging   Boolean @default(false)
+
+  // 化工品专用
+  shelfLifeDays     Int?
+  storageTempMin    Float?
+  storageTempMax    Float?
+  hazardClass       String?
+
+  // 成本
+  unitCost          Float
+
+  // 来源
+  supplierId        String?
+  eta               DateTime?
+
+  // 类型
+  type              String   @default("OWN")
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  inventoryItem     InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  supplier          Supplier? @relation(fields: [supplierId], references: [id])
+  certificates      Certificate[]
+  inventoryTransactions InventoryTransaction[]
+
+  // 唯一约束：同一件号下序号唯一；同一件号+批次+状态+仓库组合唯一
+  @@unique([inventoryItemId, serialNumber], name: "unique_serial_per_item")
+  @@unique([inventoryItemId, batchNumber, conditionCode, warehouse], name: "unique_batch_per_item")
+
+  @@map("inventory_details")
+}
+
+model Email {
+  id          String   @id @default(uuid())
+  from        String
+  fromName    String
+  subject     String
+  body        String
+  receivedAt  DateTime @default(now())
+  type        String   @default("STANDARD")
+  isRead      Boolean  @default(false)
+  attachments String?
+  accountId   String?
+
+  rfq RFQ?
+  account EmailAccount? @relation(fields: [accountId], references: [id])
+
+  @@map("emails")
+}
+
+model EmailAccount {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  displayName  String?
+  imapServer   String
+  imapPort     String
+  smtpServer   String
+  smtpPort     String
+  authCode     String
+  isActive     Boolean  @default(true)
+  isDefault    Boolean  @default(false)
+  accountType  String   @default("163")
+  lastSyncAt   DateTime?
+  syncInterval Int      @default(5)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  emails Email[]
+  outboundEmails OutboundEmail[]
+
+  @@map("email_accounts")
+}
+
+model RFQ {
+  id                String   @id @default(uuid())
+  rfqNumber         String   @unique
+  emailId           String?  @unique
+  customerId        String
+  partNumber        String
+  quantity          Int
+  uom               String   @default("EA")
+  conditionCode     String   @default("NE")
+  description       String?
+  serialNumber      String?
+  batchNumber       String?
+  ataChapter        String?
+  aircraftType      String?
+  aircraftModel     String?
+  alternatePartNumbers String?
+  targetPrice       Float?
+  targetPriceCurrency String @default("USD")
+  certificateRequired Boolean @default(true)
+  certificateType   String?
+  requiredDate      DateTime
+  responseDeadline  DateTime?
+  leadTimeDays      Int?
+  urgency           String   @default("STANDARD")
+  urgencyJustification String?
+  status            String   @default("PENDING")
+  notes             String?
+  createdAt         DateTime @default(now())
+  createdBy         String
+
+  email       Email?      @relation(fields: [emailId], references: [id])
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  creator     User        @relation(fields: [createdBy], references: [id])
+  quotations  Quotation[]
+  supplierQuotes SupplierQuote[]
+
+  @@map("rfqs")
+}
+
+model Inquiry {
+  id            String    @id @default(uuid())
+  inquiryNumber String    @unique
+  supplierId    String
+  isAOG         Boolean   @default(false)
+  status        String    @default("DRAFT")
+  createdAt     DateTime  @default(now())
+  sentAt        DateTime?
+
+  supplier      Supplier      @relation(fields: [supplierId], references: [id])
+  items         InquiryItem[]
+  supplierQuotes SupplierQuote[]
+
+  @@map("inquiries")
+}
+
+model InquiryItem {
+  id                  String   @id @default(uuid())
+  inquiryId           String
+  partNumber          String
+  quantity            Int
+  requiredDate        DateTime
+  certificateRequired Boolean  @default(true)
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@map("inquiry_items")
+}
+
+model SupplierQuote {
+  id            String    @id @default(uuid())
+  inquiryId    String?
+  rfqId        String?
+  supplierId   String
+  partNumber   String
+  description   String?
+  quantity     Int
+  unitPrice    Float
+  totalPrice   Float
+  leadTimeDays Int
+  validUntil   DateTime?
+  notes        String?
+  status       String    @default("pending")
+  isWinner     Boolean   @default(false)
+  aiScore     Float?
+  aiRecommendation String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  inquiry  Inquiry?  @relation(fields: [inquiryId], references: [id])
+  rfq     RFQ?     @relation(fields: [rfqId], references: [id])
+  supplier Supplier  @relation(fields: [supplierId], references: [id])
+
+  @@map("supplier_quotes")
+}
+
+model SupplierFollowUpLog {
+  id               String   @id @default(uuid())
+  supplierId       String
+  taskId           String
+  rfqId            String?
+  rfqNumber        String?
+  actionType       String
+  outcome          String
+  notes            String?
+  preferredChannel String?
+  createdAt        DateTime @default(now())
+  createdById      String
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  creator  User     @relation(fields: [createdById], references: [id])
+
+  @@index([supplierId, createdAt])
+  @@index([taskId])
+  @@map("supplier_follow_up_logs")
+}
+
+model Quotation {
+  id              String   @id @default(uuid())
+  quoteNumber     String   @unique
+  rfqId           String
+  customerId      String
+  partNumber      String
+  quantity        Int
+  unitPrice       Float
+  totalPrice      Float
+  costPrice       Float
+  margin          Float
+
+  // 销售与交付
+  saleType        String   @default("Sale")
+  shipToId        String?
+  shipForId       String?
+  incoterm        String?
+  incotermLocation String?
+  leadTimeDays    Int?
+  leadTimeBasis   String?
+
+  // 商务条款
+  moq             Int?
+  mpq             Int?
+  priceBasis      String?
+  taxIncluded     Boolean @default(true)
+  taxRate         Float?
+  warrantyDays    Int      @default(90)
+  warrantyTerms   String?
+  validityDays    Int      @default(7)
+  validityDeadline DateTime  @default(now())
+
+  // 物流与包装
+  packagingRequirement String?
+  shippingMethod   String?
+
+  // 质量与合规
+  inspectionStandard String?
+  inspectionReportIncluded Boolean @default(false)
+  certificateOfConformance Boolean @default(false)
+  countryOfOrigin   String?
+  hsCode            String?
+  eccn              String?
+  dualUse           Boolean @default(false)
+
+  // 沟通
+  ccRecipients    String?
+  commonNote      String?
+
+  // 证书与文件
+  certificateFiles String?
+  template        String   @default("STANDARD")
+  status          String   @default("DRAFT")
+
+  // 审批与流程
+  createdAt       DateTime @default(now())
+  createdBy       String
+  approvedBy      String?
+  approvedAt      DateTime?
+  sentAt          DateTime?
+  acceptedAt      DateTime?
+  withdrawnAt     DateTime?
+  withdrawalReason String?
+  customerConfirmationNote String?
+
+  // 电子签名
+  eSignature      String?
+  eSignatureStatus String @default("Unsigned")
+
+  expiryDate      DateTime
+  orderId         String?
+  orderNumber     String?
+  contractDocumentId String?
+  contractDocumentTitle String?
+  lastEmailStatus String?
+  lastEmailSentAt DateTime?
+
+  // Phase 4: 库存明细绑定
+  inventoryDetailId String?
+  serialNumber      String?
+  batchNumber       String?
+
+  // Phase 5: 部分发货支持（报价阶段可预留库存）
+  reservedQuantity  Int      @default(0)
+
+  rfq       RFQ        @relation(fields: [rfqId], references: [id])
+  customer  Customer   @relation(fields: [customerId], references: [id])
+  creator   User       @relation(fields: [createdBy], references: [id])
+  approver  User?      @relation("Approver", fields: [approvedBy], references: [id])
+  approvals Approval[]
+  orders    Order[]
+  generatedDocuments GeneratedDocument[]
+  outboundEmails OutboundEmail[]
+  certificates Certificate[]
+
+  @@map("quotations")
+}
+
+model Approval {
+  id            String   @id @default(uuid())
+  quotationId   String
+  level         String
+  approverId    String
+  action        String?
+  comment       String?
+  createdAt     DateTime @default(now())
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  approver  User      @relation(fields: [approverId], references: [id])
+
+  @@map("approvals")
+}
+
+model Order {
+  id              String   @id @default(uuid())
+  orderNumber     String   @unique
+  soNumber        String   @unique
+  poNumber        String?
+  quotationId     String
+  customerId      String
+  partNumber      String
+  quantity        Int
+  totalAmount     Float
+  status          String   @default("SO_CREATED")
+  createdAt       DateTime @default(now())
+  deliveryDate    DateTime?
+  trackingNumber  String?
+  carrier         String?
+
+  // 销售与交付（P2）
+  saleType        String   @default("Sale")
+  incoterm        String?
+  incotermLocation String?
+  shipToId        String?
+  shipForId       String?
+
+  // 质保（P2）
+  warrantyDays    Int?
+  warrantyStartDate DateTime?
+
+  // 证书与合规（P2）
+  certificateRequired Boolean @default(true)
+  certificateType   String?
+  certificateDelivered Boolean @default(false)
+
+  // 物流与包装（P2）
+  packagingStandard String?
+  shippingMethod   String?
+  carrierAccount   String?
+
+  // 检验（P2）
+  inspectionRequired Boolean @default(false)
+  inspectionPassed  Boolean?
+  inspectionDate  DateTime?
+
+  // 清关与税务（P2）
+  customsClearanceRequired Boolean @default(false)
+  customsDeclarationNo String?
+  importDuty      Float?
+  vatAmount       Float?
+  totalLandCost   Float?
+
+  // 订单号映射（P2）
+  poNumberCustomer String?
+  soNumberInternal String?
+
+  // 交换件（P2）
+  exchangeCoreCharge Float?
+  exchangeCoreDueDate DateTime?
+
+  // 电子签名（P2）
+  eSignatureCustomer String?
+  eSignatureSupplier String?
+
+  // Phase 4: 库存明细绑定
+  inventoryDetailId String?
+  serialNumber      String?
+  batchNumber       String?
+
+  // Phase 5: 部分发货支持
+  outboundQuantity  Int      @default(0)
+  outboundStatus    String   @default("PENDING")
+
+  customer    Customer           @relation(fields: [customerId], references: [id])
+  quotation   Quotation          @relation(fields: [quotationId], references: [id])
+  tracking    ShipmentTracking?
+  generatedDocuments GeneratedDocument[]
+  certificates Certificate[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@map("orders")
+}
+
+// ===== 新增：库存事务表（Phase 5：支持部分发货）=====
+model InventoryTransaction {
+  id                String   @id @default(uuid())
+  inventoryDetailId String
+  type              String   // 'INBOUND', 'OUTBOUND', 'ADJUSTMENT', 'TRANSFER', 'RETURN'
+  quantity          Int      // 正数表示增加库存，负数表示减少库存
+  beforeQuantity    Int      // 变动前数量
+  afterQuantity     Int      // 变动后数量
+
+  // 关联单据
+  orderId           String?
+  quotationId       String?
+  referenceNo       String?  // 出库单号/入库单号
+  referenceType     String?  // 'ORDER', 'QUOTATION', 'MANUAL', 'SYSTEM'
+
+  notes             String?
+  createdBy         String
+  createdAt         DateTime @default(now())
+
+  inventoryDetail   InventoryDetail @relation(fields: [inventoryDetailId], references: [id])
+  order             Order?          @relation(fields: [orderId], references: [id])
+
+  @@index([inventoryDetailId, createdAt])
+  @@index([orderId])
+  @@index([type, createdAt])
+  @@map("inventory_transactions")
+}
+
+model DocumentTemplate {
+  id             String   @id @default(uuid())
+  name           String
+  code           String   @unique
+  documentType   String   @default("ORDER_CONTRACT")
+  description    String?
+  bodyTemplate   String
+  headerTemplate String?
+  footerTemplate String?
+  isActive       Boolean  @default(true)
+  isDefault      Boolean  @default(false)
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdById    String?
+
+  generatedDocuments GeneratedDocument[]
+
+  @@index([documentType, isActive, isDefault])
+  @@map("document_templates")
+}
+
+model GeneratedDocument {
+  id            String   @id @default(uuid())
+  templateId    String?
+  quotationId   String?
+  orderId       String?
+  customerId    String?
+  documentType  String   @default("ORDER_CONTRACT")
+  title         String
+  status        String   @default("GENERATED")
+  contentHtml   String
+  payloadJson   String?
+  generatedAt   DateTime @default(now())
+  generatedById String?
+
+  template  DocumentTemplate? @relation(fields: [templateId], references: [id])
+  quotation Quotation?        @relation(fields: [quotationId], references: [id])
+  order     Order?            @relation(fields: [orderId], references: [id])
+  customer  Customer?         @relation(fields: [customerId], references: [id])
+
+  @@index([quotationId, documentType])
+  @@index([orderId, documentType])
+  @@map("generated_documents")
+}
+
+model OutboundEmail {
+  id               String   @id @default(uuid())
+  purpose          String
+  quotationId      String?
+  customerId       String?
+  accountId        String?
+  toEmail          String
+  subject          String
+  textBody         String
+  htmlBody         String?
+  status           String   @default("PENDING")
+  providerMessageId String?
+  sentAt           DateTime?
+  withdrawnAt      DateTime?
+  withdrawalReason String?
+  errorMessage     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  quotation Quotation?   @relation(fields: [quotationId], references: [id])
+  customer  Customer?    @relation(fields: [customerId], references: [id])
+  account   EmailAccount? @relation(fields: [accountId], references: [id])
+
+  @@index([quotationId, purpose, status])
+  @@map("outbound_emails")
+}
+
+model ShipmentTracking {
+  id                 String   @id @default(uuid())
+  orderId            String   @unique
+  trackingNumber     String
+  carrier            String
+  origin             String
+  destination        String
+  status             String
+  estimatedDelivery  DateTime?
+
+  order  Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  events TrackingEvent[]
+
+  @@map("shipment_tracking")
+}
+
+model TrackingEvent {
+  id          String   @id @default(uuid())
+  trackingId  String
+  timestamp   DateTime
+  location    String
+  status      String
+  description String
+
+  tracking ShipmentTracking @relation(fields: [trackingId], references: [id], onDelete: Cascade)
+
+  @@map("tracking_events")
+}
+
+model IPCData {
+  id                  String  @id @default(uuid())
+  partNumber          String  @unique
+  description         String
+  ataChapter          String
+  aircraftTypes       String
+  supersededBy        String?
+  interchangeableWith String?
+  alternateParts      String?
+
+  @@map("ipc_data")
+}
+
+model VMIAgreement {
+  id           String @id @default(uuid())
+  customerId   String
+  partNumber   String
+  minStock     Int
+  maxStock     Int
+  reorderPoint Int
+  reorderQty   Int
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@map("vmi_agreements")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?
+  title     String
+  message   String
+  type      String   @default("INFO")
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+model AIAgent {
+  id          String   @id @default(uuid())
+  name        String
+  type        String   @default("CHAT")
+  description String?
+  isActive    Boolean  @default(true)
+  config      String   @default("{}")
+  prompts     String   @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("ai_agents")
+}
+
+model AIModel {
+  id           String   @id @default(uuid())
+  name         String
+  provider     String
+  modelId      String
+  apiKey       String?
+  baseUrl      String?
+  isActive     Boolean  @default(true)
+  isDefault    Boolean  @default(false)
+  config       String   @default("{}")
+  capabilities String   @default("[]")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("ai_models")
+}
+
+model WebhookEndpoint {
+  id               String   @id @default(uuid())
+  name             String
+  url              String
+  method           String   @default("POST")
+  authType         String   @default("none")
+  authToken        String?
+  secret           String?
+  customHeaders    String   @default("{}")
+  timeoutMs        Int      @default(10000)
+  maxRetries       Int      @default(3)
+  isActive         Boolean  @default(true)
+  lastSuccessAt    DateTime?
+  lastFailureAt    DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  subscriptions    WebhookSubscription[]
+  deliveries       WebhookDelivery[]
+
+  @@map("webhook_endpoints")
+}
+
+model WebhookSubscription {
+  id          String   @id @default(uuid())
+  endpointId  String
+  eventTypes  String   @default("[]")  // JSON array of event types
+  filters     String   @default("{\"logic\":\"AND\",\"rules\":[]}")  // Advanced filter rules (Phase 2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([isActive])
+  @@index([endpointId, isActive])
+  @@map("webhook_subscriptions")
+}
+
+model WebhookDelivery {
+  id              String   @id @default(uuid())
+  endpointId      String
+  eventId         String
+  eventType       String
+  payload         String
+  requestHeaders  String   @default("{}")
+  status          String   @default("pending")  // pending / delivered / failed / quarantined (Phase 2)
+  attemptCount    Int      @default(0)
+  maxRetries      Int      @default(5)
+  nextRetryAt     DateTime?
+  responseStatus  Int?
+  responseBody    String?
+  lastError       String?
+  failureReason   String?  // Phase 2: categorized failure reason (4xx/5xx/timeout/connection)
+  deliveredAt     DateTime?
+  
+  // Phase 2: DLQ fields
+  quarantineReason String?
+  quarantineAt    DateTime?
+  dlqReviewedBy   String?   // User ID who reviewed the DLQ message
+  dlqAction       String?   // RETRY / ABANDON / MODIFY
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  endpoint        WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextRetryAt])
+  @@index([status])  // Phase 2: fast query for quarantined
+  @@index([endpointId, createdAt])
+  @@index([eventId])
+  @@map("webhook_deliveries")
+}
+
+// Phase 2: Batch replay functionality
+model WebhookReplayBatch {
+  id               String   @id @default(uuid())
+  triggeredBy      String   @default("SYSTEM")  // User ID or "SYSTEM"
+  filterQuery      String   @default("{}")  // JSON filter for replay query
+  deliveryIds      String   @default("[]")  // JSON array of delivery IDs to replay
+  totalDeliveries  Int      @default(0)
+  succeeded        Int      @default(0)
+  failed           Int      @default(0)
+  pending          Int      @default(0)
+  status           String   @default("PENDING")  // PENDING / IN_PROGRESS / COMPLETED / FAILED
+  errorMessage     String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@map("webhook_replay_batches")
+}
+
+// Phase 2: DLQ Management and Failure Analysis
+model WebhookFailureAnalysis {
+  id               String   @id @default(uuid())
+  endpointId       String
+  failureReason    String   // "4xx" / "5xx" / "timeout" / "connection_error" / "other"
+  count            Int      @default(1)
+  lastOccurrence   DateTime @default(now())
+  firstOccurrence  DateTime @default(now())
+
+  @@unique([endpointId, failureReason])
+  @@index([failureReason])
+  @@map("webhook_failure_analysis")
+}
+
+// Phase 3 (预留): 入站 webhook
+model InboundWebhookEndpoint {
+  id              String   @id @default(uuid())
+  name            String
+  sourceSystem    String
+  urlPath         String   @unique
+  authMethod      String   @default("HMAC")  // HMAC / API_KEY / NONE
+  secret          String?
+  isActive        Boolean  @default(true)
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  deliveries      InboundWebhookDelivery[]
+
+  @@index([sourceSystem, isActive])
+  @@map("inbound_webhook_endpoints")
+}
+
+model InboundWebhookDelivery {
+  id              String   @id @default(uuid())
+  endpointId      String
+  payload         String
+  status          String   @default("pending")  // pending / success / failed / retry
+  errorMessage    String?
+  attempts        Int      @default(1)
+  processedAt     DateTime?
+  receivedAt      DateTime @default(now())
+
+  endpoint        InboundWebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([status, receivedAt])
+  @@map("inbound_webhook_deliveries")
+}
+
+// Phase 3 (预留): 审计日志
+model WebhookAuditLog {
+  id              String   @id @default(uuid())
+  userId          String
+  action          String   // CREATE / UPDATE / DELETE / RETRY / REVIEW / REPLAY
+  resourceType    String   // endpoint / subscription / delivery / dlq_message
+  resourceId      String
+  changes         String?  // JSON: {field: {before, after}}
+  sourceIp        String?
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("webhook_audit_logs")
+}
+
+model AgentLog {
+  id         String   @id @default(uuid())
+  agentId    String
+  action     String
+  input      String?
+  output     String?
+  status     String   @default("SUCCESS")
+  error      String?
+  duration   Int?
+  createdAt  DateTime @default(now())
+
+  @@map("agent_logs")
+}
+
+model AgentRuntimeTask {
+  id                 String   @id
+  triggerType        String
+  triggerSource      String?
+  triggerReferenceId String?
+  type               String
+  status             String   @default("pending")
+  currentStepIndex   Int      @default(0)
+  context            String   @default("{}")
+  result             String?
+  error              String?
+  createdAt          DateTime
+  updatedAt          DateTime
+  completedAt        DateTime?
+
+  steps              AgentRuntimeStep[]
+  confirmation       AgentRuntimeConfirmation?
+
+  @@index([status, updatedAt])
+  @@index([type, updatedAt])
+  @@map("agent_runtime_tasks")
+}
+
+model AgentRuntimeStep {
+  id          String   @id
+  taskId       String
+  sequence     Int
+  capability   String
+  action       String
+  params       String   @default("{}")
+  status       String   @default("pending")
+  result       String?
+  error        String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  task         AgentRuntimeTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, sequence])
+  @@map("agent_runtime_steps")
+}
+
+model AgentRuntimeConfirmation {
+  id             String   @id
+  taskId          String   @unique
+  stepId          String
+  type            String
+  title           String
+  titleZh         String?
+  titleEn         String?
+  description     String
+  descriptionZh   String?
+  descriptionEn   String?
+  data            String   @default("{}")
+  options         String   @default("[]")
+  selectedOption  String?
+  confirmedAt     DateTime?
+  confirmedBy     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  task            AgentRuntimeTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("agent_runtime_confirmations")
+}
+
+// ============================================
+// Phase 1.2: 电子证书管理 (Certificate Manager)
+// ============================================
+
+model CertificateTemplate {
+  id             String   @id @default(uuid())
+  name           String
+  code           String   @unique
+  certificateType String @default("AAC-038")
+  description    String?
+  bodyTemplate   String
+  headerTemplate String?
+  footerTemplate String?
+  isActive       Boolean  @default(true)
+  isDefault      Boolean  @default(false)
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdById    String?
+
+  certificates Certificate[]
+
+  @@index([certificateType, isActive, isDefault])
+  @@map("certificate_templates")
+}
+
+model Certificate {
+  id                String   @id @default(uuid())
+  certificateNumber String   @unique
+  templateId        String?
+
+  // 关联对象
+  inventoryId       String?
+  inventoryDetailId String?
+  orderId           String?
+  supplierId        String?
+  quotationId       String?
+
+  // 航材信息
+  partNumber        String
+  serialNumber      String?
+  description       String?
+  quantity          Int?
+  conditionCode     String?
+  certificateType   String   @default("AAC-038")
+
+  // 签发信息
+  issueDate         DateTime @default(now())
+  expiryDate        DateTime?
+  issuedBy          String
+  issuedById        String
+  issuerCompany     String?
+  issuerAddress     String?
+  issuerCertNo      String?
+
+  // 状态与验证
+  status            String   @default("ISSUED")
+  qrCodeData        String?
+  verificationUrl   String?
+  fileUrl           String?
+  fileHash          String?
+
+  // 追溯链
+  traceHistory      String   @default("[]")
+  parentCertificateId String?
+
+  // 合规字段
+  countryOfOrigin   String?
+  manufactureDate   DateTime?
+  batchNumber       String?
+  ataChapter        String?
+  aircraftModel     String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  template   CertificateTemplate? @relation(fields: [templateId], references: [id])
+  inventory  Inventory?           @relation(fields: [inventoryId], references: [id])
+  inventoryDetail InventoryDetail? @relation(fields: [inventoryDetailId], references: [id])
+  order      Order?               @relation(fields: [orderId], references: [id])
+  supplier   Supplier?            @relation(fields: [supplierId], references: [id])
+  quotation  Quotation?           @relation(fields: [quotationId], references: [id])
+
+  @@index([partNumber, status])
+  @@index([certificateType, status])
+  @@index([expiryDate, status])
+  @@index([inventoryId])
+  @@index([inventoryDetailId])
+  @@index([orderId])
+  @@map("certificates")
+}
+
+// ============================================
+// Phase 1.3: 工作流引擎 (Workflow Engine)
+// ============================================
+
+model WorkflowDefinition {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  description String?
+  entityType  String   // RFQ / QUOTATION / ORDER / CERTIFICATE / SUPPLIER
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  steps    WorkflowStep[]
+  instances WorkflowInstance[]
+
+  @@index([entityType, isActive])
+  @@map("workflow_definitions")
+}
+
+model WorkflowStep {
+  id                String   @id @default(uuid())
+  workflowId        String
+  name              String
+  stepOrder         Int
+  stepType          String   @default("APPROVAL") // APPROVAL / NOTIFICATION / CONDITION / AUTOMATION
+  approverRole      String?  // ADMIN / MANAGER / SALES / QUALITY / FINANCE
+  approverUserId    String?  // 指定具体用户
+  approverDepartment String? // 指定部门
+  agentId           String?  // AI Agent 审批人
+  isParallel        Boolean  @default(false)
+  parallelMinCount  Int?     // 并行审批最少通过人数
+  timeoutHours      Int      @default(24)
+  timeoutAction     String   @default("ESCALATE") // ESCALATE / AUTO_APPROVE / AUTO_REJECT
+  conditionExpression String? // 条件表达式 (如: amount > 10000)
+  autoAction        String?  // 自动化动作
+  notificationTemplate String? // 通知模板
+
+  createdAt DateTime @default(now())
+
+  workflow WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  instanceSteps WorkflowInstanceStep[]
+
+  @@index([workflowId, stepOrder])
+  @@map("workflow_steps")
+}
+
+model WorkflowInstance {
+  id           String   @id @default(uuid())
+  definitionId String
+  entityType   String
+  entityId     String
+  status       String   @default("RUNNING") // RUNNING / COMPLETED / REJECTED / CANCELLED / TIMEOUT
+  currentStepId String?
+  startedAt    DateTime @default(now())
+  completedAt  DateTime?
+  startedBy    String
+  context      String   @default("{}") // JSON: 工作流上下文数据
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id])
+  steps      WorkflowInstanceStep[]
+  actions    WorkflowAction[]
+
+  @@index([entityType, entityId])
+  @@index([status, startedAt])
+  @@map("workflow_instances")
+}
+
+model WorkflowInstanceStep {
+  id           String   @id @default(uuid())
+  instanceId   String
+  stepId       String
+  stepOrder    Int
+  status       String   @default("PENDING") // PENDING / IN_PROGRESS / APPROVED / REJECTED / SKIPPED / TIMEOUT
+  assignedTo   String?  // 分配给的用户ID
+  assignedRole String?  // 分配的角色
+  startedAt    DateTime?
+  completedAt  DateTime?
+  dueAt        DateTime?
+  result       String?  // 审批结果备注
+
+  instance WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  step       WorkflowStep     @relation(fields: [stepId], references: [id])
+  actions    WorkflowAction[]
+
+  @@index([instanceId, stepOrder])
+  @@index([assignedTo, status])
+  @@map("workflow_instance_steps")
+}
+
+model WorkflowAction {
+  id           String   @id @default(uuid())
+  instanceId   String
+  instanceStepId String?
+  actionType   String   // APPROVE / REJECT / TRANSFER / COMMENT / ESCALATE / AUTO_ACTION
+  actorId      String
+  actorRole    String?
+  actorName    String?
+  comment      String?
+  payload      String   @default("{}") // JSON: 附加数据
+  createdAt    DateTime @default(now())
+
+  instance     WorkflowInstance     @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instanceStep WorkflowInstanceStep? @relation(fields: [instanceStepId], references: [id])
+
+  @@index([instanceId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("workflow_actions")
+}
+
+// ============================================
+// Phase 1.4: 操作日志审计 (Audit Log)
+// ============================================
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String?
+  userName     String?
+  userRole     String?
+  action       String   // CREATE / UPDATE / DELETE / VIEW / LOGIN / LOGOUT / EXPORT / APPROVE / REJECT
+  resourceType String   // RFQ / QUOTATION / ORDER / INVENTORY / CUSTOMER / SUPPLIER / CERTIFICATE / SETTINGS
+  resourceId   String?
+  resourceName String?  // 资源名称（如件号、客户名）
+  changes      String?  // JSON: { field: { before, after } }
+  details      String?  // 操作详情描述
+  ipAddress    String?
+  userAgent    String?
+  sessionId    String?
+  status       String   @default("SUCCESS") // SUCCESS / FAILURE
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([resourceType, resourceId])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+
+// ============================================
+// Phase 2.3: 拍卖模块 (Auction Module)
+// ============================================
+
+model Auction {
+  id              String   @id @default(uuid())
+  auctionNumber   String   @unique
+  title           String
+  description     String?
+  type            String   @default("SALES") // SALES / REVERSE / SEALED
+  status          String   @default("DRAFT") // DRAFT / ACTIVE / CLOSED / CANCELLED
+
+  // 拍卖标的
+  partNumber      String
+  partDescription String?
+  quantity        Int
+  conditionCode   String?
+  certificateType String?
+
+  // 价格设置
+  startingPrice   Float?
+  reservePrice    Float?   // 保留价（低于此价不成交）
+  buyNowPrice     Float?   // 一口价
+  currency        String   @default("USD")
+
+  // 时间设置
+  startAt         DateTime
+  endAt           DateTime
+  autoExtend      Boolean  @default(true) // 截止前5分钟出价自动延长
+  extendMinutes   Int      @default(5)
+
+  // 参与方
+  sellerId        String?  // 销售拍卖：卖家
+  buyerId         String?  // 反向拍卖：买家
+  invitedSupplierIds String? // JSON 数组，邀请的供应商ID
+
+  // 结果
+  winnerBidId     String?
+  finalPrice      Float?
+  closedAt        DateTime?
+  closedReason    String?  // EXPIRED / SOLD / CANCELLED / NO_BIDS
+
+  // 关联
+  inventoryId     String?
+  rfqId           String?
+
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  bids            AuctionBid[]
+
+  @@index([status, endAt])
+  @@index([partNumber, status])
+  @@map("auctions")
+}
+
+model AuctionBid {
+  id          String   @id @default(uuid())
+  auctionId   String
+  bidderId    String   // 用户ID或供应商ID
+  bidderType  String   @default("USER") // USER / SUPPLIER
+  bidderName  String
+  amount      Float
+  currency    String   @default("USD")
+  quantity    Int      @default(1)
+  isAutoBid   Boolean  @default(false) // 自动出价
+  maxAutoBid  Float?   // 自动出价上限
+  bidTime     DateTime @default(now())
+  isWinning   Boolean  @default(false)
+  isSealed    Boolean  @default(false) // 密封投标
+  notes       String?
+
+  auction     Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+
+  @@index([auctionId, bidTime])
+  @@index([auctionId, amount])
+  @@map("auction_bids")
+}
+
+
+// ============================================
+// Phase 2.4: 寄售管理 (Consignment Module)
+// ============================================
+
+model Consignment {
+  id              String   @id @default(uuid())
+  agreementNumber String   @unique
+  title           String
+  description     String?
+  status          String   @default("ACTIVE") // ACTIVE / EXPIRED / TERMINATED / SETTLING
+
+  // 参与方
+  supplierId      String
+  customerId      String?
+  supplierName    String
+  customerName    String?
+
+  // 寄售标的
+  partNumber      String
+  partDescription String?
+  quantity        Int      @default(0)
+  unitCost        Float    @default(0)
+  currency        String   @default("USD")
+  conditionCode   String?
+
+  // 协议条款
+  agreementDate   DateTime @default(now())
+  startDate       DateTime @default(now())
+  endDate         DateTime
+  minStockLevel   Int      @default(0) // 最低库存要求
+  reorderPoint    Int      @default(0) // 再订货点
+  reorderQuantity Int      @default(0) // 建议订货量
+  settlementTerms String   @default("MONTHLY") // MONTHLY / WEEKLY / PER_CONSUMPTION / QUARTERLY
+  paymentTerms    String?  // 结算账期
+  commissionRate  Float?   // 佣金比例 %
+
+  // 库存跟踪
+  initialQuantity Int      @default(0)
+  consumedQuantity Int    @default(0)
+  returnedQuantity Int    @default(0)
+  currentQuantity Int     @default(0)
+
+  // 预警
+  lastSettlementDate DateTime?
+  nextSettlementDate DateTime?
+  isOverdue       Boolean  @default(false)
+  daysUntilExpiry Int?
+
+  // 关联
+  inventoryId     String?
+  orderIds        String?  // JSON 数组
+
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status, endDate])
+  @@index([supplierId, status])
+  @@index([partNumber, status])
+  @@map("consignments")
+}
+
+
+// ============================================
+// Phase 3.1: API Key 管理 (API Platform)
+// ============================================
+
+model ApiKey {
+  id          String   @id @default(uuid())
+  name        String
+  keyHash     String   @unique
+  keyPrefix   String   // 用于显示的前缀，如 "ak_live_abc..."
+  scopes      String   @default("[\"read\"]") // JSON 数组: read, write, admin
+  rateLimit   Int      @default(1000) // 每小时请求数
+  isActive    Boolean  @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([keyHash])
+  @@index([isActive])
+  @@map("api_keys")
+}
+
+// ============================================
+// Phase 3.4: 区块链证书存证 (Blockchain)
+// ============================================
+
+model BlockchainRecord {
+  id              String   @id @default(uuid())
+  index           Int      @unique
+  timestamp       DateTime
+  certificateId   String   @unique
+  certificateHash String
+  previousHash    String
+  hash            String
+  nonce           Int
+
+  @@index([certificateId])
+  @@index([index])
+  @@map("blockchain_records")
+}
+
+// ===== Phase 6: 统一通知中心（IM / SMS 渠道绑定）=====
+model UserChannelBinding {
+  id        String   @id @default(uuid())
+  userId    String
+  channel   String   // WECHAT / DINGTALK / LARK / SMS / SLACK / TEAMS
+  config    Json     // { openId, unionId, phone, corpId, deptId }
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channel])
+  @@map("user_channel_bindings")
+}
+
+model NotificationTemplate {
+  id       String @id @default(uuid())
+  event    String // RFQ_CREATED / QUOTE_APPROVED / AOG_ALERT / APPROVAL_PENDING
+  channel  String // EMAIL / WECHAT / DINGTALK / LARK / SMS / SYSTEM
+  subject  String
+  body     String // 支持 {{partNumber}} {{customerName}} 变量
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([event, channel])
+  @@map("notification_templates")
+}
+
+// ===== Phase 7: PWA Web Push 订阅 =====
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  endpoint  String
+  p256dh    String
+  auth      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("push_subscriptions")
+}
