@@ -1582,7 +1582,7 @@ export function InventoryCenter() {
 
     addInquiry(newInquiry);
     clearSelection();
-    alert(tx(`询价单 ${newInquiry.inquiryNumber} 已创建。`, `Inquiry ${newInquiry.inquiryNumber} has been created.`));
+    toast.success(tx(`询价单 ${newInquiry.inquiryNumber} 已创建。`, `Inquiry ${newInquiry.inquiryNumber} has been created.`));
   };
 
   // Any active filters
@@ -1598,7 +1598,7 @@ export function InventoryCenter() {
   if (inventoryLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -1674,7 +1674,7 @@ export function InventoryCenter() {
             size="sm"
             onClick={() => { consumeSearchPreset(); setCategoryFilter(cat.key); setCurrentPage(1); }}
             className={cn(
-              activeCategoryFilter === cat.key && "bg-[#64b5f6] hover:bg-[#42a5f5]"
+              activeCategoryFilter === cat.key && "bg-brand-primary hover:bg-brand-primary-hover"
             )}
           >
             {cat.label}
@@ -2155,7 +2155,7 @@ export function InventoryCenter() {
             <Button variant="outline" onClick={clearSelection}>
               {tx('清空选择', 'Clear Selection')}
             </Button>
-            <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={handleAddToInquiry}>
+            <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={handleAddToInquiry}>
               <ShoppingCart className="w-4 h-4 mr-1" />
               {tx('创建询价单', 'Create Inquiry')}
             </Button>

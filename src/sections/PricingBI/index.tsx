@@ -29,12 +29,12 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import {
-  usePricingSummary,
-  useMarketIntelligence,
-  usePricingSuggestions,
-  useLostOrders,
-  usePricingFactorWeights,
-} from '@/hooks/useApi';
+  mockPricingSummary,
+  mockMarketIntelligence,
+  mockPricingSuggestions,
+  mockLostOrderAnalysis,
+  mockPricingFactorWeights,
+} from '@/data/mockData';
 
 export function PricingBI() {
   const { locale } = useTranslation();
@@ -42,11 +42,21 @@ export function PricingBI() {
   const [activeTab, setActiveTab] = useState('pricing');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { data: summary, loading: summaryLoading, error: summaryError } = usePricingSummary();
-  const { data: marketData, loading: marketLoading, error: marketError } = useMarketIntelligence();
-  const { data: suggestions, loading: suggestionsLoading, error: suggestionsError } = usePricingSuggestions();
-  const { data: lostOrders, loading: lostLoading, error: lostError } = useLostOrders();
-  const { data: factorWeights, loading: weightsLoading, error: weightsError } = usePricingFactorWeights();
+  const summary = mockPricingSummary;
+  const marketData = mockMarketIntelligence;
+  const suggestions = mockPricingSuggestions;
+  const lostOrders = mockLostOrderAnalysis;
+  const factorWeights = mockPricingFactorWeights;
+  const summaryLoading = false;
+  const marketLoading = false;
+  const suggestionsLoading = false;
+  const lostLoading = false;
+  const weightsLoading = false;
+  const summaryError = null;
+  const marketError = null;
+  const suggestionsError = null;
+  const lostError = null;
+  const weightsError = null;
 
   const filteredMarketData = marketData?.filter(
     (m) => m.partNumber.toLowerCase().includes(searchQuery.toLowerCase())
@@ -202,7 +212,7 @@ export function PricingBI() {
                         )}>
                           {item.daysOfStock} {tx('天', 'days')}
                         </p>
-                        <Button size="sm" className="mt-2 bg-[#64b5f6] hover:bg-[#42a5f5]">
+                        <Button size="sm" className="mt-2 bg-brand-primary hover:bg-brand-primary-hover">
                           {tx('应用建议', 'Apply Suggestion')}
                         </Button>
                       </div>
@@ -271,7 +281,7 @@ export function PricingBI() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Globe className="w-5 h-5 text-[#64b5f6]" />
+                <Globe className="w-5 h-5 text-brand-primary" />
                 {tx('市场情报', 'Market Intelligence')}
               </CardTitle>
             </CardHeader>
@@ -295,7 +305,7 @@ export function PricingBI() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(searchQuery ? filteredMarketData : marketData).map((market) => (
+                    {(searchQuery ? filteredMarketData : (marketData || [])).map((market) => (
                       <TableRow key={market.partNumber}>
                         <TableCell className="font-mono font-medium">{market.partNumber}</TableCell>
                         <TableCell>{formatCurrency(market.avgMarketPrice)}</TableCell>
@@ -432,7 +442,7 @@ export function PricingBI() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <PieChart className="w-5 h-5 text-[#64b5f6]" />
+                <PieChart className="w-5 h-5 text-brand-primary" />
                 {tx('丢单原因分析', 'Lost Deal Reasons')}
               </CardTitle>
             </CardHeader>

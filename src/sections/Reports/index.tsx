@@ -223,7 +223,7 @@ export function Reports() {
                       type="monotone"
                       dataKey="rfqs"
                       name={tx('需求单', 'RFQs')}
-                      stroke="#64b5f6"
+                      stroke="hsl(var(--brand-primary))"
                       strokeWidth={2}
                     />
                     <Line
@@ -277,7 +277,7 @@ export function Reports() {
                   </div>
                 ) : conversionError ? (
                   <p className="text-sm text-red-500">{conversionError}</p>
-                ) : conversion && conversion.lostReasons.length > 0 ? (
+                ) : (conversion?.lostReasons || []).length > 0 ? (
                   <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie
@@ -292,7 +292,7 @@ export function Reports() {
                         fill="#8884d8"
                         dataKey="value"
                       >
-                        {conversion.lostReasons.map((entry, index) => (
+                        {(conversion?.lostReasons || []).map((entry, index) => (
                           <Cell
                             key={`cell-${index}`}
                             fill={entry.color || COLORS[index % COLORS.length]}
@@ -437,7 +437,7 @@ export function Reports() {
                     <Bar
                       dataKey="value"
                       name={tx('采购金额', 'Purchase Volume')}
-                      fill="#64b5f6"
+                      fill="hsl(var(--brand-primary))"
                     />
                   </BarChart>
                 </ResponsiveContainer>
@@ -520,7 +520,7 @@ export function Reports() {
                     <Bar
                       dataKey="days"
                       name={tx('当前周转天数', 'Current Turnover Days')}
-                      fill="#64b5f6"
+                      fill="hsl(var(--brand-primary))"
                     />
                     <Bar
                       dataKey="target"

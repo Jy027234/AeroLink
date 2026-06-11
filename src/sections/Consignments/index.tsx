@@ -30,6 +30,13 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useConsignments, useConsignmentStats, useCreateConsignment } from '@/hooks/useApi';
@@ -38,7 +45,7 @@ export function Consignments() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const { data: consignments, loading: listLoading, error: listError } = useConsignments();
@@ -51,7 +58,7 @@ export function Consignments() {
       c.agreementNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.partNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.supplierName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = !statusFilter || c.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
     return matchesSearch && matchesStatus;
   }) ?? [];
 
@@ -72,7 +79,7 @@ export function Consignments() {
             {tx('管理寄售协议、跟踪库存消耗、自动结算', 'Manage consignment agreements, track inventory consumption, auto-settlement')}
           </p>
         </div>
-        <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={() => setIsCreateOpen(true)}>
+        <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => setIsCreateOpen(true)}>
           <Plus className="w-4 h-4 mr-1" />
           {tx('新建寄售协议', 'New Consignment')}
         </Button>
@@ -132,17 +139,18 @@ export function Consignments() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <select
-          className="h-10 px-3 border rounded-md"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-        >
-          <option value="">{tx('全部状态', 'All Status')}</option>
-          <option value="ACTIVE">{tx('活跃', 'Active')}</option>
-          <option value="EXPIRED">{tx('已到期', 'Expired')}</option>
-          <option value="TERMINATED">{tx('已终止', 'Terminated')}</option>
-          <option value="SETTLING">{tx('结算中', 'Settling')}</option>
-        </select>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v)}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder={tx('全部状态', 'All Status')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{tx('全部状态', 'All Status')}</SelectItem>
+            <SelectItem value="ACTIVE">{tx('活跃', 'Active')}</SelectItem>
+            <SelectItem value="EXPIRED">{tx('已到期', 'Expired')}</SelectItem>
+            <SelectItem value="TERMINATED">{tx('已终止', 'Terminated')}</SelectItem>
+            <SelectItem value="SETTLING">{tx('结算中', 'Settling')}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
@@ -258,7 +266,7 @@ export function Consignments() {
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               {tx('取消', 'Cancel')}
             </Button>
-            <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" disabled={createLoading}>
+            <Button className="bg-brand-primary hover:bg-brand-primary-hover" disabled={createLoading}>
               {createLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
               {tx('创建', 'Create')}
             </Button>

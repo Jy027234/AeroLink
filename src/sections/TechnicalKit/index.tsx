@@ -12,6 +12,7 @@ import {
   Wrench,
   BookOpen,
   Loader2,
+  Inbox,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +25,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useIPCSearch, useCheckCompatibility } from '@/hooks/useApi';
@@ -74,7 +76,7 @@ export function TechnicalKit() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-[#64b5f6]" />
+            <BookOpen className="w-5 h-5 text-brand-primary" />
             {tx('IPC数据检索', 'IPC Data Search')}
           </CardTitle>
         </CardHeader>
@@ -125,7 +127,7 @@ export function TechnicalKit() {
                   key={ipc.id}
                   className={cn(
                     'cursor-pointer transition-all duration-200 hover:shadow-md',
-                    selectedIPC?.id === ipc.id && 'ring-2 ring-[#64b5f6]'
+                    selectedIPC?.id === ipc.id && 'ring-2 ring-brand-primary'
                   )}
                   onClick={() => setSelectedIPC(ipc)}
                 >
@@ -141,7 +143,7 @@ export function TechnicalKit() {
                     <div className="mt-3">
                       <p className="text-xs text-gray-400">{tx('适用机型', 'Applicable Aircraft')}</p>
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {ipc.aircraftTypes.map((type) => (
+                        {ipc.aircraftTypes?.map((type) => (
                           <Badge key={type} variant="secondary" className="text-xs">
                             {type}
                           </Badge>
@@ -173,7 +175,7 @@ export function TechnicalKit() {
                     )}
 
                     <Button
-                      className="w-full mt-4 bg-[#64b5f6] hover:bg-[#42a5f5]"
+                      className="w-full mt-4 bg-brand-primary hover:bg-brand-primary-hover"
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedIPC(ipc);
@@ -258,7 +260,7 @@ export function TechnicalKit() {
                   </div>
                 </div>
 
-                {compatibilityResult.warnings.length > 0 && (
+                {(compatibilityResult.warnings || []).length > 0 && (
                   <div className="p-4 bg-yellow-50 rounded-lg">
                     <p className="font-medium text-yellow-800 flex items-center gap-2">
                       <AlertTriangle className="w-4 h-4" />
@@ -274,7 +276,7 @@ export function TechnicalKit() {
                   </div>
                 )}
 
-                {compatibilityResult.sbRequirements.length > 0 && (
+                {(compatibilityResult.sbRequirements || []).length > 0 && (
                   <div className="p-4 bg-blue-50 rounded-lg">
                     <p className="font-medium text-blue-800 flex items-center gap-2">
                       <FileText className="w-4 h-4" />
@@ -292,6 +294,11 @@ export function TechnicalKit() {
               </>
             )}
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCompatibilityOpen(false)}>
+              {tx('关闭', 'Close')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -346,7 +353,8 @@ export function TechnicalKit() {
         <TabsContent value="interchange">
           <Card>
             <CardContent className="p-6">
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-12 text-gray-500">
+              <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                 <ArrowRightLeft className="w-16 h-16 mx-auto mb-4 text-gray-300" />
                 <p>{tx('输入件号查询可互换件号。', 'Enter a part number to query interchangeable part numbers.')}</p>
                 <p className="text-sm mt-2">{tx('系统将显示可互换件号的库存和价格对比。', 'The system shows alternate part numbers with stock and price comparison.')}</p>
@@ -358,7 +366,8 @@ export function TechnicalKit() {
         <TabsContent value="supersede">
           <Card>
             <CardContent className="p-6">
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-12 text-gray-500">
+              <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                 <RefreshCw className="w-16 h-16 mx-auto mb-4 text-gray-300" />
                 <p>{tx('查询件号替代关系信息。', 'Query supersedure information for a part number.')}</p>
                 <p className="text-sm mt-2">{tx('系统高亮显示已替代件号及新件号的优势。', 'The system highlights superseded part numbers and advantages of newer parts.')}</p>
@@ -370,7 +379,8 @@ export function TechnicalKit() {
         <TabsContent value="sb">
           <Card>
             <CardContent className="p-6">
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-12 text-gray-500">
+              <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                 <FileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
                 <p>{tx('SB符合性检查', 'SB compliance check')}</p>
                 <p className="text-sm mt-2">{tx('校验件号是否匹配飞机SB改装状态。', 'Validates whether the part number matches aircraft SB modification status.')}</p>

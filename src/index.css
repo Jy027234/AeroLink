@@ -32,6 +32,12 @@
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    /* AeroLink Brand Colors */
+    --brand-primary: 207 90% 70%;
+    --brand-primary-hover: 207 90% 62%;
+    --brand-primary-light: 207 90% 95%;
+    --brand-sidebar: 216 60% 12%;
+    --brand-sidebar-hover: 216 60% 18%;
   }
 
   .dark {

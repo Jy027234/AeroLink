@@ -53,6 +53,16 @@ import {
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
 import type { CertificateTemplate, CertificateType } from '@/types';
 
 const certTypeConfig: Record<CertificateType, { label: string; color: string }> = {
@@ -301,13 +311,14 @@ export function CertificateTemplates() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string>('');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [activeOnly, setActiveOnly] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<CertificateTemplate | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<CertificateTemplate | null>(null);
 
   const { data: templates, loading, refetch } = useCertificateTemplates({
-    certificateType: typeFilter || undefined,
+    certificateType: typeFilter === 'all' ? undefined : typeFilter,
     isActive: activeOnly || undefined,
   });
 
@@ -350,16 +361,20 @@ export function CertificateTemplates() {
     }
   };
 
-  const handleDelete = async (template: CertificateTemplate) => {
-    if (!window.confirm(tx(`确定要删除模板 "${template.name}" 吗？`, `Are you sure you want to delete template "${template.name}"?`))) {
-      return;
-    }
+  const handleDelete = (template: CertificateTemplate) => {
+    setDeleteTarget(template);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteTemplate(template.id);
+      await deleteTemplate(deleteTarget.id);
       toast.success(tx('模板已删除', 'Template deleted'));
       refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : tx('删除失败', 'Delete failed'));
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -376,7 +391,7 @@ export function CertificateTemplates() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -424,7 +439,7 @@ export function CertificateTemplates() {
             <SelectValue placeholder={tx('证书类型', 'Certificate Type')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">{tx('全部类型', 'All Types')}</SelectItem>
+            <SelectItem value="all">{tx('全部类型', 'All Types')}</SelectItem>
             <SelectItem value="AAC-038">AAC-038</SelectItem>
             <SelectItem value="FAA-8130-3">FAA 8130-3</SelectItem>
             <SelectItem value="EASA-Form-1">EASA Form 1</SelectItem>
@@ -539,6 +554,26 @@ export function CertificateTemplates() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget && tx(`确定要删除模板 "${deleteTarget.name}" 吗？此操作不可撤销。`, `Are you sure you want to delete template "${deleteTarget.name}"? This action cannot be undone.`)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>
+              {tx('取消', 'Cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} disabled={deleteLoading} className="bg-red-600 hover:bg-red-700">
+              {tx('删除', 'Delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Form Dialog */}
       <TemplateFormDialog

@@ -95,7 +95,7 @@ export function ApiPlatform() {
             {tx('管理 API Key、查看开放接口文档、集成第三方系统', 'Manage API Keys, view open API docs, integrate third-party systems')}
           </p>
         </div>
-        <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={() => setIsCreateOpen(true)}>
+        <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => setIsCreateOpen(true)}>
           <Plus className="w-4 h-4 mr-1" />
           {tx('新建 API Key', 'New API Key')}
         </Button>
@@ -133,7 +133,7 @@ export function ApiPlatform() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Key className="w-5 h-5 text-[#64b5f6]" />
+            <Key className="w-5 h-5 text-brand-primary" />
             {tx('API Key 管理', 'API Key Management')}
           </CardTitle>
         </CardHeader>
@@ -168,7 +168,7 @@ export function ApiPlatform() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        {key.scopes.map((s) => (
+                        {key.scopes?.map((s) => (
                           <Badge key={s} className={cn('text-xs', scopeColors[s] || 'bg-gray-100')}>
                             {s}
                           </Badge>
@@ -220,7 +220,7 @@ export function ApiPlatform() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Globe className="w-5 h-5 text-[#64b5f6]" />
+            <Globe className="w-5 h-5 text-brand-primary" />
             {tx('开放 API 文档', 'Open API Documentation')}
           </CardTitle>
         </CardHeader>
@@ -321,7 +321,7 @@ export function ApiPlatform() {
               {tx('取消', 'Cancel')}
             </Button>
             <Button
-              className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+              className="bg-brand-primary hover:bg-brand-primary-hover"
               onClick={handleCreate}
               disabled={createLoading}
             >

@@ -7,6 +7,7 @@ import {
   FileText,
   ClipboardList,
   Users,
+  UserCircle,
   Truck,
   BarChart3,
   Settings,
@@ -15,11 +16,13 @@ import {
   ChevronRight,
   Wrench,
   Globe,
+  Code,
   RefreshCw,
   TrendingUp,
   MapPin,
   Bot,
   ShieldCheck,
+  Award,
   FileCheck,
   GitBranch,
   ClipboardCheck,
@@ -28,6 +31,10 @@ import {
   ChevronDown,
   Search,
   Store,
+  Link,
+  Boxes,
+  ShoppingCart,
+  PieChart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
@@ -38,7 +45,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import {
   Sheet,
@@ -116,7 +122,7 @@ const navGroups: NavGroup[] = [
     id: 'groupSourcing',
     icon: Search,
     items: [
-      { id: 'rfq-management', icon: FileText },
+      { id: 'rfq-management', icon: ClipboardList },
       { id: 'sourcing', icon: Truck },
       { id: 'quotations', icon: FileText, badge: 3 },
     ],
@@ -125,9 +131,9 @@ const navGroups: NavGroup[] = [
     id: 'groupOrderInventory',
     icon: Package,
     items: [
-      { id: 'orders', icon: ClipboardList },
+      { id: 'orders', icon: ShoppingCart },
       { id: 'order-tracking', icon: MapPin },
-      { id: 'inventory', icon: Package },
+      { id: 'inventory', icon: Boxes },
       { id: 'exchange-vmi', icon: RefreshCw },
     ],
   },
@@ -135,7 +141,7 @@ const navGroups: NavGroup[] = [
     id: 'groupCustomerSupplier',
     icon: Users,
     items: [
-      { id: 'customers', icon: Users },
+      { id: 'customers', icon: UserCircle },
       { id: 'suppliers', icon: Truck },
       { id: 'supplier-quotes', icon: FileText },
       { id: 'supplier-portal', icon: Globe },
@@ -145,7 +151,7 @@ const navGroups: NavGroup[] = [
     id: 'groupQuality',
     icon: ShieldCheck,
     items: [
-      { id: 'certificates', icon: ShieldCheck },
+      { id: 'certificates', icon: Award },
       { id: 'certificate-templates', icon: FileCheck },
       { id: 'workflows', icon: GitBranch },
       { id: 'audit-logs', icon: ClipboardCheck },
@@ -158,17 +164,17 @@ const navGroups: NavGroup[] = [
       { id: 'technical-kit', icon: Wrench },
       { id: 'auctions', icon: Gavel },
       { id: 'consignments', icon: Handshake },
-      { id: 'pricing-bi', icon: TrendingUp },
-      { id: 'api-platform', icon: Globe },
+      { id: 'pricing-bi', icon: BarChart3 },
+      { id: 'api-platform', icon: Code },
       { id: 'fmv-platform', icon: TrendingUp },
-      { id: 'blockchain-verification', icon: ShieldCheck },
+      { id: 'blockchain-verification', icon: Link },
     ],
   },
 ];
 
 // Fixed bottom-level items
 const fixedBottomItems: NavItem[] = [
-  { id: 'reports', icon: BarChart3 },
+  { id: 'reports', icon: PieChart },
   { id: 'settings', icon: Settings },
 ];
 
@@ -214,29 +220,29 @@ function NavButton({
       className={cn(
         'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group relative',
         isActive
-          ? 'bg-[#64b5f6]/10 text-[#64b5f6] border-l-4 border-[#64b5f6]'
+          ? 'bg-brand-primary/10 text-brand-primary border-l-4 border-brand-primary'
           : 'text-white/70 hover:bg-white/5 hover:text-white border-l-4 border-transparent'
       )}
     >
-      <Icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-[#64b5f6]')} />
+      <Icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-brand-primary')} />
       {!collapsed && (
         <>
           <span className="text-sm font-medium flex-1 text-left">{label}</span>
           {badgeCount > 0 && (
             <Badge
               variant="destructive"
-              className="h-5 min-w-5 flex items-center justify-center text-xs bg-[#ef4444]"
+              className="h-5 min-w-5 flex items-center justify-center text-xs bg-destructive"
             >
               {badgeCount}
             </Badge>
           )}
           {item.id === 'ingestion' && badgeCount > 0 && (
-            <AlertTriangle className="w-4 h-4 text-[#ef4444] animate-pulse" />
+            <AlertTriangle className="w-4 h-4 text-destructive animate-pulse" />
           )}
         </>
       )}
       {collapsed && badgeCount > 0 && (
-        <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#ef4444] rounded-full text-xs flex items-center justify-center">
+        <span className="absolute -top-1 -right-1 w-4 h-4 bg-destructive rounded-full text-xs flex items-center justify-center">
           {badgeCount}
         </span>
       )}
@@ -339,12 +345,24 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
     });
   };
 
+  const setGroupOpen = (groupId: string, open: boolean) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (open) {
+        next.add(groupId);
+      } else {
+        next.delete(groupId);
+      }
+      return next;
+    });
+  };
+
   return (
     <>
       {/* Logo */}
       <div className="h-20 flex items-center px-5 border-b border-white/10">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#64b5f6] rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-10 h-10 bg-brand-primary rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white font-bold text-lg">A</span>
           </div>
           {!collapsed && (
@@ -379,17 +397,17 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
           navGroups.map((group) => {
             const isOpen = openGroups.has(group.id);
             return (
-              <Collapsible key={group.id} open={isOpen} onOpenChange={() => toggleGroup(group.id)}>
-                <CollapsibleTrigger asChild>
-                  <div>
-                    <GroupButton
-                      group={group}
-                      isOpen={isOpen}
-                      collapsed={collapsed}
-                      onClick={() => toggleGroup(group.id)}
-                    />
-                  </div>
-                </CollapsibleTrigger>
+              <Collapsible
+                key={group.id}
+                open={isOpen}
+                onOpenChange={(open) => setGroupOpen(group.id, open)}
+              >
+                <GroupButton
+                  group={group}
+                  isOpen={isOpen}
+                  collapsed={collapsed}
+                  onClick={() => setGroupOpen(group.id, !isOpen)}
+                />
                 <CollapsibleContent>
                   <div className="ml-4 space-y-0.5 mt-1 mb-1">
                     {group.items.map((item) => (
@@ -411,6 +429,7 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
           // Collapsed sidebar: show group icons with tooltip
           navGroups.map((group) => {
             const Icon = group.icon;
+            const isOpen = openGroups.has(group.id);
             const hasActivePage = group.items.some((item) => item.id === currentPage);
             const translationKey = navKeyMap[group.id];
             const label = translationKey ? t(translationKey) : group.id;
@@ -422,7 +441,7 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
                   className={cn(
                     'w-full flex items-center justify-center py-3 rounded-lg transition-all duration-200',
                     hasActivePage
-                      ? 'bg-[#64b5f6]/10 text-[#64b5f6]'
+                      ? 'bg-brand-primary/10 text-brand-primary'
                       : 'text-white/50 hover:bg-white/5 hover:text-white/80'
                   )}
                   title={label}
@@ -430,7 +449,13 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
                   <Icon className="w-5 h-5" />
                 </button>
                 {/* Tooltip on hover */}
-                <div className="absolute left-full top-0 ml-2 px-3 py-2 bg-[#1e293b] text-white text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 z-50 whitespace-nowrap">
+                <div
+                  className={cn(
+                    'absolute left-full top-0 ml-2 px-3 py-2 bg-slate-800 text-white text-xs rounded-lg shadow-xl transition-opacity duration-200 z-50 whitespace-nowrap',
+                    isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+                    'group-hover:opacity-100 group-hover:pointer-events-auto'
+                  )}
+                >
                   <p className="font-semibold mb-1">{label}</p>
                   {group.items.map((item) => {
                     const itemKey = navKeyMap[item.id];
@@ -438,10 +463,17 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
                     return (
                       <button
                         key={item.id}
-                        onClick={() => handleItemClick(item.id)}
+                        onClick={() => {
+                          handleItemClick(item.id);
+                          setOpenGroups((prev) => {
+                            const next = new Set(prev);
+                            next.delete(group.id);
+                            return next;
+                          });
+                        }}
                         className={cn(
                           'block w-full text-left px-2 py-1 rounded hover:bg-white/10',
-                          currentPage === item.id ? 'text-[#64b5f6]' : 'text-white/70'
+                          currentPage === item.id ? 'text-brand-primary' : 'text-white/70'
                         )}
                       >
                         {itemLabel}
@@ -484,7 +516,7 @@ export function Sidebar() {
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          'fixed left-0 top-0 h-screen bg-[#0a192f] text-white transition-all duration-300 z-50',
+          'fixed left-0 top-0 h-screen bg-brand-sidebar text-white transition-all duration-300 z-50',
           'hidden md:block',
           sidebarCollapsed ? 'w-20' : 'w-64'
         )}
@@ -506,7 +538,7 @@ export function Sidebar() {
 
       {/* Mobile Sidebar Drawer */}
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-        <SheetContent side="left" className="w-[280px] bg-[#0a192f] text-white p-0 border-r-0">
+        <SheetContent side="left" className="w-[280px] max-w-[85vw] bg-brand-sidebar text-white p-0 border-r-0">
           <SheetTitle className="sr-only">Main navigation</SheetTitle>
           <SheetDescription className="sr-only">Choose a page to navigate</SheetDescription>
           <SidebarContent onNavigate={() => setMobileSidebarOpen(false)} />

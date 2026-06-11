@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 import {
   Inbox,
   AlertTriangle,
@@ -131,7 +132,7 @@ export function IngestionHub() {
   if (rfqsLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -173,7 +174,7 @@ export function IngestionHub() {
       setIsSheetOpen(false);
       selectEmail(null);
       refetchRFQs();
-      alert(tx(`需求单 ${result.rfqNumber} 创建成功。`, `RFQ ${result.rfqNumber} has been created successfully.`));
+      toast.success(tx(`需求单 ${result.rfqNumber} 创建成功。`, `RFQ ${result.rfqNumber} has been created successfully.`));
     }
   };
 
@@ -228,7 +229,7 @@ export function IngestionHub() {
             size="sm"
             onClick={() => setFilter(type)}
             className={cn(
-              filter === type && 'bg-[#64b5f6] hover:bg-[#42a5f5]',
+              filter === type && 'bg-brand-primary hover:bg-brand-primary-hover',
               type === 'spam' && filter !== type && 'text-gray-500'
             )}
           >
@@ -261,7 +262,7 @@ export function IngestionHub() {
                   className={cn(
                     'p-4 hover:bg-gray-50 cursor-pointer transition-colors',
                     !email.isRead && 'bg-blue-50/50',
-                    selectedEmail?.id === email.id && 'bg-[#64b5f6]/5'
+                    selectedEmail?.id === email.id && 'bg-brand-primary/5'
                   )}
                 >
                   <div className="flex items-start justify-between">
@@ -535,7 +536,7 @@ export function IngestionHub() {
             <Button
               onClick={handleCreateRFQ}
               disabled={!extractedData.partNumber}
-              className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+              className="bg-brand-primary hover:bg-brand-primary-hover"
             >
               <Send className="w-4 h-4 mr-1" />
               Create RFQ

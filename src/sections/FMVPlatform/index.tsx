@@ -11,6 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useFMVCalculate } from '@/hooks/useApi';
@@ -83,21 +90,22 @@ export function FMVPlatform() {
             </div>
             <div className="w-40 space-y-2">
               <div className="text-sm font-medium">Condition</div>
-              <select
-                className="w-full h-10 px-3 border rounded-md"
-                value={conditionCode}
-                onChange={(e) => setConditionCode(e.target.value)}
-              >
-                <option value="NE">NE (New)</option>
-                <option value="NS">NS (New Surplus)</option>
-                <option value="SV">SV (Serviceable)</option>
-                <option value="OH">OH (Overhauled)</option>
-                <option value="AR">AR (As Removed)</option>
-                <option value="US">US (Unserviceable)</option>
-              </select>
+              <Select value={conditionCode} onValueChange={(v) => setConditionCode(v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Condition" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NE">NE (New)</SelectItem>
+                  <SelectItem value="NS">NS (New Surplus)</SelectItem>
+                  <SelectItem value="SV">SV (Serviceable)</SelectItem>
+                  <SelectItem value="OH">OH (Overhauled)</SelectItem>
+                  <SelectItem value="AR">AR (As Removed)</SelectItem>
+                  <SelectItem value="US">US (Unserviceable)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <Button
-              className="bg-[#64b5f6] hover:bg-[#42a5f5] h-10"
+              className="bg-brand-primary hover:bg-brand-primary-hover h-10"
               onClick={handleSearch}
               disabled={loading}
             >
@@ -152,12 +160,12 @@ export function FMVPlatform() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-[#64b5f6]" />
+                <BarChart3 className="w-5 h-5 text-brand-primary" />
                 {tx('分层计算详情', 'Stage Details')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {result.fmvs.map((stage) => (
+              {result.fmvs?.map((stage) => (
                 <div
                   key={stage.stage}
                   className={cn(

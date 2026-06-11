@@ -85,8 +85,8 @@ function StatCard({ title, value, trend, icon: Icon, suffix = '', prefix = '' }:
               <span className="text-xs text-gray-400 ml-1">{tx('较上周', 'vs last week')}</span>
             </div>
           </div>
-          <div className="w-8 h-8 bg-[#64b5f6]/10 rounded-lg flex items-center justify-center">
-            <Icon className="w-4 h-4 text-[#64b5f6]" />
+          <div className="w-8 h-8 bg-brand-primary/10 rounded-lg flex items-center justify-center">
+            <Icon className="w-4 h-4 text-brand-primary" />
           </div>
         </div>
       </CardContent>
@@ -134,14 +134,14 @@ function FunnelStage({ stage, count, amount, isActive, isLast }: FunnelStageProp
         className={cn(
           'flex-1 p-2 rounded-lg border-2 transition-all duration-200 text-left',
           isActive
-            ? 'border-[#64b5f6] bg-[#64b5f6]/5'
+            ? 'border-brand-primary bg-brand-primary/5'
             : 'border-gray-200 bg-white hover:border-gray-300'
         )}
       >
         <p className="text-sm text-gray-500">{displayStage}</p>
         <p className="text-lg font-bold text-gray-900 mt-0.5">{count} {tx('条', 'items')}</p>
         {amount > 0 && (
-          <p className="text-sm text-[#64b5f6] mt-0.5">¥{amount.toLocaleString()}</p>
+          <p className="text-sm text-brand-primary mt-0.5">¥{amount.toLocaleString()}</p>
         )}
       </button>
       {!isLast && (
@@ -195,7 +195,7 @@ export function Dashboard() {
   if (statsLoading || funnelLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{t('common.loading')}</span>
       </div>
     );
@@ -270,14 +270,15 @@ export function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
-              <Users className="w-5 h-5 text-[#64b5f6]" />
+              <Users className="w-5 h-5 text-brand-primary" />
               {t('dashboard.customerFollowUpAlerts')}
             </CardTitle>
             <Badge variant="secondary">{customerAlerts.length} {t('dashboard.pendingFollowUp')}</Badge>
           </CardHeader>
           <CardContent>
             {customerAlerts.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-12 text-gray-500">
+              <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                 <CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500" />
                 <p>{t('dashboard.allCustomersFollowed')}</p>
               </div>
@@ -311,14 +312,15 @@ export function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
-              <Clock className="w-5 h-5 text-[#64b5f6]" />
+              <Clock className="w-5 h-5 text-brand-primary" />
               {tx('时寿件预警', 'Life Limited Alerts')}
             </CardTitle>
             <Badge variant="destructive">{lifeLimitedAlerts.length} {tx('条预警', 'alerts')}</Badge>
           </CardHeader>
           <CardContent>
             {lifeLimitedAlerts.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-12 text-gray-500">
+              <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                 <CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500" />
                 <p>{tx('无时寿件预警', 'No life limited alerts')}</p>
               </div>

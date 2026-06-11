@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import {
   FileText,
   Search,
@@ -8,6 +9,7 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Plane,
   AlertTriangle,
   Plus,
@@ -17,6 +19,7 @@ import {
   Wrench,
   Thermometer,
   ShieldCheck,
+  Inbox,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -873,6 +876,8 @@ export function RFQManagement() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [urgencyFilter, setUrgencyFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
   const [selectedRFQ, setSelectedRFQ] = useState<RFQ | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -891,6 +896,10 @@ export function RFQManagement() {
     }
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredRFQs.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedRFQs = filteredRFQs.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const stats = {
     total: rfqs.length,
@@ -914,7 +923,7 @@ export function RFQManagement() {
   };
 
   const handleConvertToQuote = (rfq: RFQ) => {
-    alert(tx(`需求单 ${rfq.rfqNumber} 已转入报价阶段，请前往报价管理完成处理。`, `RFQ ${rfq.rfqNumber} has been moved to quoting. Please go to the Quotations page to complete it.`));
+    toast.info(tx(`需求单 ${rfq.rfqNumber} 已转入报价阶段，请前往报价管理完成处理。`, `RFQ ${rfq.rfqNumber} has been moved to quoting. Please go to the Quotations page to complete it.`));
     updateRFQ({ ...rfq, status: 'quoting' });
   };
 
@@ -960,7 +969,7 @@ export function RFQManagement() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-        <Card className="cursor-pointer hover:shadow-sm transition-shadow" onClick={() => setStatusFilter('all')}>
+        <Card className="cursor-pointer hover:shadow-sm transition-shadow" onClick={() => { setStatusFilter('all'); setCurrentPage(1); }}>
           <CardContent className="p-3 flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-500">{tx('全部', 'All')}</p>
@@ -968,7 +977,7 @@ export function RFQManagement() {
             </div>
           </CardContent>
         </Card>
-        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'pending' && 'ring-2 ring-yellow-500')} onClick={() => setStatusFilter('pending')}>
+        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'pending' && 'ring-2 ring-yellow-500')} onClick={() => { setStatusFilter('pending'); setCurrentPage(1); }}>
           <CardContent className="p-3 flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-500">{tx('待处理', 'Pending')}</p>
@@ -976,7 +985,7 @@ export function RFQManagement() {
             </div>
           </CardContent>
         </Card>
-        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'sourcing' && 'ring-2 ring-blue-500')} onClick={() => setStatusFilter('sourcing')}>
+        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'sourcing' && 'ring-2 ring-blue-500')} onClick={() => { setStatusFilter('sourcing'); setCurrentPage(1); }}>
           <CardContent className="p-3 flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-500">{tx('寻源中', 'Sourcing')}</p>
@@ -984,7 +993,7 @@ export function RFQManagement() {
             </div>
           </CardContent>
         </Card>
-        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'quoting' && 'ring-2 ring-purple-500')} onClick={() => setStatusFilter('quoting')}>
+        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'quoting' && 'ring-2 ring-purple-500')} onClick={() => { setStatusFilter('quoting'); setCurrentPage(1); }}>
           <CardContent className="p-3 flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-500">{tx('报价中', 'Quoting')}</p>
@@ -992,7 +1001,7 @@ export function RFQManagement() {
             </div>
           </CardContent>
         </Card>
-        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'won' && 'ring-2 ring-green-500')} onClick={() => setStatusFilter('won')}>
+        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'won' && 'ring-2 ring-green-500')} onClick={() => { setStatusFilter('won'); setCurrentPage(1); }}>
           <CardContent className="p-3 flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-500">{tx('已赢单', 'Won')}</p>
@@ -1000,7 +1009,7 @@ export function RFQManagement() {
             </div>
           </CardContent>
         </Card>
-        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'lost' && 'ring-2 ring-red-500')} onClick={() => setStatusFilter('lost')}>
+        <Card className={cn('cursor-pointer hover:shadow-sm transition-shadow', statusFilter === 'lost' && 'ring-2 ring-red-500')} onClick={() => { setStatusFilter('lost'); setCurrentPage(1); }}>
           <CardContent className="p-3 flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-500">{tx('已失单', 'Lost')}</p>
@@ -1019,11 +1028,11 @@ export function RFQManagement() {
                 <Input
                   placeholder={tx('搜索需求单...', 'Search RFQs...')}
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                   className="pl-10"
                 />
               </div>
-              <Select value={urgencyFilter} onValueChange={setUrgencyFilter}>
+              <Select value={urgencyFilter} onValueChange={(v) => { setUrgencyFilter(v); setCurrentPage(1); }}>
                 <SelectTrigger className="w-32">
                   <SelectValue placeholder={tx('紧急度', 'Urgency')} />
                 </SelectTrigger>
@@ -1037,7 +1046,7 @@ export function RFQManagement() {
             </div>
             <div className="flex items-center gap-2">
               {(statusFilter !== 'all' || urgencyFilter !== 'all') && (
-                <Button variant="ghost" onClick={() => { setStatusFilter('all'); setUrgencyFilter('all'); }}>
+                <Button variant="ghost" onClick={() => { setStatusFilter('all'); setUrgencyFilter('all'); setCurrentPage(1); }}>
                   {tx('清空筛选', 'Clear Filters')}
                 </Button>
               )}
@@ -1066,12 +1075,13 @@ export function RFQManagement() {
             <TableBody>
               {filteredRFQs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={9} className="text-center py-12 text-gray-500">
+                    <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                     {tx('未找到需求单', 'No RFQs found')}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredRFQs.map((rfq: RFQ) => (
+                paginatedRFQs.map((rfq: RFQ) => (
                   <TableRow key={rfq.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -1150,6 +1160,21 @@ export function RFQManagement() {
               )}
             </TableBody>
           </Table>
+          {filteredRFQs.length > pageSize && (
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-sm text-gray-500">
+                {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="sm" disabled={safePage >= totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

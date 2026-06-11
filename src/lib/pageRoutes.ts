@@ -19,6 +19,15 @@ const PAGE_PATHS: Record<string, string> = {
   'exchange-vmi': '/exchange-vmi',
   'pricing-bi': '/pricing-bi',
   'order-tracking': '/order-tracking',
+  certificates: '/certificates',
+  'certificate-templates': '/certificate-templates',
+  workflows: '/workflows',
+  auctions: '/auctions',
+  consignments: '/consignments',
+  'api-platform': '/api-platform',
+  'fmv-platform': '/fmv-platform',
+  'blockchain-verification': '/blockchain-verification',
+  'audit-logs': '/audit-logs',
 };
 
 const pathToPage = new Map<string, string>(

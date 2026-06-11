@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   ClipboardList,
   Download,
@@ -16,6 +16,8 @@ import {
   PenLine,
   Save,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Shield,
   FileCheck,
   Container,
@@ -204,7 +206,7 @@ function OrderTimeline({ order }: { order: Order }) {
                 className={cn(
                   'w-8 h-8 rounded-full flex items-center justify-center z-10 border-2',
                   isCompleted && 'bg-green-500 border-green-500 text-white',
-                  isCurrent && 'bg-[#64b5f6] border-[#64b5f6] text-white',
+                  isCurrent && 'bg-brand-primary border-brand-primary text-white',
                   !isCompleted && !isCurrent && 'bg-white border-gray-300 text-gray-400'
                 )}
               >
@@ -219,7 +221,7 @@ function OrderTimeline({ order }: { order: Order }) {
                   className={cn(
                     'font-medium',
                     isCompleted && 'text-green-600',
-                    isCurrent && 'text-[#64b5f6]',
+                    isCurrent && 'text-brand-primary',
                     !isCompleted && !isCurrent && 'text-gray-400'
                   )}
                 >
@@ -542,7 +544,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 
           {detailLoading && (
             <div className="flex items-center justify-center py-2 text-gray-500">
-              <Loader2 className="h-5 w-5 animate-spin text-[#64b5f6]" />
+              <Loader2 className="h-5 w-5 animate-spin text-brand-primary" />
               <span className="ml-2 text-sm">{tx('加载详情...', 'Loading details...')}</span>
             </div>
           )}
@@ -1116,6 +1118,8 @@ export function Orders() {
   const { data: orders, loading: ordersLoading } = useOrders();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
@@ -1137,6 +1141,10 @@ export function Orders() {
     }
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedOrders = filteredOrders.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   // Stats
   const stats = {
@@ -1164,14 +1172,14 @@ export function Orders() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Failed to download order contract:', error);
-      alert(tx('下载合同失败。', 'Failed to download contract.'));
+      toast.error(tx('下载合同失败。', 'Failed to download contract.'));
     }
   };
 
   if (ordersLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -1223,7 +1231,7 @@ export function Orders() {
             <Input
               placeholder={tx('搜索订单号、件号或客户...', 'Search order number, part number, or customer...')}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="pl-10"
             />
           </div>
@@ -1235,7 +1243,7 @@ export function Orders() {
       </div>
 
       {/* Order list */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setCurrentPage(1); }}>
         <TabsList>
           <TabsTrigger value="all">{tx('全部', 'All')}</TabsTrigger>
           <TabsTrigger value="in_progress">{tx('进行中', 'In Progress')}</TabsTrigger>
@@ -1269,7 +1277,7 @@ export function Orders() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredOrders.map((order) => (
+                    paginatedOrders.map((order) => (
                       <TableRow key={order.id} className="hover:bg-gray-50">
                         <TableCell className="font-mono font-medium">{order.orderNumber}</TableCell>
                         <TableCell>{order.customerName}</TableCell>
@@ -1330,6 +1338,21 @@ export function Orders() {
                   )}
                 </TableBody>
               </Table>
+              {filteredOrders.length > pageSize && (
+                <div className="flex items-center justify-between p-4">
+                  <span className="text-sm text-gray-500">
+                    {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={safePage >= totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

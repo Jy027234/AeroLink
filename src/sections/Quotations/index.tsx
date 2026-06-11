@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import {
   FileText,
   CheckCircle,
@@ -39,6 +40,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useQuotations, useApproveQuotation, quotationApi, useDocumentTemplates, useRFQs, useDispatchNotification } from '@/hooks/useApi';
 import { documentApi } from '@/api/client';
 import { PriceRecommendationPanel } from '@/components/PriceRecommendationPanel';
@@ -182,7 +190,7 @@ function QuoteDetailDialog({
 
           {detailLoading && (
             <div className="flex items-center justify-center py-2 text-gray-500">
-              <Loader2 className="h-5 w-5 animate-spin text-[#64b5f6]" />
+              <Loader2 className="h-5 w-5 animate-spin text-brand-primary" />
               <span className="ml-2 text-sm">{tx('加载详情中...', 'Loading details...')}</span>
             </div>
           )}
@@ -463,7 +471,7 @@ function CreateQuoteDialog({
 
   const handleSubmit = async () => {
     if (!formData.rfqId || !formData.customerName || !formData.partNumber || formData.quantity <= 0 || formData.unitPrice <= 0) {
-      alert(tx('请填写所有必填字段（RFQ、客户、件号、数量、单价）。', 'Please fill in all required fields (RFQ, Customer, Part Number, Quantity, Unit Price).'));
+      toast.error(tx('请填写所有必填字段（RFQ、客户、件号、数量、单价）。', 'Please fill in all required fields (RFQ, Customer, Part Number, Quantity, Unit Price).'));
       return;
     }
     setIsSubmitting(true);
@@ -502,12 +510,12 @@ function CreateQuoteDialog({
         ccRecipients: formData.ccRecipients ? formData.ccRecipients.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
         commonNote: formData.commonNote || undefined,
       });
-      alert(tx('报价单创建成功。', 'Quote created successfully.'));
+      toast.success(tx('报价单创建成功。', 'Quote created successfully.'));
       onClose();
       onCreated();
     } catch (error) {
       console.error('Failed to create quote:', error);
-      alert(tx('创建报价单失败。', 'Failed to create quote.'));
+      toast.error(tx('创建报价单失败。', 'Failed to create quote.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -527,18 +535,18 @@ function CreateQuoteDialog({
         <div className="space-y-4 py-4">
           <div className="space-y-2">
             <Label>{tx('关联 RFQ *', 'Associated RFQ *')}</Label>
-            <select
-              className="w-full h-10 px-3 border rounded-md"
-              value={formData.rfqId}
-              onChange={(e) => handleRfqChange(e.target.value)}
-            >
-              <option value="">{tx('请选择 RFQ', 'Select RFQ...')}</option>
-              {rfqs?.map((rfq) => (
-                <option key={rfq.id} value={rfq.id}>
-                  {rfq.rfqNumber} · {rfq.partNumber} · {rfq.customerName} {rfq.urgency === 'aog' ? '(AOG)' : ''}
-                </option>
-              ))}
-            </select>
+            <Select value={formData.rfqId} onValueChange={handleRfqChange}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={tx('请选择 RFQ', 'Select RFQ...')} />
+              </SelectTrigger>
+              <SelectContent>
+                {rfqs?.map((rfq) => (
+                  <SelectItem key={rfq.id} value={rfq.id}>
+                    {rfq.rfqNumber} · {rfq.partNumber} · {rfq.customerName} {rfq.urgency === 'aog' ? '(AOG)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {isAog && (
@@ -626,41 +634,48 @@ function CreateQuoteDialog({
             </div>
             <div className="space-y-2">
               <Label>{tx('销售类型', 'Sale Type')}</Label>
-              <select
-                className="w-full h-10 px-3 border rounded-md"
+              <Select
                 value={formData.saleType}
-                onChange={(e) => setFormData({ ...formData, saleType: e.target.value as SaleType })}
+                onValueChange={(v) => setFormData({ ...formData, saleType: v as SaleType })}
               >
-                <option value="Sale">{tx('销售', 'Sale')}</option>
-                <option value="Exchange">{tx('交换', 'Exchange')}</option>
-                <option value="Loan">{tx('借贷', 'Loan')}</option>
-                <option value="Consign">{tx('寄售', 'Consign')}</option>
-                <option value="Repair">{tx('维修', 'Repair')}</option>
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Sale">{tx('销售', 'Sale')}</SelectItem>
+                  <SelectItem value="Exchange">{tx('交换', 'Exchange')}</SelectItem>
+                  <SelectItem value="Loan">{tx('借贷', 'Loan')}</SelectItem>
+                  <SelectItem value="Consign">{tx('寄售', 'Consign')}</SelectItem>
+                  <SelectItem value="Repair">{tx('维修', 'Repair')}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>{tx('贸易条款', 'Incoterm')}</Label>
-              <select
-                className="w-full h-10 px-3 border rounded-md"
+              <Select
                 value={formData.incoterm}
-                onChange={(e) => setFormData({ ...formData, incoterm: e.target.value as Incoterm })}
+                onValueChange={(v) => setFormData({ ...formData, incoterm: v as Incoterm })}
               >
-                <option value="">{tx('请选择...', 'Select...')}</option>
-                <option value="EXW">EXW</option>
-                <option value="FCA">FCA</option>
-                <option value="CPT">CPT</option>
-                <option value="CIP">CIP</option>
-                <option value="DAP">DAP</option>
-                <option value="DPU">DPU</option>
-                <option value="DDP">DDP</option>
-                <option value="FAS">FAS</option>
-                <option value="FOB">FOB</option>
-                <option value="CFR">CFR</option>
-                <option value="CIF">CIF</option>
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={tx('请选择...', 'Select...')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EXW">EXW</SelectItem>
+                  <SelectItem value="FCA">FCA</SelectItem>
+                  <SelectItem value="CPT">CPT</SelectItem>
+                  <SelectItem value="CIP">CIP</SelectItem>
+                  <SelectItem value="DAP">DAP</SelectItem>
+                  <SelectItem value="DPU">DPU</SelectItem>
+                  <SelectItem value="DDP">DDP</SelectItem>
+                  <SelectItem value="FAS">FAS</SelectItem>
+                  <SelectItem value="FOB">FOB</SelectItem>
+                  <SelectItem value="CFR">CFR</SelectItem>
+                  <SelectItem value="CIF">CIF</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label>{tx('贸易条款地点', 'Incoterm Location')}</Label>
@@ -778,20 +793,23 @@ function CreateQuoteDialog({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{tx('原产国', 'Country of Origin')}</Label>
-                <select
-                  className="w-full h-10 px-3 border rounded-md"
+                <Select
                   value={formData.countryOfOrigin}
-                  onChange={(e) => setFormData({ ...formData, countryOfOrigin: e.target.value })}
+                  onValueChange={(v) => setFormData({ ...formData, countryOfOrigin: v })}
                 >
-                  <option value="">{tx('请选择', 'Select...')}</option>
-                  <option value="US">US</option>
-                  <option value="CN">CN</option>
-                  <option value="DE">DE</option>
-                  <option value="UK">UK</option>
-                  <option value="FR">FR</option>
-                  <option value="JP">JP</option>
-                  <option value="Other">{tx('其他', 'Other')}</option>
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={tx('请选择', 'Select...')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="US">US</SelectItem>
+                    <SelectItem value="CN">CN</SelectItem>
+                    <SelectItem value="DE">DE</SelectItem>
+                    <SelectItem value="UK">UK</SelectItem>
+                    <SelectItem value="FR">FR</SelectItem>
+                    <SelectItem value="JP">JP</SelectItem>
+                    <SelectItem value="Other">{tx('其他', 'Other')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>{tx('HS编码', 'HS Code')}</Label>
@@ -882,7 +900,7 @@ function CreateQuoteDialog({
             {tx('取消', 'Cancel')}
           </Button>
           <Button
-            className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+            className="bg-brand-primary hover:bg-brand-primary-hover"
             onClick={handleSubmit}
             disabled={isSubmitting}
           >
@@ -1080,12 +1098,12 @@ function ConvertToOrderDialog({
         URL.revokeObjectURL(url);
       }
 
-      alert(tx(`客户确认已记录，合同已生成：${quote.quoteNumber}。`, `Customer confirmation recorded. Contract generated for ${quote.quoteNumber}.`));
+      toast.success(tx(`客户确认已记录，合同已生成：${quote.quoteNumber}。`, `Customer confirmation recorded. Contract generated for ${quote.quoteNumber}.`));
       onClose();
       await onConfirmed();
     } catch (error) {
       console.error('Failed to confirm quote:', error);
-      alert(tx('确认报价失败，请重试。', 'Failed to confirm quote. Please try again.'));
+      toast.error(tx('确认报价失败，请重试。', 'Failed to confirm quote. Please try again.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -1134,15 +1152,18 @@ function ConvertToOrderDialog({
 
           <div className="space-y-2">
             <Label>{tx('合同模板', 'Contract Template')}</Label>
-            <select
-              className="w-full h-10 px-3 border rounded-md"
-              value={templateId}
-              onChange={(e) => setTemplateId(e.target.value)}
-            >
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>{template.name}{template.isDefault ? tx('（默认）', ' (Default)') : ''}</option>
-              ))}
-            </select>
+            <Select value={templateId} onValueChange={(v) => setTemplateId(v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={tx('选择模板', 'Select template')} />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.map((template) => (
+                  <SelectItem key={template.id} value={template.id}>
+                    {template.name}{template.isDefault ? tx('（默认）', ' (Default)') : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
@@ -1218,12 +1239,12 @@ function SendQuoteDialog({
     setIsSubmitting(true);
     try {
       await quotationApi.send(quote.id, { subject, message });
-      alert(`Quote ${quote.quoteNumber} sent to ${quote.customerEmail || quote.customerName}.`);
+      toast.success(`Quote ${quote.quoteNumber} sent to ${quote.customerEmail || quote.customerName}.`);
       onClose();
       await onSent();
     } catch (error) {
       console.error('Failed to send quote:', error);
-      alert('Failed to send quote. Please verify the default outbound email account.');
+      toast.error('Failed to send quote. Please verify the default outbound email account.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1294,7 +1315,7 @@ function WithdrawQuoteDialog({
 
   const handleSubmit = async () => {
     if (!reason.trim()) {
-      alert('Please provide a withdrawal reason.');
+      toast.error('Please provide a withdrawal reason.');
       return;
     }
 
@@ -1304,12 +1325,12 @@ function WithdrawQuoteDialog({
         reason,
         sendWithdrawalNotice: sendNotice,
       });
-      alert(`Quote ${quote.quoteNumber} has been withdrawn.`);
+      toast.success(`Quote ${quote.quoteNumber} has been withdrawn.`);
       onClose();
       await onWithdrawn();
     } catch (error) {
       console.error('Failed to withdraw quote:', error);
-      alert('Failed to withdraw quote.');
+      toast.error('Failed to withdraw quote.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1414,7 +1435,7 @@ export function Quotations() {
       setIsApprovalOpen(false);
       setSelectedQuote(null);
       refetchQuotes();
-      alert(tx('报价已通过。', 'Quote approved.'));
+      toast.success(tx('报价已通过。', 'Quote approved.'));
       // AOG 通知触发
       if (selectedQuote.rfqUrgency === 'aog') {
         void dispatchNotification({
@@ -1438,7 +1459,7 @@ export function Quotations() {
       setIsApprovalOpen(false);
       setSelectedQuote(null);
       refetchQuotes();
-      alert(tx('报价已驳回。', 'Quote rejected.'));
+      toast.success(tx('报价已驳回。', 'Quote rejected.'));
     }
   };
 
@@ -1459,7 +1480,7 @@ export function Quotations() {
 
   const handleDownloadContract = async (quote: Quotation) => {
     if (!quote.contractDocumentId) {
-      alert(tx('该报价暂无已生成合同。', 'No generated contract is attached to this quotation yet.'));
+      toast.info(tx('该报价暂无已生成合同。', 'No generated contract is attached to this quotation yet.'));
       return;
     }
 
@@ -1473,7 +1494,7 @@ export function Quotations() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Failed to download contract:', error);
-      alert(tx('下载合同失败。', 'Failed to download contract.'));
+      toast.error(tx('下载合同失败。', 'Failed to download contract.'));
     }
   };
 
@@ -1489,7 +1510,7 @@ export function Quotations() {
         URL.revokeObjectURL(url);
       } catch (error) {
         console.error('Failed to download quotation PDF:', error);
-        alert(tx('下载报价 PDF 失败。', 'Failed to download quotation PDF.'));
+        toast.error(tx('下载报价 PDF 失败。', 'Failed to download quotation PDF.'));
       }
     })();
   };
@@ -1497,7 +1518,7 @@ export function Quotations() {
   if (quotesLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -1588,7 +1609,7 @@ export function Quotations() {
             <Filter className="w-4 h-4 mr-1" />
             {tx('筛选', 'Filters')}
           </Button>
-          <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={() => setIsCreateOpen(true)}>
+          <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => setIsCreateOpen(true)}>
             <Plus className="w-4 h-4 mr-1" />
             {tx('创建报价', 'Create Quote')}
           </Button>

@@ -14,6 +14,13 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -24,6 +31,16 @@ import {
 import { useTranslation } from '@/i18n';
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '@/hooks/useApi';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import type { User as UserType } from '@/types';
 
 export function UserManagement() {
@@ -44,6 +61,7 @@ export function UserManagement() {
     department: '',
     phone: '',
   });
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const getRoleBadge = (role: string) => {
     const config: Record<string, { label: string; color: string }> = {
@@ -98,13 +116,19 @@ export function UserManagement() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm(tx('确认删除此用户？', 'Confirm delete this user?'))) return;
+    setDeleteTargetId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
     try {
-      await deleteUser.mutate(id);
+      await deleteUser.mutate(deleteTargetId);
       toast.success(tx('用户已删除', 'User deleted'));
       await refetch();
     } catch (error) {
       toast.error(tx('删除失败', 'Delete failed'));
+    } finally {
+      setDeleteTargetId(null);
     }
   };
 
@@ -117,7 +141,7 @@ export function UserManagement() {
           <h3 className="text-lg font-semibold">{tx('用户管理', 'User Management')}</h3>
           <p className="text-sm text-gray-500">{tx('管理用户与角色权限', 'Manage users and role permissions')}</p>
         </div>
-        <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={handleOpenCreate}>
+        <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={handleOpenCreate}>
           <Plus className="w-4 h-4 mr-1" />
           {tx('新增用户', 'Add User')}
         </Button>
@@ -146,7 +170,8 @@ export function UserManagement() {
             <TableBody>
               {usersList.length === 0 && !loading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={6} className="text-center py-12 text-gray-500">
+                    <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                     {tx('暂无用户', 'No users yet')}
                   </TableCell>
                 </TableRow>
@@ -155,7 +180,7 @@ export function UserManagement() {
                   <TableRow key={user.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-[#64b5f6] rounded-full flex items-center justify-center">
+                        <div className="w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center">
                           <User className="w-4 h-4 text-white" />
                         </div>
                         <span className="font-medium">{user.name}</span>
@@ -241,17 +266,19 @@ export function UserManagement() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{tx('角色', 'Role')}</Label>
-                <select
-                  className="w-full h-10 px-3 border rounded-md"
+                <Select
                   value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                  onValueChange={(value) => setFormData({ ...formData, role: value })}
                 >
-                  <option value="gm">{tx('总经理', 'General Manager')}</option>
-                  <option value="manager">{tx('销售经理', 'Sales Manager')}</option>
-                  <option value="finance">{tx('财务', 'Finance')}</option>
-                  <option value="sales">{tx('销售', 'Sales')}</option>
-                  <option value="admin">{tx('管理员', 'Admin')}</option>
-                </select>
+                  <SelectTrigger className="w-full"><SelectValue placeholder={tx('请选择', 'Please select')} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gm">{tx('总经理', 'General Manager')}</SelectItem>
+                    <SelectItem value="manager">{tx('销售经理', 'Sales Manager')}</SelectItem>
+                    <SelectItem value="finance">{tx('财务', 'Finance')}</SelectItem>
+                    <SelectItem value="sales">{tx('销售', 'Sales')}</SelectItem>
+                    <SelectItem value="admin">{tx('管理员', 'Admin')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>{tx('部门', 'Department')}</Label>
@@ -274,6 +301,21 @@ export function UserManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx('确定要删除此用户吗？此操作不可撤销。', 'Are you sure you want to delete this user? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTargetId(null)}>{tx('取消', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>{tx('删除', 'Delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

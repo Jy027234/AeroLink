@@ -8,6 +8,9 @@ import {
   BarChart3,
   ArrowRight,
   Loader2,
+  Inbox,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   useExchangeQuotes,
@@ -51,14 +55,37 @@ export function ExchangeVMI() {
   } | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
+  // Pagination states
+  const pageSize = 10;
+  const [exchangePage, setExchangePage] = useState(1);
+  const [vmiPage, setVmiPage] = useState(1);
+  const [restockPage, setRestockPage] = useState(1);
+
   const { data: stats, loading: statsLoading, error: statsError } = useExchangeVMIStats();
   const { data: exchanges, loading: exchangesLoading, error: exchangesError } = useExchangeQuotes();
   const { data: vmiAgreements, loading: vmiLoading, error: vmiError } = useVMIAgreements();
   const { data: restockSuggestions, loading: restockLoading, error: restockError } = useRestockSuggestions();
 
+  // Pagination calculations
+  const exchangeList = exchanges || [];
+  const vmiList = vmiAgreements || [];
+  const restockList = restockSuggestions || [];
+
+  const exchangeTotalPages = Math.max(1, Math.ceil(exchangeList.length / pageSize));
+  const safeExchangePage = Math.min(exchangePage, exchangeTotalPages);
+  const paginatedExchanges = exchangeList.slice((safeExchangePage - 1) * pageSize, safeExchangePage * pageSize);
+
+  const vmiTotalPages = Math.max(1, Math.ceil(vmiList.length / pageSize));
+  const safeVmiPage = Math.min(vmiPage, vmiTotalPages);
+  const paginatedVmiAgreements = vmiList.slice((safeVmiPage - 1) * pageSize, safeVmiPage * pageSize);
+
+  const restockTotalPages = Math.max(1, Math.ceil(restockList.length / pageSize));
+  const safeRestockPage = Math.min(restockPage, restockTotalPages);
+  const paginatedRestockSuggestions = restockList.slice((safeRestockPage - 1) * pageSize, safeRestockPage * pageSize);
+
   return (
     <div className="space-y-6">
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setExchangePage(1); setVmiPage(1); setRestockPage(1); }}>
         <TabsList>
           <TabsTrigger value="exchange">{tx('换件管理', 'Exchange Management')}</TabsTrigger>
           <TabsTrigger value="vmi">{tx('VMI智能补货', 'VMI Smart Restocking')}</TabsTrigger>
@@ -118,19 +145,20 @@ export function ExchangeVMI() {
               ) : exchangesError ? (
                 <p className="text-sm text-red-500">{exchangesError}</p>
               ) : exchanges && exchanges.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{tx('报价编号', 'Quote Number')}</TableHead>
-                      <TableHead>{tx('件号', 'Part Number')}</TableHead>
-                      <TableHead>{tx('核心件押金', 'Core Deposit')}</TableHead>
-                      <TableHead>{tx('归还期限', 'Return Deadline')}</TableHead>
-                      <TableHead>{tx('核心件状态', 'Core Status')}</TableHead>
-                      <TableHead>{tx('操作', 'Actions')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {exchanges.map((exchange) => (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{tx('报价编号', 'Quote Number')}</TableHead>
+                        <TableHead>{tx('件号', 'Part Number')}</TableHead>
+                        <TableHead>{tx('核心件押金', 'Core Deposit')}</TableHead>
+                        <TableHead>{tx('归还期限', 'Return Deadline')}</TableHead>
+                        <TableHead>{tx('核心件状态', 'Core Status')}</TableHead>
+                        <TableHead>{tx('操作', 'Actions')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedExchanges.map((exchange) => (
                       <TableRow key={exchange.id}>
                         <TableCell className="font-mono">{exchange.quoteId}</TableCell>
                         <TableCell className="font-mono">2341-123-050</TableCell>
@@ -165,10 +193,27 @@ export function ExchangeVMI() {
                     ))}
                   </TableBody>
                 </Table>
+                {exchangeList.length > pageSize && (
+                  <div className="flex items-center justify-between pt-2 px-4 pb-2">
+                    <span className="text-sm text-gray-500">
+                      {tx('第', 'Page')} {safeExchangePage} / {exchangeTotalPages} {tx('页', '')}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" disabled={safeExchangePage <= 1} onClick={() => setExchangePage(p => Math.max(1, p - 1))}>
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" disabled={safeExchangePage >= exchangeTotalPages} onClick={() => setExchangePage(p => Math.min(exchangeTotalPages, p + 1))}>
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-12">
-                  {tx('暂无换件订单', 'No exchange orders')}
-                </p>
+                <div className="text-center py-12 text-gray-500">
+                  <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p className="text-sm">{tx('暂无换件订单', 'No exchange orders')}</p>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -264,19 +309,20 @@ export function ExchangeVMI() {
               ) : vmiError ? (
                 <p className="text-sm text-red-500">{vmiError}</p>
               ) : vmiAgreements && vmiAgreements.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{tx('客户', 'Customer')}</TableHead>
-                      <TableHead>{tx('件号', 'Part Number')}</TableHead>
-                      <TableHead>{tx('库存范围', 'Stock Range')}</TableHead>
-                      <TableHead>{tx('补货点', 'Reorder Point')}</TableHead>
-                      <TableHead>{tx('90天消耗', '90-Day Consumption')}</TableHead>
-                      <TableHead>{tx('状态', 'Status')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {vmiAgreements.map((vmi) => {
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{tx('客户', 'Customer')}</TableHead>
+                        <TableHead>{tx('件号', 'Part Number')}</TableHead>
+                        <TableHead>{tx('库存范围', 'Stock Range')}</TableHead>
+                        <TableHead>{tx('补货点', 'Reorder Point')}</TableHead>
+                        <TableHead>{tx('90天消耗', '90-Day Consumption')}</TableHead>
+                        <TableHead>{tx('状态', 'Status')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedVmiAgreements.map((vmi) => {
                       const totalConsumption = vmi.consumptionData.reduce((sum, c) => sum + c.quantity, 0);
                       return (
                         <TableRow key={vmi.id}>
@@ -295,10 +341,27 @@ export function ExchangeVMI() {
                     })}
                   </TableBody>
                 </Table>
+                {vmiList.length > pageSize && (
+                  <div className="flex items-center justify-between pt-2 px-4 pb-2">
+                    <span className="text-sm text-gray-500">
+                      {tx('第', 'Page')} {safeVmiPage} / {vmiTotalPages} {tx('页', '')}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" disabled={safeVmiPage <= 1} onClick={() => setVmiPage(p => Math.max(1, p - 1))}>
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" disabled={safeVmiPage >= vmiTotalPages} onClick={() => setVmiPage(p => Math.min(vmiTotalPages, p + 1))}>
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-12">
-                  {tx('暂无VMI协议', 'No VMI agreements')}
-                </p>
+                <div className="text-center py-12 text-gray-500">
+                  <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p className="text-sm">{tx('暂无VMI协议', 'No VMI agreements')}</p>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -319,8 +382,9 @@ export function ExchangeVMI() {
               ) : restockError ? (
                 <p className="text-sm text-red-500">{restockError}</p>
               ) : restockSuggestions && restockSuggestions.length > 0 ? (
-                <div className="space-y-3">
-                  {restockSuggestions.map((suggestion) => (
+                <>
+                  <div className="space-y-3">
+                    {paginatedRestockSuggestions.map((suggestion) => (
                     <div
                       key={suggestion.id}
                       className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg"
@@ -345,15 +409,16 @@ export function ExchangeVMI() {
                             {tx('预计到货', 'Expected arrival')}: {suggestion.expectedDeliveryDate}
                           </p>
                         </div>
-                        <Button size="sm" className="bg-[#64b5f6] hover:bg-[#42a5f5]">
+                        <Button size="sm" className="bg-brand-primary hover:bg-brand-primary-hover">
                           {tx('创建订单', 'Create Order')}
                         </Button>
                       </div>
                     </div>
                   ))}
                 </div>
+              </>
               ) : (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-12 text-gray-500">
                   <CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500" />
                   <p>{tx('所有VMI库存充足，无需补货。', 'All VMI stocks are sufficient. No restocking needed.')}</p>
                 </div>
@@ -365,7 +430,7 @@ export function ExchangeVMI() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-[#64b5f6]" />
+                <BarChart3 className="w-5 h-5 text-brand-primary" />
                 {tx('消耗趋势分析', 'Consumption Trend Analysis')}
               </CardTitle>
             </CardHeader>
@@ -385,10 +450,10 @@ export function ExchangeVMI() {
                         <span className="font-mono text-sm">{vmi.partNumber}</span>
                       </div>
                       <div className="flex items-end gap-1 h-24">
-                        {vmi.consumptionData.map((data, index) => (
+                        {(vmi.consumptionData || []).map((data, index) => (
                           <div key={index} className="flex-1 flex flex-col items-center">
                             <div
-                              className="w-full bg-[#64b5f6] rounded-t"
+                              className="w-full bg-brand-primary rounded-t"
                               style={{ height: `${(data.quantity / 20) * 100}%` }}
                             />
                             <span className="text-xs text-gray-500 mt-1">{data.month.slice(5)}</span>
@@ -402,9 +467,10 @@ export function ExchangeVMI() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-12">
-                  {tx('暂无消费数据', 'No consumption data')}
-                </p>
+                <div className="text-center py-12 text-gray-500">
+                  <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p className="text-sm">{tx('暂无消费数据', 'No consumption data')}</p>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -453,6 +519,11 @@ export function ExchangeVMI() {
               )}
             </div>
           )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDetailOpen(false)}>
+              {tx('关闭', 'Close')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

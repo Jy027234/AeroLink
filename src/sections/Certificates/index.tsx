@@ -548,8 +548,8 @@ function IssueCertificateDialog({
 export function Certificates() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [typeFilter, setTypeFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [partNumberSearch, setPartNumberSearch] = useState('');
   const [expiryWarningOnly, setExpiryWarningOnly] = useState(false);
   const [selectedCertificate, setSelectedCertificate] = useState<Certificate | null>(null);
@@ -557,8 +557,8 @@ export function Certificates() {
   const [isIssueOpen, setIsIssueOpen] = useState(false);
 
   const { data: certificates, loading, refetch } = useCertificates({
-    status: statusFilter || undefined,
-    certificateType: typeFilter || undefined,
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    certificateType: typeFilter === 'all' ? undefined : typeFilter,
     partNumber: partNumberSearch || undefined,
   });
 
@@ -600,7 +600,7 @@ export function Certificates() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -654,7 +654,7 @@ export function Certificates() {
             <SelectValue placeholder={tx('状态', 'Status')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">{tx('全部状态', 'All Statuses')}</SelectItem>
+            <SelectItem value="all">{tx('全部状态', 'All Statuses')}</SelectItem>
             <SelectItem value="ISSUED">{tx('已签发', 'Issued')}</SelectItem>
             <SelectItem value="REVOKED">{tx('已撤销', 'Revoked')}</SelectItem>
             <SelectItem value="EXPIRED">{tx('已过期', 'Expired')}</SelectItem>
@@ -666,7 +666,7 @@ export function Certificates() {
             <SelectValue placeholder={tx('证书类型', 'Certificate Type')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">{tx('全部类型', 'All Types')}</SelectItem>
+            <SelectItem value="all">{tx('全部类型', 'All Types')}</SelectItem>
             <SelectItem value="AAC-038">AAC-038</SelectItem>
             <SelectItem value="FAA-8130-3">FAA 8130-3</SelectItem>
             <SelectItem value="EASA-Form-1">EASA Form 1</SelectItem>

@@ -71,6 +71,23 @@ const actionLabelMap: Record<string, { zh: string; en: string }> = {
   REJECT: { zh: '拒绝', en: 'Reject' },
 };
 
+const resourceLabelMap: Record<string, { zh: string; en: string }> = {
+  RFQ: { zh: '需求单', en: 'RFQ' },
+  QUOTATION: { zh: '报价单', en: 'Quotation' },
+  ORDER: { zh: '订单', en: 'Order' },
+  INVENTORY: { zh: '库存', en: 'Inventory' },
+  CUSTOMER: { zh: '客户', en: 'Customer' },
+  SUPPLIER: { zh: '供应商', en: 'Supplier' },
+  CERTIFICATE: { zh: '证书', en: 'Certificate' },
+  SETTINGS: { zh: '设置', en: 'Settings' },
+  WORKFLOW: { zh: '工作流', en: 'Workflow' },
+};
+
+const statusLabelMap: Record<string, { zh: string; en: string }> = {
+  SUCCESS: { zh: '成功', en: 'Success' },
+  FAILURE: { zh: '失败', en: 'Failure' },
+};
+
 function ActionBadge({ action }: { action: string }) {
   const { locale } = useTranslation();
   const config = actionColorMap[action] || { bg: 'bg-gray-50', text: 'text-gray-700' };
@@ -146,9 +163,9 @@ export default function AuditLogs() {
   const [totalPages, setTotalPages] = useState(1);
 
   const [filters, setFilters] = useState({
-    action: '',
-    resourceType: '',
-    status: '',
+    action: 'all',
+    resourceType: 'all',
+    status: 'all',
     userId: '',
     startDate: '',
     endDate: '',
@@ -165,9 +182,9 @@ export default function AuditLogs() {
         auditLogApi.getAll({
           page,
           limit,
-          ...(filters.action ? { action: filters.action } : {}),
-          ...(filters.resourceType ? { resourceType: filters.resourceType } : {}),
-          ...(filters.status ? { status: filters.status } : {}),
+          ...(filters.action && filters.action !== 'all' ? { action: filters.action } : {}),
+          ...(filters.resourceType && filters.resourceType !== 'all' ? { resourceType: filters.resourceType } : {}),
+          ...(filters.status && filters.status !== 'all' ? { status: filters.status } : {}),
           ...(filters.userId ? { userId: filters.userId } : {}),
           ...(filters.startDate ? { startDate: filters.startDate } : {}),
           ...(filters.endDate ? { endDate: filters.endDate } : {}),
@@ -198,9 +215,9 @@ export default function AuditLogs() {
 
   const clearFilters = () => {
     setFilters({
-      action: '',
-      resourceType: '',
-      status: '',
+      action: 'all',
+      resourceType: 'all',
+      status: 'all',
       userId: '',
       startDate: '',
       endDate: '',
@@ -210,7 +227,7 @@ export default function AuditLogs() {
   };
 
   const hasFilters = useMemo(
-    () => Object.values(filters).some((v) => v !== ''),
+    () => Object.values(filters).some((v) => v !== '' && v !== 'all'),
     [filters]
   );
 
@@ -301,9 +318,9 @@ export default function AuditLogs() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.topUsers.length}</div>
+              <div className="text-2xl font-bold">{stats.topUsers?.length ?? 0}</div>
               <div className="text-xs text-muted-foreground mt-1">
-                {stats.topUsers.slice(0, 3).map((u) => u.userName || tx('系统', 'System')).join(', ')}
+                {stats.topUsers?.slice(0, 3).map((u) => u.userName || tx('系统', 'System')).join(', ')}
               </div>
             </CardContent>
           </Card>
@@ -315,9 +332,9 @@ export default function AuditLogs() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.topResourceTypes.length}</div>
+              <div className="text-2xl font-bold">{stats.topResourceTypes?.length ?? 0}</div>
               <div className="text-xs text-muted-foreground mt-1">
-                {stats.topResourceTypes.slice(0, 3).map((r) => r.resourceType).join(', ')}
+                {stats.topResourceTypes?.slice(0, 3).map((r) => r.resourceType).join(', ')}
               </div>
             </CardContent>
           </Card>
@@ -347,10 +364,15 @@ export default function AuditLogs() {
                   <SelectValue placeholder={tx('全部', 'All')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{tx('全部', 'All')}</SelectItem>
-                  {ACTION_OPTIONS.map((a) => (
-                    <SelectItem key={a} value={a}>{a}</SelectItem>
-                  ))}
+                  <SelectItem value="all">{tx('全部', 'All')}</SelectItem>
+                  {ACTION_OPTIONS.map((a) => {
+                    const label = actionLabelMap[a];
+                    return (
+                      <SelectItem key={a} value={a}>
+                        {label ? (locale === 'zh-CN' ? label.zh : label.en) : a}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -361,10 +383,15 @@ export default function AuditLogs() {
                   <SelectValue placeholder={tx('全部', 'All')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{tx('全部', 'All')}</SelectItem>
-                  {RESOURCE_OPTIONS.map((r) => (
-                    <SelectItem key={r} value={r}>{r}</SelectItem>
-                  ))}
+                  <SelectItem value="all">{tx('全部', 'All')}</SelectItem>
+                  {RESOURCE_OPTIONS.map((r) => {
+                    const label = resourceLabelMap[r];
+                    return (
+                      <SelectItem key={r} value={r}>
+                        {label ? (locale === 'zh-CN' ? label.zh : label.en) : r}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -375,10 +402,15 @@ export default function AuditLogs() {
                   <SelectValue placeholder={tx('全部', 'All')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{tx('全部', 'All')}</SelectItem>
-                  {STATUS_OPTIONS.map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                  ))}
+                  <SelectItem value="all">{tx('全部', 'All')}</SelectItem>
+                  {STATUS_OPTIONS.map((s) => {
+                    const label = statusLabelMap[s];
+                    return (
+                      <SelectItem key={s} value={s}>
+                        {label ? (locale === 'zh-CN' ? label.zh : label.en) : s}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>

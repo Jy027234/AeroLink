@@ -25,6 +25,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -42,6 +49,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Loader2, MoreHorizontal, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface EndpointFormState {
   name: string;
@@ -99,7 +116,7 @@ export function WebhookManagementPanel() {
 
   const [form, setForm] = useState<EndpointFormState>(initialForm);
   const [editId, setEditId] = useState<string | null>(null);
-  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState('');
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState('all');
   const [deliveryLimit] = useState(20);
   const [deliveryOffset, setDeliveryOffset] = useState(0);
   const [deliveryTotal, setDeliveryTotal] = useState(0);
@@ -117,6 +134,8 @@ export function WebhookManagementPanel() {
   const [testPayloadText, setTestPayloadText] = useState('');
   const [templates, setTemplates] = useState<PayloadTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [deleteEndpointId, setDeleteEndpointId] = useState<string | null>(null);
+  const [deleteTemplateId, setDeleteTemplateId] = useState<string | null>(null);
   const selectedTemplate = useMemo(
     () => templates.find((tpl) => tpl.id === selectedTemplateId) ?? null,
     [templates, selectedTemplateId]
@@ -149,7 +168,7 @@ export function WebhookManagementPanel() {
         inboundWebhookApi.listDeliveries({
           limit: deliveryLimit,
           offset: deliveryOffset,
-          status: deliveryStatusFilter || undefined,
+          status: deliveryStatusFilter === 'all' ? undefined : deliveryStatusFilter,
         }),
         inboundWebhookApi.listAudit({
           limit: auditLimit,
@@ -252,14 +271,15 @@ export function WebhookManagementPanel() {
   };
 
   const onDelete = async (id: string) => {
-    if (!window.confirm(tx('确认删除该端点？', 'Delete this endpoint?'))) {
-      return;
-    }
+    setDeleteEndpointId(id);
+  };
 
-    setActionLoadingId(id);
+  const confirmDeleteEndpoint = async () => {
+    if (!deleteEndpointId) return;
+    setActionLoadingId(deleteEndpointId);
     try {
-      await inboundWebhookApi.deleteEndpoint(id);
-      if (editId === id) {
+      await inboundWebhookApi.deleteEndpoint(deleteEndpointId);
+      if (editId === deleteEndpointId) {
         setEditId(null);
         setForm(initialForm);
       }
@@ -269,6 +289,7 @@ export function WebhookManagementPanel() {
       toast.error(tx('删除端点失败', 'Failed to delete endpoint'));
     } finally {
       setActionLoadingId(null);
+      setDeleteEndpointId(null);
     }
   };
 
@@ -328,18 +349,17 @@ export function WebhookManagementPanel() {
   };
 
   const deleteTemplateById = (id: string) => {
-    const target = templates.find((tpl) => tpl.id === id);
-    if (!target) {
-      return;
-    }
-    if (!window.confirm(tx(`确认删除模板「${target.name}」？`, `Delete template "${target.name}"?`))) {
-      return;
-    }
-    const next = templates.filter((tpl) => tpl.id !== id);
+    setDeleteTemplateId(id);
+  };
+
+  const confirmDeleteTemplate = () => {
+    if (!deleteTemplateId) return;
+    const next = templates.filter((tpl) => tpl.id !== deleteTemplateId);
     persistTemplates(next);
-    if (selectedTemplateId === id) {
+    if (selectedTemplateId === deleteTemplateId) {
       setSelectedTemplateId('');
     }
+    setDeleteTemplateId(null);
   };
 
   const onSendTest = async () => {
@@ -660,18 +680,22 @@ export function WebhookManagementPanel() {
               <CardDescription>
                 <div className="flex items-center gap-2">
                   <span>{tx('状态筛选', 'Status Filter')}</span>
-                  <select
-                    className="h-8 w-40 rounded-md border border-input bg-background px-2 text-sm"
+                  <Select
                     value={deliveryStatusFilter}
-                    onChange={(e) => {
+                    onValueChange={(v) => {
                       setDeliveryOffset(0);
-                      setDeliveryStatusFilter(e.target.value);
+                      setDeliveryStatusFilter(v);
                     }}
                   >
-                    <option value="">{tx('全部', 'All')}</option>
-                    <option value="success">success</option>
-                    <option value="failed">failed</option>
-                  </select>
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder={tx('全部', 'All')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{tx('全部', 'All')}</SelectItem>
+                      <SelectItem value="success">success</SelectItem>
+                      <SelectItem value="failed">failed</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Button size="sm" variant="outline" onClick={exportDeliveriesCsv}>{tx('导出 CSV', 'Export CSV')}</Button>
                 </div>
               </CardDescription>
@@ -877,6 +901,36 @@ export function WebhookManagementPanel() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <AlertDialog open={!!deleteEndpointId} onOpenChange={(open) => { if (!open) setDeleteEndpointId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx('确定要删除该端点吗？此操作不可撤销。', 'Are you sure you want to delete this endpoint? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteEndpointId(null)}>{tx('取消', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteEndpoint}>{tx('删除', 'Delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteTemplateId} onOpenChange={(open) => { if (!open) setDeleteTemplateId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx('确定要删除此模板吗？此操作不可撤销。', 'Are you sure you want to delete this template? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTemplateId(null)}>{tx('取消', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteTemplate}>{tx('删除', 'Delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={testDialogOpen} onOpenChange={setTestDialogOpen}>
         <DialogContent className="max-w-2xl">

@@ -50,11 +50,11 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#0a192f] via-[#1e3a5f] to-[#0a192f]">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-sidebar via-brand-sidebar-hover to-brand-sidebar">
       {/* 背景装饰 */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-20 left-20 w-72 h-72 bg-[#64b5f6]/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-20 right-20 w-96 h-96 bg-[#64b5f6]/5 rounded-full blur-3xl" />
+        <div className="absolute top-20 left-20 w-72 h-72 bg-brand-primary/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-20 right-20 w-96 h-96 bg-brand-primary/5 rounded-full blur-3xl" />
       </div>
 
       {/* 登录卡片 */}
@@ -84,7 +84,7 @@ export function Login() {
 
           {/* Logo */}
           <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-gradient-to-br from-[#64b5f6] to-[#42a5f5] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <div className="w-20 h-20 bg-gradient-to-br from-brand-primary to-brand-primary-hover rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
               <Plane className="w-10 h-10 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900">{t('app.name')}</h1>
@@ -106,6 +106,7 @@ export function Login() {
                 <Input
                   id="email"
                   type="email"
+                  autoComplete="username"
                   placeholder={t('auth.email')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -121,6 +122,7 @@ export function Login() {
                 <Input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
                   placeholder={t('auth.password')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -147,14 +149,14 @@ export function Login() {
                   {t('auth.rememberMe')}
                 </Label>
               </div>
-              <button type="button" className="text-sm text-[#64b5f6] hover:underline">
+              <button type="button" className="text-sm text-brand-primary hover:underline">
                 {t('auth.forgotPassword')}
               </button>
             </div>
 
             <Button
               type="submit"
-              className="w-full h-12 bg-[#64b5f6] hover:bg-[#42a5f5] text-lg font-medium"
+              className="w-full h-12 bg-brand-primary hover:bg-brand-primary-hover text-lg font-medium"
               disabled={isLoading}
             >
               {isLoading ? (

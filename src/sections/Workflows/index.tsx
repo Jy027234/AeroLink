@@ -43,6 +43,16 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -304,7 +314,7 @@ function DefinitionDialog({
           <Button variant="outline" onClick={onClose}>
             {tx('取消', 'Cancel')}
           </Button>
-          <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={handleSubmit} disabled={loading}>
+          <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={handleSubmit} disabled={loading}>
             {loading && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
             {tx('保存', 'Save')}
           </Button>
@@ -338,7 +348,7 @@ function InstanceDetailDialog({
 
         {loading && (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-[#64b5f6]" />
+            <Loader2 className="w-6 h-6 animate-spin text-brand-primary" />
           </div>
         )}
 
@@ -607,7 +617,7 @@ function ActionDialog({
             className={cn(
               actionType === 'approve' && 'bg-green-500 hover:bg-green-600',
               actionType === 'reject' && 'bg-red-500 hover:bg-red-600',
-              actionType === 'transfer' && 'bg-[#64b5f6] hover:bg-[#42a5f5]'
+              actionType === 'transfer' && 'bg-brand-primary hover:bg-brand-primary-hover'
             )}
             onClick={handleSubmit}
             disabled={loading}
@@ -630,7 +640,7 @@ export default function Workflows() {
   const [activeTab, setActiveTab] = useState('definitions');
 
   // Definitions state
-  const [defFilter, setDefFilter] = useState({ entityType: '', isActive: '' });
+  const [defFilter, setDefFilter] = useState({ entityType: 'all', isActive: 'all' });
   const [defSearch, setDefSearch] = useState('');
   const [defDialogOpen, setDefDialogOpen] = useState(false);
   const [editingDefinition, setEditingDefinition] = useState<WorkflowDefinition | null>(null);
@@ -640,23 +650,23 @@ export default function Workflows() {
     loading: definitionsLoading,
     refetch: refetchDefinitions,
   } = useWorkflowDefinitions({
-    entityType: defFilter.entityType || undefined,
-    isActive: defFilter.isActive === '' ? undefined : defFilter.isActive === 'true',
+    entityType: defFilter.entityType === 'all' ? undefined : defFilter.entityType,
+    isActive: defFilter.isActive === 'all' ? undefined : defFilter.isActive === 'true',
   });
 
   const { duplicate, loading: duplicateLoading } = useDuplicateWorkflowDefinition();
   const { deleteDefinition, loading: deleteLoading } = useDeleteWorkflowDefinition();
 
   // Instances state
-  const [instFilter, setInstFilter] = useState({ entityType: '', entityId: '', status: '' });
+  const [instFilter, setInstFilter] = useState({ entityType: 'all', entityId: '', status: 'all' });
   const [instPage, setInstPage] = useState(1);
   const [instanceDetailId, setInstanceDetailId] = useState<string | null>(null);
   const [instanceDetailOpen, setInstanceDetailOpen] = useState(false);
 
   const { data: instancesData, loading: instancesLoading } = useWorkflowInstances({
-    entityType: instFilter.entityType || undefined,
+    entityType: instFilter.entityType === 'all' ? undefined : instFilter.entityType,
     entityId: instFilter.entityId || undefined,
-    status: instFilter.status || undefined,
+    status: instFilter.status === 'all' ? undefined : instFilter.status,
     page: instPage,
     limit: 20,
   });
@@ -666,6 +676,7 @@ export default function Workflows() {
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
   const [actionTask, setActionTask] = useState<WorkflowInstanceStep | null>(null);
   const [actionType, setActionType] = useState<'approve' | 'reject' | 'transfer' | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const filteredDefinitions = (definitionsData || []).filter((d) => {
     if (!defSearch) return true;
@@ -685,14 +696,20 @@ export default function Workflows() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm(tx('确定删除此工作流定义？', 'Are you sure you want to delete this workflow definition?'))) return;
+    setDeleteTargetId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
     try {
-      await deleteDefinition(id);
+      await deleteDefinition(deleteTargetId);
       toast.success(tx('删除成功', 'Deleted successfully'));
       refetchDefinitions();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '删除失败';
       toast.error(message);
+    } finally {
+      setDeleteTargetId(null);
     }
   };
 
@@ -752,7 +769,7 @@ export default function Workflows() {
                       <SelectValue placeholder={tx('实体类型', 'Entity Type')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">{tx('全部', 'All')}</SelectItem>
+                      <SelectItem value="all">{tx('全部', 'All')}</SelectItem>
                       {entityTypeOptions.map((o) => (
                         <SelectItem key={o.value} value={o.value}>
                           {o.label}
@@ -765,14 +782,14 @@ export default function Workflows() {
                       <SelectValue placeholder={tx('状态', 'Status')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">{tx('全部', 'All')}</SelectItem>
+                      <SelectItem value="all">{tx('全部', 'All')}</SelectItem>
                       <SelectItem value="true">{tx('启用', 'Active')}</SelectItem>
                       <SelectItem value="false">{tx('禁用', 'Inactive')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <Button
-                  className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+                  className="bg-brand-primary hover:bg-brand-primary-hover"
                   onClick={() => {
                     setEditingDefinition(null);
                     setDefDialogOpen(true);
@@ -803,7 +820,7 @@ export default function Workflows() {
                   {definitionsLoading && (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center py-8">
-                        <Loader2 className="w-5 h-5 animate-spin mx-auto text-[#64b5f6]" />
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto text-brand-primary" />
                       </TableCell>
                     </TableRow>
                   )}
@@ -891,7 +908,7 @@ export default function Workflows() {
                       <SelectValue placeholder={tx('实体类型', 'Entity Type')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">{tx('全部', 'All')}</SelectItem>
+                      <SelectItem value="all">{tx('全部', 'All')}</SelectItem>
                       {entityTypeOptions.map((o) => (
                         <SelectItem key={o.value} value={o.value}>
                           {o.label}
@@ -913,7 +930,7 @@ export default function Workflows() {
                       <SelectValue placeholder={tx('状态', 'Status')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">{tx('全部', 'All')}</SelectItem>
+                      <SelectItem value="all">{tx('全部', 'All')}</SelectItem>
                       <SelectItem value="RUNNING">{tx('进行中', 'Running')}</SelectItem>
                       <SelectItem value="COMPLETED">{tx('已完成', 'Completed')}</SelectItem>
                       <SelectItem value="REJECTED">{tx('已驳回', 'Rejected')}</SelectItem>
@@ -944,7 +961,7 @@ export default function Workflows() {
                   {instancesLoading && (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center py-8">
-                        <Loader2 className="w-5 h-5 animate-spin mx-auto text-[#64b5f6]" />
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto text-brand-primary" />
                       </TableCell>
                     </TableRow>
                   )}
@@ -955,7 +972,7 @@ export default function Workflows() {
                       </TableCell>
                     </TableRow>
                   )}
-                  {instancesData?.data.map((inst) => {
+                  {instancesData?.data?.map((inst) => {
                     const currentStep = inst.steps?.find((s) => s.status === 'IN_PROGRESS');
                     const context = (() => {
                       try {
@@ -1060,7 +1077,7 @@ export default function Workflows() {
                   {tasksLoading && (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-8">
-                        <Loader2 className="w-5 h-5 animate-spin mx-auto text-[#64b5f6]" />
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto text-brand-primary" />
                       </TableCell>
                     </TableRow>
                   )}
@@ -1164,6 +1181,21 @@ export default function Workflows() {
           }
         }}
       />
+
+      <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx('确定要删除此工作流定义吗？此操作不可撤销。', 'Are you sure you want to delete this workflow definition? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTargetId(null)}>{tx('取消', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>{tx('删除', 'Delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

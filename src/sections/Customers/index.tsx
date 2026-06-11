@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Users,
   User,
@@ -19,6 +19,8 @@ import {
   FileText,
   Package,
   Plane,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,6 +56,7 @@ import {
 import { useCustomers, useQuotations, customerApi } from '@/hooks/useApi';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import type { Customer, CustomerContact, CompetitorListing, BuyerType } from '@/types';
 
 type CustomerStatus = Customer['status'];
@@ -492,7 +495,7 @@ function CustomerFormDialog({
       onSave();
       onClose();
     } catch {
-      alert(t('customers.saveFailed'));
+      toast.error(t('customers.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -998,12 +1001,15 @@ export function Customers() {
   const { data: customers, loading: customersLoading, refetch: refetchCustomers } = useCustomers();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
 
   const customersList = customers || [];
   const { t, locale } = useTranslation();
+  const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const dateLocale = locale === 'en' ? 'en-US' : 'zh-CN';
 
   const filteredCustomers = customersList.filter((customer) => {
@@ -1014,6 +1020,14 @@ export function Customers() {
     if (activeTab === 'all') return true;
     return customer.status === activeTab;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedCustomers = filteredCustomers.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, activeTab]);
 
   const stats = {
     total: customersList.length,
@@ -1041,7 +1055,7 @@ export function Customers() {
   if (customersLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{t('customers.loading')}</span>
       </div>
     );
@@ -1109,7 +1123,7 @@ export function Customers() {
             />
           </div>
         </div>
-        <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={handleAddNew}>
+        <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={handleAddNew}>
           <Plus className="w-4 h-4 mr-1" />
           {t('customers.addCustomer')}
         </Button>
@@ -1148,7 +1162,7 @@ export function Customers() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredCustomers.map((customer) => (
+                    paginatedCustomers.map((customer) => (
                       <TableRow key={customer.id} className="hover:bg-gray-50">
                         <TableCell className="font-medium">
                           <div className="flex flex-col">
@@ -1201,6 +1215,21 @@ export function Customers() {
                   )}
                 </TableBody>
               </Table>
+              {filteredCustomers.length > pageSize && (
+                <div className="flex items-center justify-between pt-2 px-4 pb-2">
+                  <span className="text-sm text-gray-500">
+                    {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={safePage >= totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

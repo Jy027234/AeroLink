@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Edit3, Loader2, Mail, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
+import { Check, Edit3, Loader2, Mail, Plus, RefreshCw, Save, Trash2, X, Inbox } from 'lucide-react';
 import { emailAccountApi } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,9 +12,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -24,6 +41,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useTranslation } from '@/i18n';
+import { toast } from 'sonner';
 import type { EmailAccount, EmailAccountFormData } from './types';
 
 export function EmailSettings() {
@@ -34,6 +52,7 @@ export function EmailSettings() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<EmailAccount | null>(null);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadAccounts();
@@ -57,24 +76,30 @@ export function EmailSettings() {
       } else {
         await emailAccountApi.create(formData);
       }
-      alert(editingAccount ? tx('邮箱账户已更新。', 'Account updated.') : tx('邮箱账户已添加。', 'Account added.'));
+      toast.success(editingAccount ? tx('邮箱账户已更新。', 'Account updated.') : tx('邮箱账户已添加。', 'Account added.'));
       setIsDialogOpen(false);
       setEditingAccount(null);
       await loadAccounts();
     } catch (error) {
       console.error('Save failed:', error);
-      alert(tx('保存失败。', 'Save failed.'));
+      toast.error(tx('保存失败。', 'Save failed.'));
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm(tx('确定要删除此邮箱账户吗？', 'Are you sure you want to delete this email account?'))) return;
+    setDeleteTargetId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
     try {
-      await emailAccountApi.delete(id);
-      alert(tx('邮箱账户已删除。', 'Account deleted.'));
+      await emailAccountApi.delete(deleteTargetId);
+      toast.success(tx('邮箱账户已删除。', 'Account deleted.'));
       await loadAccounts();
     } catch (error) {
       console.error('Delete failed:', error);
+    } finally {
+      setDeleteTargetId(null);
     }
   };
 
@@ -82,7 +107,7 @@ export function EmailSettings() {
     setSyncingIds((previous) => new Set(previous).add(id));
     try {
       await emailAccountApi.sync(id);
-      alert(tx('已触发同步。', 'Sync triggered.'));
+      toast.info(tx('已触发同步。', 'Sync triggered.'));
       await loadAccounts();
     } catch (error) {
       console.error('Sync failed:', error);
@@ -137,7 +162,8 @@ export function EmailSettings() {
               <TableBody>
                 {accounts.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={6} className="text-center py-12 text-gray-500">
+                    <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                       {tx('暂无邮箱账户，请点击上方按钮添加。', 'No email accounts yet. Click the button above to add one.')}
                     </TableCell>
                   </TableRow>
@@ -220,7 +246,7 @@ export function EmailSettings() {
           )}
 
           <Button
-            className="mt-4 bg-[#64b5f6] hover:bg-[#42a5f5]"
+            className="mt-4 bg-brand-primary hover:bg-brand-primary-hover"
             onClick={() => {
               setEditingAccount(null);
               setIsDialogOpen(true);
@@ -242,6 +268,21 @@ export function EmailSettings() {
         onSave={handleSave}
         account={editingAccount}
       />
+
+      <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx('确定要删除此邮箱账户吗？此操作不可撤销。', 'Are you sure you want to delete this email account? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTargetId(null)}>{tx('取消', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>{tx('删除', 'Delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -277,7 +318,7 @@ function EmailAccountDialog({
 
   const handleSubmit = async () => {
     if (!formData.email || !formData.authCode) {
-      alert(tx('请填写邮箱地址和授权码。', 'Please fill in email address and authorization code.'));
+      toast.error(tx('请填写邮箱地址和授权码。', 'Please fill in email address and authorization code.'));
       return;
     }
     setIsSaving(true);
@@ -303,11 +344,9 @@ function EmailAccountDialog({
 
           <div className="space-y-2">
             <Label>{tx('邮箱类型', 'Email Type')}</Label>
-            <select
-              className="w-full h-10 px-3 border rounded-md"
+            <Select
               value={formData.accountType}
-              onChange={(event) => {
-                const type = event.target.value;
+              onValueChange={(type) => {
                 if (type === '163') {
                   setFormData({
                     ...formData,
@@ -327,12 +366,17 @@ function EmailAccountDialog({
                 }
               }}
             >
-              <option value="163">{tx('网易邮箱 (163/126/yeah.net)', 'NetEase (163/126/yeah.net)')}</option>
-              <option value="qq">{tx('QQ邮箱', 'QQ Mail')}</option>
-              <option value="gmail">Gmail</option>
-              <option value="outlook">Outlook</option>
-              <option value="custom">{tx('自定义', 'Custom')}</option>
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={tx('请选择邮箱类型', 'Select email type')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="163">{tx('网易邮箱 (163/126/yeah.net)', 'NetEase (163/126/yeah.net)')}</SelectItem>
+                <SelectItem value="qq">{tx('QQ邮箱', 'QQ Mail')}</SelectItem>
+                <SelectItem value="gmail">Gmail</SelectItem>
+                <SelectItem value="outlook">Outlook</SelectItem>
+                <SelectItem value="custom">{tx('自定义', 'Custom')}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
@@ -426,7 +470,7 @@ function EmailAccountDialog({
             {tx('取消', 'Cancel')}
           </Button>
           <Button
-            className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+            className="bg-brand-primary hover:bg-brand-primary-hover"
             onClick={handleSubmit}
             disabled={isSaving}
           >

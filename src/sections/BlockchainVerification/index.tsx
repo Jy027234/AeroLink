@@ -51,7 +51,7 @@ export function BlockchainVerification() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Shield className="w-7 h-7 text-[#64b5f6]" />
+          <Shield className="w-7 h-7 text-brand-primary" />
           {tx('区块链证书存证', 'Blockchain Certificate Storage')}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -77,7 +77,7 @@ export function BlockchainVerification() {
               />
             </div>
             <Button
-              className="bg-[#64b5f6] hover:bg-[#42a5f5] h-10"
+              className="bg-brand-primary hover:bg-brand-primary-hover h-10"
               onClick={handleVerify}
               disabled={loading}
             >
@@ -142,7 +142,7 @@ export function BlockchainVerification() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Link className="w-5 h-5 text-[#64b5f6]" />
+                  <Link className="w-5 h-5 text-brand-primary" />
                   {tx('区块详情', 'Block Details')}
                 </CardTitle>
               </CardHeader>

@@ -117,7 +117,7 @@ export function WorkflowBuilder({ steps, onChange }: WorkflowBuilderProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <Label className="text-sm font-medium">{tx('流程步骤', 'Workflow Steps')}</Label>
-        <Button type="button" size="sm" className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={addStep}>
+        <Button type="button" size="sm" className="bg-brand-primary hover:bg-brand-primary-hover" onClick={addStep}>
           <Plus className="w-4 h-4 mr-1" />
           {tx('添加步骤', 'Add Step')}
         </Button>
@@ -136,7 +136,7 @@ export function WorkflowBuilder({ steps, onChange }: WorkflowBuilderProps) {
           const isExpanded = expandedIndex === index;
 
           return (
-            <Card key={index} className={cn('border', isExpanded && 'border-[#64b5f6]')}> 
+            <Card key={index} className={cn('border', isExpanded && 'border-brand-primary')}> 
               <CardContent className="p-3">
                 <div className="flex items-center gap-2">
                   <GripVertical className="w-4 h-4 text-gray-300 cursor-grab" />

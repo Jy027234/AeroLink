@@ -1024,3 +1024,58 @@ export const mockSupplierInventoryUploads = [
     status: 'completed',
   },
 ];
+
+// Pricing BI mock data
+export const mockPricingSummary = {
+  avgMargin: 28.5,
+  marginTrend: 2.3,
+  priceCompetitiveness: 76,
+  competitivenessTrend: -1.5,
+  pendingSuggestions: 12,
+  potentialUpside: 158000,
+  totalQuotes: 156,
+  wonDeals: 89,
+  lostDeals: 23,
+  winRate: 56.9,
+};
+
+export const mockPricingSuggestions = [
+  {
+    id: 'ps001',
+    partNumber: '2341-123-050',
+    description: '市场需求上升，建议上调价格',
+    currentPrice: 1950,
+    suggestedPrice: 2150,
+    priceDiff: 10.3,
+    demandTrend: 'up',
+    daysOfStock: 15,
+  },
+  {
+    id: 'ps002',
+    partNumber: '3214-567-100',
+    description: '库存充足，建议保持当前价格',
+    currentPrice: 2400,
+    suggestedPrice: 2400,
+    priceDiff: 0,
+    demandTrend: 'stable',
+    daysOfStock: 68,
+  },
+  {
+    id: 'ps003',
+    partNumber: '4567-890-001',
+    description: '需求下滑，建议适度降价促成交',
+    currentPrice: 15500,
+    suggestedPrice: 14800,
+    priceDiff: -4.5,
+    demandTrend: 'down',
+    daysOfStock: 92,
+  },
+];
+
+export const mockPricingFactorWeights = [
+  { name: '市场供需', weight: 35 },
+  { name: '库存周转', weight: 25 },
+  { name: '客户历史成交', weight: 20 },
+  { name: '证书完整性', weight: 12 },
+  { name: '交货周期', weight: 8 },
+];

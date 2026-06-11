@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Truck,
   Star,
@@ -16,6 +16,7 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Wrench,
   FlaskConical,
   ShieldCheck,
@@ -26,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
   TableBody,
@@ -45,7 +47,13 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Collapsible,
   CollapsibleContent,
@@ -269,7 +277,7 @@ function SupplierDetailDialog({ supplier, isOpen, onClose }: { supplier: Supplie
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-500">Performance Score</p>
-                <p className="text-3xl font-bold text-[#64b5f6]">{supplier.performanceScore}</p>
+                <p className="text-3xl font-bold text-brand-primary">{supplier.performanceScore}</p>
               </div>
             </div>
 
@@ -328,7 +336,7 @@ function SupplierDetailDialog({ supplier, isOpen, onClose }: { supplier: Supplie
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-gray-500">{tx('资料完整度', 'Profile completeness')}</p>
-                  <p className="text-3xl font-bold text-[#64b5f6]">{capability.profileCompleteness}%</p>
+                  <p className="text-3xl font-bold text-brand-primary">{capability.profileCompleteness}%</p>
                 </div>
               </div>
               <p className="mt-3 text-sm text-slate-600">{getNextActionText(capability.nextAction, tx)}</p>
@@ -733,6 +741,8 @@ export function Suppliers() {
   const [formLoading, setFormLoading] = useState(false);
   const [formTab, setFormTab] = useState('basic');
   const [createForm, setCreateForm] = useState({ ...emptyForm });
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   const suppliersList = suppliers || [];
   const capabilityProfiles = suppliersList.map(getSupplierCapabilityProfile);
@@ -784,6 +794,14 @@ export function Suppliers() {
 
     return rightTime - leftTime;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredSuppliers.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedSuppliers = filteredSuppliers.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, activeTab, followUpFilter]);
 
   // Stats
   const stats = {
@@ -852,7 +870,7 @@ export function Suppliers() {
   if (suppliersLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -906,7 +924,7 @@ export function Suppliers() {
           <CardContent className="p-3 flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-500">{tx('平均评分', 'Average Score')}</p>
-              <p className="text-xl font-bold text-[#64b5f6]">{stats.avgScore}</p>
+              <p className="text-xl font-bold text-brand-primary">{stats.avgScore}</p>
             </div>
           </CardContent>
         </Card>
@@ -1003,7 +1021,7 @@ export function Suppliers() {
             {tx(`已承诺报价 (${followUpSummaryCounts.quotePromised})`, `Quote promised (${followUpSummaryCounts.quotePromised})`)}
           </Button>
         </div>
-        <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={() => handleOpenCreate()}>
+        <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => handleOpenCreate()}>
           <Plus className="w-4 h-4 mr-1" />
           {tx('新增供应商', 'Add Supplier')}
         </Button>
@@ -1025,18 +1043,18 @@ export function Suppliers() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Supplier Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead>Level</TableHead>
-                    <TableHead>Score</TableHead>
+                    <TableHead>{tx('供应商名称', 'Supplier Name')}</TableHead>
+                    <TableHead>{tx('类型', 'Type')}</TableHead>
+                    <TableHead>{tx('联系人', 'Contact')}</TableHead>
+                    <TableHead>{tx('等级', 'Level')}</TableHead>
+                    <TableHead>{tx('评分', 'Score')}</TableHead>
                     <TableHead>{tx('资质预警', 'Qualification Alert')}</TableHead>
                     <TableHead>{tx('供应能力', 'Capabilities')}</TableHead>
                     <TableHead>{tx('询价链路', 'Inquiry flow')}</TableHead>
-                    <TableHead>Payment Terms</TableHead>
-                    <TableHead>Lead Time</TableHead>
+                    <TableHead>{tx('付款条款', 'Payment Terms')}</TableHead>
+                    <TableHead>{tx('交期', 'Lead Time')}</TableHead>
                     <TableHead>{tx('最近跟进', 'Latest follow-up')}</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead>{tx('操作', 'Actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1044,11 +1062,11 @@ export function Suppliers() {
                     <TableRow>
                       <TableCell colSpan={12} className="text-center py-12 text-gray-500">
                         <Truck className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                        <p>No suppliers found</p>
+                        <p>{tx('未找到供应商', 'No suppliers found')}</p>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredSuppliers.map((supplier) => {
+                    paginatedSuppliers.map((supplier) => {
                       const capability = getSupplierCapabilityProfile(supplier);
                       const latestFollowUpLog = latestFollowUpBySupplierId[supplier.id];
                       const expiryWarning = getExpiryWarningColor(supplier.qualityApprovalExpiry);
@@ -1187,6 +1205,21 @@ export function Suppliers() {
                   )}
                 </TableBody>
               </Table>
+              {filteredSuppliers.length > pageSize && (
+                <div className="flex items-center justify-between pt-2 px-4 pb-2">
+                  <span className="text-sm text-gray-500">
+                    {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={safePage >= totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1270,30 +1303,38 @@ export function Suppliers() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label>{tx('供应商等级', 'Supplier level')}</Label>
-                  <select
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  <Select
                     value={createForm.level}
-                    onChange={(e) => updateForm('level', e.target.value as Supplier['level'])}
+                    onValueChange={(value) => updateForm('level', value as Supplier['level'])}
                   >
-                    <option value="S">{tx('战略合作', 'Strategic')}</option>
-                    <option value="A">{tx('合格供应商', 'Qualified')}</option>
-                    <option value="B">{tx('谨慎使用', 'Caution')}</option>
-                    <option value="C">{tx('黑名单', 'Blacklisted')}</option>
-                  </select>
+                    <SelectTrigger className="h-10 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="S">{tx('战略合作', 'Strategic')}</SelectItem>
+                      <SelectItem value="A">{tx('合格供应商', 'Qualified')}</SelectItem>
+                      <SelectItem value="B">{tx('谨慎使用', 'Caution')}</SelectItem>
+                      <SelectItem value="C">{tx('黑名单', 'Blacklisted')}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label>{tx('供应商类型', 'Supplier type')}</Label>
-                  <select
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  <Select
                     value={createForm.supplierType}
-                    onChange={(e) => updateForm('supplierType', e.target.value as SupplierType)}
+                    onValueChange={(value) => updateForm('supplierType', value as SupplierType)}
                   >
-                    <option value="OEM">OEM</option>
-                    <option value="MRO">MRO</option>
-                    <option value="Distributor">Distributor</option>
-                    <option value="Broker">Broker</option>
-                    <option value="145RepairStation">145 Repair Station</option>
-                  </select>
+                    <SelectTrigger className="h-10 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="OEM">OEM</SelectItem>
+                      <SelectItem value="MRO">MRO</SelectItem>
+                      <SelectItem value="Distributor">Distributor</SelectItem>
+                      <SelectItem value="Broker">Broker</SelectItem>
+                      <SelectItem value="145RepairStation">145 Repair Station</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">

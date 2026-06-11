@@ -1,5 +1,15 @@
 import { useState } from 'react';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   BadgeCheck,
   Bot,
   ChevronDown,
@@ -29,6 +39,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from '@/i18n';
 import {
@@ -111,6 +128,7 @@ export function ApprovalWorkflowSettings() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<WorkflowDefinition | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   // 基础表单
   const [baseForm, setBaseForm] = useState({
@@ -273,13 +291,19 @@ export function ApprovalWorkflowSettings() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm(tx('确认删除此审批流程？', 'Confirm delete this workflow?'))) return;
+    setDeleteTargetId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
     try {
-      await deleteDefinition(id);
+      await deleteDefinition(deleteTargetId);
       toast.success(tx('已删除', 'Deleted'));
       await refetch();
     } catch (error) {
       toast.error(tx('删除失败', 'Delete failed'));
+    } finally {
+      setDeleteTargetId(null);
     }
   };
 
@@ -292,7 +316,7 @@ export function ApprovalWorkflowSettings() {
           <h3 className="text-lg font-semibold">{tx('审批流程配置', 'Approval Workflow Configuration')}</h3>
           <p className="text-sm text-gray-500">{tx('管理报价与订单审批流程', 'Manage approval flows for quotes and orders')}</p>
         </div>
-        <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={handleOpenCreate}>
+        <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={handleOpenCreate}>
           <Plus className="w-4 h-4 mr-1" />
           {tx('新建流程', 'New Workflow')}
         </Button>
@@ -444,16 +468,20 @@ export function ApprovalWorkflowSettings() {
                 </div>
                 <div className="space-y-2">
                   <Label>{tx('适用对象', 'Entity Type')}</Label>
-                  <select
-                    className="w-full h-10 px-3 border rounded-md"
+                  <Select
                     value={baseForm.entityType}
-                    onChange={(e) => setBaseForm({ ...baseForm, entityType: e.target.value })}
+                    onValueChange={(value) => setBaseForm({ ...baseForm, entityType: value })}
                   >
-                    <option value="QUOTATION">{tx('报价单', 'Quotation')}</option>
-                    <option value="ORDER">{tx('订单', 'Order')}</option>
-                    <option value="RFQ">{tx('需求单', 'RFQ')}</option>
-                    <option value="CERTIFICATE">{tx('证书', 'Certificate')}</option>
-                  </select>
+                    <SelectTrigger className="w-full h-10">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="QUOTATION">{tx('报价单', 'Quotation')}</SelectItem>
+                      <SelectItem value="ORDER">{tx('订单', 'Order')}</SelectItem>
+                      <SelectItem value="RFQ">{tx('需求单', 'RFQ')}</SelectItem>
+                      <SelectItem value="CERTIFICATE">{tx('证书', 'Certificate')}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>{tx('描述', 'Description')}</Label>
@@ -510,17 +538,21 @@ export function ApprovalWorkflowSettings() {
                             placeholder={tx('步骤名称', 'Step name')}
                           />
                         </div>
-                        <select
-                          className="h-8 px-2 border rounded text-sm"
+                        <Select
                           value={step.stepType}
-                          onChange={(e) => handleUpdateStep(index, { stepType: e.target.value as WorkflowStep['stepType'] })}
+                          onValueChange={(value) => handleUpdateStep(index, { stepType: value as WorkflowStep['stepType'] })}
                         >
-                          {stepTypeOptions.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {locale === 'zh-CN' ? o.labelZh : o.labelEn}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger className="h-8 text-sm w-[140px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {stepTypeOptions.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>
+                                {locale === 'zh-CN' ? o.labelZh : o.labelEn}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleRemoveStep(index)}>
                           <Trash2 className="w-4 h-4 text-red-500" />
                         </Button>
@@ -533,34 +565,42 @@ export function ApprovalWorkflowSettings() {
                           <>
                             <div className="space-y-1">
                               <Label className="text-xs">{tx('审批方式', 'Approver Mode')}</Label>
-                              <select
-                                className="w-full h-8 px-2 border rounded text-sm"
+                              <Select
                                 value={mode}
-                                onChange={(e) => handleChangeApproverMode(index, e.target.value)}
+                                onValueChange={(value) => handleChangeApproverMode(index, value)}
                               >
-                                {approverModeOptions.map((o) => (
-                                  <option key={o.value} value={o.value}>
-                                    {locale === 'zh-CN' ? o.labelZh : o.labelEn}
-                                  </option>
-                                ))}
-                              </select>
+                                <SelectTrigger className="h-8 text-sm w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {approverModeOptions.map((o) => (
+                                    <SelectItem key={o.value} value={o.value}>
+                                      {locale === 'zh-CN' ? o.labelZh : o.labelEn}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
 
                             {/* 根据模式显示不同输入 */}
                             {mode === 'role' && (
                               <div className="space-y-1">
                                 <Label className="text-xs">{tx('审批角色', 'Role')}</Label>
-                                <select
-                                  className="w-full h-8 px-2 border rounded text-sm"
-                                  value={step.approverRole || ''}
-                                  onChange={(e) => handleUpdateStep(index, { approverRole: e.target.value })}
-                                >
+                              <Select
+                                value={step.approverRole || ''}
+                                onValueChange={(value) => handleUpdateStep(index, { approverRole: value })}
+                              >
+                                <SelectTrigger className="h-8 text-sm w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
                                   {approverRoleOptions.map((o) => (
-                                    <option key={o.value} value={o.value}>
+                                    <SelectItem key={o.value} value={o.value}>
                                       {locale === 'zh-CN' ? o.labelZh : o.labelEn}
-                                    </option>
+                                    </SelectItem>
                                   ))}
-                                </select>
+                                </SelectContent>
+                              </Select>
                               </div>
                             )}
 
@@ -594,18 +634,21 @@ export function ApprovalWorkflowSettings() {
                                   <Bot className="w-3 h-3" />
                                   {tx('AI Agent', 'AI Agent')}
                                 </Label>
-                                <select
-                                  className="w-full h-8 px-2 border rounded text-sm"
-                                  value={step.agentId || ''}
-                                  onChange={(e) => handleUpdateStep(index, { agentId: e.target.value })}
-                                >
-                                  <option value="">{tx('请选择', 'Select')}</option>
+                              <Select
+                                value={step.agentId || ''}
+                                onValueChange={(value) => handleUpdateStep(index, { agentId: value })}
+                              >
+                                <SelectTrigger className="h-8 text-sm w-full">
+                                  <SelectValue placeholder={tx('请选择', 'Select')} />
+                                </SelectTrigger>
+                                <SelectContent>
                                   {agents?.map((agent) => (
-                                    <option key={agent.id} value={agent.id}>
+                                    <SelectItem key={agent.id} value={agent.id}>
                                       {agent.name} {agent.isActive ? '' : `(${tx('已禁用', 'Disabled')})`}
-                                    </option>
+                                    </SelectItem>
                                   ))}
-                                </select>
+                                </SelectContent>
+                              </Select>
                               </div>
                             )}
 
@@ -674,17 +717,21 @@ export function ApprovalWorkflowSettings() {
 
                         <div className="space-y-1">
                           <Label className="text-xs">{tx('超时动作', 'Timeout Action')}</Label>
-                          <select
-                            className="w-full h-8 px-2 border rounded text-sm"
-                            value={step.timeoutAction}
-                            onChange={(e) => handleUpdateStep(index, { timeoutAction: e.target.value })}
-                          >
+                        <Select
+                          value={step.timeoutAction}
+                          onValueChange={(value) => handleUpdateStep(index, { timeoutAction: value })}
+                        >
+                          <SelectTrigger className="h-8 text-sm w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
                             {timeoutActionOptions.map((o) => (
-                              <option key={o.value} value={o.value}>
+                              <SelectItem key={o.value} value={o.value}>
                                 {locale === 'zh-CN' ? o.labelZh : o.labelEn}
-                              </option>
+                              </SelectItem>
                             ))}
-                          </select>
+                          </SelectContent>
+                        </Select>
                         </div>
                       </div>
                     </div>
@@ -705,6 +752,21 @@ export function ApprovalWorkflowSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx('确定要删除此审批流程吗？此操作不可撤销。', 'Are you sure you want to delete this workflow? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTargetId(null)}>{tx('取消', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>{tx('删除', 'Delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

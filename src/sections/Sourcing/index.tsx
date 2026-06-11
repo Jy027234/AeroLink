@@ -16,6 +16,7 @@ import {
   Filter,
   ChevronLeft,
   ChevronRight,
+  Inbox,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,13 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -42,6 +50,7 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
+import { toast } from 'sonner';
 import {
   useRFQs,
   useSuppliers,
@@ -66,7 +75,7 @@ function SupplierCard({ supplier, isSelected, onSelect }: { supplier: Supplier; 
     <Card
       className={cn(
         'cursor-pointer transition-all duration-200 hover:shadow-md',
-        isSelected && 'ring-2 ring-[#64b5f6]'
+        isSelected && 'ring-2 ring-brand-primary'
       )}
       onClick={onSelect}
     >
@@ -310,7 +319,7 @@ export function Sourcing() {
       setSelectedSuppliers([]);
       setInquiryNote('');
       setIsAOG(false);
-      alert(tx(`询价已发送给 ${selectedSuppliers.length} 家供应商。`, `Inquiry has been sent to ${selectedSuppliers.length} suppliers.`));
+      toast.success(tx(`询价已发送给 ${selectedSuppliers.length} 家供应商。`, `Inquiry has been sent to ${selectedSuppliers.length} suppliers.`));
     }
   };
 
@@ -351,7 +360,7 @@ export function Sourcing() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
-            <FileText className="w-5 h-5 text-[#64b5f6]" />
+            <FileText className="w-5 h-5 text-brand-primary" />
             {tx('选择待寻源需求单', 'Select RFQ for Sourcing')}
             <span className="text-sm font-normal text-gray-500 ml-2">({filteredRFQs.length} {tx('条', 'items')})</span>
           </CardTitle>
@@ -384,15 +393,16 @@ export function Sourcing() {
             </div>
             <div className="flex items-center gap-2">
               <SortAsc className="w-4 h-4 text-gray-500" />
-              <select
-                className="h-9 px-2 border rounded-md text-sm"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              >
-                <option value="requiredDate">{tx('需求日期', 'Required Date')}</option>
-                <option value="urgency">{tx('紧急程度', 'Urgency')}</option>
-                <option value="createdAt">{tx('创建时间', 'Created Date')}</option>
-              </select>
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+                <SelectTrigger className="h-9 w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="requiredDate">{tx('需求日期', 'Required Date')}</SelectItem>
+                  <SelectItem value="urgency">{tx('紧急程度', 'Urgency')}</SelectItem>
+                  <SelectItem value="createdAt">{tx('创建时间', 'Created Date')}</SelectItem>
+                </SelectContent>
+              </Select>
               <Button
                 variant="outline"
                 size="sm"
@@ -405,7 +415,8 @@ export function Sourcing() {
 
           {/* RFQ Table */}
           {filteredRFQs.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-12 text-gray-500">
+            <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
               <CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500" />
               <p>{rfqSearch || urgencyFilter !== 'all' ? tx('没有匹配的需求单', 'No matching RFQs') : tx('暂无待处理需求单', 'No pending RFQs')}</p>
             </div>
@@ -493,7 +504,7 @@ export function Sourcing() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <Package className="w-5 h-5 text-[#64b5f6]" />
+              <Package className="w-5 h-5 text-brand-primary" />
               {tx('库存匹配结果', 'Inventory Match Results')} - {selectedRFQ.partNumber}
             </CardTitle>
           </CardHeader>
@@ -518,7 +529,8 @@ export function Sourcing() {
                 </div>
 
                 {(inventoryItems?.filter((item) => item.partNumber === selectedRFQ.partNumber).length ?? 0) === 0 && (
-                  <div className="text-center py-8 text-gray-500">
+                  <div className="text-center py-12 text-gray-500">
+            <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                     <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-yellow-500" />
                     <p>{tx('未找到精准库存匹配，建议发起供应商询价。', 'No exact inventory match found. Supplier inquiry is recommended.')}</p>
                   </div>
@@ -534,7 +546,7 @@ export function Sourcing() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">
-              <Truck className="w-5 h-5 text-[#64b5f6]" />
+              <Truck className="w-5 h-5 text-brand-primary" />
               {tx('选择询价供应商', 'Select Suppliers for Inquiry')}
             </CardTitle>
             <div className="flex items-center gap-2">
@@ -542,7 +554,7 @@ export function Sourcing() {
               {selectedSuppliers.length > 0 && (
                 <Button
                   onClick={() => setIsInquiryDialogOpen(true)}
-                  className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+                  className="bg-brand-primary hover:bg-brand-primary-hover"
                 >
                   <Send className="w-4 h-4 mr-1" />
                   {tx('发送询价', 'Send Inquiry')}
@@ -648,7 +660,7 @@ export function Sourcing() {
             <Button
               onClick={handleCreateInquiry}
               disabled={inquiryLoading}
-              className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+              className="bg-brand-primary hover:bg-brand-primary-hover"
             >
               {inquiryLoading ? (
                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />

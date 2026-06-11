@@ -42,7 +42,7 @@ export function ProfileSettings({ user }: { user: CurrentUserProfile | null }) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4 pb-4 border-b">
-              <div className="w-20 h-20 bg-[#64b5f6] rounded-full flex items-center justify-center">
+              <div className="w-20 h-20 bg-brand-primary rounded-full flex items-center justify-center">
                 <User className="w-10 h-10 text-white" />
               </div>
               <div>
@@ -88,7 +88,7 @@ export function ProfileSettings({ user }: { user: CurrentUserProfile | null }) {
               <Button
                 onClick={handleSubmit}
                 disabled={updateProfile.loading}
-                className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+                className="bg-brand-primary hover:bg-brand-primary-hover"
               >
                 <Save className="w-4 h-4 mr-2" />
                 {tx('保存', 'Save')}

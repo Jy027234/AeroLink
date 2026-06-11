@@ -39,6 +39,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -53,6 +63,7 @@ import { useAuctions, useCreateAuction, usePlaceBid } from '@/hooks/useApi';
 import { auctionApi } from '@/api/client';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import type { Auction, AuctionBid } from '@/api/client';
 
 type AuctionStatus = Auction['status'];
@@ -221,7 +232,7 @@ function CreateAuctionDialog({
 
   const handleSubmit = async () => {
     if (!formData.title.trim() || !formData.partNumber.trim() || formData.quantity <= 0) {
-      alert(tx('请填写所有必填字段（标题、件号、数量）。', 'Please fill in all required fields (Title, Part Number, Quantity).'));
+      toast.error(tx('请填写所有必填字段（标题、件号、数量）。', 'Please fill in all required fields (Title, Part Number, Quantity).'));
       return;
     }
 
@@ -244,7 +255,7 @@ function CreateAuctionDialog({
 
     const result = await createAuction(payload);
     if (result) {
-      alert(tx('拍卖创建成功。', 'Auction created successfully.'));
+      toast.success(tx('拍卖创建成功。', 'Auction created successfully.'));
       onClose();
       onCreated();
       setFormData({
@@ -264,7 +275,7 @@ function CreateAuctionDialog({
         extendMinutes: 5,
       });
     } else {
-      alert(tx('创建拍卖失败。', 'Failed to create auction.'));
+      toast.error(tx('创建拍卖失败。', 'Failed to create auction.'));
     }
   };
 
@@ -442,7 +453,7 @@ function CreateAuctionDialog({
             {tx('取消', 'Cancel')}
           </Button>
           <Button
-            className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+            className="bg-brand-primary hover:bg-brand-primary-hover"
             onClick={handleSubmit}
             disabled={isSubmitting}
           >
@@ -541,13 +552,13 @@ function AuctionDetailDialog({
       data: { amount, notes: bidNotes || undefined },
     });
     if (result) {
-      alert(tx('出价成功', 'Bid placed successfully'));
+      toast.success(tx('出价成功', 'Bid placed successfully'));
       setBidAmount('');
       setBidNotes('');
       void loadBids();
       onBidPlaced();
     } else {
-      alert(tx('出价失败', 'Failed to place bid'));
+      toast.error(tx('出价失败', 'Failed to place bid'));
     }
   };
 
@@ -649,7 +660,7 @@ function AuctionDetailDialog({
             </h4>
             {bidsLoading && (
               <div className="flex items-center justify-center py-4 text-gray-500">
-                <Loader2 className="h-5 w-5 animate-spin text-[#64b5f6]" />
+                <Loader2 className="h-5 w-5 animate-spin text-brand-primary" />
                 <span className="ml-2 text-sm">{tx('加载出价中...', 'Loading bids...')}</span>
               </div>
             )}
@@ -748,7 +759,7 @@ function AuctionDetailDialog({
                 </div>
               )}
               <Button
-                className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+                className="bg-brand-primary hover:bg-brand-primary-hover"
                 onClick={handlePlaceBid}
                 disabled={bidSubmitting || !bidAmount}
               >
@@ -774,18 +785,19 @@ export function Auctions() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
 
-  const [statusFilter, setStatusFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [selectedAuction, setSelectedAuction] = useState<Auction | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<Auction | null>(null);
 
   const filters = useMemo(() => {
     const f: { status?: string; type?: string; partNumber?: string; search?: string } = {};
-    if (statusFilter) f.status = statusFilter;
-    if (typeFilter) f.type = typeFilter;
+    if (statusFilter !== 'all') f.status = statusFilter;
+    if (typeFilter !== 'all') f.type = typeFilter;
     if (searchQuery) f.search = searchQuery;
     return f;
   }, [statusFilter, typeFilter, searchQuery]);
@@ -816,28 +828,34 @@ export function Auctions() {
   const handleActivate = async (auction: Auction) => {
     try {
       await auctionApi.activate(auction.id);
-      alert(tx('拍卖已激活', 'Auction activated'));
+      toast.success(tx('拍卖已激活', 'Auction activated'));
       void refetch();
     } catch {
-      alert(tx('激活失败', 'Failed to activate auction'));
+      toast.error(tx('激活失败', 'Failed to activate auction'));
     }
   };
 
   const handleCancel = async (auction: Auction) => {
-    if (!confirm(tx('确定要取消此拍卖吗？', 'Are you sure you want to cancel this auction?'))) return;
+    setCancelTarget(auction);
+  };
+
+  const confirmCancel = async () => {
+    if (!cancelTarget) return;
     try {
-      await auctionApi.cancel(auction.id);
-      alert(tx('拍卖已取消', 'Auction cancelled'));
+      await auctionApi.cancel(cancelTarget.id);
+      toast.success(tx('拍卖已取消', 'Auction cancelled'));
       void refetch();
     } catch {
-      alert(tx('取消失败', 'Failed to cancel auction'));
+      toast.error(tx('取消失败', 'Failed to cancel auction'));
+    } finally {
+      setCancelTarget(null);
     }
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -906,7 +924,7 @@ export function Auctions() {
               <SelectValue placeholder={tx('状态', 'Status')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">{tx('全部状态', 'All Status')}</SelectItem>
+              <SelectItem value="all">{tx('全部状态', 'All Status')}</SelectItem>
               <SelectItem value="DRAFT">{tx('草稿', 'Draft')}</SelectItem>
               <SelectItem value="ACTIVE">{tx('进行中', 'Active')}</SelectItem>
               <SelectItem value="CLOSED">{tx('已结束', 'Closed')}</SelectItem>
@@ -918,7 +936,7 @@ export function Auctions() {
               <SelectValue placeholder={tx('类型', 'Type')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">{tx('全部类型', 'All Types')}</SelectItem>
+              <SelectItem value="all">{tx('全部类型', 'All Types')}</SelectItem>
               <SelectItem value="SALES">{tx('销售拍卖', 'Sales')}</SelectItem>
               <SelectItem value="REVERSE">{tx('反向拍卖', 'Reverse')}</SelectItem>
               <SelectItem value="SEALED">{tx('密封拍卖', 'Sealed')}</SelectItem>
@@ -926,11 +944,11 @@ export function Auctions() {
           </Select>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => { setStatusFilter(''); setTypeFilter(''); setSearchQuery(''); }}>
+          <Button variant="outline" size="sm" onClick={() => { setStatusFilter('all'); setTypeFilter('all'); setSearchQuery(''); }}>
             <Filter className="w-4 h-4 mr-1" />
             {tx('重置', 'Reset')}
           </Button>
-          <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={() => setIsCreateOpen(true)}>
+          <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => setIsCreateOpen(true)}>
             <Plus className="w-4 h-4 mr-1" />
             {tx('创建拍卖', 'Create Auction')}
           </Button>
@@ -1051,6 +1069,21 @@ export function Auctions() {
         onClose={() => setIsCreateOpen(false)}
         onCreated={() => void refetch()}
       />
+
+      <AlertDialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认取消', 'Confirm Cancel')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx('确定要取消此拍卖吗？此操作不可撤销。', 'Are you sure you want to cancel this auction? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCancelTarget(null)}>{tx('取消', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmCancel}>{tx('确认取消', 'Confirm')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { useDocumentTemplates, useSaveDocumentTemplate } from '@/hooks/useApi';
 import type { DocumentTemplate } from '@/types';
 import { useTranslation } from '@/i18n';
+import { toast } from 'sonner';
 
 const ORDER_CONTRACT_TEMPLATE_VARIABLES = [
   'customer.name',
@@ -84,7 +85,7 @@ function ContractTemplateDialog({
 
   const handleSubmit = async () => {
     if (!formData.name || !formData.code || !formData.bodyTemplate) {
-      alert(tx('请填写模板名称、模板编码和模板正文。', 'Please fill in template name, code, and body.'));
+      toast.error(tx('请填写模板名称、模板编码和模板正文。', 'Please fill in template name, code, and body.'));
       return;
     }
 
@@ -188,12 +189,12 @@ export function ContractTemplateManagement() {
   const handleSave = async (id: string | undefined, template: Partial<DocumentTemplate>) => {
     const result = await saveTemplate({ id, data: template });
     if (result) {
-      alert(id ? tx('合同模板已更新。', 'Contract template updated.') : tx('合同模板已创建。', 'Contract template created.'));
+      toast.success(id ? tx('合同模板已更新。', 'Contract template updated.') : tx('合同模板已创建。', 'Contract template created.'));
       setDialogOpen(false);
       setEditingTemplate(null);
       refetch();
     } else {
-      alert(tx('保存失败，请检查模板内容。', 'Save failed. Please check the template body.'));
+      toast.error(tx('保存失败，请检查模板内容。', 'Save failed. Please check the template body.'));
     }
   };
 
@@ -233,7 +234,7 @@ export function ContractTemplateManagement() {
               </p>
             </div>
             <Button
-              className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+              className="bg-brand-primary hover:bg-brand-primary-hover"
               onClick={() => {
                 setEditingTemplate(null);
                 setDialogOpen(true);

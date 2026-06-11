@@ -396,6 +396,19 @@ async function request<T>(
 
   try {
     const response = await fetch(url, config);
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await response.text();
+      if (response.status === 404) {
+        throw new ApiException(`接口不存在: ${endpoint}`, 404);
+      }
+      throw new ApiException(
+        response.ok
+          ? `接口 ${endpoint} 返回了非 JSON 响应`
+          : `请求失败 (${response.status}): ${text.slice(0, 100)}`,
+        response.status
+      );
+    }
     const data = await response.json();
     const isAuthRequest = endpoint === '/auth/login' || endpoint === '/auth/refresh';
 

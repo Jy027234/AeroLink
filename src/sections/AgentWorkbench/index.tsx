@@ -20,12 +20,20 @@ import {
   ChevronLeft,
   Search,
   Filter,
+  Inbox,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { agentApi, type AgentAuditLog } from '@/api/client';
 import { agentOrchestrator } from '@/lib/agentOrchestrator';
 import { useTranslation } from '@/i18n';
@@ -145,12 +153,12 @@ function ConfirmationDialog({
   const [rfqCancelReason, setRfqCancelReason] = useState('');
   const confirmationQuotes = (confirmation.data.quotes || []) as QuoteCandidate[];
   const requiresOptionSelection = confirmation.type === 'supplier_select';
-  const cancelOption = confirmation.options.find((option) => option.action === 'cancel' || option.id === 'cancel');
+  const cancelOption = confirmation.options?.find((option) => option.action === 'cancel' || option.id === 'cancel');
   const primaryOption = requiresOptionSelection
     ? null
-    : confirmation.options.find((option) => option.id !== cancelOption?.id);
+    : confirmation.options?.find((option) => option.id !== cancelOption?.id);
   const selectedConfirmationOption = selectedOption
-    ? confirmation.options.find((option) => option.id === selectedOption)
+    ? confirmation.options?.find((option) => option.id === selectedOption)
     : undefined;
   const requiresSelectionReason = selectedConfirmationOption?.action === 'selectSupplier';
 
@@ -348,23 +356,28 @@ function ConfirmationDialog({
       {requiresOptionSelection && (
         <div className="space-y-2">
           <p className="text-xs font-medium text-slate-700">{tx('选择理由', 'Selection rationale')}</p>
-          <select
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+          <Select
             value={supplierSelectionReason}
-            onChange={(event) => setSupplierSelectionReason(event.target.value)}
+            onValueChange={setSupplierSelectionReason}
             disabled={!requiresSelectionReason}
           >
-            <option value="">
-              {requiresSelectionReason
-                ? tx('请选择本次选择理由', 'Select a structured rationale')
-                : tx('请先选中一个供应商方案', 'Choose a supplier option first')}
-            </option>
-            {supplierSelectionReasons.map((reason) => (
-              <option key={reason.code} value={reason.code}>
-                {tx(reason.labelZh, reason.labelEn)}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full">
+              <SelectValue
+                placeholder={
+                  requiresSelectionReason
+                    ? tx('请选择本次选择理由', 'Select a structured rationale')
+                    : tx('请先选中一个供应商方案', 'Choose a supplier option first')
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {supplierSelectionReasons.map((reason) => (
+                <SelectItem key={reason.code} value={reason.code}>
+                  {tx(reason.labelZh, reason.labelEn)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <p className="text-xs text-slate-500">
             {tx('结构化理由会跟随确认记录一起进入审批审计时间线。', 'The structured rationale is stored together with the confirmation audit trail.')}
           </p>
@@ -374,18 +387,18 @@ function ConfirmationDialog({
       {requiresOptionSelection && cancelOption && (
         <div className="space-y-2">
           <p className="text-xs font-medium text-slate-700">{tx('未选原因', 'Skip reason')}</p>
-          <select
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-            value={supplierSkipReason}
-            onChange={(event) => setSupplierSkipReason(event.target.value)}
-          >
-            <option value="">{tx('如点击“暂不选择”，请先选择原因', 'Choose a reason before clicking skip')}</option>
-            {supplierSkipReasons.map((reason) => (
-              <option key={reason.code} value={reason.code}>
-                {tx(reason.labelZh, reason.labelEn)}
-              </option>
-            ))}
-          </select>
+          <Select value={supplierSkipReason} onValueChange={setSupplierSkipReason}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={tx('如点击“暂不选择”，请先选择原因', 'Choose a reason before clicking skip')} />
+            </SelectTrigger>
+            <SelectContent>
+              {supplierSkipReasons.map((reason) => (
+                <SelectItem key={reason.code} value={reason.code}>
+                  {tx(reason.labelZh, reason.labelEn)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <p className="text-xs text-slate-500">
             {tx('点击“暂不选择”时，会把该原因一并写入审批审计时间线。', 'When skipping selection, this reason is also stored in the confirmation audit timeline.')}
           </p>
@@ -418,18 +431,18 @@ function ConfirmationDialog({
           {cancelOption && (
             <div className="space-y-2">
               <p className="text-xs font-medium text-slate-700">{tx('暂不生成原因', 'Hold reason')}</p>
-              <select
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={rfqCancelReason}
-                onChange={(event) => setRfqCancelReason(event.target.value)}
-              >
-                <option value="">{tx('如点击取消，请先选择原因', 'Choose a reason before cancelling RFQ creation')}</option>
-                {rfqCancelReasons.map((reason) => (
-                  <option key={reason.code} value={reason.code}>
-                    {tx(reason.labelZh, reason.labelEn)}
-                  </option>
-                ))}
-              </select>
+              <Select value={rfqCancelReason} onValueChange={setRfqCancelReason}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={tx('如点击取消，请先选择原因', 'Choose a reason before cancelling RFQ creation')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {rfqCancelReasons.map((reason) => (
+                    <SelectItem key={reason.code} value={reason.code}>
+                      {tx(reason.labelZh, reason.labelEn)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p className="text-xs text-slate-500">
                 {tx('点击取消时，结构化原因会进入审批审计时间线。', 'When cancelling RFQ creation, the structured reason is stored in the confirmation audit trail.')}
               </p>
@@ -467,18 +480,18 @@ function ConfirmationDialog({
           {cancelOption && (
             <div className="space-y-2">
               <p className="text-xs font-medium text-slate-700">{tx('暂不发送原因', 'Hold reason')}</p>
-              <select
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={quotationHoldReason}
-                onChange={(event) => setQuotationHoldReason(event.target.value)}
-              >
-                <option value="">{tx('如点击取消，请先选择原因', 'Choose a reason before cancelling send')}</option>
-                {quotationHoldReasons.map((reason) => (
-                  <option key={reason.code} value={reason.code}>
-                    {tx(reason.labelZh, reason.labelEn)}
-                  </option>
-                ))}
-              </select>
+              <Select value={quotationHoldReason} onValueChange={setQuotationHoldReason}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={tx('如点击取消，请先选择原因', 'Choose a reason before cancelling send')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {quotationHoldReasons.map((reason) => (
+                    <SelectItem key={reason.code} value={reason.code}>
+                      {tx(reason.labelZh, reason.labelEn)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p className="text-xs text-slate-500">
                 {tx('点击取消时，结构化原因会进入审批审计时间线。', 'When cancelling send, the structured reason is stored in the confirmation audit trail.')}
               </p>
@@ -489,7 +502,7 @@ function ConfirmationDialog({
 
       {requiresOptionSelection && confirmationQuotes.length === 0 && (
         <div className="flex gap-2 flex-wrap">
-          {confirmation.options.filter((option) => option.id !== cancelOption?.id).map((option) => (
+          {confirmation.options?.filter((option) => option.id !== cancelOption?.id).map((option) => (
             <Button
               key={option.id}
               data-testid={`agent-confirm-option-${option.id}`}
@@ -1006,8 +1019,8 @@ function TaskTimeline({ task }: { task: AgentTask }) {
     return null;
   };
 
-  const completedSteps = task.steps.filter(s => s.status === 'completed').length;
-  const runningStep = task.steps.find(s => s.status === 'running');
+  const completedSteps = task.steps?.filter(s => s.status === 'completed').length || 0;
+  const runningStep = task.steps?.find(s => s.status === 'running');
   const isWaitingConfirmation = task.status === 'waiting_confirmation' && task.confirmationNode;
 
   const getCurrentStepLabel = () => {
@@ -1021,7 +1034,7 @@ function TaskTimeline({ task }: { task: AgentTask }) {
     if (task.status === 'failed') return tx('执行失败', 'Execution failed');
     if (isWaitingConfirmation) return tx('等待确认...', 'Awaiting confirmation...');
     if (runningStep) return `${runningStep.capability}/${runningStep.action}`;
-    if (completedSteps > 0) return `${tx('已完成', 'Completed')} ${completedSteps}/${task.steps.length}`;
+    if (completedSteps > 0) return `${tx('已完成', 'Completed')} ${completedSteps}/${task.steps?.length || 0}`;
     return tx('待处理', 'Pending');
   };
 
@@ -1101,7 +1114,7 @@ function TaskTimeline({ task }: { task: AgentTask }) {
 
         {!isExpanded && (completedSteps > 0 || task.type === 'manual_follow_up') && (
           <div className="mt-3 pl-11 flex flex-wrap gap-2">
-            {task.steps.map((step, index) => {
+            {task.steps?.map((step, index) => {
               const summary = getStepSummary(step);
               return (
                 <div
@@ -1127,7 +1140,7 @@ function TaskTimeline({ task }: { task: AgentTask }) {
           <div className="mt-4 pl-11 relative">
             <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
             <div className="space-y-3">
-              {task.steps.map((step, index) => (
+              {task.steps?.map((step, index) => (
                 <div key={step.id} className="relative flex items-start gap-3">
                   <div className={cn(
                     'relative z-10 w-6 h-6 rounded-full flex items-center justify-center',
@@ -1284,17 +1297,20 @@ function TaskTimeline({ task }: { task: AgentTask }) {
                     <div className="rounded-md border border-amber-200 bg-white p-3 space-y-3">
                       <div className="space-y-2">
                         <p className="text-xs font-medium text-slate-700">{tx('跟进结果', 'Follow-up outcome')}</p>
-                        <select
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        <Select
                           value={followUpOutcome}
-                          onChange={(event) => setFollowUpOutcome(event.target.value as SupplierFollowUpOutcome)}
-                          onClick={(event) => event.stopPropagation()}
+                          onValueChange={(v) => setFollowUpOutcome(v as SupplierFollowUpOutcome)}
                         >
-                          <option value="contacted_waiting_quote">{tx('已联系，待报价', 'Contacted, waiting for quote')}</option>
-                          <option value="quote_promised">{tx('对方承诺回传报价', 'Quote promised')}</option>
-                          <option value="portal_message_sent">{tx('已发送门户提醒', 'Portal reminder sent')}</option>
-                          <option value="contact_invalid">{tx('联系方式失效', 'Contact invalid')}</option>
-                        </select>
+                          <SelectTrigger className="w-full" onClick={(event) => event.stopPropagation()}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="contacted_waiting_quote">{tx('已联系，待报价', 'Contacted, waiting for quote')}</SelectItem>
+                            <SelectItem value="quote_promised">{tx('对方承诺回传报价', 'Quote promised')}</SelectItem>
+                            <SelectItem value="portal_message_sent">{tx('已发送门户提醒', 'Portal reminder sent')}</SelectItem>
+                            <SelectItem value="contact_invalid">{tx('联系方式失效', 'Contact invalid')}</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       <div className="space-y-2">
@@ -1637,26 +1653,34 @@ export function AgentWorkbench() {
             </div>
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-gray-500" />
-              <select
-                className="h-9 px-2 border rounded-md text-sm"
+              <Select
                 value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value); setTaskPage(1); }}
+                onValueChange={(v) => { setStatusFilter(v); setTaskPage(1); }}
               >
-                {Object.entries(statusLabelMap).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-              {activeTaskTypes.length > 1 && (
-                <select
-                  className="h-9 px-2 border rounded-md text-sm"
-                  value={typeFilter}
-                  onChange={(e) => { setTypeFilter(e.target.value); setTaskPage(1); }}
-                >
-                  <option value="all">{tx('全部类型', 'All Types')}</option>
-                  {activeTaskTypes.map((type) => (
-                    <option key={type} value={type}>{taskTypeConfig[type]?.label || type}</option>
+                <SelectTrigger className="h-9 w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(statusLabelMap).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
                   ))}
-                </select>
+                </SelectContent>
+              </Select>
+              {activeTaskTypes.length > 1 && (
+                <Select
+                  value={typeFilter}
+                  onValueChange={(v) => { setTypeFilter(v); setTaskPage(1); }}
+                >
+                  <SelectTrigger className="h-9 w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{tx('全部类型', 'All Types')}</SelectItem>
+                    {activeTaskTypes.map((type) => (
+                      <SelectItem key={type} value={type}>{taskTypeConfig[type]?.label || type}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             </div>
           </div>
@@ -1669,7 +1693,8 @@ export function AgentWorkbench() {
               <p className="text-sm mt-1">{tx('点击“运行演示”体验Agent自动化流程', 'Click "Run Demo" to try the agent automation flow')}</p>
             </div>
           ) : filteredTasks.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-12 text-gray-500">
+              <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
               <p>{tx('没有匹配的任务', 'No matching tasks')}</p>
             </div>
           ) : (

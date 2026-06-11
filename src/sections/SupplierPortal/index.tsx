@@ -12,6 +12,9 @@ import {
   Loader2,
   TrendingUp,
   Award,
+  ChevronLeft,
+  ChevronRight,
+  Inbox,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,6 +40,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
+import { toast } from 'sonner';
 import {
   useSuppliers,
   useSupplierQuotes,
@@ -139,7 +143,7 @@ function SubmitQuoteDialog({
 
   const handleSubmit = async () => {
     if (formData.unitPrice <= 0) {
-      alert(tx('请输入有效报价。', 'Please enter a valid quote.'));
+      toast.error(tx('请输入有效报价。', 'Please enter a valid quote.'));
       return;
     }
     setIsSubmitting(true);
@@ -157,7 +161,7 @@ function SubmitQuoteDialog({
       });
       onClose();
     } catch (err) {
-      alert(tx('提交失败：', 'Submit failed: ') + (err instanceof Error ? err.message : tx('未知错误', 'Unknown error')));
+      toast.error(tx('提交失败：', 'Submit failed: ') + (err instanceof Error ? err.message : tx('未知错误', 'Unknown error')));
     } finally {
       setIsSubmitting(false);
     }
@@ -237,7 +241,7 @@ function SubmitQuoteDialog({
             {tx('取消', 'Cancel')}
           </Button>
           <Button
-            className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+            className="bg-brand-primary hover:bg-brand-primary-hover"
             onClick={handleSubmit}
             disabled={isSubmitting}
           >
@@ -272,7 +276,7 @@ function CompareDialog({
 
   const handleSelectWinner = async (quoteId: string) => {
     await select(quoteId);
-    alert(tx('已选择最优供应商。', 'Best supplier selected.'));
+    toast.success(tx('已选择最优供应商。', 'Best supplier selected.'));
     onClose();
   };
 
@@ -319,7 +323,7 @@ function CompareDialog({
             </div>
 
             <div className="space-y-4">
-              {result.quotes.map((quote: SupplierQuoteRecord, index: number) => (
+              {result.quotes?.map((quote: SupplierQuoteRecord, index: number) => (
                 <Card key={quote.id} className={cn(index === 0 && 'border-green-500 border-2')}>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between mb-3">
@@ -392,6 +396,11 @@ export function SupplierPortal() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteMessage, setInviteMessage] = useState(tx('欢迎使用 AeroLink 供应商门户，请使用下方链接完成注册。', 'Welcome to the AeroLink supplier portal. Please use the link below to register your account.'));
 
+  // Pagination state
+  const [supplierPage, setSupplierPage] = useState(1);
+  const [quotePage, setQuotePage] = useState(1);
+  const pageSize = 10;
+
   const { data: suppliers, loading: suppliersLoading } = useSuppliers({ limit: 100 });
   const { data: quotes, loading: quotesLoading, refetch: refetchQuotes } = useSupplierQuotes();
   const { mutate: createQuote } = useCreateSupplierQuote();
@@ -399,6 +408,15 @@ export function SupplierPortal() {
 
   const suppliersList: SupplierSummary[] = (suppliers as SupplierSummary[] | undefined) || [];
   const quotesList: SupplierQuoteRecord[] = (quotes as SupplierQuoteRecord[] | undefined) || [];
+
+  // Pagination calculations
+  const supplierTotalPages = Math.max(1, Math.ceil(suppliersList.length / pageSize));
+  const safeSupplierPage = Math.min(supplierPage, supplierTotalPages);
+  const paginatedSuppliers = suppliersList.slice((safeSupplierPage - 1) * pageSize, safeSupplierPage * pageSize);
+
+  const quoteTotalPages = Math.max(1, Math.ceil(quotesList.length / pageSize));
+  const safeQuotePage = Math.min(quotePage, quoteTotalPages);
+  const paginatedQuotes = quotesList.slice((safeQuotePage - 1) * pageSize, safeQuotePage * pageSize);
 
   const stats = {
     totalSuppliers: suppliersList.length,
@@ -414,13 +432,13 @@ export function SupplierPortal() {
 
   const handleInvite = async () => {
     if (!inviteEmail) {
-      alert(tx('请输入供应商邮箱。', 'Please enter supplier email.'));
+      toast.error(tx('请输入供应商邮箱。', 'Please enter supplier email.'));
       return;
     }
     await inviteSupplier({ email: inviteEmail, message: inviteMessage });
     setIsInviteDialogOpen(false);
     setInviteEmail('');
-    alert(tx('邀请已发送。', 'Invitation sent.'));
+    toast.success(tx('邀请已发送。', 'Invitation sent.'));
   };
 
   const handleOpenCompare = (rfqId: string) => {
@@ -438,7 +456,7 @@ export function SupplierPortal() {
               <p className="text-sm text-gray-500">{tx('已连接供应商', 'Connected Suppliers')}</p>
               <p className="text-2xl font-bold">{stats.totalSuppliers}</p>
             </div>
-            <Building2 className="w-8 h-8 text-[#64b5f6]" />
+            <Building2 className="w-8 h-8 text-brand-primary" />
           </CardContent>
         </Card>
         <Card>
@@ -515,12 +533,13 @@ export function SupplierPortal() {
                   <TableBody>
                     {suppliersList.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                        <TableCell colSpan={6} className="text-center py-12 text-gray-500">
+                    <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                           {tx('暂无供应商数据', 'No supplier data')}
                         </TableCell>
                       </TableRow>
                     ) : (
-                      suppliersList.map((supplier: SupplierSummary) => (
+                      paginatedSuppliers.map((supplier: SupplierSummary) => (
                         <TableRow key={supplier.id}>
                           <TableCell className="font-medium">{supplier.name}</TableCell>
                           <TableCell>
@@ -554,6 +573,31 @@ export function SupplierPortal() {
                     )}
                   </TableBody>
                 </Table>
+              )}
+              {suppliersList.length > pageSize && (
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-sm text-gray-500">
+                    {tx('第', 'Page')} {safeSupplierPage} / {supplierTotalPages} {tx('页', '')}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safeSupplierPage <= 1}
+                      onClick={() => setSupplierPage((p) => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safeSupplierPage >= supplierTotalPages}
+                      onClick={() => setSupplierPage((p) => Math.min(supplierTotalPages, p + 1))}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -596,7 +640,7 @@ export function SupplierPortal() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      quotesList.map((quote: SupplierQuoteRecord) => (
+                      paginatedQuotes.map((quote: SupplierQuoteRecord) => (
                         <TableRow key={quote.id}>
                           <TableCell className="font-mono font-medium">{quote.partNumber}</TableCell>
                           <TableCell>{quote.supplier?.name || '-'}</TableCell>
@@ -634,7 +678,7 @@ export function SupplierPortal() {
                               {quote.status === 'pending' && (
                                 <Button
                                   size="sm"
-                                  className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+                                  className="bg-brand-primary hover:bg-brand-primary-hover"
                                   onClick={() => {
                                     setSelectedQuote(quote);
                                     setIsQuoteDialogOpen(true);
@@ -659,6 +703,31 @@ export function SupplierPortal() {
                     )}
                   </TableBody>
                 </Table>
+              )}
+              {quotesList.length > pageSize && (
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-sm text-gray-500">
+                    {tx('第', 'Page')} {safeQuotePage} / {quoteTotalPages} {tx('页', '')}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safeQuotePage <= 1}
+                      onClick={() => setQuotePage((p) => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safeQuotePage >= quoteTotalPages}
+                      onClick={() => setQuotePage((p) => Math.min(quoteTotalPages, p + 1))}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>

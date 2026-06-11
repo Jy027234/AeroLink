@@ -23,6 +23,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -142,7 +143,7 @@ export function OrderTracking() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredOrders.map((order) => {
                 const tracking = getTrackingForOrder(order.id);
-                const latestEvent = tracking?.events[tracking.events.length - 1];
+                const latestEvent = tracking?.events?.[(tracking.events?.length || 0) - 1];
 
                 return (
                   <Card key={order.id} className="hover:shadow-md transition-shadow">
@@ -168,7 +169,7 @@ export function OrderTracking() {
                         <>
                           <div className="mt-4 p-3 bg-gray-50 rounded-lg">
                             <div className="flex items-center gap-2">
-                              <Truck className="w-4 h-4 text-[#64b5f6]" />
+                              <Truck className="w-4 h-4 text-brand-primary" />
                               <span className="font-medium">{tracking.trackingNumber}</span>
                             </div>
                             {latestEvent && (
@@ -190,8 +191,8 @@ export function OrderTracking() {
                             </div>
                             <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-[#64b5f6] rounded-full"
-                                style={{ width: `${(tracking.events.length / 8) * 100}%` }}
+                                className="h-full bg-brand-primary rounded-full"
+                                style={{ width: `${((tracking.events?.length || 0) / 8) * 100}%` }}
                               />
                             </div>
                           </div>
@@ -228,7 +229,7 @@ export function OrderTracking() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Shield className="w-5 h-5 text-[#64b5f6]" />
+                <Shield className="w-5 h-5 text-brand-primary" />
                 {tx('清关风险评估', 'Customs Risk Assessment')}
               </CardTitle>
             </CardHeader>
@@ -286,7 +287,7 @@ export function OrderTracking() {
                       <div className="mt-3">
                         <p className="text-sm font-medium">{tx('所需单证', 'Required Documents')}</p>
                         <div className="flex flex-wrap gap-2 mt-1">
-                          {risk.requiredDocs.map((doc) => (
+                          {risk.requiredDocs?.map((doc) => (
                             <Badge key={doc} variant="outline" className="text-xs">
                               <FileText className="w-3 h-3 mr-1" />
                               {doc}
@@ -298,7 +299,7 @@ export function OrderTracking() {
                       <div className="mt-3">
                         <p className="text-sm font-medium">{tx('建议措施', 'Recommendations')}</p>
                         <ul className="mt-1 space-y-1">
-                          {risk.recommendations.map((rec, index) => (
+                          {risk.recommendations?.map((rec, index) => (
                             <li key={index} className="text-sm text-gray-600">
                               · {rec}
                             </li>
@@ -427,17 +428,17 @@ export function OrderTracking() {
               <div className="relative">
                 <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
                 <div className="space-y-4">
-                  {selectedTracking.events.map((event, index) => (
+                  {selectedTracking.events?.map((event, index) => (
                     <div key={index} className="relative flex items-start gap-4">
                       <div
                         className={cn(
                           'w-8 h-8 rounded-full flex items-center justify-center z-10',
-                          index === selectedTracking.events.length - 1
-                            ? 'bg-[#64b5f6] text-white'
+                          index === (selectedTracking.events?.length || 0) - 1
+                            ? 'bg-brand-primary text-white'
                             : 'bg-green-500 text-white'
                         )}
                       >
-                        {index === selectedTracking.events.length - 1 ? (
+                        {index === (selectedTracking.events?.length || 0) - 1 ? (
                           <Truck className="w-4 h-4" />
                         ) : (
                           <CheckCircle className="w-4 h-4" />
@@ -456,6 +457,11 @@ export function OrderTracking() {
               </div>
             </div>
           )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsTrackingDetailOpen(false)}>
+              {tx('关闭', 'Close')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

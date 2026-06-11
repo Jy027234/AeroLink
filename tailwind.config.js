@@ -48,6 +48,13 @@ module.exports = {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        brand: {
+          primary: "hsl(var(--brand-primary))",
+          "primary-hover": "hsl(var(--brand-primary-hover))",
+          "primary-light": "hsl(var(--brand-primary-light))",
+          sidebar: "hsl(var(--brand-sidebar))",
+          "sidebar-hover": "hsl(var(--brand-sidebar-hover))",
+        },
       },
       borderRadius: {
         xl: "calc(var(--radius) + 4px)",

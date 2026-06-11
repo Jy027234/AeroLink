@@ -23,7 +23,9 @@ export function Layout({ children }: LayoutProps) {
         )}
       >
         <Header />
-        <main className="px-4 pb-4 pt-20 md:px-6 md:pb-6 md:pt-20">{children}</main>
+        <main className="px-4 pb-4 pt-20 md:px-6 md:pb-6 md:pt-20">
+          <div className="animate-fade-in">{children}</div>
+        </main>
       </div>
     </div>
   );

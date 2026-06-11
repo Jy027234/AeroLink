@@ -106,7 +106,7 @@ export function Header() {
               {unreadCount > 0 && (
                 <button
                   onClick={markAllAsRead}
-                  className="text-xs text-[#64b5f6] hover:underline"
+                  className="text-xs text-brand-primary hover:underline"
                 >
                   {t('header.markAllRead')}
                 </button>
@@ -157,7 +157,7 @@ export function Header() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="flex items-center gap-2 px-1 md:px-2">
-              <div className="w-8 h-8 bg-[#64b5f6] rounded-full flex items-center justify-center">
+              <div className="w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center">
                 <User className="w-4 h-4 text-white" />
               </div>
               <div className="text-left hidden sm:block">

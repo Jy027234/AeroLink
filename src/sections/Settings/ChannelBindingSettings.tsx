@@ -23,8 +23,19 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import {
   useChannelBindings,
   useCreateChannelBinding,
@@ -116,6 +127,7 @@ export function ChannelBindingSettings() {
   const [pushSupported, setPushSupported] = useState(false);
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const { data: bindings, loading: bindingsLoading, error: bindingsError, refetch } = useChannelBindings();
   const { mutate: createBinding, loading: createLoading } = useCreateChannelBinding();
@@ -162,16 +174,21 @@ export function ChannelBindingSettings() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm(tx('确定要删除此渠道绑定吗？', 'Are you sure you want to delete this channel binding?'))) return;
-    const res = await deleteBinding(id);
+    setDeleteTargetId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    const res = await deleteBinding(deleteTargetId);
     if (res) {
       void refetch();
     }
+    setDeleteTargetId(null);
   };
 
   const handlePushSubscribe = async () => {
     if (!vapidKey?.publicKey) {
-      alert(tx('VAPID 公钥未配置，请联系管理员。', 'VAPID public key not configured. Please contact admin.'));
+      toast.error(tx('VAPID 公钥未配置，请联系管理员。', 'VAPID public key not configured. Please contact admin.'));
       return;
     }
     setPushLoading(true);
@@ -181,11 +198,11 @@ export function ChannelBindingSettings() {
       if (subscription) {
         await pushSubscribeApi(subscription);
         setPushSubscribed(true);
-        alert(tx('浏览器推送订阅成功！', 'Browser push subscription successful!'));
+        toast.success(tx('浏览器推送订阅成功！', 'Browser push subscription successful!'));
       }
     } catch (error) {
       console.error('Push subscription failed:', error);
-      alert(tx('订阅失败：', 'Subscription failed: ') + (error instanceof Error ? error.message : String(error)));
+      toast.error(tx('订阅失败：', 'Subscription failed: ') + (error instanceof Error ? error.message : String(error)));
     } finally {
       setPushLoading(false);
     }
@@ -197,7 +214,7 @@ export function ChannelBindingSettings() {
       await unsubscribeFromPush();
       await pushUnsubscribeApi();
       setPushSubscribed(false);
-      alert(tx('已取消浏览器推送订阅。', 'Browser push subscription cancelled.'));
+      toast.info(tx('已取消浏览器推送订阅。', 'Browser push subscription cancelled.'));
     } catch (error) {
       console.error('Push unsubscribe failed:', error);
     } finally {
@@ -215,7 +232,7 @@ export function ChannelBindingSettings() {
             {tx('绑定企业微信、钉钉、飞书等即时通讯账号，接收系统通知', 'Bind WeChat Work, DingTalk, Lark and other IM accounts to receive system notifications')}
           </p>
         </div>
-        <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={() => setIsCreateOpen(true)}>
+        <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => setIsCreateOpen(true)}>
           <Plus className="w-4 h-4 mr-1" />
           {tx('绑定新渠道', 'Bind New Channel')}
         </Button>
@@ -264,7 +281,7 @@ export function ChannelBindingSettings() {
                 ) : (
                   <Button
                     size="sm"
-                    className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+                    className="bg-brand-primary hover:bg-brand-primary-hover"
                     onClick={handlePushSubscribe}
                     disabled={pushLoading || !vapidKey}
                   >
@@ -379,7 +396,7 @@ export function ChannelBindingSettings() {
                       className={cn(
                         'flex items-center gap-2 p-3 rounded-lg border transition-all',
                         selectedChannel === key
-                          ? 'border-[#64b5f6] bg-blue-50'
+                          ? 'border-brand-primary bg-blue-50'
                           : 'border-gray-200 hover:border-gray-300'
                       )}
                       onClick={() => {
@@ -416,7 +433,7 @@ export function ChannelBindingSettings() {
               {tx('取消', 'Cancel')}
             </Button>
             <Button
-              className="bg-[#64b5f6] hover:bg-[#42a5f5]"
+              className="bg-brand-primary hover:bg-brand-primary-hover"
               onClick={handleCreate}
               disabled={createLoading || !selectedChannel}
             >
@@ -426,6 +443,21 @@ export function ChannelBindingSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tx('确定要删除此渠道绑定吗？此操作不可撤销。', 'Are you sure you want to delete this channel binding? This action cannot be undone.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTargetId(null)}>{tx('取消', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>{tx('删除', 'Delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

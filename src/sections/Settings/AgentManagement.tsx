@@ -31,11 +31,29 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from '@/components/ui/switch';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { agentApi, modelApi } from '@/api/client';
 
 interface AIAgent {
@@ -90,6 +108,7 @@ export function AgentManagement() {
   const [editingAgent, setEditingAgent] = useState<AIAgent | null>(null);
   const [editingModel, setEditingModel] = useState<AIModel | null>(null);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: 'agent' | 'model'; item: AIAgent | AIModel } | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -119,13 +138,7 @@ export function AgentManagement() {
   };
 
   const handleDeleteAgent = async (agent: AIAgent) => {
-    if (!confirm(tx('确定要删除智能体 "${agent.name}" 吗？', `Delete Agent "${agent.name}"?`))) return;
-    try {
-      await agentApi.delete(agent.id);
-      setAgents(agents.filter(a => a.id !== agent.id));
-    } catch (error) {
-      console.error('Failed to delete agent:', error);
-    }
+    setDeleteTarget({ type: 'agent', item: agent });
   };
 
   const handleSaveAgent = async (agentData: Partial<AIAgent>) => {
@@ -166,15 +179,28 @@ export function AgentManagement() {
 
   const handleDeleteModel = async (model: AIModel) => {
     if (model.isDefault) {
-      alert(tx('默认模型不能删除。', 'Default model cannot be deleted.'));
+      toast.error(tx('默认模型不能删除。', 'Default model cannot be deleted.'));
       return;
     }
-    if (!confirm(tx('确定要删除模型 "${model.name}" 吗？', `Delete model "${model.name}"?`))) return;
+    setDeleteTarget({ type: 'model', item: model });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await modelApi.delete(model.id);
-      setModels(models.filter(m => m.id !== model.id));
+      if (deleteTarget.type === 'agent') {
+        const agent = deleteTarget.item as AIAgent;
+        await agentApi.delete(agent.id);
+        setAgents(agents.filter(a => a.id !== agent.id));
+      } else {
+        const model = deleteTarget.item as AIModel;
+        await modelApi.delete(model.id);
+        setModels(models.filter(m => m.id !== model.id));
+      }
     } catch (error) {
-      console.error('Failed to delete model:', error);
+      console.error('Failed to delete:', error);
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -225,7 +251,7 @@ export function AgentManagement() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -266,7 +292,7 @@ export function AgentManagement() {
                 <CardTitle>{tx('智能体列表', 'Agent List')}</CardTitle>
                 <CardDescription>{tx('管理 AI 智能体配置。', 'Manage AI agent configurations.')}</CardDescription>
               </div>
-              <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={() => { setEditingAgent(null); setIsAgentDialogOpen(true); }}>
+              <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => { setEditingAgent(null); setIsAgentDialogOpen(true); }}>
                 <Plus className="w-4 h-4 mr-1" />
                 {tx('新建智能体', 'New Agent')}
               </Button>
@@ -367,7 +393,7 @@ export function AgentManagement() {
                 <CardTitle>{tx('AI 模型列表', 'AI Model List')}</CardTitle>
                 <CardDescription>{tx('配置和管理 AI 模型集成。', 'Configure and manage AI model integrations.')}</CardDescription>
               </div>
-              <Button className="bg-[#64b5f6] hover:bg-[#42a5f5]" onClick={() => { setEditingModel(null); setIsModelDialogOpen(true); }}>
+              <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => { setEditingModel(null); setIsModelDialogOpen(true); }}>
                 <Plus className="w-4 h-4 mr-1" />
                 {tx('添加模型', 'Add Model')}
               </Button>
@@ -478,6 +504,23 @@ export function AgentManagement() {
         onClose={() => { setIsModelDialogOpen(false); setEditingModel(null); }}
         onSave={handleSaveModel}
       />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.type === 'agent'
+                ? tx(`确定要删除智能体 "${(deleteTarget.item as AIAgent).name}" 吗？`, `Are you sure you want to delete agent "${(deleteTarget.item as AIAgent).name}"?`)
+                : tx(`确定要删除模型 "${(deleteTarget.item as AIModel).name}" 吗？`, `Are you sure you want to delete model "${(deleteTarget.item as AIModel).name}"?`)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>{tx('取消', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>{tx('删除', 'Delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -510,7 +553,7 @@ function AgentDialog({
       const config = JSON.parse(configText);
       onSave({ ...formData, config, prompts: formData.prompts });
     } catch {
-      alert(tx('配置格式错误，请检查 JSON 格式。', 'Configuration format error. Please check JSON format.'));
+      toast.error(tx('配置格式错误，请检查 JSON 格式。', 'Configuration format error. Please check JSON format.'));
     }
   };
 
@@ -529,15 +572,19 @@ function AgentDialog({
             </div>
             <div className="space-y-2">
               <Label>{tx('类型', 'Type')} *</Label>
-              <select
-                className="w-full h-10 px-3 border rounded-md"
+              <Select
                 value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                onValueChange={(value) => setFormData({ ...formData, type: value })}
               >
-                {agentTypes.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {agentTypes.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="space-y-2">
@@ -618,23 +665,27 @@ function ModelDialog({
             </div>
             <div className="space-y-2">
               <Label>{tx('提供商', 'Provider')} *</Label>
-              <select
-                className="w-full h-10 px-3 border rounded-md"
+              <Select
                 value={selectedProvider}
-                onChange={(e) => {
-                  setSelectedProvider(e.target.value);
-                  const provider = providers.find(p => p.value === e.target.value);
+                onValueChange={(value) => {
+                  setSelectedProvider(value);
+                  const provider = providers.find(p => p.value === value);
                   if (provider && provider.models.length > 0) {
-                    setFormData({ ...formData, provider: e.target.value, modelId: provider.models[0] });
+                    setFormData({ ...formData, provider: value, modelId: provider.models[0] });
                   } else {
-                    setFormData({ ...formData, provider: e.target.value });
+                    setFormData({ ...formData, provider: value });
                   }
                 }}
               >
-                {providers.map((p) => (
-                  <option key={p.value} value={p.value}>{p.icon} {p.label}</option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {providers.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>{p.icon} {p.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="space-y-2">
@@ -643,15 +694,19 @@ function ModelDialog({
               const provider = providers.find(p => p.value === selectedProvider);
               if (provider && provider.models.length > 0) {
                 return (
-                  <select
-                    className="w-full h-10 px-3 border rounded-md"
+                  <Select
                     value={formData.modelId}
-                    onChange={(e) => setFormData({ ...formData, modelId: e.target.value })}
+                    onValueChange={(value) => setFormData({ ...formData, modelId: value })}
                   >
-                    {provider.models.map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger className="w-full h-10">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {provider.models.map((m) => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 );
               }
               return <Input value={formData.modelId} onChange={(e) => setFormData({ ...formData, modelId: e.target.value })} placeholder={tx('请输入模型 ID', 'Enter model ID')} />;

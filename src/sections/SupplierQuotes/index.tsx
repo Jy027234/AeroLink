@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import {
-  FileText,
   Search,
   CheckCircle,
   Trophy,
   Brain,
   Loader2,
   TrendingUp,
+  ChevronLeft,
+  ChevronRight,
+  Inbox,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,10 +29,18 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { supplierQuoteApi } from '@/api/client';
 import { useTranslation } from '@/i18n';
+import { toast } from 'sonner';
 
 interface SupplierQuote {
   id: string;
@@ -106,6 +116,12 @@ export function SupplierQuotes() {
     };
   } | null>(null);
   const [isComparing, setIsComparing] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, rfqFilter]);
 
   useEffect(() => {
     loadQuotes();
@@ -130,7 +146,7 @@ export function SupplierQuotes() {
       setIsCompareOpen(true);
     } catch (error) {
       console.error('Comparison failed:', error);
-      alert(tx('比价失败，请重试。', 'Comparison failed. Please try again.'));
+      toast.error(tx('比价失败，请重试。', 'Comparison failed. Please try again.'));
     } finally {
       setIsComparing(false);
     }
@@ -139,12 +155,12 @@ export function SupplierQuotes() {
   const handleSelectWinner = async (quoteId: string) => {
     try {
       await supplierQuoteApi.selectWinner(quoteId);
-      alert(tx('已选择最优供应商。', 'Best supplier selected.'));
+      toast.success(tx('已选择最优供应商。', 'Best supplier selected.'));
       loadQuotes();
       setIsCompareOpen(false);
     } catch (error) {
       console.error('Failed to select supplier:', error);
-      alert(tx('选择供应商失败。', 'Failed to select supplier.'));
+      toast.error(tx('选择供应商失败。', 'Failed to select supplier.'));
     }
   };
 
@@ -159,6 +175,10 @@ export function SupplierQuotes() {
     return true;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredQuotes.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedQuotes = filteredQuotes.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   const stats = {
     total: quotes.length,
     pending: quotes.filter((q) => q.status === 'pending').length,
@@ -169,7 +189,7 @@ export function SupplierQuotes() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-[#64b5f6]" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         <span className="ml-2 text-gray-500">{tx('加载中...', 'Loading...')}</span>
       </div>
     );
@@ -225,16 +245,17 @@ export function SupplierQuotes() {
                   className="pl-10"
                 />
               </div>
-              <select
-                className="h-10 px-3 border rounded-md"
-                value={rfqFilter}
-                onChange={(e) => setRfqFilter(e.target.value)}
-              >
-                <option value="all">{tx('全部需求单', 'All RFQs')}</option>
-                {[...new Set(quotes.filter(q => q.rfqId).map(q => q.rfqId))].map((rfqId) => (
-                  <option key={rfqId} value={rfqId!}>{rfqId}</option>
-                ))}
-              </select>
+              <Select value={rfqFilter} onValueChange={setRfqFilter}>
+                <SelectTrigger className="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{tx('全部需求单', 'All RFQs')}</SelectItem>
+                  {[...new Set(quotes.filter(q => q.rfqId).map(q => q.rfqId))].map((rfqId) => (
+                    <SelectItem key={rfqId} value={rfqId!}>{rfqId}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <Button
               className="bg-purple-600 hover:bg-purple-700"
@@ -263,12 +284,13 @@ export function SupplierQuotes() {
             <TableBody>
               {filteredQuotes.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={8} className="text-center py-12 text-gray-500">
+                    <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                     {tx('暂无供应商报价', 'No supplier quotes')}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredQuotes.map((quote) => (
+                paginatedQuotes.map((quote) => (
                   <TableRow key={quote.id} className={cn(quote.isWinner && 'bg-green-50')}>
                     <TableCell>
                       <div>
@@ -344,6 +366,21 @@ export function SupplierQuotes() {
               )}
             </TableBody>
           </Table>
+          {filteredQuotes.length > pageSize && (
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-sm text-gray-500">
+                {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="sm" disabled={safePage >= totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
