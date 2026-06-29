@@ -61,6 +61,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     triggerClassName: 'gap-1',
     contentClassName: 'mt-4',
     featureStage: 'stable',
+    requiredRoles: ['admin', 'administrator', 'gm'],
     render: () => <UserManagement />,
   },
   {
@@ -87,6 +88,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     labelEn: 'Email',
     contentClassName: 'space-y-6',
     featureStage: 'stable',
+    requiredRoles: ['admin', 'administrator', 'gm'],
     render: () => <EmailSettings />,
   },
   {

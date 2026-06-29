@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { AuthRequest } from './auth.js';
 import { logger } from '../lib/logger.js';

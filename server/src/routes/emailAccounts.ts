@@ -6,10 +6,13 @@ import { emailAccountCreateSchema, emailAccountUpdateSchema } from '../lib/valid
 import { testImapConnection, testSmtpConnection, syncEmails, saveSyncedEmails } from '../lib/emailService.js';
 import { encrypt, decrypt } from '../lib/crypto.js';
 import { logger } from '../lib/logger.js';
+import { MISSING_OUTBOUND_ACCOUNT_MESSAGE } from '../lib/authEmailService.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { requirePrivilegedRole } from '../lib/accessControl.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+const AUTH_EMAIL_PURPOSES = ['USER_ACTIVATION', 'PASSWORD_RESET'] as const;
 
 // 辅助函数：序列化账户响应（排除 authCode）
 function serializeAccount(a: EmailAccount) {
@@ -44,11 +47,25 @@ function buildAccountConfig(a: EmailAccount) {
   };
 }
 
+function resolveAuthDeliveryStatus(email: { status: string; errorMessage?: string | null }) {
+  if (email.status === 'SENT') {
+    return 'sent' as const;
+  }
+
+  if (email.status === 'PENDING') {
+    return 'pending' as const;
+  }
+
+  if (email.status === 'SKIPPED' || email.errorMessage === MISSING_OUTBOUND_ACCOUNT_MESSAGE) {
+    return 'skipped' as const;
+  }
+
+  return 'failed' as const;
+}
+
 // 辅助函数：RBAC 检查 - 仅管理员
 function requireAdmin(req: AuthRequest) {
-  if (req.user?.role !== 'admin' && req.user?.role !== 'administrator') {
-    throw new AppError('无权操作，仅管理员可管理邮箱账户', 403);
-  }
+  requirePrivilegedRole(req, '无权操作，仅管理员或总经理可管理邮箱账户');
 }
 
 router.get(
@@ -77,6 +94,67 @@ router.get(
         limit,
         total,
         totalPages: Math.ceil(total / limit),
+      },
+    });
+  })
+);
+
+router.get(
+  '/auth-deliveries',
+  asyncHandler(async (req, res) => {
+    requireAdmin(req as AuthRequest);
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 10, 1), 50);
+
+    const deliveries = await prisma.outboundEmail.findMany({
+      where: {
+        purpose: {
+          in: [...AUTH_EMAIL_PURPOSES],
+        },
+      },
+      include: {
+        account: {
+          select: {
+            email: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      take: limit,
+    });
+
+    const items = deliveries.map((email) => ({
+      id: email.id,
+      purpose: email.purpose,
+      deliveryStatus: resolveAuthDeliveryStatus(email),
+      toEmail: email.toEmail,
+      subject: email.subject,
+      accountEmail: email.account?.email || null,
+      errorMessage: email.errorMessage,
+      createdAt: email.createdAt.toISOString(),
+      sentAt: email.sentAt?.toISOString() || null,
+    }));
+
+    const summary = items.reduce(
+      (acc, item) => {
+        acc.total += 1;
+        acc[item.deliveryStatus] += 1;
+        return acc;
+      },
+      {
+        total: 0,
+        sent: 0,
+        failed: 0,
+        skipped: 0,
+        pending: 0,
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        items,
+        summary,
       },
     });
   })

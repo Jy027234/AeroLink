@@ -95,4 +95,74 @@ router.patch(
   })
 );
 
+router.post(
+  '/dispatch',
+  asyncHandler(async (req, res) => {
+    const { event, targetUserIds, payload } = req.body as {
+      event?: string;
+      targetUserIds?: string[];
+      payload?: Record<string, string>;
+    };
+
+    const titleMap: Record<string, string> = {
+      AOG_RFQ_CREATED: 'AOG 需求单已创建',
+      AOG_RFQ_UPDATED: 'AOG 需求单已更新',
+      AOG_QUOTE_APPROVED: 'AOG 报价已审批通过',
+      AOG_ORDER_CONFIRMED: 'AOG 订单已确认',
+      AOG_SHIPMENT_DELAYED: 'AOG 物流发生延误',
+      AOG_INVENTORY_ALERT: 'AOG 库存预警',
+    };
+
+    const partNumber = payload?.partNumber ? `件号 ${payload.partNumber}` : '相关单据';
+    const messageMap: Record<string, string> = {
+      AOG_RFQ_CREATED: `${payload?.rfqNumber || 'RFQ'} 已创建，${partNumber}`,
+      AOG_RFQ_UPDATED: `${payload?.rfqNumber || 'RFQ'} 已更新，${partNumber}`,
+      AOG_QUOTE_APPROVED: `${payload?.quoteNumber || '报价单'} 已审批通过，${partNumber}`,
+      AOG_ORDER_CONFIRMED: `${payload?.orderNumber || '订单'} 已确认，${partNumber}`,
+      AOG_SHIPMENT_DELAYED: `${payload?.trackingNumber || '物流单'} 出现延误，${partNumber}`,
+      AOG_INVENTORY_ALERT: `${partNumber} 触发库存预警`,
+    };
+
+    const targetIds =
+      Array.isArray(targetUserIds) && targetUserIds.length > 0
+        ? Array.from(new Set(targetUserIds))
+        : (
+            await prisma.user.findMany({
+              where: {
+                isActive: true,
+                role: { in: ['GM', 'MANAGER', 'ADMIN', 'SALES'] },
+              },
+              select: { id: true },
+            })
+          ).map((user) => user.id);
+
+    const data =
+      targetIds.length > 0
+        ? targetIds.map((userId) => ({
+            userId,
+            title: titleMap[event || ''] || '系统通知',
+            message: messageMap[event || ''] || '您有一条新的系统通知',
+            type: event?.includes('AOG') ? 'WARNING' : 'INFO',
+          }))
+        : [
+            {
+              userId: null,
+              title: titleMap[event || ''] || '系统通知',
+              message: messageMap[event || ''] || '您有一条新的系统通知',
+              type: event?.includes('AOG') ? 'WARNING' : 'INFO',
+            },
+          ];
+
+    await prisma.notification.createMany({ data });
+
+    res.json({
+      success: true,
+      data: {
+        dispatched: data.length,
+        channels: [{ channel: 'SYSTEM', count: data.length }],
+      },
+    });
+  })
+);
+
 export default router;

@@ -566,13 +566,13 @@ export function Certificates() {
     expiringWithinDays: 30,
   });
 
-  const store = useCertificateStore();
+  const setCertificates = useCertificateStore((state) => state.setCertificates);
 
   useEffect(() => {
     if (certificates) {
-      store.setCertificates(certificates);
+      setCertificates(certificates);
     }
-  }, [certificates]);
+  }, [certificates, setCertificates]);
 
   const filteredCertificates = useMemo(() => {
     let list = certificates || [];
@@ -583,7 +583,7 @@ export function Certificates() {
       });
     }
     return list;
-  }, [certificates, expiryWarningOnly]);
+  }, [certificates, expiryWarningOnly, locale]);
 
   const stats = {
     total: certificates?.length || 0,

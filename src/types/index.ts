@@ -12,6 +12,10 @@ export interface User {
   department: string;
   token?: string;
   refreshToken?: string;
+  lastLoginAt?: string;
+  isActive?: boolean;
+  activationPending?: boolean;
+  activationExpiresAt?: string;
 }
 
 // 邮件相关
@@ -864,6 +868,7 @@ export interface WorkflowDefinition {
   version: number;
   createdAt: string;
   updatedAt: string;
+  instanceCount?: number;
   steps?: WorkflowStep[];
 }
 

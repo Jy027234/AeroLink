@@ -1,6 +1,24 @@
 name: aerolink-prod
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aerolink
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: aerolink
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aerolink -d aerolink"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - aerolink-prod
+
   web:
     build:
       context: .
@@ -24,10 +42,14 @@ services:
       PORT: 3000
       NODE_ENV: production
       CLIENT_URL: ${PUBLIC_ORIGIN:-http://localhost:8080}
-      DATABASE_URL: file:./data/prod.db
+      DATABASE_URL: postgresql://aerolink:${DB_PASSWORD}@postgres:5432/aerolink?schema=public
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    secrets:
+      - encryption_key
     volumes:
-      - backend-data:/app/data
       - backend-uploads:/app/uploads
     restart: unless-stopped
     healthcheck:
@@ -40,8 +62,12 @@ services:
       - aerolink-prod
 
 volumes:
-  backend-data:
+  postgres-data:
   backend-uploads:
+
+secrets:
+  encryption_key:
+    file: ./secrets/encryption_key.txt
 
 networks:
   aerolink-prod:

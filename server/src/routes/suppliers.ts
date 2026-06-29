@@ -7,6 +7,8 @@ import { AuthRequest } from '../middleware/auth.js';
 import { supplierCreateSchema, supplierUpdateSchema, supplierFollowUpLogBatchCreateSchema, supplierInviteSchema } from '../lib/validation.js';
 import prisma from '../lib/prisma.js';
 import { cache, CACHE_TTL, CACHE_KEY } from '../lib/cache.js';
+import { generateAuthToken, getActivationExpiryDate } from '../lib/authFlow.js';
+import { sendSupplierInviteEmail } from '../lib/authEmailService.js';
 
 function parseJsonArrayField(value: unknown): string | undefined {
   if (Array.isArray(value)) return JSON.stringify(value);
@@ -469,6 +471,9 @@ router.post(
       throw new AppError('该邮箱已关联供应商', 409);
     }
 
+    const token = generateAuthToken();
+    const expiresAt = getActivationExpiryDate();
+
     // 创建待激活的供应商记录
     const supplier = await prisma.supplier.create({
       data: {
@@ -477,14 +482,21 @@ router.post(
         level: 'C',
         performanceScore: 50,
         status: 'pending',
+        activationToken: token,
+        activationTokenExpiresAt: expiresAt,
       },
     });
 
     // 清除供应商列表缓存
     cache.delByPrefix(CACHE_KEY.SUPPLIER_LIST);
 
-    // TODO: 发送邀请邮件
-    // await sendInviteEmail(email, message);
+    // 发送邀请邮件
+    const emailResult = await sendSupplierInviteEmail(
+      supplier.name,
+      supplier.email!,
+      token,
+      expiresAt
+    );
 
     res.status(201).json({
       success: true,
@@ -493,6 +505,7 @@ router.post(
         id: supplier.id,
         email: supplier.email,
         status: supplier.status,
+        emailDeliveryStatus: emailResult.emailDeliveryStatus,
       },
     });
   })

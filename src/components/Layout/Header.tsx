@@ -32,6 +32,16 @@ export function Header() {
     setCurrentPage(page);
   };
 
+  const roleLabel = user?.role === 'manager'
+    ? t('header.manager')
+    : user?.role === 'gm'
+      ? t('header.gm')
+      : user?.role === 'finance'
+        ? t('header.finance')
+        : user?.role === 'admin'
+          ? t('header.admin')
+          : t('header.sales');
+
   return (
     <header
       className={cn(
@@ -162,7 +172,7 @@ export function Header() {
               </div>
               <div className="text-left hidden sm:block">
                 <p className="text-sm font-medium">{user?.name || 'User'}</p>
-                <p className="text-xs text-gray-500">{user?.role === 'manager' ? t('header.manager') : t('header.sales')}</p>
+                <p className="text-xs text-gray-500">{roleLabel}</p>
               </div>
               <ChevronDown className="w-4 h-4 text-gray-400 hidden sm:block" />
             </Button>

@@ -844,7 +844,7 @@ export default function Workflows() {
                         <Badge variant="outline">{def.entityType}</Badge>
                       </TableCell>
                       <TableCell>{def.steps?.length || 0}</TableCell>
-                      <TableCell>{(def as any).instanceCount ?? 0}</TableCell>
+                      <TableCell>{def.instanceCount ?? 0}</TableCell>
                       <TableCell>
                         <Badge variant={def.isActive ? 'default' : 'secondary'}>
                           {def.isActive ? tx('启用', 'Active') : tx('禁用', 'Inactive')}

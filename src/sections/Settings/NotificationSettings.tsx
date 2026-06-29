@@ -22,8 +22,6 @@ export function NotificationSettings() {
     larkNotify: false,
     smsNotify: false,
     pushNotify: false,
-    slackNotify: false,
-    teamsNotify: false,
   });
 
   useEffect(() => {
@@ -39,8 +37,6 @@ export function NotificationSettings() {
         larkNotify: preference.larkNotify ?? false,
         smsNotify: preference.smsNotify ?? false,
         pushNotify: preference.pushNotify ?? false,
-        slackNotify: preference.slackNotify ?? false,
-        teamsNotify: preference.teamsNotify ?? false,
       });
     }
   }, [preference]);
@@ -52,7 +48,7 @@ export function NotificationSettings() {
       await updatePreference.mutate(next);
       toast.success(tx('偏好已更新', 'Preference updated'));
       await refetch();
-    } catch (error) {
+    } catch (_error) {
       toast.error(tx('更新失败', 'Update failed'));
       setSettings(settings); // rollback
     }
@@ -70,8 +66,6 @@ export function NotificationSettings() {
     { key: 'wechatNotify' as const, label: tx('企业微信通知', 'WeChat Work Notifications'), desc: tx('通过企业微信接收通知', 'Receive notifications via WeChat Work') },
     { key: 'dingtalkNotify' as const, label: tx('钉钉通知', 'DingTalk Notifications'), desc: tx('通过钉钉接收通知', 'Receive notifications via DingTalk') },
     { key: 'larkNotify' as const, label: tx('飞书通知', 'Lark Notifications'), desc: tx('通过飞书接收通知', 'Receive notifications via Lark') },
-    { key: 'slackNotify' as const, label: tx('Slack通知', 'Slack Notifications'), desc: tx('通过Slack接收通知（国际化团队）', 'Receive notifications via Slack (international teams)') },
-    { key: 'teamsNotify' as const, label: tx('Teams通知', 'Microsoft Teams Notifications'), desc: tx('通过Microsoft Teams接收通知（国际化团队）', 'Receive notifications via Microsoft Teams (international teams)') },
     { key: 'smsNotify' as const, label: tx('短信通知', 'SMS Notifications'), desc: tx('通过短信接收紧急通知（仅AOG）', 'Receive urgent notifications via SMS (AOG only)') },
     { key: 'pushNotify' as const, label: tx('浏览器推送', 'Browser Push'), desc: tx('通过浏览器桌面通知接收提醒', 'Receive desktop notifications via browser push') },
   ];

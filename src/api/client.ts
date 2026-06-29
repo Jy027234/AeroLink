@@ -13,6 +13,8 @@ import type {
   RFQ,
   Quotation,
   Order,
+  InventoryItem,
+  InventoryDetail,
   DocumentTemplate,
   GeneratedDocument,
   Inventory,
@@ -34,6 +36,59 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
 
 type ApiRecord = Record<string, unknown>;
 type ApiPayload = object;
+
+export interface AuthSuccessResponse {
+  token: string;
+  refreshToken: string;
+  user: User;
+}
+
+export interface ActivationInfo {
+  email: string;
+  name: string;
+  activationExpiresAt: string;
+}
+
+export interface ResetInfo {
+  email: string;
+  name: string;
+  resetExpiresAt: string;
+}
+
+export type AuthEmailDeliveryStatus = 'sent' | 'failed' | 'skipped';
+
+export interface AuthEmailDeliveryRecord {
+  id: string;
+  purpose: string;
+  deliveryStatus: AuthEmailDeliveryStatus | 'pending';
+  toEmail: string;
+  subject: string;
+  accountEmail?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  sentAt?: string | null;
+}
+
+export interface AuthEmailDeliveryHistory {
+  items: AuthEmailDeliveryRecord[];
+  summary: {
+    total: number;
+    sent: number;
+    failed: number;
+    skipped: number;
+    pending: number;
+  };
+}
+
+export interface UserOnboardingResponse {
+  user: User;
+  activationToken: string;
+  activationLink: string;
+  activationExpiresAt: string;
+  emailDeliveryStatus: AuthEmailDeliveryStatus;
+  emailDeliveryError?: string;
+  outboundEmailId?: string;
+}
 
 export interface SupplierFollowUpLogCreateInput {
   supplierId: string;
@@ -410,7 +465,14 @@ async function request<T>(
       );
     }
     const data = await response.json();
-    const isAuthRequest = endpoint === '/auth/login' || endpoint === '/auth/refresh';
+    const isAuthRequest =
+      endpoint === '/auth/login' ||
+      endpoint === '/auth/refresh' ||
+      endpoint === '/auth/forgot-password' ||
+      endpoint === '/auth/activate' ||
+      endpoint === '/auth/reset-password' ||
+      endpoint.startsWith('/auth/activation/') ||
+      endpoint.startsWith('/auth/reset/');
 
     if (response.status === 401) {
       if (!isAuthRequest) {
@@ -735,7 +797,7 @@ export const pricingApi = {
 // ===== Auth API =====
 export const authApi = {
   login: async (email: string, password: string) => {
-    return request<{ token: string; refreshToken: string; user: User }>('/auth/login', {
+    return request<AuthSuccessResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
@@ -765,6 +827,35 @@ export const authApi = {
       body: JSON.stringify(data),
     });
   },
+
+  getActivationInfo: async (token: string) => {
+    return request<ActivationInfo>(`/auth/activation/${encodeURIComponent(token)}`);
+  },
+
+  activateAccount: async (token: string, password: string) => {
+    return request<AuthSuccessResponse>('/auth/activate', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
+  },
+
+  forgotPassword: async (email: string) => {
+    return request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  getResetInfo: async (token: string) => {
+    return request<ResetInfo>(`/auth/reset/${encodeURIComponent(token)}`);
+  },
+
+  resetPassword: async (token: string, password: string) => {
+    return request<AuthSuccessResponse>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
+  },
 };
 
 // ===== User Management API =====
@@ -778,7 +869,7 @@ export const userApi = {
   },
 
   create: async (data: ApiPayload) => {
-    return request<User>('/users', {
+    return request<UserOnboardingResponse>('/users', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -788,6 +879,12 @@ export const userApi = {
     return request<User>(`/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  },
+
+  regenerateActivationLink: async (id: string) => {
+    return request<UserOnboardingResponse>(`/users/${id}/activation-link`, {
+      method: 'POST',
     });
   },
 
@@ -1385,6 +1482,8 @@ export interface NotificationPreference {
   larkNotify: boolean;
   smsNotify: boolean;
   pushNotify: boolean;
+  slackNotify: boolean;
+  teamsNotify: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -1437,43 +1536,48 @@ export const emailAccountApi = {
     if (params?.page) searchParams.append('page', String(params.page));
     if (params?.limit) searchParams.append('limit', String(params.limit));
     const query = searchParams.toString();
-    return request<ApiRecord>(`/email-accounts/accounts${query ? `?${query}` : ''}`);
+    return request<ApiRecord>(`/email-accounts${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
-    return request<ApiRecord>(`/email-accounts/accounts/${id}`);
+    return request<ApiRecord>(`/email-accounts/${id}`);
   },
 
   create: async (data: ApiPayload) => {
-    return request<ApiRecord>('/email-accounts/accounts', {
+    return request<ApiRecord>('/email-accounts', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
   update: async (id: string, data: ApiPayload) => {
-    return request<ApiRecord>(`/email-accounts/accounts/${id}`, {
+    return request<ApiRecord>(`/email-accounts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   },
 
   delete: async (id: string) => {
-    return request<ApiRecord>(`/email-accounts/accounts/${id}`, {
+    return request<ApiRecord>(`/email-accounts/${id}`, {
       method: 'DELETE',
     });
   },
 
   test: async (id: string) => {
-    return request<ApiRecord>(`/email-accounts/accounts/${id}/test`, {
+    return request<{ imap: boolean; smtp: boolean }>(`/email-accounts/${id}/test`, {
       method: 'POST',
     });
   },
 
   sync: async (id: string) => {
-    return request<ApiRecord>(`/email-accounts/accounts/${id}/sync`, {
+    return request<ApiRecord>(`/email-accounts/${id}/sync`, {
       method: 'POST',
     });
+  },
+
+  getAuthDeliveryHistory: async (limit = 10) => {
+    const searchParams = new URLSearchParams({ limit: String(limit) });
+    return request<AuthEmailDeliveryHistory>(`/email-accounts/auth-deliveries?${searchParams.toString()}`);
   },
 };
 
@@ -1722,7 +1826,7 @@ export const certificateApi = {
   },
 
   issue: async (data: ApiPayload) => {
-    return request<Certificate>('/certificates', {
+    return request<Certificate>('/certificates/issue', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -1778,7 +1882,7 @@ export const certificateTemplateApi = {
 
   update: async (id: string, data: ApiPayload) => {
     return request<CertificateTemplate>(`/certificate-templates/${id}`, {
-      method: 'PATCH',
+      method: 'PUT',
       body: JSON.stringify(data),
     });
   },
@@ -2171,7 +2275,7 @@ export const auctionApi = {
 
   update: async (id: string, data: object) => {
     return request<Auction>(`/auctions/${id}`, {
-      method: 'PATCH',
+      method: 'PUT',
       body: JSON.stringify(data),
     });
   },
@@ -2195,7 +2299,7 @@ export const auctionApi = {
   },
 
   placeBid: async (id: string, data: PlaceBidInput) => {
-    return request<AuctionBid>(`/auctions/${id}/bids`, {
+    return request<AuctionBid>(`/auctions/${id}/bid`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -2458,10 +2562,7 @@ export interface BlockchainVerificationResult {
 
 export const blockchainApi = {
   verify: async (certificateId: string) => {
-    return request<BlockchainVerificationResult>('/blockchain/verify', {
-      method: 'POST',
-      body: JSON.stringify({ certificateId }),
-    });
+    return request<BlockchainVerificationResult>(`/blockchain/verify/${certificateId}`);
   },
 };
 
@@ -2490,10 +2591,8 @@ export interface FMVResult {
 
 export const fmvApi = {
   calculate: async (partNumber: string, conditionCode: string) => {
-    return request<FMVResult>('/fmv/calculate', {
-      method: 'POST',
-      body: JSON.stringify({ partNumber, conditionCode }),
-    });
+    const params = new URLSearchParams({ conditionCode });
+    return request<FMVResult>(`/fmv/${encodeURIComponent(partNumber)}?${params.toString()}`);
   },
 };
 
@@ -2530,8 +2629,8 @@ export const apiKeyApi = {
   },
 
   revoke: async (id: string) => {
-    return request<ApiKeyItem>(`/api-keys/${id}/revoke`, {
-      method: 'POST',
+    return request<ApiRecord>(`/api-keys/${id}`, {
+      method: 'DELETE',
     });
   },
 };
@@ -2657,7 +2756,7 @@ export interface CompatibilityResult {
 
 export const technicalKitApi = {
   search: async (q: string) => {
-    return request<IPCItem[]>(`/technical-kit/search?q=${encodeURIComponent(q)}`);
+    return request<IPCItem[]>(`/ipc/search?q=${encodeURIComponent(q)}`);
   },
 
   checkCompatibility: async (partNumber: string, aircraftType: string, msn?: string) => {
@@ -2665,7 +2764,7 @@ export const technicalKitApi = {
     params.append('partNumber', partNumber);
     params.append('aircraftType', aircraftType);
     if (msn) params.append('msn', msn);
-    return request<CompatibilityResult>(`/technical-kit/compatibility?${params.toString()}`);
+    return request<CompatibilityResult>(`/ipc/compatibility?${params.toString()}`);
   },
 };
 

@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuthStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { resolveVisibleSettingsTabs } from './tabRegistry';
+import { getSettingsTabFromUrl, setSettingsTabInUrl, subscribeToSettingsTabUrlChange } from './tabUrlState';
 
 export function SettingsPage() {
   const { locale } = useTranslation();
@@ -11,14 +12,39 @@ export function SettingsPage() {
   const { user } = useAuthStore();
   const visibleTabs = useMemo(() => resolveVisibleSettingsTabs({ user }), [user]);
   const defaultTab = visibleTabs[0]?.key ?? 'profile';
-  const [activeTab, setActiveTab] = useState(defaultTab);
+  const [activeTab, setActiveTab] = useState(() => getSettingsTabFromUrl() || defaultTab);
   const resolvedActiveTab = visibleTabs.some((tab) => tab.key === activeTab)
     ? activeTab
     : defaultTab;
 
+  useEffect(() => {
+    if (resolvedActiveTab !== activeTab) {
+      setActiveTab(resolvedActiveTab);
+    }
+
+    const currentUrlTab = getSettingsTabFromUrl();
+    if (resolvedActiveTab && currentUrlTab !== resolvedActiveTab) {
+      setSettingsTabInUrl(resolvedActiveTab);
+    }
+  }, [activeTab, resolvedActiveTab]);
+
+  useEffect(() => {
+    return subscribeToSettingsTabUrlChange(() => {
+      const nextTab = getSettingsTabFromUrl();
+      if (nextTab) {
+        setActiveTab(nextTab);
+      }
+    });
+  }, []);
+
+  const handleTabChange = (nextTab: string) => {
+    setActiveTab(nextTab);
+    setSettingsTabInUrl(nextTab);
+  };
+
   return (
     <div className="space-y-6">
-      <Tabs value={resolvedActiveTab} onValueChange={setActiveTab}>
+      <Tabs value={resolvedActiveTab} onValueChange={handleTabChange}>
         <TabsList
           className="grid w-fit"
           style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}

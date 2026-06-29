@@ -1,0 +1,4 @@
+{"level":30,"time":1781091839127,"env":"development","service":"aerolink-api","msg":"🚀 AeroLink Server running on http://localhost:3001"}
+{"level":30,"time":1781091839128,"env":"development","service":"aerolink-api","msg":"📚 Health check: http://localhost:3001/api/health"}
+{"level":30,"time":1781091839128,"env":"development","service":"aerolink-api","msg":"🔁 Webhook retry worker started (interval: 30s)"}
+{"level":50,"time":1781137613586,"env":"development","service":"aerolink-api","error":{"name":"PrismaClientKnownRequestError","code":"P2024","clientVersion":"5.22.0","meta":{"modelName":"WebhookDelivery","connection_limit":17,"timeout":10}},"msg":"Webhook retry worker execution failed"}

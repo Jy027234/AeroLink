@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import prisma from './prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logger } from './logger.js';

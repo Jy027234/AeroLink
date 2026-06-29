@@ -39,6 +39,7 @@ import {
   useRestockSuggestions,
   useExchangeVMIStats,
 } from '@/hooks/useApi';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export function ExchangeVMI() {
   const { locale } = useTranslation();
@@ -85,6 +86,12 @@ export function ExchangeVMI() {
 
   return (
     <div className="space-y-6">
+      <Alert className="bg-amber-50 border-amber-200 text-amber-800">
+        <AlertTriangle className="w-4 h-4 text-amber-600" />
+        <AlertDescription>
+          {tx('本模块为演示版本，数据仅供展示，刷新后可能丢失。', 'This module is in demo mode. Data is for display only and may be lost after refresh.')}
+        </AlertDescription>
+      </Alert>
       <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setExchangePage(1); setVmiPage(1); setRestockPage(1); }}>
         <TabsList>
           <TabsTrigger value="exchange">{tx('换件管理', 'Exchange Management')}</TabsTrigger>

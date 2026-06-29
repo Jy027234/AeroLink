@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Edit3, Key, Loader2, Plus, Trash2, User } from 'lucide-react';
+import { Copy, Edit3, Inbox, Key, Loader2, Plus, Trash2, User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,7 +29,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useTranslation } from '@/i18n';
-import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '@/hooks/useApi';
+import { useUsers, useCreateUser, useUpdateUser, useDeleteUser, useRegenerateUserActivationLink } from '@/hooks/useApi';
+import type { AuthEmailDeliveryStatus, UserOnboardingResponse } from '@/api/client';
+import { setSettingsTabInUrl } from './tabUrlState';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -50,6 +52,7 @@ export function UserManagement() {
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
+  const regenerateActivationLink = useRegenerateUserActivationLink();
 
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -62,6 +65,32 @@ export function UserManagement() {
     phone: '',
   });
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [onboardingDialogOpen, setOnboardingDialogOpen] = useState(false);
+  const [onboardingName, setOnboardingName] = useState('');
+  const [onboardingLink, setOnboardingLink] = useState('');
+  const [onboardingExpiresAt, setOnboardingExpiresAt] = useState('');
+  const [onboardingDeliveryStatus, setOnboardingDeliveryStatus] = useState<AuthEmailDeliveryStatus>('sent');
+  const [onboardingDeliveryError, setOnboardingDeliveryError] = useState('');
+
+  const openOnboardingDialog = (payload: UserOnboardingResponse) => {
+    setOnboardingName(payload.user.name);
+    setOnboardingLink(payload.activationLink);
+    setOnboardingExpiresAt(payload.activationExpiresAt);
+    setOnboardingDeliveryStatus(payload.emailDeliveryStatus);
+    setOnboardingDeliveryError(payload.emailDeliveryError || '');
+    setOnboardingDialogOpen(true);
+  };
+
+  const getOnboardingNotice = (status: AuthEmailDeliveryStatus) => {
+    if (status === 'sent') {
+      return tx('激活邮件已自动发送给该用户。', 'The activation email has been sent automatically.');
+    }
+
+    return tx(
+      '系统未能自动发送激活邮件，请复制下方链接并手动发送给该用户。',
+      'Automatic email delivery was unavailable. Please copy the link below and share it manually.'
+    );
+  };
 
   const getRoleBadge = (role: string) => {
     const config: Record<string, { label: string; color: string }> = {
@@ -101,14 +130,23 @@ export function UserManagement() {
     }
     try {
       if (formMode === 'create') {
-        await createUser.mutate(formData);
-        toast.success(tx('用户已创建', 'User created'));
+        const result = await createUser.mutate(formData);
+        if (result) {
+          openOnboardingDialog(result);
+          toast.success(
+            result.emailDeliveryStatus === 'sent'
+              ? tx('用户已创建，激活邮件已发送', 'User created and activation email sent.')
+              : tx('用户已创建，请手动发送激活链接', 'User created. Please share the activation link manually.')
+          );
+          setIsFormOpen(false);
+          await refetch();
+        }
       } else if (selectedUser) {
         await updateUser.mutate({ id: selectedUser.id, data: formData });
         toast.success(tx('用户已更新', 'User updated'));
+        setIsFormOpen(false);
+        await refetch();
       }
-      setIsFormOpen(false);
-      await refetch();
     } catch (error) {
       const message = error instanceof Error ? error.message : tx('操作失败', 'Operation failed');
       toast.error(message);
@@ -119,13 +157,41 @@ export function UserManagement() {
     setDeleteTargetId(id);
   };
 
+  const handleRegenerateActivationLink = async (user: UserType) => {
+    const result = await regenerateActivationLink.mutate(user.id);
+    if (result) {
+      openOnboardingDialog(result);
+      toast.success(
+        result.emailDeliveryStatus === 'sent'
+          ? tx('激活链接已重新生成并发送', 'Activation link regenerated and emailed.')
+          : tx('激活链接已重新生成，请手动发送', 'Activation link regenerated. Please share it manually.')
+      );
+    } else {
+      toast.error(tx('重发激活链接失败', 'Failed to regenerate activation link'));
+    }
+  };
+
+  const handleCopyActivationLink = async () => {
+    try {
+      await navigator.clipboard.writeText(onboardingLink);
+      toast.success(tx('激活链接已复制', 'Activation link copied'));
+    } catch {
+      toast.error(tx('复制失败', 'Copy failed'));
+    }
+  };
+
+  const handleOpenEmailSettings = () => {
+    setOnboardingDialogOpen(false);
+    setSettingsTabInUrl('email');
+  };
+
   const confirmDelete = async () => {
     if (!deleteTargetId) return;
     try {
       await deleteUser.mutate(deleteTargetId);
       toast.success(tx('用户已删除', 'User deleted'));
       await refetch();
-    } catch (error) {
+    } catch (_error) {
       toast.error(tx('删除失败', 'Delete failed'));
     } finally {
       setDeleteTargetId(null);
@@ -183,7 +249,12 @@ export function UserManagement() {
                         <div className="w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center">
                           <User className="w-4 h-4 text-white" />
                         </div>
-                        <span className="font-medium">{user.name}</span>
+                        <div>
+                          <span className="font-medium">{user.name}</span>
+                          {user.activationPending && (
+                            <p className="text-xs text-amber-600">{tx('待激活', 'Pending activation')}</p>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell className="text-gray-500">{user.email}</TableCell>
@@ -197,7 +268,12 @@ export function UserManagement() {
                         <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(user)}>
                           <Edit3 className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" disabled>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleRegenerateActivationLink(user)}
+                          disabled={!user.activationPending || regenerateActivationLink.loading}
+                        >
                           <Key className="w-4 h-4" />
                         </Button>
                         <Button variant="ghost" size="icon" onClick={() => handleDelete(user.id)} disabled={deleteUser.loading}>
@@ -316,6 +392,49 @@ export function UserManagement() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={onboardingDialogOpen} onOpenChange={setOnboardingDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{tx('激活链接', 'Activation Link')}</DialogTitle>
+            <DialogDescription>
+              {tx(`请将下方信息发送给 ${onboardingName || '该用户'}，用于首次设置密码。`, `Share the details below with ${onboardingName || 'the user'} for first-time password setup.`)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className={`rounded-lg border px-3 py-2 text-sm ${onboardingDeliveryStatus === 'sent' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+              <p>{getOnboardingNotice(onboardingDeliveryStatus)}</p>
+              {onboardingDeliveryError && (
+                <p className="mt-1 text-xs opacity-90">{onboardingDeliveryError}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>{tx('激活地址', 'Activation URL')}</Label>
+              <Input value={onboardingLink} readOnly />
+            </div>
+            {onboardingExpiresAt && (
+              <p className="text-sm text-gray-500">
+                {tx('有效期至：', 'Valid until: ')}
+                {new Date(onboardingExpiresAt).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US')}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            {onboardingDeliveryStatus !== 'sent' && (
+              <Button variant="outline" onClick={handleOpenEmailSettings}>
+                {tx('去配置邮箱', 'Configure Email')}
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setOnboardingDialogOpen(false)}>
+              {tx('关闭', 'Close')}
+            </Button>
+            <Button onClick={() => void handleCopyActivationLink()}>
+              <Copy className="w-4 h-4 mr-2" />
+              {tx('复制链接', 'Copy Link')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -46,7 +46,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from '@/i18n';
 import {
   useWorkflowDefinitions,
@@ -55,7 +54,6 @@ import {
   useAgents,
 } from '@/hooks/useApi';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 import type { WorkflowDefinition, WorkflowStep } from '@/types';
 
 // 步骤类型配置
@@ -272,7 +270,7 @@ export function ApprovalWorkflowSettings() {
       setIsFormOpen(false);
       resetForm();
       await refetch();
-    } catch (error) {
+    } catch (_error) {
       toast.error(tx('保存失败', 'Save failed'));
     }
   };
@@ -285,7 +283,7 @@ export function ApprovalWorkflowSettings() {
       });
       toast.success(tx('状态已更新', 'Status updated'));
       await refetch();
-    } catch (error) {
+    } catch (_error) {
       toast.error(tx('更新失败', 'Update failed'));
     }
   };
@@ -300,7 +298,7 @@ export function ApprovalWorkflowSettings() {
       await deleteDefinition(deleteTargetId);
       toast.success(tx('已删除', 'Deleted'));
       await refetch();
-    } catch (error) {
+    } catch (_error) {
       toast.error(tx('删除失败', 'Delete failed'));
     } finally {
       setDeleteTargetId(null);
@@ -521,7 +519,6 @@ export function ApprovalWorkflowSettings() {
               <div className="space-y-3">
                 {steps.map((step, index) => {
                   const mode = getApproverMode(step);
-                  const typeConfig = getStepTypeConfig(step.stepType);
                   return (
                     <div key={step.id} className="border rounded-lg p-4 space-y-3">
                       {/* 步骤头部 */}

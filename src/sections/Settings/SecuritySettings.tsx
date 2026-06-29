@@ -36,7 +36,7 @@ export function SecuritySettings() {
       });
       toast.success(tx('密码已更新', 'Password updated'));
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    } catch (error) {
+    } catch (_error) {
       toast.error(tx('密码更新失败', 'Password update failed'));
     }
   };

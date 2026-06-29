@@ -5,6 +5,34 @@ export const loginSchema = z.object({
   password: z.string().min(1, '密码不能为空'),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('请提供有效的邮箱'),
+});
+
+export const tokenPasswordSchema = z.object({
+  token: z.string().min(1, '令牌不能为空'),
+  password: z.string().min(8, '密码至少需要 8 位'),
+});
+
+export function validatePasswordStrength(password: string): { valid: boolean; message: string } {
+  if (password.length < 8) {
+    return { valid: false, message: '密码至少需要 8 位' };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { valid: false, message: '密码需要包含至少 1 个大写字母' };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { valid: false, message: '密码需要包含至少 1 个小写字母' };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { valid: false, message: '密码需要包含至少 1 个数字' };
+  }
+  if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
+    return { valid: false, message: '密码需要包含至少 1 个特殊字符' };
+  }
+  return { valid: true, message: '密码强度符合要求' };
+}
+
 export const rfqCreateSchema = z.object({
   customerId: z.string().min(1, '客户ID不能为空'),
   partNumber: z.string().min(1, '件号不能为空'),

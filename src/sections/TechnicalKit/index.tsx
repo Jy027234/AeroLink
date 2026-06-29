@@ -29,10 +29,12 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useIPCSearch, useCheckCompatibility } from '@/hooks/useApi';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export function TechnicalKit() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
+  const [showBetaAlert] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [aircraftType, setAircraftType] = useState('');
   const [msn, setMsn] = useState('');
@@ -72,6 +74,14 @@ export function TechnicalKit() {
 
   return (
     <div className="space-y-6">
+      {showBetaAlert && (
+        <Alert className="bg-amber-50 border-amber-200 text-amber-800">
+          <AlertTriangle className="w-4 h-4 text-amber-600" />
+          <AlertDescription>
+            {tx('本模块为演示版本，数据仅供展示，刷新后可能丢失。', 'This module is in demo mode. Data is for display only and may be lost after refresh.')}
+          </AlertDescription>
+        </Alert>
+      )}
       {/* Search area */}
       <Card>
         <CardHeader>

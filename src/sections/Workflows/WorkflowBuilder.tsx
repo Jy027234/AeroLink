@@ -59,10 +59,11 @@ export function WorkflowBuilder({ steps, onChange }: WorkflowBuilderProps) {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
+  const defaultStepName = locale === 'zh-CN' ? '新步骤' : 'New Step';
 
   const addStep = useCallback(() => {
     const newStep: Omit<WorkflowStep, 'id' | 'workflowId' | 'createdAt'> = {
-      name: tx('新步骤', 'New Step'),
+      name: defaultStepName,
       stepOrder: steps.length + 1,
       stepType: 'APPROVAL',
       approverRole: 'manager',
@@ -78,7 +79,7 @@ export function WorkflowBuilder({ steps, onChange }: WorkflowBuilderProps) {
     };
     onChange([...steps, newStep]);
     setExpandedIndex(steps.length);
-  }, [steps, onChange, tx]);
+  }, [defaultStepName, steps, onChange]);
 
   const removeStep = useCallback(
     (index: number) => {

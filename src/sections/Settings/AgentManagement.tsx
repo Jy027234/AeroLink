@@ -109,6 +109,7 @@ export function AgentManagement() {
   const [editingModel, setEditingModel] = useState<AIModel | null>(null);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'agent' | 'model'; item: AIAgent | AIModel } | null>(null);
+  const deleteTargetName = deleteTarget?.item.name ?? '';
 
   useEffect(() => {
     const loadData = async () => {
@@ -511,8 +512,8 @@ export function AgentManagement() {
             <AlertDialogTitle>{tx('确认删除', 'Confirm Delete')}</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget?.type === 'agent'
-                ? tx(`确定要删除智能体 "${(deleteTarget.item as AIAgent).name}" 吗？`, `Are you sure you want to delete agent "${(deleteTarget.item as AIAgent).name}"?`)
-                : tx(`确定要删除模型 "${(deleteTarget.item as AIModel).name}" 吗？`, `Are you sure you want to delete model "${(deleteTarget.item as AIModel).name}"?`)}
+                ? tx(`确定要删除智能体 "${deleteTargetName}" 吗？`, `Are you sure you want to delete agent "${deleteTargetName}"?`)
+                : tx(`确定要删除模型 "${deleteTargetName}" 吗？`, `Are you sure you want to delete model "${deleteTargetName}"?`)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

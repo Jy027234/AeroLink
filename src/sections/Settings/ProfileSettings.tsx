@@ -25,9 +25,14 @@ export function ProfileSettings({ user }: { user: CurrentUserProfile | null }) {
 
   const handleSubmit = async () => {
     try {
-      await updateProfile.mutate(formData);
+      const updatedUser = await updateProfile.mutate(formData);
+      if (updatedUser) {
+        const currentStored = localStorage.getItem('aerolink_user');
+        const currentUser = currentStored ? (JSON.parse(currentStored) as Record<string, unknown>) : {};
+        localStorage.setItem('aerolink_user', JSON.stringify({ ...currentUser, ...updatedUser }));
+      }
       toast.success(tx('资料已更新', 'Profile updated'));
-    } catch (error) {
+    } catch (_error) {
       toast.error(tx('更新失败', 'Update failed'));
     }
   };

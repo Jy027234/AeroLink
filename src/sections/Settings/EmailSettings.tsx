@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Check, Edit3, Loader2, Mail, Plus, RefreshCw, Save, Trash2, X, Inbox } from 'lucide-react';
-import { emailAccountApi } from '@/api/client';
+import { useCallback, useEffect, useState } from 'react';
+import { AlertTriangle, Check, CheckCircle2, Edit3, Inbox, Loader2, Mail, Plus, RefreshCw, Save, ShieldCheck, Trash2, X } from 'lucide-react';
+import { emailAccountApi, type AuthEmailDeliveryHistory, type AuthEmailDeliveryRecord } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,17 +48,16 @@ export function EmailSettings() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
+  const [authDeliveryHistory, setAuthDeliveryHistory] = useState<AuthEmailDeliveryHistory | null>(null);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<EmailAccount | null>(null);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
-  useEffect(() => {
-    void loadAccounts();
-  }, []);
-
-  const loadAccounts = async () => {
+  const loadAccounts = useCallback(async () => {
     try {
       const data = await emailAccountApi.getAll();
       setAccounts(Array.isArray(data) ? (data as EmailAccount[]) : []);
@@ -67,7 +66,29 @@ export function EmailSettings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const loadAuthDeliveryHistory = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    setHistoryLoading(true);
+    try {
+      const data = await emailAccountApi.getAuthDeliveryHistory(12);
+      setAuthDeliveryHistory(data);
+    } catch (error) {
+      console.error('Failed to load auth delivery history:', error);
+      if (!silent) {
+        toast.error(locale === 'zh-CN' ? '加载认证邮件记录失败。' : 'Failed to load auth email history.');
+      }
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [locale]);
+
+  useEffect(() => {
+    void Promise.all([
+      loadAccounts(),
+      loadAuthDeliveryHistory({ silent: true }),
+    ]);
+  }, [loadAccounts, loadAuthDeliveryHistory]);
 
   const handleSave = async (formData: EmailAccountFormData) => {
     try {
@@ -123,10 +144,135 @@ export function EmailSettings() {
   const handleSetDefault = async (id: string) => {
     try {
       await emailAccountApi.update(id, { isDefault: true });
+      toast.success(tx('默认邮箱账户已更新。', 'Default email account updated.'));
       await loadAccounts();
     } catch (error) {
       console.error('Failed to set default account:', error);
+      toast.error(tx('设置默认账户失败。', 'Failed to set the default account.'));
     }
+  };
+
+  const handleTest = async (id: string) => {
+    setTestingIds((previous) => new Set(previous).add(id));
+    try {
+      const result = await emailAccountApi.test(id);
+      if (result.imap && result.smtp) {
+        toast.success(tx('IMAP 与 SMTP 连接均测试成功。', 'IMAP and SMTP connections are both working.'));
+      } else if (result.imap || result.smtp) {
+        toast.warning(
+          tx(
+            `连接测试部分成功：IMAP ${result.imap ? '正常' : '异常'}，SMTP ${result.smtp ? '正常' : '异常'}。`,
+            `Partial success: IMAP ${result.imap ? 'ok' : 'failed'}, SMTP ${result.smtp ? 'ok' : 'failed'}.`
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Test failed:', error);
+      toast.error(error instanceof Error ? error.message : tx('连接测试失败。', 'Connection test failed.'));
+    } finally {
+      setTestingIds((previous) => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  const formatDateTime = (value?: string | null, fallback = tx('未记录', 'Not recorded')) => {
+    if (!value) {
+      return fallback;
+    }
+
+    return new Date(value).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US');
+  };
+
+  const getAuthPurposeLabel = (purpose: string) => {
+    if (purpose === 'PASSWORD_RESET') {
+      return tx('密码重置', 'Password reset');
+    }
+
+    return tx('账户激活', 'Account activation');
+  };
+
+  const getAuthDeliveryStatusMeta = (status: AuthEmailDeliveryRecord['deliveryStatus']) => {
+    switch (status) {
+      case 'sent':
+        return {
+          label: tx('已发送', 'Sent'),
+          className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100',
+        };
+      case 'failed':
+        return {
+          label: tx('发送失败', 'Failed'),
+          className: 'bg-red-100 text-red-700 hover:bg-red-100',
+        };
+      case 'skipped':
+        return {
+          label: tx('已跳过', 'Skipped'),
+          className: 'bg-amber-100 text-amber-700 hover:bg-amber-100',
+        };
+      default:
+        return {
+          label: tx('发送中', 'Pending'),
+          className: 'bg-slate-100 text-slate-700 hover:bg-slate-100',
+        };
+    }
+  };
+
+  const accountReadiness = (() => {
+    const activeAccounts = accounts.filter((account) => account.isActive);
+    const defaultAccount = activeAccounts.find((account) => account.isDefault);
+
+    if (accounts.length === 0) {
+      return {
+        tone: 'warning' as const,
+        title: tx('尚未配置邮箱账户', 'No email accounts configured'),
+        description: tx(
+          '认证邮件、密码重置邮件和对外报价邮件目前都无法发送。请先添加并启用至少一个邮箱账户。',
+          'Activation, password reset, and outbound quotation emails cannot be sent yet. Add and enable at least one account first.'
+        ),
+      };
+    }
+
+    if (activeAccounts.length === 0) {
+      return {
+        tone: 'warning' as const,
+        title: tx('没有启用的邮箱账户', 'No active email accounts'),
+        description: tx(
+          '当前所有邮箱账户都处于停用状态。请启用至少一个账户，认证邮件和报价邮件才能正常发送。',
+          'All configured accounts are currently disabled. Enable at least one account so auth and quotation emails can be delivered.'
+        ),
+      };
+    }
+
+    if (!defaultAccount && activeAccounts.length > 1) {
+      return {
+        tone: 'warning' as const,
+        title: tx('建议指定默认邮箱账户', 'Set a default email account'),
+        description: tx(
+          '系统会优先使用默认邮箱发送激活、重置密码和报价邮件。当前存在多个启用账户，建议明确指定默认账户。',
+          'The system prefers the default account for activation, password reset, and quotation emails. Multiple active accounts are enabled, so setting an explicit default is recommended.'
+        ),
+      };
+    }
+
+    const senderLabel = defaultAccount?.email || activeAccounts[0]?.email || '';
+    return {
+      tone: 'success' as const,
+      title: tx('邮件发送链路已就绪', 'Email delivery is ready'),
+      description: tx(
+        `当前可用发件账户：${senderLabel}。激活邮件、重置密码邮件与报价邮件都会优先走该链路。`,
+        `Current outbound account: ${senderLabel}. Activation, password reset, and quotation emails will use this delivery path first.`
+      ),
+    };
+  })();
+
+  const authDeliverySummary = authDeliveryHistory?.summary || {
+    total: 0,
+    sent: 0,
+    failed: 0,
+    skipped: 0,
+    pending: 0,
   };
 
   return (
@@ -137,6 +283,24 @@ export function EmailSettings() {
           <CardDescription>{tx('配置多个邮箱用于需求接收与报价发送', 'Configure multiple inboxes for demand intake and outbound quotations')}</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className={`mb-4 rounded-lg border px-4 py-3 ${accountReadiness.tone === 'success' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+            <div className="flex items-start gap-3">
+              {accountReadiness.tone === 'success' ? (
+                <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-600" />
+              ) : (
+                <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600" />
+              )}
+              <div className="space-y-1">
+                <p className={`text-sm font-medium ${accountReadiness.tone === 'success' ? 'text-emerald-900' : 'text-amber-900'}`}>
+                  {accountReadiness.title}
+                </p>
+                <p className={`text-sm ${accountReadiness.tone === 'success' ? 'text-emerald-700' : 'text-amber-800'}`}>
+                  {accountReadiness.description}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
             <p className="text-sm text-blue-800">
               <strong>{tx('提示：', 'Tip:')}</strong> {tx('支持配置多个邮箱账户。采购邮箱可接收供应商报价，销售邮箱可发送对外报价。163/126/yeah.net 使用相同配置方式。', 'You can configure multiple email accounts. Purchasing inboxes can receive supplier quotes, and sales inboxes can send outbound quotations. 163/126/yeah.net accounts use the same setup method.')}
@@ -205,9 +369,7 @@ export function EmailSettings() {
                         )}
                       </TableCell>
                       <TableCell className="text-sm text-gray-500">
-                        {account.lastSyncAt
-                          ? new Date(account.lastSyncAt).toLocaleString('en-US')
-                          : tx('从未同步', 'Never synced')}
+                        {formatDateTime(account.lastSyncAt, tx('从未同步', 'Never synced'))}
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
@@ -224,6 +386,20 @@ export function EmailSettings() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            title={tx('测试连接', 'Test connection')}
+                            onClick={() => handleTest(account.id)}
+                            disabled={testingIds.has(account.id)}
+                          >
+                            {testingIds.has(account.id) ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="w-4 h-4" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title={tx('同步邮箱', 'Sync inbox')}
                             onClick={() => handleSync(account.id)}
                             disabled={syncingIds.has(account.id)}
                           >
@@ -232,6 +408,7 @@ export function EmailSettings() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            title={tx('删除邮箱账户', 'Delete account')}
                             onClick={() => handleDelete(account.id)}
                           >
                             <Trash2 className="w-4 h-4 text-red-500" />
@@ -255,6 +432,92 @@ export function EmailSettings() {
             <Plus className="w-4 h-4 mr-1" />
             {tx('添加邮箱账户', 'Add Email Account')}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle>{tx('最近认证邮件', 'Recent Auth Emails')}</CardTitle>
+            <CardDescription>
+              {tx('展示最近 12 条账户激活与密码重置邮件记录，便于排查发送链路。', 'Shows the latest 12 activation and password reset emails so delivery issues are easy to trace.')}
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadAuthDeliveryHistory()}
+            disabled={historyLoading}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${historyLoading ? 'animate-spin' : ''}`} />
+            {tx('刷新记录', 'Refresh')}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">{tx(`成功 ${authDeliverySummary.sent}`, `Sent ${authDeliverySummary.sent}`)}</Badge>
+            <Badge variant="outline">{tx(`失败 ${authDeliverySummary.failed}`, `Failed ${authDeliverySummary.failed}`)}</Badge>
+            <Badge variant="outline">{tx(`跳过 ${authDeliverySummary.skipped}`, `Skipped ${authDeliverySummary.skipped}`)}</Badge>
+            <Badge variant="outline">{tx(`处理中 ${authDeliverySummary.pending}`, `Pending ${authDeliverySummary.pending}`)}</Badge>
+          </div>
+
+          {historyLoading && !authDeliveryHistory ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+            </div>
+          ) : authDeliveryHistory?.items.length ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{tx('收件人', 'Recipient')}</TableHead>
+                  <TableHead>{tx('类型', 'Purpose')}</TableHead>
+                  <TableHead>{tx('状态', 'Status')}</TableHead>
+                  <TableHead>{tx('发件账户', 'Sender')}</TableHead>
+                  <TableHead>{tx('时间', 'Timeline')}</TableHead>
+                  <TableHead>{tx('详情', 'Details')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {authDeliveryHistory.items.map((record) => {
+                  const statusMeta = getAuthDeliveryStatusMeta(record.deliveryStatus);
+
+                  return (
+                    <TableRow key={record.id}>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="font-medium">{record.toEmail}</p>
+                          <p className="text-xs text-gray-500">{record.subject}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell>{getAuthPurposeLabel(record.purpose)}</TableCell>
+                      <TableCell>
+                        <Badge className={statusMeta.className}>{statusMeta.label}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-600">
+                        {record.accountEmail || tx('未分配账户', 'No sender assigned')}
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-500">
+                        <div className="space-y-1">
+                          <p>{tx('创建：', 'Created: ')}{formatDateTime(record.createdAt)}</p>
+                          {record.sentAt ? <p>{tx('发送：', 'Sent: ')}{formatDateTime(record.sentAt)}</p> : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="max-w-sm text-sm text-gray-500">
+                        {record.errorMessage || tx('邮件已交由系统处理。', 'The email was handed off to the system.')}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-gray-500">
+              {tx(
+                '暂时还没有认证邮件记录。创建新用户或发起密码重置后，这里会显示最近的发送结果。',
+                'There are no auth email records yet. New user onboarding and password reset attempts will show up here.'
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -26,8 +26,8 @@ export interface FMVResult {
  */
 async function stage1ExactMatch(
   partNumber: string,
-  conditionCode: string,
-  manufacturer?: string
+  _conditionCode: string,
+  _manufacturer?: string
 ): Promise<{ fmvs: FMVResult['fmvs']; totalDataPoints: number }> {
   const cutoffDate = new Date();
   cutoffDate.setMonth(cutoffDate.getMonth() - 12);
@@ -69,10 +69,6 @@ async function stage1ExactMatch(
 
   // 加权平均（近期权重更高）
   const sorted = [...prices].sort((a, b) => a - b);
-  const median = sorted.length % 2 === 0
-    ? (sorted[Math.floor(sorted.length / 2) - 1] + sorted[Math.floor(sorted.length / 2)]) / 2
-    : sorted[Math.floor(sorted.length / 2)];
-
   // 去掉最高和最低 10% 的异常值
   const trimStart = Math.floor(prices.length * 0.1);
   const trimEnd = Math.ceil(prices.length * 0.9);
@@ -98,7 +94,7 @@ async function stage1ExactMatch(
  */
 async function stage2SimilarPart(
   partNumber: string,
-  conditionCode: string
+  _conditionCode: string
 ): Promise<{ fmvs: FMVResult['fmvs']; totalDataPoints: number }> {
   // 提取件号前缀（如 B737-LG-001 → B737-LG）
   const prefix = partNumber.split('-').slice(0, 2).join('-');
@@ -163,7 +159,7 @@ async function stage2SimilarPart(
  */
 async function stage3ATAChapter(
   ataChapter: string,
-  conditionCode: string
+  _conditionCode: string
 ): Promise<{ fmvs: FMVResult['fmvs']; totalDataPoints: number }> {
   if (!ataChapter) {
     return { fmvs: [], totalDataPoints: 0 };
@@ -278,25 +274,21 @@ export async function calculateFMV(
   }
 
   const allFmvs: FMVResult['fmvs'] = [];
-  let totalDataPoints = 0;
 
   // Stage 1: 精确匹配
   const stage1 = await stage1ExactMatch(partNumber, conditionCode, manufacturer);
   allFmvs.push(...stage1.fmvs);
-  totalDataPoints += stage1.totalDataPoints;
 
   // Stage 2: 相似件号
   if (allFmvs.length === 0 || allFmvs[0].confidence < 80) {
     const stage2 = await stage2SimilarPart(partNumber, conditionCode);
     allFmvs.push(...stage2.fmvs);
-    totalDataPoints += stage2.totalDataPoints;
   }
 
   // Stage 3: ATA Chapter
   if (allFmvs.length === 0 || allFmvs[0].confidence < 60) {
     const stage3 = await stage3ATAChapter(ataChapter || '', conditionCode);
     allFmvs.push(...stage3.fmvs);
-    totalDataPoints += stage3.totalDataPoints;
   }
 
   // 应用条件转换

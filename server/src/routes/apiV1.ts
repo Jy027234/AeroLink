@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-import { apiKeyAuth, requireScope } from '../middleware/apiKeyAuth.js';
+import { apiKeyAuth } from '../middleware/apiKeyAuth.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();

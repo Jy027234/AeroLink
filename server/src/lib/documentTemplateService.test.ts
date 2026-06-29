@@ -152,6 +152,11 @@ describe('documentTemplateService', () => {
         exchangeCoreDueDate: null,
         eSignatureCustomer: null,
         eSignatureSupplier: null,
+        inventoryDetailId: null,
+        serialNumber: null,
+        batchNumber: null,
+        outboundQuantity: 0,
+        outboundStatus: 'PENDING',
       },
     });
 

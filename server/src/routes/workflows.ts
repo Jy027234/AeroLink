@@ -74,7 +74,7 @@ const startInstanceSchema = z.object({
   context: z.record(z.any()).optional(),
 });
 
-const processActionSchema = z.object({
+const _processActionSchema = z.object({
   action: z.enum(['APPROVE', 'REJECT', 'TRANSFER', 'COMMENT', 'ESCALATE']),
   comment: z.string().optional(),
   payload: z.record(z.any()).optional(),

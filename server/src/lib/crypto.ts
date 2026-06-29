@@ -3,12 +3,25 @@
  * 用于敏感字段（如邮箱授权码）的加密存储
  */
 import crypto from 'crypto';
+import fs from 'fs';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const TAG_LENGTH = 16;
+const DOCKER_SECRET_PATH = '/run/secrets/encryption_key';
 
 function getEncryptionKey(): Buffer {
+  // 1. 优先从 Docker Secret 读取（生产环境）
+  if (fs.existsSync(DOCKER_SECRET_PATH)) {
+    const key = fs.readFileSync(DOCKER_SECRET_PATH, 'utf8').trim();
+    const buf = Buffer.from(key, 'hex');
+    if (buf.length === 32) {
+      return buf;
+    }
+    console.warn('Docker Secret 中的 ENCRYPTION_KEY 格式不正确，fallback 到环境变量');
+  }
+
+  // 2. 从环境变量读取（开发/本地环境）
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
     throw new Error('FATAL: ENCRYPTION_KEY environment variable must be set (32-byte hex string)');

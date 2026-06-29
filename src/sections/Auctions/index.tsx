@@ -803,7 +803,7 @@ export function Auctions() {
   }, [statusFilter, typeFilter, searchQuery]);
 
   const { data: auctions, loading, error, refetch } = useAuctions(filters);
-  const auctionList = auctions || [];
+  const auctionList = useMemo(() => auctions || [], [auctions]);
 
   const filteredAuctions = useMemo(() => {
     let list = auctionList;

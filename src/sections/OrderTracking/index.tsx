@@ -25,6 +25,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/EmptyState';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useOrders, useShipmentTrackings, useCustomsRisks, useShipmentAlerts } from '@/hooks/useApi';
@@ -310,9 +311,10 @@ export function OrderTracking() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-12">
-                  {tx('暂无清关风险数据', 'No customs risk data available')}
-                </p>
+                <EmptyState
+                  title={tx('暂无清关风险数据', 'No customs risk data available')}
+                  description={tx('当前没有可用的清关风险数据', 'No customs risk data available at the moment')}
+                />
               )}
             </CardContent>
           </Card>

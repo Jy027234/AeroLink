@@ -13,6 +13,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
+import { EmptyState } from '@/components/EmptyState';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,13 +29,14 @@ import {
 } from '@/components/ui/table';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  mockPricingSummary,
-  mockMarketIntelligence,
-  mockPricingSuggestions,
-  mockLostOrderAnalysis,
-  mockPricingFactorWeights,
-} from '@/data/mockData';
+  usePricingSummary,
+  useMarketIntelligence,
+  usePricingSuggestions,
+  useLostOrders,
+  usePricingFactorWeights,
+} from '@/hooks/useApi';
 
 export function PricingBI() {
   const { locale } = useTranslation();
@@ -42,21 +44,11 @@ export function PricingBI() {
   const [activeTab, setActiveTab] = useState('pricing');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const summary = mockPricingSummary;
-  const marketData = mockMarketIntelligence;
-  const suggestions = mockPricingSuggestions;
-  const lostOrders = mockLostOrderAnalysis;
-  const factorWeights = mockPricingFactorWeights;
-  const summaryLoading = false;
-  const marketLoading = false;
-  const suggestionsLoading = false;
-  const lostLoading = false;
-  const weightsLoading = false;
-  const summaryError = null;
-  const marketError = null;
-  const suggestionsError = null;
-  const lostError = null;
-  const weightsError = null;
+  const { data: summary, loading: summaryLoading, error: summaryError } = usePricingSummary();
+  const { data: marketData, loading: marketLoading, error: marketError } = useMarketIntelligence();
+  const { data: suggestions, loading: suggestionsLoading, error: suggestionsError } = usePricingSuggestions();
+  const { data: lostOrders, loading: lostLoading, error: lostError } = useLostOrders();
+  const { data: factorWeights, loading: weightsLoading, error: weightsError } = usePricingFactorWeights();
 
   const filteredMarketData = marketData?.filter(
     (m) => m.partNumber.toLowerCase().includes(searchQuery.toLowerCase())
@@ -96,6 +88,12 @@ export function PricingBI() {
 
   return (
     <div className="space-y-6">
+      <Alert className="bg-amber-50 border-amber-200 text-amber-800">
+        <AlertTriangle className="w-4 h-4 text-amber-600" />
+        <AlertDescription>
+          {tx('本模块为演示版本，数据仅供展示，刷新后可能丢失。', 'This module is in demo mode. Data is for display only and may be lost after refresh.')}
+        </AlertDescription>
+      </Alert>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="pricing">{tx('动态定价', 'Dynamic Pricing')}</TabsTrigger>
@@ -252,9 +250,10 @@ export function PricingBI() {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-8">
-                  {tx('暂无数据', 'No data available')}
-                </p>
+                <EmptyState
+                  title={tx('暂无数据', 'No data available')}
+                  description={tx('当前没有可用的数据', 'No data available at the moment')}
+                />
               )}
             </CardContent>
           </Card>
@@ -351,9 +350,10 @@ export function PricingBI() {
                   </TableBody>
                 </Table>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-12">
-                  {tx('暂无市场情报数据', 'No market intelligence data available')}
-                </p>
+                <EmptyState
+                  title={tx('暂无市场情报数据', 'No market intelligence data available')}
+                  description={tx('当前没有可用的市场情报数据', 'No market intelligence data available at the moment')}
+                />
               )}
             </CardContent>
           </Card>
@@ -506,9 +506,10 @@ export function PricingBI() {
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-12">
-                  {tx('暂无丢单数据', 'No lost order data available')}
-                </p>
+                <EmptyState
+                  title={tx('暂无丢单数据', 'No lost order data available')}
+                  description={tx('当前没有可用的丢单数据', 'No lost order data available at the moment')}
+                />
               )}
             </CardContent>
           </Card>

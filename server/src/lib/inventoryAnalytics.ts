@@ -1,5 +1,4 @@
 import prisma from './prisma.js';
-import { AppError } from '../middleware/errorHandler.js';
 
 export interface ConsumptionTrend {
   period: string; // YYYY-MM

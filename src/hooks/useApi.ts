@@ -1,7 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authApi, dashboardApi, rfqApi, quotationApi, orderApi, inventoryApi, inventoryItemApi, inventoryDetailApi, customerApi, supplierApi, supplierQuoteApi, notificationApi, emailApi, documentTemplateApi, documentApi, certificateApi, certificateTemplateApi, workflowApi, auditLogApi, pricingApi, inventoryAnalyticsApi, auctionApi, inventoryTransactionApi, userApi, notificationPreferenceApi, reportApi, shipmentTrackingApi, inquiryApi, pricingBIApi, blockchainApi, fmvApi, apiKeyApi, consignmentApi, exchangeVmiApi, technicalKitApi, channelBindingApi, notificationTemplateApi, imApi, notificationDispatcherApi, pushApi } from '@/api/client';
-import type { SupplierQuoteItem, Auction, AuctionBid, InventoryTransaction, CreateOutboundPayload } from '@/api/client';
-import type { RFQ, Quotation, Order, SupplierFollowUpLog, DocumentTemplate, GeneratedDocument, Certificate, CertificateTemplate, WorkflowDefinition, WorkflowInstance } from '@/types';
+import { authApi, dashboardApi, rfqApi, quotationApi, orderApi, inventoryApi, inventoryItemApi, inventoryDetailApi, customerApi, supplierApi, supplierQuoteApi, notificationApi, emailApi, documentTemplateApi, documentApi, certificateApi, certificateTemplateApi, workflowApi, auditLogApi, pricingApi, inventoryAnalyticsApi, auctionApi, inventoryTransactionApi, userApi, notificationPreferenceApi, reportApi, shipmentTrackingApi, inquiryApi, pricingBIApi, blockchainApi, fmvApi, apiKeyApi, consignmentApi, exchangeVmiApi, technicalKitApi, channelBindingApi, notificationTemplateApi, imApi, notificationDispatcherApi, pushApi, agentApi } from '@/api/client';
+import type {
+  SupplierQuoteItem,
+  Auction,
+  AuctionBid,
+  InventoryTransaction,
+  CreateOutboundPayload,
+  NotificationPreference,
+  Inquiry,
+  BlockchainVerificationResult,
+  FMVResult,
+  ApiKeyItem,
+  ConsignmentItem,
+  CompatibilityResult,
+  UserChannelBinding,
+  NotificationTemplate,
+  DispatchNotificationResult,
+  DispatchNotificationPayload,
+  PushSubscriptionPayload,
+  UserOnboardingResponse,
+} from '@/api/client';
+import type { User, RFQ, Quotation, Order, SupplierFollowUpLog, DocumentTemplate, GeneratedDocument, Certificate, CertificateTemplate, WorkflowDefinition, WorkflowInstance } from '@/types';
 
 export { quotationApi, customerApi, documentTemplateApi, documentApi };
 
@@ -70,8 +89,9 @@ export const useLogin = () => {
       localStorage.setItem('aerolink_user', JSON.stringify(response.user));
       return response;
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败');
-      return null;
+      const message = err instanceof Error ? err.message : '登录失败';
+      setError(message);
+      throw new Error(message);
     } finally {
       setLoading(false);
     }
@@ -717,11 +737,15 @@ export const useUser = (id: string) => {
 };
 
 export const useCreateUser = () => {
-  return useMutation<User, Payload>((data) => userApi.create(data));
+  return useMutation<UserOnboardingResponse, Payload>((data) => userApi.create(data));
 };
 
 export const useUpdateUser = () => {
   return useMutation<User, { id: string; data: Payload }>(({ id, data }) => userApi.update(id, data));
+};
+
+export const useRegenerateUserActivationLink = () => {
+  return useMutation<UserOnboardingResponse, string>((id) => userApi.regenerateActivationLink(id));
 };
 
 export const useDeleteUser = () => {
@@ -839,7 +863,7 @@ export const useCreateApiKey = () => {
 };
 
 export const useRevokeApiKey = () => {
-  return useMutation<ApiKeyItem, string>((id) => apiKeyApi.revoke(id));
+  return useMutation<ApiRecord, string>((id) => apiKeyApi.revoke(id));
 };
 
 // ===== Consignment Hooks =====

@@ -62,6 +62,7 @@ interface NavItem {
   icon: React.ElementType;
   badge?: number;
   group?: string;
+  beta?: boolean;
 }
 
 interface NavGroup {
@@ -132,9 +133,9 @@ const navGroups: NavGroup[] = [
     icon: Package,
     items: [
       { id: 'orders', icon: ShoppingCart },
-      { id: 'order-tracking', icon: MapPin },
+      { id: 'order-tracking', icon: MapPin, beta: true },
       { id: 'inventory', icon: Boxes },
-      { id: 'exchange-vmi', icon: RefreshCw },
+      { id: 'exchange-vmi', icon: RefreshCw, beta: true },
     ],
   },
   {
@@ -161,10 +162,10 @@ const navGroups: NavGroup[] = [
     id: 'groupPlatform',
     icon: Store,
     items: [
-      { id: 'technical-kit', icon: Wrench },
+      { id: 'technical-kit', icon: Wrench, beta: true },
       { id: 'auctions', icon: Gavel },
       { id: 'consignments', icon: Handshake },
-      { id: 'pricing-bi', icon: BarChart3 },
+      { id: 'pricing-bi', icon: BarChart3, beta: true },
       { id: 'api-platform', icon: Code },
       { id: 'fmv-platform', icon: TrendingUp },
       { id: 'blockchain-verification', icon: Link },
@@ -228,6 +229,14 @@ function NavButton({
       {!collapsed && (
         <>
           <span className="text-sm font-medium flex-1 text-left">{label}</span>
+          {item.beta && (
+            <Badge
+              variant="secondary"
+              className="h-5 min-w-5 flex items-center justify-center text-[10px] bg-amber-500/20 text-amber-300 border-amber-500/30"
+            >
+              BETA
+            </Badge>
+          )}
           {badgeCount > 0 && (
             <Badge
               variant="destructive"
@@ -310,9 +319,8 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
   // Auto-expand the group containing the current page
   useEffect(() => {
     const activeGroupId = findGroupForPage(currentPage);
-    if (activeGroupId && !openGroups.has(activeGroupId)) {
-      setOpenGroups((prev) => new Set([...prev, activeGroupId]));
-    }
+    if (!activeGroupId) return;
+    setOpenGroups((prev) => (prev.has(activeGroupId) ? prev : new Set([...prev, activeGroupId])));
   }, [currentPage]);
 
   // Calculate badge count

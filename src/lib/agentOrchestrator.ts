@@ -1094,7 +1094,11 @@ class AgentOrchestrator {
 
     if (action === 'create') {
       const bestQuote = context.bestMatch || { unitPrice: 1050 };
-      const quantity = context.parsedData?.quantity || 1;
+      const quantityCandidate = context.parsedData?.quantity;
+      const quantity =
+        typeof quantityCandidate === 'number'
+          ? quantityCandidate
+          : Number(quantityCandidate ?? 1) || 1;
       const unitPrice = typeof bestQuote.unitPrice === 'number' ? bestQuote.unitPrice : 1050;
       const totalPrice = unitPrice * quantity;
       const costPrice = unitPrice * 0.9;
@@ -1102,13 +1106,17 @@ class AgentOrchestrator {
 
       let customerEmail: string | undefined;
       try {
+        const leadTimeDays =
+          typeof bestQuote.leadTimeDays === 'number'
+            ? bestQuote.leadTimeDays
+            : Number(bestQuote.leadTimeDays ?? 7) || 7;
         const emailResult = await aiApi.generateEmail({
           customerName: context.parsedData?.customerName || '客户',
           partNumber: context.parsedData?.partNumber || '-',
           quantity,
           unitPrice,
           totalPrice,
-          leadTimeDays: bestQuote.leadTimeDays || 7,
+          leadTimeDays,
           validityDays: 30,
         });
         customerEmail = emailResult.email;

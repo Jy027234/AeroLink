@@ -50,7 +50,7 @@ export function Consignments() {
 
   const { data: consignments, loading: listLoading, error: listError } = useConsignments();
   const { data: stats, loading: statsLoading, error: statsError } = useConsignmentStats();
-  const { mutate: createConsignment, loading: createLoading } = useCreateConsignment();
+  const { loading: createLoading } = useCreateConsignment();
 
   const filtered = consignments?.filter((c) => {
     const matchesSearch =

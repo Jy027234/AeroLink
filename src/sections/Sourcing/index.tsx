@@ -229,7 +229,10 @@ export function Sourcing() {
   const pageSize = 10;
 
   // Pending RFQs
-  const pendingRFQs = rfqs?.filter((r) => r.status === 'pending' || r.status === 'sourcing') ?? [];
+  const pendingRFQs = useMemo(
+    () => rfqs?.filter((r) => r.status === 'pending' || r.status === 'sourcing') ?? [],
+    [rfqs]
+  );
 
   // Filtered + sorted RFQs
   const filteredRFQs = useMemo(() => {

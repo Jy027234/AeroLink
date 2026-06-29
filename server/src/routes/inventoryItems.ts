@@ -17,16 +17,13 @@ router.get(
     if (partNumber) where.partNumber = { contains: partNumber.toString() };
     if (partCategory) where.partCategory = partCategory.toString().toUpperCase();
 
-    const [items, total] = await Promise.all([
-      prisma.inventoryItem.findMany({
-        where,
-        include: { details: true },
-        orderBy: { partNumber: 'asc' },
-        skip,
-        take: pageSize,
-      }),
-      prisma.inventoryItem.count({ where }),
-    ]);
+    const items = await prisma.inventoryItem.findMany({
+      where,
+      include: { details: true },
+      orderBy: { partNumber: 'asc' },
+      skip,
+      take: pageSize,
+    });
 
     res.json(items);
   })

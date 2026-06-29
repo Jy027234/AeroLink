@@ -325,13 +325,13 @@ export function CertificateTemplates() {
   const { duplicate, loading: duplicateLoading } = useDuplicateCertificateTemplate();
   const { deleteTemplate, loading: deleteLoading } = useDeleteCertificateTemplate();
 
-  const store = useCertificateStore();
+  const setTemplates = useCertificateStore((state) => state.setTemplates);
 
   useEffect(() => {
     if (templates) {
-      store.setTemplates(templates);
+      setTemplates(templates);
     }
-  }, [templates]);
+  }, [templates, setTemplates]);
 
   const filteredTemplates = (templates || []).filter((t) => {
     if (searchQuery) {

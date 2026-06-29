@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 
 const LOGIN_URL = 'http://127.0.0.1:5173';
 const EMAIL = 'zhang@aerolink.com';

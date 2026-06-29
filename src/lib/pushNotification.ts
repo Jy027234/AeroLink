@@ -40,7 +40,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
  */
 export async function getServiceWorkerRegistration(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
-  return navigator.serviceWorker.getRegistration(SW_PATH);
+  return (await navigator.serviceWorker.getRegistration(SW_PATH)) ?? null;
 }
 
 /**
@@ -79,9 +79,11 @@ export async function subscribeToPush(vapidPublicKey: string): Promise<PushSubsc
   }
 
   const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
+  const applicationServerKeyBuffer = new ArrayBuffer(applicationServerKey.byteLength);
+  new Uint8Array(applicationServerKeyBuffer).set(applicationServerKey);
   const subscription = await registration.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey,
+    applicationServerKey: applicationServerKeyBuffer,
   });
 
   return convertSubscription(subscription);

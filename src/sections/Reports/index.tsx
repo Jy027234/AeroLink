@@ -8,6 +8,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
+import { EmptyState } from '@/components/EmptyState';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -35,6 +36,18 @@ import {
 } from '@/hooks/useApi';
 
 const COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#6b7280', '#22c55e', '#8b5cf6'];
+
+function TrendIcon({ value }: { value: number }) {
+  return value >= 0 ? (
+    <TrendingUp className="w-4 h-4" />
+  ) : (
+    <TrendingDown className="w-4 h-4" />
+  );
+}
+
+function getTrendColor(value: number) {
+  return value >= 0 ? 'text-green-500' : 'text-red-500';
+}
 
 function LoadingCard() {
   return (
@@ -101,16 +114,6 @@ export function Reports() {
     return `${prefix}${value}%`;
   };
 
-  const TrendIcon = ({ value }: { value: number }) =>
-    value >= 0 ? (
-      <TrendingUp className="w-4 h-4" />
-    ) : (
-      <TrendingDown className="w-4 h-4" />
-    );
-
-  const trendColor = (value: number) =>
-    value >= 0 ? 'text-green-500' : 'text-red-500';
-
   return (
     <div className="space-y-6">
       {/* Top action bar */}
@@ -156,7 +159,7 @@ export function Reports() {
                   <CardContent className="p-4">
                     <p className="text-sm text-gray-500">{tx('本月需求单', 'RFQs This Month')}</p>
                     <p className="text-2xl font-bold">{summary.rfqsThisMonth}</p>
-                    <p className={`text-sm flex items-center gap-1 ${trendColor(summary.rfqTrend)}`}>
+                    <p className={`text-sm flex items-center gap-1 ${getTrendColor(summary.rfqTrend)}`}>
                       <TrendIcon value={summary.rfqTrend} />
                       {tx('较上月 ', 'vs last month ')}{formatTrend(summary.rfqTrend)}
                     </p>
@@ -166,7 +169,7 @@ export function Reports() {
                   <CardContent className="p-4">
                     <p className="text-sm text-gray-500">{tx('本月报价单', 'Quotes This Month')}</p>
                     <p className="text-2xl font-bold">{summary.quotesThisMonth}</p>
-                    <p className={`text-sm flex items-center gap-1 ${trendColor(summary.quoteTrend)}`}>
+                    <p className={`text-sm flex items-center gap-1 ${getTrendColor(summary.quoteTrend)}`}>
                       <TrendIcon value={summary.quoteTrend} />
                       {tx('较上月 ', 'vs last month ')}{formatTrend(summary.quoteTrend)}
                     </p>
@@ -176,7 +179,7 @@ export function Reports() {
                   <CardContent className="p-4">
                     <p className="text-sm text-gray-500">{tx('本月订单', 'Orders This Month')}</p>
                     <p className="text-2xl font-bold">{summary.ordersThisMonth}</p>
-                    <p className={`text-sm flex items-center gap-1 ${trendColor(summary.orderTrend)}`}>
+                    <p className={`text-sm flex items-center gap-1 ${getTrendColor(summary.orderTrend)}`}>
                       <TrendIcon value={summary.orderTrend} />
                       {tx('较上月 ', 'vs last month ')}{formatTrend(summary.orderTrend)}
                     </p>
@@ -186,7 +189,7 @@ export function Reports() {
                   <CardContent className="p-4">
                     <p className="text-sm text-gray-500">{tx('本月营收', 'Revenue This Month')}</p>
                     <p className="text-2xl font-bold">{formatCurrency(summary.revenueThisMonth)}</p>
-                    <p className={`text-sm flex items-center gap-1 ${trendColor(summary.revenueTrend)}`}>
+                    <p className={`text-sm flex items-center gap-1 ${getTrendColor(summary.revenueTrend)}`}>
                       <TrendIcon value={summary.revenueTrend} />
                       {tx('较上月 ', 'vs last month ')}{formatTrend(summary.revenueTrend)}
                     </p>
@@ -253,9 +256,10 @@ export function Reports() {
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-12">
-                  {tx('暂无数据', 'No data available')}
-                </p>
+                <EmptyState
+                  title={tx('暂无数据', 'No data available')}
+                  description={tx('当前没有可用的数据，请稍后重试', 'No data available at the moment')}
+                />
               )}
             </CardContent>
           </Card>
@@ -277,7 +281,7 @@ export function Reports() {
                   </div>
                 ) : conversionError ? (
                   <p className="text-sm text-red-500">{conversionError}</p>
-                ) : (conversion?.lostReasons || []).length > 0 ? (
+                ) : conversion && conversion.lostReasons.length > 0 ? (
                   <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie
@@ -292,7 +296,7 @@ export function Reports() {
                         fill="#8884d8"
                         dataKey="value"
                       >
-                        {(conversion?.lostReasons || []).map((entry, index) => (
+                        {conversion.lostReasons.map((entry, index) => (
                           <Cell
                             key={`cell-${index}`}
                             fill={entry.color || COLORS[index % COLORS.length]}
@@ -303,9 +307,10 @@ export function Reports() {
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-sm text-gray-500 text-center py-12">
-                    {tx('暂无数据', 'No data available')}
-                  </p>
+                  <EmptyState
+                    title={tx('暂无数据', 'No data available')}
+                    description={tx('当前没有可用的数据，请稍后重试', 'No data available at the moment')}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -345,9 +350,10 @@ export function Reports() {
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-sm text-gray-500 text-center py-12">
-                    {tx('暂无数据', 'No data available')}
-                  </p>
+                  <EmptyState
+                    title={tx('暂无数据', 'No data available')}
+                    description={tx('当前没有可用的数据，请稍后重试', 'No data available at the moment')}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -442,9 +448,10 @@ export function Reports() {
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-12">
-                  {tx('暂无数据', 'No data available')}
-                </p>
+                <EmptyState
+                  title={tx('暂无数据', 'No data available')}
+                  description={tx('当前没有可用的数据，请稍后重试', 'No data available at the moment')}
+                />
               )}
             </CardContent>
           </Card>
@@ -530,9 +537,10 @@ export function Reports() {
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-sm text-gray-500 text-center py-12">
-                  {tx('暂无数据', 'No data available')}
-                </p>
+                <EmptyState
+                  title={tx('暂无数据', 'No data available')}
+                  description={tx('当前没有可用的数据，请稍后重试', 'No data available at the moment')}
+                />
               )}
             </CardContent>
           </Card>

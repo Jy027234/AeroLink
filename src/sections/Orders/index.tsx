@@ -384,9 +384,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
   const [outboundDialogOpen, setOutboundDialogOpen] = useState(false);
   const { mutate: updateOrder, loading: updateLoading } = useUpdateOrder();
 
-  if (!order) return null;
-
-  const activeOrder = detailOrder?.id === order.id ? detailOrder : order;
+  const activeOrder = detailOrder?.id === order?.id ? detailOrder : order;
 
   useEffect(() => {
     if (!order || !isOpen) {
@@ -437,7 +435,6 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
     const { estimatedShipping, estimatedInsurance } = calculateEstimatedCosts(totalAmount, formData.incoterm);
     const total = totalAmount + duty + vat + estimatedShipping + estimatedInsurance;
     setFormData((prev) => ({ ...prev, totalLandCost: total, estimatedShipping, estimatedInsurance }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.importDuty, formData.vatAmount, formData.incoterm, isEditing, activeOrder?.totalAmount]);
 
   const handleDialogOpenChange = (open: boolean) => {
@@ -514,6 +511,9 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
       </div>
     );
   };
+
+  if (!order) return null;
+  const resolvedOrder = activeOrder ?? order;
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
@@ -1064,7 +1064,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
               {/* Order progress */}
               <div>
                 <h4 className="font-medium mb-4">{tx('订单进度', 'Order Progress')}</h4>
-                <OrderTimeline order={activeOrder} />
+                <OrderTimeline order={resolvedOrder} />
               </div>
             </>
           )}
@@ -1089,7 +1089,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
                 {tx('编辑', 'Edit')}
               </Button>
               {activeOrder?.contractDocumentId && (
-                <Button onClick={() => onDownloadContract(activeOrder)}>
+                <Button onClick={() => onDownloadContract(resolvedOrder)}>
                   <Download className="w-4 h-4 mr-2" />
                   {tx('下载合同', 'Download Contract')}
                 </Button>
