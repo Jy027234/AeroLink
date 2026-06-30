@@ -40,10 +40,10 @@ router.get(
     }
     if (search) {
       where.OR = [
-        { userName: { contains: search as string, mode: 'insensitive' } },
-        { resourceName: { contains: search as string, mode: 'insensitive' } },
-        { details: { contains: search as string, mode: 'insensitive' } },
-        { resourceId: { contains: search as string, mode: 'insensitive' } },
+        { userName: { contains: search as string } },
+        { resourceName: { contains: search as string } },
+        { details: { contains: search as string } },
+        { resourceId: { contains: search as string } },
       ];
     }
 

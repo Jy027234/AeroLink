@@ -29,7 +29,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const orders = await prisma.order.findMany({
       where: {
-        saleType: { equals: 'Exchange', mode: 'insensitive' },
+        saleType: { equals: 'Exchange' },
       },
       include: {
         quotation: { select: { quoteNumber: true } },
@@ -148,7 +148,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const [exchangeOrders, agreements] = await Promise.all([
       prisma.order.findMany({
-        where: { saleType: { equals: 'Exchange', mode: 'insensitive' } },
+        where: { saleType: { equals: 'Exchange' } },
         select: {
           totalAmount: true,
           exchangeCoreCharge: true,

@@ -405,7 +405,7 @@ router.get(
         status: 'IN_PROGRESS',
         OR: [
           { assignedTo: userId },
-          { assignedRole: { equals: userRole, mode: 'insensitive' } },
+          { assignedRole: { equals: userRole } },
         ],
       },
       include: {

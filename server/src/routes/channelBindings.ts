@@ -5,6 +5,19 @@ import prisma from '../lib/prisma.js';
 
 const router = Router();
 
+function parseBindingConfig(value: unknown) {
+  if (typeof value !== 'string') {
+    return (value as Record<string, string>) || {};
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
 function serializeBinding(binding: {
   id: string;
   userId: string;
@@ -18,7 +31,7 @@ function serializeBinding(binding: {
     id: binding.id,
     userId: binding.userId,
     channel: binding.channel,
-    config: (binding.config as Record<string, string>) || {},
+    config: parseBindingConfig(binding.config),
     isActive: binding.isActive,
     createdAt: binding.createdAt.toISOString(),
     updatedAt: binding.updatedAt.toISOString(),
@@ -67,7 +80,7 @@ router.post(
       data: {
         userId: req.user!.id,
         channel: channel.toUpperCase(),
-        config: config || {},
+        config: JSON.stringify(config || {}),
         isActive: true,
       },
     });
@@ -98,7 +111,7 @@ router.put(
     const binding = await prisma.userChannelBinding.update({
       where: { id: req.params.id },
       data: {
-        ...(config !== undefined ? { config } : {}),
+        ...(config !== undefined ? { config: JSON.stringify(config) } : {}),
         ...(isActive !== undefined ? { isActive } : {}),
       },
     });

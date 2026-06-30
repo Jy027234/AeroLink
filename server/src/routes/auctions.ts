@@ -38,7 +38,7 @@ router.get(
     const where: Prisma.AuctionWhereInput = {};
     if (status) where.status = status.toString().toUpperCase();
     if (type) where.type = type.toString().toUpperCase();
-    if (partNumber) where.partNumber = { contains: partNumber.toString(), mode: 'insensitive' };
+    if (partNumber) where.partNumber = { contains: partNumber.toString() };
 
     const [auctions, total] = await Promise.all([
       prisma.auction.findMany({
@@ -711,7 +711,7 @@ router.get(
       status: 'ACTIVE',
       endAt: { gt: new Date() },
     };
-    if (partNumber) where.partNumber = { contains: partNumber.toString(), mode: 'insensitive' };
+    if (partNumber) where.partNumber = { contains: partNumber.toString() };
 
     const [auctions, total] = await Promise.all([
       prisma.auction.findMany({

@@ -11,6 +11,8 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "node --import tsx src/seed.ts",
+    "db:prepare:legacy-sqlite": "node --import tsx src/scripts/prepareLegacySqlite.ts",
+    "db:import:sqlite-to-postgres": "node --import tsx src/scripts/importSqliteToPostgres.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
