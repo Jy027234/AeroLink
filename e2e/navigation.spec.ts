@@ -13,24 +13,36 @@ test.describe('Navigation', () => {
     await page.click('button[type="submit"]');
   }
 
+  async function navigateFromSidebar(
+    page: import('@playwright/test').Page,
+    groupLabel: string,
+    itemLabel: RegExp,
+  ) {
+    const item = page.getByRole('button', { name: itemLabel });
+    if (!(await item.isVisible())) {
+      await page.getByRole('button', { name: groupLabel, exact: true }).click();
+    }
+    await item.click();
+  }
+
   test('should navigate to RFQs page', async ({ page }) => {
     await login(page);
     await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible();
-    await page.getByRole('button', { name: /需求单管理/ }).click();
+    await navigateFromSidebar(page, '寻源报价', /需求单管理/);
     await expect(page.getByRole('banner').getByRole('heading', { name: '需求单管理' })).toBeVisible();
   });
 
   test('should navigate to Orders page', async ({ page }) => {
     await login(page);
     await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible();
-    await page.getByRole('button', { name: /订单管理/ }).click();
+    await navigateFromSidebar(page, '订单与库存', /订单管理/);
     await expect(page.getByRole('banner').getByRole('heading', { name: '订单管理' })).toBeVisible();
   });
 
   test('should navigate to Inventory page', async ({ page }) => {
     await login(page);
     await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible();
-    await page.getByRole('button', { name: /库存中心/ }).click();
+    await navigateFromSidebar(page, '订单与库存', /库存中心/);
     await expect(page.getByRole('banner').getByRole('heading', { name: '库存中心' })).toBeVisible();
   });
 
@@ -39,7 +51,7 @@ test.describe('Navigation', () => {
     await expect(page).toHaveURL(/\/orders$/);
     await expect(page.getByRole('banner').getByRole('heading', { name: '订单管理' })).toBeVisible();
 
-    await page.getByRole('button', { name: /客户管理/ }).click();
+    await navigateFromSidebar(page, '客户与供应商', /客户管理/);
     await expect(page).toHaveURL(/\/customers$/);
     await expect(page.getByRole('banner').getByRole('heading', { name: '客户管理' })).toBeVisible();
 
