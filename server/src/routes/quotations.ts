@@ -507,6 +507,8 @@ router.post(
       throw new AppError('已撤回的报价不能再次发送，请复制或新建报价后重新发送', 400, 'BAD_REQUEST');
     }
 
+    assertQuotationTransition(quotation.status, 'SENT');
+
     if (!['APPROVED', 'SENT'].includes(quotation.status)) {
       throw new AppError('只有已审批报价才能发送给客户', 400, 'BAD_REQUEST');
     }
@@ -674,6 +676,8 @@ router.post(
       throw new AppError('该报价已撤回，无需重复操作', 400, 'BAD_REQUEST');
     }
 
+    assertQuotationTransition(quotation.status, 'WITHDRAWN');
+
     const latestSentEmail = quotation.outboundEmails[0];
     if (!latestSentEmail) {
       throw new AppError('当前报价没有已发送记录，不能执行撤回', 400, 'BAD_REQUEST');
@@ -805,6 +809,8 @@ router.post(
     if (quotation.status === 'WITHDRAWN') {
       throw new AppError('已撤回的报价不能登记客户确认', 400, 'BAD_REQUEST');
     }
+
+    assertQuotationTransition(quotation.status, 'ACCEPTED');
 
     if (!['APPROVED', 'SENT', 'ACCEPTED'].includes(quotation.status)) {
       throw new AppError('当前报价状态不能登记客户确认', 400, 'BAD_REQUEST');
