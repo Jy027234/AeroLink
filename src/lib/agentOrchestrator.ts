@@ -354,7 +354,7 @@ class AgentOrchestrator {
     }
 
     try {
-      const customers = await customerApi.getAll();
+      const customers = (await customerApi.getAll()).data;
       if (customers.length > 0) {
         useCustomerStore.getState().setCustomers(customers);
         return customers;

@@ -121,7 +121,7 @@ export function Login() {
 
   const completeAuthentication = (result: { token: string; refreshToken: string; user: User }) => {
     localStorage.setItem('aerolink_token', result.token);
-    localStorage.setItem('aerolink_refresh_token', result.refreshToken);
+    localStorage.removeItem('aerolink_refresh_token');
     localStorage.setItem('aerolink_user', JSON.stringify(result.user));
     storeLogin(result.user);
   };

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ORDER_STATUSES, normalizeOrderStatus } from './orderStateMachine.js';
 
 export const loginSchema = z.object({
   email: z.string().email('请提供有效的邮箱'),
@@ -62,8 +63,30 @@ export const rfqCreateSchema = z.object({
   emailId: z.string().optional(),
 });
 
+const rfqStatusAliases = [
+  'PENDING', 'SOURCING', 'QUOTING', 'APPROVING', 'ORDERED', 'COMPLETED', 'CANCELLED',
+  'pending', 'sourcing', 'quoting', 'approved', 'sent', 'won', 'lost',
+] as const;
+
+const rfqStatusPersistenceMap: Record<(typeof rfqStatusAliases)[number], string> = {
+  PENDING: 'PENDING',
+  SOURCING: 'SOURCING',
+  QUOTING: 'QUOTING',
+  APPROVING: 'APPROVING',
+  ORDERED: 'ORDERED',
+  COMPLETED: 'COMPLETED',
+  CANCELLED: 'CANCELLED',
+  pending: 'PENDING',
+  sourcing: 'SOURCING',
+  quoting: 'QUOTING',
+  approved: 'APPROVING',
+  sent: 'ORDERED',
+  won: 'COMPLETED',
+  lost: 'CANCELLED',
+};
+
 export const rfqStatusUpdateSchema = z.object({
-  status: z.enum(['PENDING', 'SOURCING', 'QUOTING', 'APPROVING', 'ORDERED', 'COMPLETED', 'CANCELLED']),
+  status: z.enum(rfqStatusAliases).transform((status) => rfqStatusPersistenceMap[status]),
 });
 
 export const quotationCreateSchema = z.object({
@@ -209,7 +232,11 @@ export const documentTemplateUpdateSchema = documentTemplateCreateSchema.partial
 });
 
 export const orderStatusUpdateSchema = z.object({
-  status: z.string().min(1, '状态不能为空'),
+  status: z.string()
+    .trim()
+    .min(1, '状态不能为空')
+    .transform(normalizeOrderStatus)
+    .pipe(z.enum(ORDER_STATUSES)),
 });
 
 export const customerCreateSchema = z.object({

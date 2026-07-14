@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '@/types';
+import { authApi } from '@/api/client';
 
 interface AuthState {
   user: User | null;
@@ -19,6 +20,7 @@ export const useAuthStore = create<AuthState>()(
         set({ user, isAuthenticated: true });
       },
       logout: () => {
+        void authApi.logout().catch(() => undefined);
         localStorage.removeItem('aerolink_token');
         localStorage.removeItem('aerolink_refresh_token');
         localStorage.removeItem('aerolink_user');

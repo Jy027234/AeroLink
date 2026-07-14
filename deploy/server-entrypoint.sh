@@ -5,23 +5,13 @@ mkdir -p /app/prisma/data /app/uploads
 
 schema_path="${PRISMA_SCHEMA_PATH:-prisma/schema.prisma}"
 
+if [ "${SKIP_SCHEMA_PREFLIGHT:-false}" != "true" ]; then
+  npm run db:preflight:order-uniqueness
+fi
+
 npx prisma db push --schema "$schema_path"
 
-should_seed="$(node --input-type=module <<'NODE'
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
-
-try {
-  const count = await prisma.user.count();
-  process.stdout.write(count === 0 ? '1' : '0');
-} finally {
-  await prisma.$disconnect();
-}
-NODE
-)"
-
-if [ "$should_seed" = "1" ]; then
+if [ "${SEED_DEMO_DATA:-false}" = "true" ]; then
   npm run db:seed
 fi
 

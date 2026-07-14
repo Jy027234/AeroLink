@@ -1,10 +1,51 @@
-import { Router } from 'express';
+import { Router, type NextFunction, type Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-import { AuthRequest } from '../middleware/auth.js';
+import type { AuthRequest } from '../middleware/auth.js';
+import { requirePrivilegedRole } from '../lib/accessControl.js';
 import prisma from '../lib/prisma.js';
+import { requireSanitizedTemplateHtml, sanitizeTemplateHtml } from '../lib/templateSanitizer.js';
 
 const router = Router();
+
+const requireTemplateAdmin = (req: AuthRequest, _res: Response, next: NextFunction) => {
+  requirePrivilegedRole(req, '无权操作，仅管理员或总经理可管理证书模板');
+  next();
+};
+
+function serializeTemplate(template: {
+  id: string;
+  name: string;
+  code: string;
+  certificateType: string;
+  description: string | null;
+  bodyTemplate: string;
+  headerTemplate: string | null;
+  footerTemplate: string | null;
+  isActive: boolean;
+  isDefault: boolean;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+  createdById: string | null;
+}) {
+  return {
+    id: template.id,
+    name: template.name,
+    code: template.code,
+    certificateType: template.certificateType,
+    description: template.description,
+    bodyTemplate: sanitizeTemplateHtml(template.bodyTemplate) ?? '',
+    headerTemplate: sanitizeTemplateHtml(template.headerTemplate),
+    footerTemplate: sanitizeTemplateHtml(template.footerTemplate),
+    isActive: template.isActive,
+    isDefault: template.isDefault,
+    version: template.version,
+    createdAt: template.createdAt.toISOString(),
+    updatedAt: template.updatedAt.toISOString(),
+    createdById: template.createdById,
+  };
+}
 
 router.get(
   '/',
@@ -30,22 +71,7 @@ router.get(
 
     res.json({
       success: true,
-      data: templates.map((t) => ({
-        id: t.id,
-        name: t.name,
-        code: t.code,
-        certificateType: t.certificateType,
-        description: t.description,
-        bodyTemplate: t.bodyTemplate,
-        headerTemplate: t.headerTemplate,
-        footerTemplate: t.footerTemplate,
-        isActive: t.isActive,
-        isDefault: t.isDefault,
-        version: t.version,
-        createdAt: t.createdAt.toISOString(),
-        updatedAt: t.updatedAt.toISOString(),
-        createdById: t.createdById,
-      })),
+      data: templates.map(serializeTemplate),
       pagination: {
         page: pageNum,
         limit: pageSize,
@@ -69,28 +95,14 @@ router.get(
 
     res.json({
       success: true,
-      data: {
-        id: template.id,
-        name: template.name,
-        code: template.code,
-        certificateType: template.certificateType,
-        description: template.description,
-        bodyTemplate: template.bodyTemplate,
-        headerTemplate: template.headerTemplate,
-        footerTemplate: template.footerTemplate,
-        isActive: template.isActive,
-        isDefault: template.isDefault,
-        version: template.version,
-        createdAt: template.createdAt.toISOString(),
-        updatedAt: template.updatedAt.toISOString(),
-        createdById: template.createdById,
-      },
+      data: serializeTemplate(template),
     });
   })
 );
 
 router.post(
   '/',
+  requireTemplateAdmin,
   asyncHandler(async (req, res) => {
     const {
       name,
@@ -106,6 +118,13 @@ router.post(
 
     if (!name || !code || !bodyTemplate) {
       throw new AppError('名称、编码和正文模板为必填项', 400, 'VALIDATION_ERROR');
+    }
+
+    let sanitizedBodyTemplate: string;
+    try {
+      sanitizedBodyTemplate = requireSanitizedTemplateHtml(bodyTemplate, '正文模板');
+    } catch (error) {
+      throw new AppError(error instanceof Error ? error.message : '正文模板无效', 400, 'VALIDATION_ERROR');
     }
 
     if (isDefault) {
@@ -124,9 +143,9 @@ router.post(
         code,
         certificateType: certificateType?.toUpperCase() || 'AAC-038',
         description: description || null,
-        bodyTemplate,
-        headerTemplate: headerTemplate || null,
-        footerTemplate: footerTemplate || null,
+        bodyTemplate: sanitizedBodyTemplate,
+        headerTemplate: sanitizeTemplateHtml(headerTemplate),
+        footerTemplate: sanitizeTemplateHtml(footerTemplate),
         isActive: isActive !== undefined ? isActive : true,
         isDefault: isDefault || false,
         createdById: (req as AuthRequest).user?.id,
@@ -135,28 +154,14 @@ router.post(
 
     res.status(201).json({
       success: true,
-      data: {
-        id: template.id,
-        name: template.name,
-        code: template.code,
-        certificateType: template.certificateType,
-        description: template.description,
-        bodyTemplate: template.bodyTemplate,
-        headerTemplate: template.headerTemplate,
-        footerTemplate: template.footerTemplate,
-        isActive: template.isActive,
-        isDefault: template.isDefault,
-        version: template.version,
-        createdAt: template.createdAt.toISOString(),
-        updatedAt: template.updatedAt.toISOString(),
-        createdById: template.createdById,
-      },
+      data: serializeTemplate(template),
     });
   })
 );
 
 router.put(
   '/:id',
+  requireTemplateAdmin,
   asyncHandler(async (req, res) => {
     const existing = await prisma.certificateTemplate.findUnique({
       where: { id: req.params.id },
@@ -181,6 +186,15 @@ router.put(
     const nextIsDefault = isDefault ?? existing.isDefault;
     const nextCertificateType = certificateType?.toUpperCase() || existing.certificateType;
 
+    let sanitizedBodyTemplate: string | undefined;
+    try {
+      if (bodyTemplate !== undefined) {
+        sanitizedBodyTemplate = requireSanitizedTemplateHtml(bodyTemplate, '正文模板');
+      }
+    } catch (error) {
+      throw new AppError(error instanceof Error ? error.message : '正文模板无效', 400, 'VALIDATION_ERROR');
+    }
+
     if (nextIsDefault) {
       await prisma.certificateTemplate.updateMany({
         where: {
@@ -199,9 +213,9 @@ router.put(
         ...(code !== undefined && { code }),
         ...(certificateType !== undefined && { certificateType: certificateType.toUpperCase() }),
         ...(description !== undefined && { description }),
-        ...(bodyTemplate !== undefined && { bodyTemplate }),
-        ...(headerTemplate !== undefined && { headerTemplate }),
-        ...(footerTemplate !== undefined && { footerTemplate }),
+        ...(sanitizedBodyTemplate !== undefined && { bodyTemplate: sanitizedBodyTemplate }),
+        ...(headerTemplate !== undefined && { headerTemplate: sanitizeTemplateHtml(headerTemplate) }),
+        ...(footerTemplate !== undefined && { footerTemplate: sanitizeTemplateHtml(footerTemplate) }),
         ...(isActive !== undefined && { isActive }),
         ...(isDefault !== undefined && { isDefault }),
         version: existing.version + 1,
@@ -210,28 +224,14 @@ router.put(
 
     res.json({
       success: true,
-      data: {
-        id: template.id,
-        name: template.name,
-        code: template.code,
-        certificateType: template.certificateType,
-        description: template.description,
-        bodyTemplate: template.bodyTemplate,
-        headerTemplate: template.headerTemplate,
-        footerTemplate: template.footerTemplate,
-        isActive: template.isActive,
-        isDefault: template.isDefault,
-        version: template.version,
-        createdAt: template.createdAt.toISOString(),
-        updatedAt: template.updatedAt.toISOString(),
-        createdById: template.createdById,
-      },
+      data: serializeTemplate(template),
     });
   })
 );
 
 router.delete(
   '/:id',
+  requireTemplateAdmin,
   asyncHandler(async (req, res) => {
     const existing = await prisma.certificateTemplate.findUnique({
       where: { id: req.params.id },
@@ -258,6 +258,7 @@ router.delete(
 
 router.post(
   '/:id/duplicate',
+  requireTemplateAdmin,
   asyncHandler(async (req, res) => {
     const existing = await prisma.certificateTemplate.findUnique({
       where: { id: req.params.id },
@@ -275,9 +276,9 @@ router.post(
         code: newCode,
         certificateType: existing.certificateType,
         description: existing.description,
-        bodyTemplate: existing.bodyTemplate,
-        headerTemplate: existing.headerTemplate,
-        footerTemplate: existing.footerTemplate,
+        bodyTemplate: requireSanitizedTemplateHtml(existing.bodyTemplate, '正文模板'),
+        headerTemplate: sanitizeTemplateHtml(existing.headerTemplate),
+        footerTemplate: sanitizeTemplateHtml(existing.footerTemplate),
         isActive: true,
         isDefault: false,
         createdById: (req as AuthRequest).user?.id,
@@ -286,22 +287,7 @@ router.post(
 
     res.status(201).json({
       success: true,
-      data: {
-        id: template.id,
-        name: template.name,
-        code: template.code,
-        certificateType: template.certificateType,
-        description: template.description,
-        bodyTemplate: template.bodyTemplate,
-        headerTemplate: template.headerTemplate,
-        footerTemplate: template.footerTemplate,
-        isActive: template.isActive,
-        isDefault: template.isDefault,
-        version: template.version,
-        createdAt: template.createdAt.toISOString(),
-        updatedAt: template.updatedAt.toISOString(),
-        createdById: template.createdById,
-      },
+      data: serializeTemplate(template),
     });
   })
 );

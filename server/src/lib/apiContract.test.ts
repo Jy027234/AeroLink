@@ -5,6 +5,7 @@ import {
   quotationCreateSchema,
   customerCreateSchema,
   orderCreateSchema,
+  orderStatusUpdateSchema,
   paginationSchema,
 } from './validation.js';
 
@@ -105,6 +106,17 @@ describe('API Contract - Request/Response shapes', () => {
         customerId: 'c1',
       });
       expect(missingQuotation.success).toBe(false);
+    });
+
+    it('status update should normalize supported aliases and reject arbitrary values', () => {
+      const valid = orderStatusUpdateSchema.safeParse({ status: 'in-transit' });
+      expect(valid.success).toBe(true);
+      if (valid.success) {
+        expect(valid.data.status).toBe('IN_TRANSIT');
+      }
+
+      const invalid = orderStatusUpdateSchema.safeParse({ status: 'delayed' });
+      expect(invalid.success).toBe(false);
     });
   });
 

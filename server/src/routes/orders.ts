@@ -9,32 +9,40 @@ import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../li
 import { AuthRequest } from '../middleware/auth.js';
 import { generateOrderPDF } from '../lib/pdfService.js';
 import { emitWebhookEvent } from '../lib/webhookService.js';
+import { isOrderStatusTransitionAllowed, normalizeOrderStatus, toUiOrderStatus } from '../lib/orderStateMachine.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
-
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { status } = req.query;
+    const { status, page, limit } = req.query;
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+    const skip = (pageNum - 1) * pageSize;
 
     const where: Prisma.OrderWhereInput = {};
     if (status) where.status = status.toString().toUpperCase().replace('-', '_');
 
-    const orders = await prisma.order.findMany({
-      where,
-      include: {
-        customer: true,
-        quotation: { select: { quoteNumber: true } },
-        tracking: true,
-        generatedDocuments: {
-          where: { documentType: ORDER_CONTRACT_DOCUMENT_TYPE },
-          orderBy: { generatedAt: 'desc' },
-          take: 1,
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        include: {
+          customer: true,
+          quotation: { select: { quoteNumber: true } },
+          tracking: true,
+          generatedDocuments: {
+            where: { documentType: ORDER_CONTRACT_DOCUMENT_TYPE },
+            orderBy: { generatedAt: 'desc' },
+            take: 1,
+          },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.order.count({ where }),
+    ]);
 
     res.json({
       success: true,
@@ -83,6 +91,12 @@ router.get(
         eSignatureCustomer: o.eSignatureCustomer,
         eSignatureSupplier: o.eSignatureSupplier,
       })),
+      pagination: {
+        page: pageNum,
+        limit: pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
     });
   })
 );
@@ -249,25 +263,32 @@ router.patch(
   '/:id/status',
   validateBody(orderStatusUpdateSchema),
   asyncHandler(async (req, res) => {
-    const { status } = req.body;
+    const nextStatus = String(req.body.status);
 
     const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       throw new AppError('订单不存在', 404);
     }
 
+    const currentStatus = normalizeOrderStatus(existing.status);
+    if (!isOrderStatusTransitionAllowed(currentStatus, nextStatus)) {
+      throw new AppError(`订单不允许从 ${toUiOrderStatus(currentStatus)} 变更为 ${toUiOrderStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
+    }
+
     const order = await prisma.order.update({
       where: { id: req.params.id },
-      data: { status: status.toUpperCase().replace('-', '_') },
+      data: { status: nextStatus },
     });
 
-    await emitWebhookEvent('order.status.changed', {
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      oldStatus: existing.status,
-      newStatus: order.status,
-      changedAt: new Date().toISOString(),
-    });
+    if (existing.status !== order.status) {
+      await emitWebhookEvent('order.status.changed', {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        oldStatus: existing.status,
+        newStatus: order.status,
+        changedAt: new Date().toISOString(),
+      });
+    }
 
     res.json({
       success: true,
