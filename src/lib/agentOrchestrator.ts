@@ -138,6 +138,10 @@ function buildDemoSuppliers(sourceSuppliers: Supplier[]): Supplier[] {
 
     return {
       ...supplier,
+      // Keep the demo's manual branch deterministic without replacing the
+      // underlying supplier id. Follow-up completion can therefore still
+      // resolve back to the real supplier record and persist an auditable log.
+      name: 'Skyline Aero Trading',
       email: undefined,
       performanceScore: typeof supplier.performanceScore === 'number' ? Math.min(supplier.performanceScore, 82) : 82,
       leadTime: typeof supplier.leadTime === 'number' ? supplier.leadTime : 12,
