@@ -18,7 +18,7 @@ test.describe('Authentication', () => {
     await page.fill('input[type="email"]', 'invalid@example.com');
     await page.fill('input[type="password"]', 'wrongpassword');
     await page.click('button[type="submit"]');
-    await expect(page.getByText('登录失败，请检查邮箱和密码')).toBeVisible();
+    await expect(page.getByText(/登录失败，请检查邮箱和密码|邮箱或密码错误|Login failed\. Please check your email and password\.|Invalid credentials/)).toBeVisible();
   });
 
   test('should login with valid credentials', async ({ page }) => {

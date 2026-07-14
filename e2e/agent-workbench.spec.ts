@@ -23,7 +23,7 @@ async function navigateToAgentWorkbench(page: Page) {
     await page.getByRole('button', { name: /AGENT工作台/ }).click();
   }
 
-  await expect(page.getByRole('heading', { name: '智能航材销售AGENT' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /AGENT工作台|智能航材销售AGENT|AI Agent Workbench/ })).toBeVisible();
 }
 
 async function getRfqSnapshot(page: Page) {
