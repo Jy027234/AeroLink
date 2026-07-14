@@ -17,6 +17,7 @@ import { sendEmail, type EmailAccountConfig } from '../lib/emailService.js';
 import { createOrderFromQuotation, mapOrderResponse } from '../lib/orderWorkflowService.js';
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { emitWebhookEvent } from '../lib/webhookService.js';
+import { isQuotationTransitionAllowed, normalizeQuotationStatus, type QuotationStatus } from '../lib/quotationStateMachine.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -63,6 +64,17 @@ function textToHtml(text: string) {
     .split('\n')
     .map((line) => `<p>${line}</p>`)
     .join('');
+}
+
+function assertQuotationTransition(current: string, target: QuotationStatus) {
+  if (!isQuotationTransitionAllowed(current, target)) {
+    const normalizedCurrent = normalizeQuotationStatus(current) || current;
+    throw new AppError(
+      `报价状态不能从 ${normalizedCurrent} 转为 ${target}`,
+      409,
+      'INVALID_STATE_TRANSITION',
+    );
+  }
 }
 
 router.get(
@@ -375,6 +387,24 @@ router.post(
 router.post(
   '/:id/submit',
   asyncHandler(async (req, res) => {
+    const currentQuotation = await prisma.quotation.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!currentQuotation) {
+      throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+    }
+
+    assertQuotationTransition(currentQuotation.status, 'PENDING_APPROVAL');
+
+    if (currentQuotation.status === 'PENDING_APPROVAL') {
+      res.json({
+        success: true,
+        data: { ...currentQuotation, status: currentQuotation.status.toLowerCase() },
+      });
+      return;
+    }
+
     const quotation = await prisma.quotation.update({
       where: { id: req.params.id },
       data: { status: 'PENDING_APPROVAL' },
@@ -412,6 +442,16 @@ router.post(
     }
 
     const isAog = quotationWithRfq.rfq?.urgency?.toUpperCase() === 'AOG';
+    const targetStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
+    assertQuotationTransition(quotationWithRfq.status, targetStatus);
+
+    if (quotationWithRfq.status === targetStatus) {
+      res.json({
+        success: true,
+        data: { ...quotationWithRfq, status: quotationWithRfq.status.toLowerCase() },
+      });
+      return;
+    }
 
     const quotation = await prisma.quotation.update({
       where: { id: req.params.id },
