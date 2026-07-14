@@ -120,6 +120,18 @@ async function loginByUi(page: import('@playwright/test').Page) {
   await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible();
 }
 
+async function navigateFromSidebar(
+  page: import('@playwright/test').Page,
+  groupLabel: string,
+  itemLabel: RegExp,
+) {
+  const item = page.getByRole('button', { name: itemLabel });
+  if (!(await item.isVisible())) {
+    await page.getByRole('button', { name: groupLabel, exact: true }).click();
+  }
+  await item.click();
+}
+
 test('should confirm an approved quotation and download the generated contract from Orders', async ({ page }) => {
   const dialogs: string[] = [];
   page.on('dialog', async (dialog) => {
@@ -132,7 +144,7 @@ test('should confirm an approved quotation and download the generated contract f
   await loginByUi(page);
 
   await test.step('在报价页定位新报价并执行客户确认', async () => {
-    await page.getByRole('button', { name: /报价管理/ }).click();
+    await navigateFromSidebar(page, '寻源报价', /报价管理/);
     await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
     await page.getByPlaceholder('搜索报价单号、件号或客户...').fill(quoteNumber);
@@ -182,7 +194,7 @@ test('should confirm an approved quotation and download the generated contract f
     const { orderNumber } = order;
 
     await test.step('在订单页打开新订单并再次下载合同', async () => {
-      await page.getByRole('button', { name: /订单管理/ }).click();
+      await navigateFromSidebar(page, '订单与库存', /订单管理/);
       await expect(page.getByRole('banner').getByRole('heading', { name: '订单管理' })).toBeVisible();
 
       await page.getByPlaceholder('搜索订单号、件号或客户...').fill(orderNumber);
@@ -216,7 +228,7 @@ test('should show a retryable error banner when quotation details fail to load',
   let remainingFailures = 1;
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.route(`**/api/quotations/${quotationId}`, async (route) => {
@@ -269,7 +281,7 @@ test('should show an alert and keep the quotation approved when confirmation req
   const { quotationId, quoteNumber } = await createApprovedQuotation(backendBaseUrl);
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.getByPlaceholder('搜索报价单号、件号或客户...').fill(quoteNumber);
@@ -315,7 +327,7 @@ test('should show a localized alert when contract download fails in Orders page'
   const { orderNumber, contractDocumentId } = await acceptApprovedQuotation(backendBaseUrl, token, quotationId);
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /订单管理/ }).click();
+  await navigateFromSidebar(page, '订单与库存', /订单管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '订单管理' })).toBeVisible();
 
   await page.getByPlaceholder('搜索订单号、件号或客户...').fill(orderNumber);
@@ -355,7 +367,7 @@ test('should show a retryable error banner when order details fail to load', asy
   let remainingFailures = 1;
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /订单管理/ }).click();
+  await navigateFromSidebar(page, '订单与库存', /订单管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '订单管理' })).toBeVisible();
 
   await page.route(`**/api/orders/${orderId}`, async (route) => {
@@ -408,7 +420,7 @@ test('should show an alert and keep the quotation approved when send quote reque
   const { quotationId, quoteNumber } = await createApprovedQuotation(backendBaseUrl);
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.getByPlaceholder('搜索报价单号、件号或客户...').fill(quoteNumber);
@@ -448,7 +460,7 @@ test('should show a retryable error banner when quotation list refresh fails aft
   let failNextProjectedRefresh = false;
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.route(`**/api/quotations/${quotationId}/send`, async (route) => {
@@ -562,7 +574,7 @@ test('should show a localized alert and keep the quotation approved when quotati
   const { quotationId, quoteNumber } = await createApprovedQuotation(backendBaseUrl);
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.getByPlaceholder('搜索报价单号、件号或客户...').fill(quoteNumber);
@@ -595,7 +607,7 @@ test('should show an alert and keep the quotation sent when withdraw request fai
   let shouldMockSentState = false;
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.route(`**/api/quotations/${quotationId}/send`, async (route) => {
