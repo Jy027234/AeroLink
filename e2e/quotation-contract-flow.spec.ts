@@ -438,12 +438,12 @@ test('should show an alert and keep the quotation approved when send quote reque
 
   await quoteRow.getByRole('button').nth(1).click();
   const sendDialog = page.getByRole('dialog');
-  await expect(sendDialog.getByText(/发送报价邮件|Send Quote Email/)).toBeVisible();
+  await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
 
   await sendDialog.getByRole('button', { name: /发送并附 PDF|Send with PDF/ }).click();
   await expectToast(page, 'Failed to send quote. Please verify the default outbound email account.');
 
-  await expect(sendDialog.getByText(/发送报价邮件|Send Quote Email/)).toBeVisible();
+  await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
   await sendDialog.getByRole('button', { name: /取消|Cancel/ }).click();
   await expect(quoteRow).toContainText('已审批');
 });
@@ -545,7 +545,7 @@ test('should show a retryable error banner when quotation list refresh fails aft
 
   await quoteRow.getByRole('button').nth(1).click();
   const sendDialog = page.getByRole('dialog');
-  await expect(sendDialog.getByText(/发送报价邮件|Send Quote Email/)).toBeVisible();
+  await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
 
   await sendDialog.getByRole('button', { name: /发送并附 PDF|Send with PDF/ }).click();
   await expectToast(page, new RegExp(`Quote ${quoteNumber} sent to`));
@@ -671,7 +671,7 @@ test('should show an alert and keep the quotation sent when withdraw request fai
 
   await quoteRow.getByRole('button').nth(1).click();
   const sendDialog = page.getByRole('dialog');
-  await expect(sendDialog.getByText(/发送报价邮件|Send Quote Email/)).toBeVisible();
+  await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
 
   await sendDialog.getByRole('button', { name: /发送并附 PDF|Send with PDF/ }).click();
   await expectToast(page, new RegExp(`Quote ${quoteNumber} sent to`));
