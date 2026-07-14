@@ -1,10 +1,16 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { requirePrivilegedRole } from '../lib/accessControl.js';
 import prisma from '../lib/prisma.js';
 import crypto from 'crypto';
 
 const router = Router();
+
+router.use((req, _res, next) => {
+  requirePrivilegedRole(req as AuthRequest, '无权操作，仅管理员或总经理可管理 API Key');
+  next();
+});
 
 function generateApiKey(): { fullKey: string; prefix: string; hash: string } {
   const prefix = 'ak_live_';

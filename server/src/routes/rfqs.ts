@@ -9,6 +9,40 @@ import prisma from '../lib/prisma.js';
 
 const router = Router();
 
+const RFQ_STATUS_UI: Record<string, string> = {
+  PENDING: 'pending',
+  SOURCING: 'sourcing',
+  QUOTING: 'quoting',
+  APPROVING: 'approved',
+  ORDERED: 'sent',
+  COMPLETED: 'won',
+  CANCELLED: 'lost',
+};
+
+const RFQ_STATUS_PERSISTED: Record<string, string> = {
+  pending: 'PENDING',
+  sourcing: 'SOURCING',
+  quoting: 'QUOTING',
+  approved: 'APPROVING',
+  sent: 'ORDERED',
+  won: 'COMPLETED',
+  lost: 'CANCELLED',
+};
+
+const RFQ_ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
+  PENDING: ['SOURCING', 'QUOTING', 'CANCELLED'],
+  SOURCING: ['QUOTING', 'CANCELLED'],
+  QUOTING: ['APPROVING', 'ORDERED', 'COMPLETED', 'CANCELLED'],
+  APPROVING: ['ORDERED', 'COMPLETED', 'CANCELLED'],
+  ORDERED: ['COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+function toUiRfqStatus(status: string): string {
+  return RFQ_STATUS_UI[status.toUpperCase()] || status.toLowerCase();
+}
+
 function parseAlternatePartNumbers(value: string | null): string[] | undefined {
   if (!value) return undefined;
   try {
@@ -46,7 +80,7 @@ function toRfqResponse(rfq: Awaited<ReturnType<typeof prisma.rFQ.findUnique>> & 
     leadTimeDays: rfq.leadTimeDays,
     urgency: rfq.urgency.toLowerCase(),
     urgencyJustification: rfq.urgencyJustification,
-    status: rfq.status.toLowerCase(),
+    status: toUiRfqStatus(rfq.status),
     notes: rfq.notes,
     createdAt: rfq.createdAt.toISOString(),
     createdBy: rfq.creator?.name || '',
@@ -62,7 +96,10 @@ router.get(
     const skip = (pageNum - 1) * pageSize;
 
     const where: Prisma.RFQWhereInput = {};
-    if (status) where.status = status.toString().toUpperCase();
+    if (status) {
+      const statusValue = status.toString();
+      where.status = RFQ_STATUS_PERSISTED[statusValue.toLowerCase()] || statusValue.toUpperCase();
+    }
     if (urgency) where.urgency = urgency.toString().toUpperCase();
 
     const [rfqs, total] = await Promise.all([
@@ -284,33 +321,42 @@ router.patch(
   '/:id/status',
   validateBody(rfqStatusUpdateSchema),
   asyncHandler(async (req, res) => {
-    const { status } = req.body;
+    const nextStatus = String(req.body.status);
 
     const current = await prisma.rFQ.findUnique({ where: { id: req.params.id } });
     if (!current) {
       throw new AppError('RFQ不存在', 404);
     }
 
+    if (current.status !== nextStatus && !RFQ_ALLOWED_TRANSITIONS[current.status]?.includes(nextStatus)) {
+      throw new AppError(`RFQ 不允许从 ${toUiRfqStatus(current.status)} 变更为 ${toUiRfqStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
+    }
+
     const rfq = await prisma.rFQ.update({
       where: { id: req.params.id },
-      data: { status: status.toUpperCase() },
+      data: { status: nextStatus },
+      include: {
+        customer: true,
+        creator: {
+          select: { id: true, name: true },
+        },
+      },
     });
 
-    await emitWebhookEvent('rfq.status.changed', {
-      rfqId: rfq.id,
-      rfqNumber: rfq.rfqNumber,
-      oldStatus: current.status,
-      newStatus: rfq.status,
-      changedBy: (req as AuthRequest).user?.id,
-      changedAt: new Date().toISOString(),
-    });
+    if (current.status !== rfq.status) {
+      await emitWebhookEvent('rfq.status.changed', {
+        rfqId: rfq.id,
+        rfqNumber: rfq.rfqNumber,
+        oldStatus: current.status,
+        newStatus: rfq.status,
+        changedBy: (req as AuthRequest).user?.id,
+        changedAt: new Date().toISOString(),
+      });
+    }
 
     res.json({
       success: true,
-      data: {
-        ...rfq,
-        status: rfq.status.toLowerCase(),
-      },
+      data: toRfqResponse(rfq),
     });
   })
 );

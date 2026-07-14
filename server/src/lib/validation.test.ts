@@ -79,6 +79,14 @@ describe('rfqStatusUpdateSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('should normalize UI status aliases to persisted statuses', () => {
+    const result = rfqStatusUpdateSchema.safeParse({ status: 'won' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.status).toBe('COMPLETED');
+    }
+  });
+
   it('should fail on invalid status', () => {
     const result = rfqStatusUpdateSchema.safeParse({ status: 'INVALID' });
     expect(result.success).toBe(false);

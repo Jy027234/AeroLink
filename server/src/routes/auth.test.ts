@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import jwt from 'jsonwebtoken';
 
 describe('Auth routes integration', () => {
   let app: express.Application;
@@ -73,6 +74,59 @@ describe('Auth routes integration', () => {
     expect(res.status).toBe(401);
     expect(res.body.success).toBe(false);
     expect(res.body.code).toBe('AUTH_UNAUTHORIZED');
+  });
+
+  it('should accept the HttpOnly refresh cookie and rotate it', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      email: 'active.user@example.com',
+      name: 'Active User',
+      role: 'SALES',
+      department: 'Sales',
+      avatar: null,
+      isActive: true,
+    });
+
+    const refreshToken = jwt.sign({ id: 'u1' }, 'test-refresh-secret', { expiresIn: '7d' });
+    const res = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', `aerolink_refresh_token=${encodeURIComponent(refreshToken)}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.accessToken).toBeTruthy();
+    const cookies = ([] as string[]).concat(res.headers['set-cookie'] || []);
+    expect(cookies.some((value) => value.includes('HttpOnly'))).toBe(true);
+  });
+
+  it('should reject a refresh token from a revoked session version', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      email: 'active.user@example.com',
+      name: 'Active User',
+      role: 'SALES',
+      department: 'Sales',
+      avatar: null,
+      isActive: true,
+      tokenVersion: 2,
+    });
+
+    const staleToken = jwt.sign({ id: 'u1', ver: 1 }, 'test-refresh-secret', { expiresIn: '7d' });
+    const res = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', `aerolink_refresh_token=${encodeURIComponent(staleToken)}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe('AUTH_TOKEN_INVALID');
+  });
+
+  it('should clear the refresh cookie on logout', async () => {
+    const res = await request(app)
+      .post('/api/auth/logout')
+      .set('Cookie', 'aerolink_refresh_token=legacy-token');
+
+    expect(res.status).toBe(200);
+    const cookies = ([] as string[]).concat(res.headers['set-cookie'] || []);
+    expect(cookies.some((value) => /Max-Age=0|Expires=Thu, 01 Jan 1970/.test(value))).toBe(true);
   });
 
   it('should reject activation with a short password', async () => {

@@ -186,6 +186,8 @@ router.put(
       avatar?: string;
     };
 
+    const isActiveChanged = isActive !== undefined && isActive !== existing.isActive;
+
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: {
@@ -193,7 +195,12 @@ router.put(
         ...(email !== undefined ? { email } : {}),
         ...(role !== undefined ? { role: role.toUpperCase() } : {}),
         ...(department !== undefined ? { department: department || null } : {}),
-        ...(isActive !== undefined ? { isActive } : {}),
+        ...(isActive !== undefined
+          ? {
+              isActive,
+              ...(isActiveChanged ? { tokenVersion: { increment: 1 } } : {}),
+            }
+          : {}),
         ...(avatar !== undefined ? { avatar: avatar || null } : {}),
       },
       select: {

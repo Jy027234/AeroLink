@@ -49,12 +49,9 @@ test('should show a localized alert and keep the template dialog open when contr
   await templateDialog.locator('input').nth(1).fill(templateCode);
   await templateDialog.locator('textarea').first().fill('<table><tr><td>{{customer.name}}</td><td>{{quotation.quoteNumber}}</td></tr></table>');
 
-  const alertPromise = page.waitForEvent('dialog');
   await templateDialog.getByRole('button', { name: '保存模板' }).click();
-  const alertDialog = await alertPromise;
-
-  expect(alertDialog.message()).toBe('保存失败，请检查模板内容。');
-  await alertDialog.accept();
+  const errorToast = page.locator('[data-sonner-toast]').filter({ hasText: '保存失败，请检查模板内容。' }).last();
+  await expect(errorToast).toBeVisible();
 
   await expect(templateDialog.getByRole('heading', { name: '新建合同模板' })).toBeVisible();
   await templateDialog.getByRole('button', { name: '取消' }).click();

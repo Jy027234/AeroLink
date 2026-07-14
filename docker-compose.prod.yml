@@ -43,9 +43,11 @@ services:
     environment:
       PORT: 3000
       NODE_ENV: production
-      CLIENT_URL: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      CLIENT_URL: ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN is required}
       DATABASE_URL: postgresql://aerolink:${DB_PASSWORD}@postgres:5432/aerolink?schema=public
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
       PRISMA_SCHEMA_PATH: prisma/schema.prisma
     depends_on:
       postgres:

@@ -1,8 +1,8 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { validateBody } from '../middleware/validate.js';
-import { generateTokens, verifyRefreshToken, authenticate, AuthRequest } from '../middleware/auth.js';
+import { generateTokens, verifyRefreshToken, authenticate, AuthRequest, isTokenVersionValid } from '../middleware/auth.js';
 import { sendActivationEmailToUser, sendPasswordResetEmailToUser } from '../lib/authEmailService.js';
 import { generateAuthToken, getActivationExpiryDate, getPasswordResetExpiryDate } from '../lib/authFlow.js';
 import { forgotPasswordSchema, loginSchema, tokenPasswordSchema, validatePasswordStrength } from '../lib/validation.js';
@@ -11,6 +11,40 @@ import prisma from '../lib/prisma.js';
 
 const router = Router();
 const PASSWORD_ASSISTANCE_MESSAGE = '如果该邮箱对应账户存在，系统已发送后续操作邮件，请注意查收。如未收到，请联系管理员。';
+const REFRESH_COOKIE_NAME = 'aerolink_refresh_token';
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+  path: '/api/auth',
+};
+
+function setRefreshTokenCookie(res: Response, refreshToken: string) {
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, refreshCookieOptions);
+}
+
+function clearRefreshTokenCookie(res: Response) {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    httpOnly: true,
+    secure: refreshCookieOptions.secure,
+    sameSite: refreshCookieOptions.sameSite,
+    path: refreshCookieOptions.path,
+  });
+}
+
+function readRefreshTokenCookie(req: Request): string | undefined {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return undefined;
+
+  const cookie = cookieHeader
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${REFRESH_COOKIE_NAME}=`));
+
+  if (!cookie) return undefined;
+  return decodeURIComponent(cookie.slice(REFRESH_COOKIE_NAME.length + 1));
+}
 
 function serializeAuthUser(user: {
   id: string;
@@ -86,7 +120,10 @@ router.post(
 
     const { accessToken, refreshToken } = generateTokens({
       ...serializeAuthUser(user),
+      tokenVersion: user.tokenVersion,
     });
+
+    setRefreshTokenCookie(res, refreshToken);
 
     res.json({
       success: true,
@@ -102,7 +139,7 @@ router.post(
 router.post(
   '/refresh',
   asyncHandler(async (req, res) => {
-    const { refreshToken } = req.body;
+    const refreshToken = readRefreshTokenCookie(req) || req.body?.refreshToken;
 
     if (!refreshToken) {
       throw new AppError('请提供刷新令牌', 401, 'AUTH_UNAUTHORIZED');
@@ -118,14 +155,29 @@ router.post(
       throw new AppError('无效的刷新令牌', 401, 'AUTH_TOKEN_INVALID');
     }
 
+    if (!isTokenVersionValid(decoded.ver, user.tokenVersion)) {
+      throw new AppError('刷新令牌已失效，请重新登录', 401, 'AUTH_TOKEN_INVALID');
+    }
+
     const tokens = generateTokens({
       ...serializeAuthUser(user),
+      tokenVersion: user.tokenVersion,
     });
+
+    setRefreshTokenCookie(res, tokens.refreshToken);
 
     res.json({
       success: true,
       data: tokens,
     });
+  })
+);
+
+router.post(
+  '/logout',
+  asyncHandler(async (_req, res) => {
+    clearRefreshTokenCookie(res);
+    res.json({ success: true });
   })
 );
 
@@ -231,12 +283,16 @@ router.post(
         role: true,
         department: true,
         avatar: true,
+        tokenVersion: true,
       },
     });
 
     const { accessToken, refreshToken } = generateTokens({
       ...serializeAuthUser(updatedUser),
+      tokenVersion: updatedUser.tokenVersion,
     });
+
+    setRefreshTokenCookie(res, refreshToken);
 
     res.json({
       success: true,
@@ -394,6 +450,7 @@ router.post(
         passwordResetToken: null,
         passwordResetTokenExpiresAt: null,
         lastLoginAt: new Date(),
+        tokenVersion: { increment: 1 },
       },
       select: {
         id: true,
@@ -402,12 +459,16 @@ router.post(
         role: true,
         department: true,
         avatar: true,
+        tokenVersion: true,
       },
     });
 
     const { accessToken, refreshToken } = generateTokens({
       ...serializeAuthUser(updatedUser),
+      tokenVersion: updatedUser.tokenVersion,
     });
+
+    setRefreshTokenCookie(res, refreshToken);
 
     res.json({
       success: true,
@@ -499,8 +560,10 @@ router.post(
     const password = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id: req.user!.id },
-      data: { password },
+      data: { password, tokenVersion: { increment: 1 } },
     });
+
+    clearRefreshTokenCookie(res);
 
     res.json({
       success: true,

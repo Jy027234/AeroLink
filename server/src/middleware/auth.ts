@@ -21,14 +21,15 @@ export interface AuthRequest extends Request {
   };
 }
 
-export const generateTokens = (user: { id: string; email: string; name: string; role: string; department?: string | null; avatar?: string | null }) => {
-  const accessToken = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '15m' });
-  const refreshToken = jwt.sign({ id: user.id }, JWT_REFRESH_SECRET, { expiresIn: '7d' });
+export const generateTokens = (user: { id: string; email: string; name: string; role: string; department?: string | null; avatar?: string | null; tokenVersion?: number }) => {
+  const tokenVersion = user.tokenVersion ?? 0;
+  const accessToken = jwt.sign({ id: user.id, role: user.role, ver: tokenVersion }, JWT_SECRET, { expiresIn: '15m' });
+  const refreshToken = jwt.sign({ id: user.id, ver: tokenVersion }, JWT_REFRESH_SECRET, { expiresIn: '7d' });
 
   return { accessToken, refreshToken };
 };
 
-export const verifyAccessToken = (token: string): NonNullable<AuthRequest['user']> => {
+export const verifyAccessToken = (token: string): NonNullable<AuthRequest['user']> & { ver?: number } => {
   const decoded = jwt.verify(token, JWT_SECRET);
   if (typeof decoded !== 'object' || !decoded || !('id' in decoded)) {
     throw new AppError('无效的令牌格式', 401);
@@ -36,13 +37,20 @@ export const verifyAccessToken = (token: string): NonNullable<AuthRequest['user'
   return decoded as NonNullable<AuthRequest['user']>;
 };
 
-export const verifyRefreshToken = (token: string): { id: string } => {
+export const verifyRefreshToken = (token: string): { id: string; ver?: number } => {
   const decoded = jwt.verify(token, JWT_REFRESH_SECRET);
   if (typeof decoded !== 'object' || !decoded || !('id' in decoded)) {
     throw new AppError('无效的刷新令牌格式', 401);
   }
-  return decoded as { id: string };
+  if ('ver' in decoded && decoded.ver !== undefined && typeof decoded.ver !== 'number') {
+    throw new AppError('无效的刷新令牌版本', 401, 'AUTH_TOKEN_INVALID');
+  }
+  return decoded as { id: string; ver?: number };
 };
+
+export function isTokenVersionValid(tokenVersion: unknown, currentVersion: number): boolean {
+  return tokenVersion === undefined || (typeof tokenVersion === 'number' && tokenVersion === currentVersion);
+}
 
 export const authenticate = async (req: AuthRequest, _res: Response, next: NextFunction) => {
   try {
@@ -64,6 +72,7 @@ export const authenticate = async (req: AuthRequest, _res: Response, next: NextF
         department: true,
         avatar: true,
         isActive: true,
+        tokenVersion: true,
       },
     });
 
@@ -73,6 +82,10 @@ export const authenticate = async (req: AuthRequest, _res: Response, next: NextF
 
     if (!user.isActive) {
       throw new AppError('账户已被禁用', 403);
+    }
+
+    if (!isTokenVersionValid(decoded.ver, user.tokenVersion)) {
+      throw new AppError('登录会话已失效，请重新登录', 401, 'AUTH_TOKEN_INVALID');
     }
 
     req.user = {
@@ -116,10 +129,11 @@ export const optionalAuth = async (req: AuthRequest, _res: Response, next: NextF
         department: true,
         avatar: true,
         isActive: true,
+        tokenVersion: true,
       },
     });
 
-    if (user && user.isActive) {
+    if (user && user.isActive && isTokenVersionValid(decoded.ver, user.tokenVersion)) {
       req.user = {
         id: user.id,
         email: user.email,

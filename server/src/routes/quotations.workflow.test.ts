@@ -291,6 +291,81 @@ describe('Quotation workflow routes', () => {
     );
   });
 
+  it('should reject submitting a quotation from a terminal state', async () => {
+    const quotation = createQuotation('ACCEPTED');
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/submit')
+      .send();
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.quotation.update).not.toHaveBeenCalled();
+    expect(emitWebhookEventMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject approving a quotation that is not pending approval', async () => {
+    const quotation = {
+      ...createQuotation('SENT'),
+      rfq: null,
+    };
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/approve')
+      .send({ action: 'approve' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.quotation.update).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.quotation.update).not.toHaveBeenCalled();
+    expect(emitWebhookEventMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject sending an accepted quotation', async () => {
+    const quotation = createQuotation('ACCEPTED');
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/send')
+      .send({ subject: '重复发送', message: '不应发送' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.emailAccount.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('should reject withdrawing a quotation that was not sent', async () => {
+    const quotation = createQuotation('APPROVED');
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/withdraw')
+      .send({ reason: '不应撤回' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.outboundEmail.create).not.toHaveBeenCalled();
+  });
+
+  it('should reject accepting a draft quotation', async () => {
+    const quotation = {
+      ...createQuotation('APPROVED'),
+      status: 'DRAFT',
+    };
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/accept')
+      .send({ confirmationNote: '不应接受' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.__tx.quotation.update).not.toHaveBeenCalled();
+    expect(createOrderFromQuotationMock).not.toHaveBeenCalled();
+  });
+
   it('should withdraw a sent quotation and optionally send a withdrawal notice', async () => {
     const quotation = {
       ...createQuotation('SENT'),

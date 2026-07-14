@@ -8,7 +8,6 @@ jobs:
   build-and-deploy:
     name: Build and Deploy
     runs-on: ubuntu-latest
-    needs: [ci]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
 
     steps:
@@ -37,4 +36,4 @@ jobs:
 
       - name: Build backend
         working-directory: ./server
-        run: npx tsc --noEmit
+        run: npm run build

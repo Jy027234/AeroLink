@@ -11,6 +11,7 @@ import type {
 import type {
   User,
   RFQ,
+  RFQStatus,
   Quotation,
   Order,
   InventoryItem,
@@ -430,11 +431,63 @@ class ApiException extends Error {
 }
 
 let unauthorizedRedirecting = false;
+let refreshPromise: Promise<boolean> | null = null;
+
+function clearAuthState() {
+  localStorage.removeItem('aerolink_token');
+  localStorage.removeItem('aerolink_user');
+  localStorage.removeItem('aerolink_refresh_token');
+  localStorage.removeItem('auth-storage');
+}
+
+function redirectToLogin() {
+  if (!unauthorizedRedirecting) {
+    unauthorizedRedirecting = true;
+    window.location.replace('/');
+  }
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  const refreshToken = localStorage.getItem('aerolink_refresh_token');
+
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+        const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          headers,
+          credentials: 'include',
+          ...(refreshToken ? { body: JSON.stringify({ refreshToken }) } : {}),
+        });
+        if (!response.ok) return false;
+
+        const payload = await response.json() as { data?: { accessToken?: string; refreshToken?: string }; accessToken?: string; refreshToken?: string };
+        const tokens = payload.data ?? payload;
+        if (!tokens.accessToken) return false;
+
+        localStorage.setItem('aerolink_token', tokens.accessToken);
+        // Refresh tokens are now kept in the HttpOnly cookie. Remove any legacy copy.
+        localStorage.removeItem('aerolink_refresh_token');
+        unauthorizedRedirecting = false;
+        return true;
+      } catch {
+        return false;
+      }
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
+}
 
 async function request<T>(
   endpoint: string,
   options: RequestInit = {},
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  retryAfterRefresh = false,
+  preserveEnvelope = false
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const token = localStorage.getItem('aerolink_token');
@@ -442,6 +495,7 @@ async function request<T>(
   const config: RequestInit = {
     ...options,
     signal,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
@@ -471,19 +525,21 @@ async function request<T>(
       endpoint === '/auth/forgot-password' ||
       endpoint === '/auth/activate' ||
       endpoint === '/auth/reset-password' ||
+      endpoint === '/auth/logout' ||
       endpoint.startsWith('/auth/activation/') ||
       endpoint.startsWith('/auth/reset/');
 
     if (response.status === 401) {
-      if (!isAuthRequest) {
-        localStorage.removeItem('aerolink_token');
-        localStorage.removeItem('aerolink_user');
-        localStorage.removeItem('aerolink_refresh_token');
-        localStorage.removeItem('auth-storage');
-        if (!unauthorizedRedirecting) {
-          unauthorizedRedirecting = true;
-          window.location.replace('/');
-        }
+      if (!isAuthRequest && !retryAfterRefresh && await refreshAccessToken()) {
+        const retryHeaders = new Headers(options.headers || undefined);
+        const refreshedToken = localStorage.getItem('aerolink_token');
+        if (refreshedToken) retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);
+        return request<T>(endpoint, { ...options, headers: retryHeaders }, signal, true, preserveEnvelope);
+      }
+
+      if (!isAuthRequest || endpoint === '/auth/refresh') {
+        clearAuthState();
+        redirectToLogin();
       }
       throw new ApiException(data.message || '登录已过期，请重新登录', 401);
     }
@@ -500,7 +556,14 @@ async function request<T>(
       if (!wrapped.success) {
         throw new ApiException(wrapped.message || '请求失败');
       }
+      if (preserveEnvelope) {
+        return data as T;
+      }
       return (wrapped.data as T) ?? (data as T);
+    }
+
+    if (preserveEnvelope) {
+      return data as T;
     }
 
     if (typeof data === 'object' && data !== null && 'data' in data) {
@@ -521,10 +584,19 @@ async function request<T>(
   }
 }
 
-async function requestBlob(
+async function requestEnvelope<T>(
   endpoint: string,
   options: RequestInit = {},
   signal?: AbortSignal
+): Promise<T> {
+  return request<T>(endpoint, options, signal, false, true);
+}
+
+async function requestBlob(
+  endpoint: string,
+  options: RequestInit = {},
+  signal?: AbortSignal,
+  retryAfterRefresh = false
 ): Promise<Blob> {
   const url = `${API_BASE_URL}${endpoint}`;
   const token = localStorage.getItem('aerolink_token');
@@ -540,18 +612,20 @@ async function requestBlob(
   const response = await fetch(url, {
     ...options,
     signal,
+    credentials: 'include',
     headers,
   });
 
   if (response.status === 401) {
-    localStorage.removeItem('aerolink_token');
-    localStorage.removeItem('aerolink_user');
-    localStorage.removeItem('aerolink_refresh_token');
-    localStorage.removeItem('auth-storage');
-    if (!unauthorizedRedirecting) {
-      unauthorizedRedirecting = true;
-      window.location.replace('/');
+    if (!retryAfterRefresh && await refreshAccessToken()) {
+      const retryHeaders = new Headers(options.headers || undefined);
+      const refreshedToken = localStorage.getItem('aerolink_token');
+      if (refreshedToken) retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);
+      return requestBlob(endpoint, { ...options, headers: retryHeaders }, signal, true);
     }
+
+    clearAuthState();
+    redirectToLogin();
     throw new ApiException('登录已过期，请重新登录', 401);
   }
 
@@ -646,6 +720,16 @@ export interface PaginatedAuditLogs {
   };
 }
 
+export interface PaginatedList<T> {
+  data: T;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 // ===== Audit Log API =====
 export const auditLogApi = {
   getAll: async (filters?: {
@@ -672,7 +756,7 @@ export const auditLogApi = {
     if (filters?.endDate) params.append('endDate', filters.endDate);
     if (filters?.search) params.append('search', filters.search);
     const query = params.toString();
-    return request<PaginatedAuditLogs>(`/audit-logs${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedAuditLogs>(`/audit-logs${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -688,7 +772,7 @@ export const auditLogApi = {
     if (page) params.append('page', String(page));
     if (limit) params.append('limit', String(limit));
     const query = params.toString();
-    return request<PaginatedAuditLogs>(`/audit-logs/resource/${type}/${id}${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedAuditLogs>(`/audit-logs/resource/${type}/${id}${query ? `?${query}` : ''}`);
   },
 
   getByUser: async (userId: string, page?: number, limit?: number) => {
@@ -696,7 +780,7 @@ export const auditLogApi = {
     if (page) params.append('page', String(page));
     if (limit) params.append('limit', String(limit));
     const query = params.toString();
-    return request<PaginatedAuditLogs>(`/audit-logs/user/${userId}${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedAuditLogs>(`/audit-logs/user/${userId}${query ? `?${query}` : ''}`);
   },
 
   create: async (data: {
@@ -803,10 +887,16 @@ export const authApi = {
     });
   },
 
-  refresh: async (refreshToken: string) => {
-    return request<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
+  refresh: async (refreshToken?: string) => {
+    return request<{ accessToken: string; refreshToken?: string }>('/auth/refresh', {
       method: 'POST',
-      body: JSON.stringify({ refreshToken }),
+      ...(refreshToken ? { body: JSON.stringify({ refreshToken }) } : {}),
+    });
+  },
+
+  logout: async () => {
+    return request<{ success: boolean }>('/auth/logout', {
+      method: 'POST',
     });
   },
 
@@ -1005,12 +1095,14 @@ export const ipcApi = {
 
 // ===== RFQ API =====
 export const rfqApi = {
-  getAll: async (filters?: { status?: string; urgency?: string }) => {
+  getAll: async (filters?: { status?: string; urgency?: string; page?: number; limit?: number }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.append('status', filters.status);
     if (filters?.urgency) params.append('urgency', filters.urgency);
+    params.append('page', String(filters?.page ?? 1));
+    params.append('limit', String(filters?.limit ?? 100));
     const query = params.toString();
-    return request<RFQ[]>(`/rfqs${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedList<RFQ[]>>(`/rfqs${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1031,8 +1123,8 @@ export const rfqApi = {
     });
   },
 
-  updateStatus: async (id: string, status: string) => {
-    return request<ApiRecord>(`/rfqs/${id}/status`, {
+  updateStatus: async (id: string, status: RFQStatus) => {
+    return request<RFQ>(`/rfqs/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });
@@ -1041,11 +1133,13 @@ export const rfqApi = {
 
 // ===== Quotation API =====
 export const quotationApi = {
-  getAll: async (filters?: { status?: string }) => {
+  getAll: async (filters?: { status?: string; page?: number; limit?: number }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.append('status', filters.status);
+    params.append('page', String(filters?.page ?? 1));
+    params.append('limit', String(filters?.limit ?? 100));
     const query = params.toString();
-    return request<Quotation[]>(`/quotations${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedList<Quotation[]>>(`/quotations${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1102,8 +1196,13 @@ export const quotationApi = {
 
 // ===== Order API =====
 export const orderApi = {
-  getAll: async () => {
-    return request<Order[]>('/orders');
+  getAll: async (filters?: { status?: string; page?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    params.append('page', String(filters?.page ?? 1));
+    params.append('limit', String(filters?.limit ?? 100));
+    const query = params.toString();
+    return requestEnvelope<PaginatedList<Order[]>>(`/orders${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1180,8 +1279,12 @@ export const documentApi = {
 
 // ===== Inventory API =====
 export const inventoryApi = {
-  getAll: async () => {
-    return request<Inventory[]>('/inventory');
+  getAll: async (params?: { page?: number; limit?: number }) => {
+    const search = new URLSearchParams({
+      page: String(params?.page ?? 1),
+      limit: String(params?.limit ?? 100),
+    });
+    return requestEnvelope<PaginatedList<Inventory[]>>(`/inventory?${search.toString()}`);
   },
 
   getById: async (id: string) => {
@@ -1266,8 +1369,13 @@ export const inventoryDetailApi = {
 
 // ===== Customer API =====
 export const customerApi = {
-  getAll: async () => {
-    return request<Customer[]>('/customers');
+  getAll: async (params?: { status?: string; page?: number; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.append('status', params.status);
+    searchParams.append('page', String(params?.page ?? 1));
+    searchParams.append('limit', String(params?.limit ?? 100));
+    const query = searchParams.toString();
+    return requestEnvelope<PaginatedList<Customer[]>>(`/customers${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1294,10 +1402,10 @@ export const supplierApi = {
   getAll: async (params?: { level?: string; page?: number; limit?: number }) => {
     const searchParams = new URLSearchParams();
     if (params?.level) searchParams.append('level', params.level);
-    if (params?.page) searchParams.append('page', String(params.page));
-    if (params?.limit) searchParams.append('limit', String(params.limit));
+    searchParams.append('page', String(params?.page ?? 1));
+    searchParams.append('limit', String(params?.limit ?? 100));
     const query = searchParams.toString();
-    return request<Supplier[]>(`/suppliers${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedList<Supplier[]>>(`/suppliers${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1770,7 +1878,7 @@ export const webhooksPhase2Api = {
     if (params?.endpointId) search.append('endpointId', params.endpointId);
     if (params?.failureReason) search.append('failureReason', params.failureReason);
     const query = search.toString();
-    const result = await request<
+    const result = await requestEnvelope<
       WebhookDLQItem[] | { data: WebhookDLQItem[]; pagination?: { limit: number; offset: number; total: number } }
     >(`/webhooks/phase2/dlq${query ? `?${query}` : ''}`);
 
@@ -1964,7 +2072,7 @@ export const inboundWebhookApi = {
     if (params?.endpointId) search.append('endpointId', params.endpointId);
     if (params?.status) search.append('status', params.status);
     const query = search.toString();
-    const result = await request<
+    const result = await requestEnvelope<
       InboundWebhookDelivery[] | {
         data: InboundWebhookDelivery[];
         pagination?: { limit: number; offset: number; total: number };
@@ -2000,7 +2108,7 @@ export const inboundWebhookApi = {
     if (params?.resourceType) search.append('resourceType', params.resourceType);
     const query = search.toString();
 
-    const result = await request<
+    const result = await requestEnvelope<
       WebhookAuditLogItem[] | {
         data: WebhookAuditLogItem[];
         pagination?: { limit: number; offset: number; total: number };
@@ -2072,7 +2180,7 @@ export const workflowApi = {
     if (params?.page) searchParams.append('page', String(params.page));
     if (params?.limit) searchParams.append('limit', String(params.limit));
     const query = searchParams.toString();
-    return request<{ data: WorkflowInstance[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } }>(
+    return requestEnvelope<{ data: WorkflowInstance[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } }>(
       `/workflows/instances${query ? `?${query}` : ''}`
     );
   },
