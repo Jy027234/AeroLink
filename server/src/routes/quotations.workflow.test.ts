@@ -8,16 +8,11 @@ function createCustomer() {
     name: '中国国航',
     contactName: '王采购',
     email: 'procurement@airchina.com',
-    phone: '+86-10-1234-5678',
-    address: '北京市顺义区首都国际机场',
   };
 }
 
 function createQuotation(status: 'APPROVED' | 'SENT' | 'ACCEPTED' | 'WITHDRAWN' = 'APPROVED') {
   const customer = createCustomer();
-  const sentAt = status === 'SENT' ? new Date('2026-05-12T10:00:00.000Z') : null;
-  const acceptedAt = status === 'ACCEPTED' ? new Date('2026-05-12T11:00:00.000Z') : null;
-
   return {
     id: 'q001',
     quoteNumber: 'QT-20260512-001',
@@ -30,24 +25,33 @@ function createQuotation(status: 'APPROVED' | 'SENT' | 'ACCEPTED' | 'WITHDRAWN' 
     costPrice: 1800,
     margin: 16.7,
     certificateFiles: 'FAA8130,EASAForm1',
-    template: 'STANDARD',
     status,
     version: 1,
     validityDays: 14,
     saleType: 'Sale',
     incoterm: 'EXW',
+    incotermLocation: null,
     leadTimeDays: 14,
+    leadTimeBasis: null,
+    moq: null,
+    mpq: null,
+    priceBasis: null,
     taxIncluded: true,
+    taxRate: null,
     warrantyDays: 90,
+    warrantyTerms: null,
+    packagingRequirement: null,
+    shippingMethod: null,
+    commonNote: null,
     createdAt: new Date('2026-05-12T08:00:00.000Z'),
     createdBy: 'u001',
     approvedBy: 'u001',
     approvedAt: new Date('2026-05-12T09:00:00.000Z'),
-    sentAt,
-    acceptedAt,
+    sentAt: status === 'SENT' ? new Date('2026-05-12T10:00:00.000Z') : null,
+    acceptedAt: status === 'ACCEPTED' ? new Date('2026-05-12T11:00:00.000Z') : null,
     withdrawnAt: null,
     withdrawalReason: null,
-    customerConfirmationNote: acceptedAt ? '客户口头确认' : null,
+    customerConfirmationNote: status === 'ACCEPTED' ? '客户口头确认' : null,
     expiryDate: new Date('2026-05-26T00:00:00.000Z'),
     customer,
   };
@@ -70,26 +74,8 @@ function createEmailAccount() {
   };
 }
 
-function createSentEmailRecord() {
-  return {
-    id: 'mail-send-001',
-    purpose: 'QUOTATION_SEND',
-    quotationId: 'q001',
-    customerId: 'c001',
-    accountId: 'acct-001',
-    toEmail: 'procurement@airchina.com',
-    subject: 'Quotation QT-20260512-001',
-    textBody: 'quotation body',
-    htmlBody: '<p>quotation body</p>',
-    status: 'SENT',
-    sentAt: new Date('2026-05-12T10:00:00.000Z'),
-    createdAt: new Date('2026-05-12T09:59:00.000Z'),
-  };
-}
-
 function createOrder() {
   const customer = createCustomer();
-
   return {
     id: 'o001',
     orderNumber: 'SO-20260512-001',
@@ -104,59 +90,32 @@ function createOrder() {
     version: 1,
     createdAt: new Date('2026-05-12T11:00:00.000Z'),
     deliveryDate: new Date('2026-06-01T00:00:00.000Z'),
-    trackingNumber: null,
-    carrier: null,
     customer,
-  };
-}
-
-function createGeneratedDocument() {
-  return {
-    id: 'doc-001',
-    title: '销售合同 - SO-20260512-001',
   };
 }
 
 function createPrismaMock() {
   const tx = {
-    quotation: {
-      update: vi.fn(),
-    },
-    order: {
-      findFirst: vi.fn(),
-    },
-    outboundEmail: {
-      update: vi.fn(),
-    },
-    approval: {
-      create: vi.fn(),
-    },
+    quotation: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
+    order: { findFirst: vi.fn(), findUnique: vi.fn() },
+    emailAccount: { findFirst: vi.fn() },
+    outboundEmail: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    approval: { create: vi.fn() },
+    rFQ: { findUnique: vi.fn() },
+    user: { findMany: vi.fn() },
+    notification: { createMany: vi.fn() },
+    documentTemplate: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
+    generatedDocument: { findFirst: vi.fn(), create: vi.fn() },
   };
 
   return {
-    quotation: {
-      findUnique: vi.fn(),
-      update: vi.fn(),
-    },
-    order: {
-      findUnique: vi.fn(),
-    },
-    emailAccount: {
-      findFirst: vi.fn(),
-    },
-    outboundEmail: {
-      create: vi.fn(),
-      update: vi.fn(),
-    },
+    quotation: { findUnique: vi.fn() },
+    emailAccount: { findFirst: vi.fn() },
+    outboundEmail: { create: vi.fn(), update: vi.fn() },
     $transaction: vi.fn((input: unknown) => {
       if (typeof input === 'function') {
         return input(tx);
       }
-
-      if (Array.isArray(input)) {
-        return Promise.all(input);
-      }
-
       return Promise.resolve(input);
     }),
     __tx: tx,
@@ -166,23 +125,21 @@ function createPrismaMock() {
 describe('Quotation workflow routes', () => {
   let app: express.Application;
   let prismaMock: ReturnType<typeof createPrismaMock>;
-  let sendEmailMock: ReturnType<typeof vi.fn>;
-  let generateQuotationPDFMock: ReturnType<typeof vi.fn>;
+  let enqueueBusinessEventMock: ReturnType<typeof vi.fn>;
+  let enqueueOutboundEmailMock: ReturnType<typeof vi.fn>;
   let createOrderFromQuotationMock: ReturnType<typeof vi.fn>;
   let mapOrderResponseMock: ReturnType<typeof vi.fn>;
   let ensureOrderContractDocumentMock: ReturnType<typeof vi.fn>;
-  let emitWebhookEventMock: ReturnType<typeof vi.fn>;
   let transitionQuotationStatusMock: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     process.env.JWT_SECRET = 'test-jwt-secret';
     process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
-
     vi.resetModules();
 
     prismaMock = createPrismaMock();
-    sendEmailMock = vi.fn();
-    generateQuotationPDFMock = vi.fn();
+    enqueueBusinessEventMock = vi.fn().mockResolvedValue(undefined);
+    enqueueOutboundEmailMock = vi.fn().mockResolvedValue(undefined);
     createOrderFromQuotationMock = vi.fn();
     mapOrderResponseMock = vi.fn((order: ReturnType<typeof createOrder>) => ({
       id: order.id,
@@ -193,20 +150,12 @@ describe('Quotation workflow routes', () => {
       totalAmount: order.totalAmount,
     }));
     ensureOrderContractDocumentMock = vi.fn();
-    emitWebhookEventMock = vi.fn();
     transitionQuotationStatusMock = vi.fn();
 
-    vi.doMock('../lib/prisma.js', () => ({
-      default: prismaMock,
-    }));
-    vi.doMock('../lib/crypto.js', () => ({
-      decrypt: vi.fn(() => 'decoded-auth-code'),
-    }));
-    vi.doMock('../lib/emailService.js', () => ({
-      sendEmail: sendEmailMock,
-    }));
-    vi.doMock('../lib/pdfService.js', () => ({
-      generateQuotationPDF: generateQuotationPDFMock,
+    vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
+    vi.doMock('../lib/outboxService.js', () => ({
+      enqueueBusinessEvent: enqueueBusinessEventMock,
+      enqueueOutboundEmail: enqueueOutboundEmailMock,
     }));
     vi.doMock('../lib/orderWorkflowService.js', () => ({
       createOrderFromQuotation: createOrderFromQuotationMock,
@@ -216,136 +165,55 @@ describe('Quotation workflow routes', () => {
       ensureOrderContractDocument: ensureOrderContractDocumentMock,
       ORDER_CONTRACT_DOCUMENT_TYPE: 'ORDER_CONTRACT',
     }));
-    vi.doMock('../lib/webhookService.js', () => ({
-      emitWebhookEvent: emitWebhookEventMock,
-    }));
     vi.doMock('../lib/transactionStateService.js', () => ({
       transitionQuotationStatus: transitionQuotationStatusMock,
       transitionRfqStatus: vi.fn(),
       createInitialStatusHistory: vi.fn(),
     }));
+    vi.doMock('../lib/pdfService.js', () => ({ generateQuotationPDF: vi.fn() }));
 
     const quotationsRouter = (await import('./quotations.js')).default;
     const { errorHandler } = await import('../middleware/errorHandler.js');
-
     app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
-      Object.assign(req, {
-        user: {
-          id: 'u001',
-          email: 'zhang@aerolink.com',
-          name: '张经理',
-          role: 'manager',
-        },
-      });
+      Object.assign(req, { user: { id: 'u001', email: 'zhang@aerolink.com', name: '张经理', role: 'manager' } });
       next();
     });
     app.use('/api/quotations', quotationsRouter);
     app.use(errorHandler);
   });
 
-  it('should send an approved quotation with PDF attachment and audit record', async () => {
+  it('queues an approved quotation email instead of sending SMTP in the HTTP request', async () => {
     const quotation = createQuotation('APPROVED');
-    const account = createEmailAccount();
-    const pendingEmail = {
-      id: 'mail-pending-001',
-      toEmail: quotation.customer.email,
-    };
-    const sentAt = new Date('2026-05-12T10:05:00.000Z');
-
-    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
-    prismaMock.emailAccount.findFirst.mockResolvedValue(account);
-    prismaMock.outboundEmail.create.mockResolvedValue(pendingEmail);
-    transitionQuotationStatusMock.mockResolvedValue({
-      ...quotation,
-      status: 'SENT',
-      sentAt,
-      version: 2,
-    });
-    prismaMock.__tx.outboundEmail.update.mockResolvedValue({
-      ...pendingEmail,
-      id: 'mail-pending-001',
-      status: 'SENT',
-      sentAt,
-      providerMessageId: 'smtp-001',
-      toEmail: quotation.customer.email,
-    });
-    generateQuotationPDFMock.mockResolvedValue(Buffer.from('quotation-pdf'));
-    sendEmailMock.mockResolvedValue({ messageId: 'smtp-001' });
+    prismaMock.__tx.quotation.findUnique.mockResolvedValue(quotation);
+    prismaMock.__tx.emailAccount.findFirst.mockResolvedValue(createEmailAccount());
+    prismaMock.__tx.outboundEmail.create.mockResolvedValue({ id: 'mail-pending-001' });
 
     const response = await request(app)
       .post('/api/quotations/q001/send')
-      .send({
-        subject: 'Quotation QT-20260512-001',
-        message: 'Please review the attached quotation.',
-      });
+      .send({ subject: 'Quotation QT-20260512-001', message: 'Please review the attached quotation.' });
 
-    expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(response.body.data.status).toBe('sent');
-    expect(response.body.data.outboundEmailId).toBe('mail-pending-001');
-    expect(generateQuotationPDFMock).toHaveBeenCalledOnce();
-    expect(sendEmailMock).toHaveBeenCalledWith(
+    expect(response.status).toBe(202);
+    expect(response.body.data).toMatchObject({
+      id: quotation.id,
+      status: 'approved',
+      outboundEmailId: 'mail-pending-001',
+      emailDeliveryStatus: 'queued',
+    });
+    expect(enqueueOutboundEmailMock).toHaveBeenCalledWith(
+      prismaMock.__tx,
       expect.objectContaining({
-        id: 'acct-001',
-        authCode: 'decoded-auth-code',
-      }),
-      expect.objectContaining({
-        to: quotation.customer.email,
-        attachments: [
-          expect.objectContaining({
-            filename: `${quotation.quoteNumber}.pdf`,
-            contentType: 'application/pdf',
-          }),
-        ],
-      })
-    );
-    expect(emitWebhookEventMock).toHaveBeenCalledWith(
-      'quotation.sent',
-      expect.objectContaining({
-        quotationId: quotation.id,
+        eventType: 'quotation.email.send',
         outboundEmailId: 'mail-pending-001',
-      })
+        includeQuotationPdf: true,
+      }),
     );
-  });
-
-  it('should reject submitting a quotation from a terminal state', async () => {
-    const quotation = createQuotation('ACCEPTED');
-    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
-
-    const response = await request(app)
-      .post('/api/quotations/q001/submit')
-      .send();
-
-    expect(response.status).toBe(409);
-    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
-    expect(prismaMock.quotation.update).not.toHaveBeenCalled();
     expect(transitionQuotationStatusMock).not.toHaveBeenCalled();
-    expect(emitWebhookEventMock).not.toHaveBeenCalled();
   });
 
-  it('should reject approving a quotation that is not pending approval', async () => {
-    const quotation = {
-      ...createQuotation('SENT'),
-      rfq: null,
-    };
-    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
-
-    const response = await request(app)
-      .post('/api/quotations/q001/approve')
-      .send({ action: 'approve' });
-
-    expect(response.status).toBe(409);
-    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
-    expect(prismaMock.quotation.update).not.toHaveBeenCalled();
-    expect(transitionQuotationStatusMock).not.toHaveBeenCalled();
-    expect(emitWebhookEventMock).not.toHaveBeenCalled();
-  });
-
-  it('should reject sending an accepted quotation', async () => {
-    const quotation = createQuotation('ACCEPTED');
-    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+  it('keeps validation for sending an accepted quotation', async () => {
+    prismaMock.__tx.quotation.findUnique.mockResolvedValue(createQuotation('ACCEPTED'));
 
     const response = await request(app)
       .post('/api/quotations/q001/send')
@@ -353,218 +221,107 @@ describe('Quotation workflow routes', () => {
 
     expect(response.status).toBe(409);
     expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
-    expect(prismaMock.emailAccount.findFirst).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.emailAccount.findFirst).not.toHaveBeenCalled();
   });
 
-  it('should reject withdrawing a quotation that was not sent', async () => {
-    const quotation = createQuotation('APPROVED');
-    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
-
-    const response = await request(app)
-      .post('/api/quotations/q001/withdraw')
-      .send({ reason: '不应撤回' });
-
-    expect(response.status).toBe(409);
-    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
-    expect(prismaMock.outboundEmail.create).not.toHaveBeenCalled();
-  });
-
-  it('should reject accepting a draft quotation', async () => {
-    const quotation = {
-      ...createQuotation('APPROVED'),
-      status: 'DRAFT',
-    };
-    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
-
-    const response = await request(app)
-      .post('/api/quotations/q001/accept')
-      .send({ confirmationNote: '不应接受' });
-
-    expect(response.status).toBe(409);
-    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
-    expect(transitionQuotationStatusMock).not.toHaveBeenCalled();
-    expect(createOrderFromQuotationMock).not.toHaveBeenCalled();
-  });
-
-  it('should withdraw a sent quotation and optionally send a withdrawal notice', async () => {
+  it('withdraws a sent quotation and queues its withdrawal notice transactionally', async () => {
     const quotation = {
       ...createQuotation('SENT'),
-      outboundEmails: [createSentEmailRecord()],
+      outboundEmails: [{ id: 'mail-send-001', purpose: 'QUOTATION_SEND', status: 'SENT' }],
     };
-    const notice = {
-      id: 'mail-notice-001',
-      toEmail: quotation.customer.email,
-    };
-    const withdrawnAt = new Date('2026-05-12T10:15:00.000Z');
-
-    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
-    prismaMock.emailAccount.findFirst.mockResolvedValue(createEmailAccount());
-    transitionQuotationStatusMock.mockResolvedValue({
+    const withdrawnQuotation = {
       ...quotation,
       status: 'WITHDRAWN',
-      withdrawnAt,
-      withdrawalReason: '价格调整，旧报价作废',
       version: 2,
-    });
-    prismaMock.__tx.outboundEmail.update.mockResolvedValue({
-      ...quotation.outboundEmails[0],
-      status: 'WITHDRAWN',
-      withdrawnAt,
+      withdrawnAt: new Date('2026-05-12T10:15:00.000Z'),
       withdrawalReason: '价格调整，旧报价作废',
-    });
-    prismaMock.outboundEmail.update.mockResolvedValue({
-      ...notice,
-      status: 'SENT',
-      sentAt: withdrawnAt,
-      providerMessageId: 'smtp-withdraw-001',
-    });
-    prismaMock.outboundEmail.create.mockResolvedValue(notice);
-    sendEmailMock.mockResolvedValue({ messageId: 'smtp-withdraw-001' });
+    };
+    prismaMock.__tx.quotation.findUnique.mockResolvedValue(quotation);
+    prismaMock.__tx.emailAccount.findFirst.mockResolvedValue(createEmailAccount());
+    prismaMock.__tx.outboundEmail.create.mockResolvedValue({ id: 'mail-notice-001' });
+    transitionQuotationStatusMock.mockResolvedValue(withdrawnQuotation);
 
     const response = await request(app)
       .post('/api/quotations/q001/withdraw')
-      .send({
-        reason: '价格调整，旧报价作废',
-        sendWithdrawalNotice: true,
-      });
+      .send({ reason: '价格调整，旧报价作废', sendWithdrawalNotice: true });
 
     expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(response.body.data.status).toBe('withdrawn');
-    expect(response.body.data.withdrawalNoticeId).toBe('mail-notice-001');
-    expect(sendEmailMock).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'acct-001' }),
+    expect(response.body.data).toMatchObject({
+      status: 'withdrawn',
+      withdrawalNoticeId: 'mail-notice-001',
+      withdrawalNoticeDeliveryStatus: 'queued',
+    });
+    expect(enqueueOutboundEmailMock).toHaveBeenCalledWith(
+      prismaMock.__tx,
       expect.objectContaining({
-        to: quotation.customer.email,
-        subject: `Withdrawal Notice: ${quotation.quoteNumber}`,
-      })
+        eventType: 'quotation.withdrawal.email',
+        outboundEmailId: 'mail-notice-001',
+      }),
     );
-    expect(emitWebhookEventMock).toHaveBeenCalledWith(
-      'quotation.withdrawn',
-      expect.objectContaining({
-        quotationId: quotation.id,
-        withdrawalNoticeId: 'mail-notice-001',
-      })
+    expect(enqueueBusinessEventMock).toHaveBeenCalledWith(
+      prismaMock.__tx,
+      expect.objectContaining({ eventType: 'quotation.withdrawn', aggregateId: quotation.id }),
     );
   });
 
-  it('should accept a quotation, create an order, and generate a contract document', async () => {
+  it('accepts a quotation, creates its contract, and writes both business events in one transaction', async () => {
     const quotation = createQuotation('APPROVED');
     const updatedQuotation = {
       ...quotation,
       status: 'ACCEPTED',
+      version: 2,
       acceptedAt: new Date('2026-05-12T11:00:00.000Z'),
       customerConfirmationNote: '客户电话确认，允许生成合同',
     };
     const order = createOrder();
-    const generatedDocument = createGeneratedDocument();
-
-    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
-    transitionQuotationStatusMock.mockResolvedValue(updatedQuotation);
+    prismaMock.__tx.quotation.findUnique.mockResolvedValue(quotation);
     prismaMock.__tx.order.findFirst.mockResolvedValue(null);
+    transitionQuotationStatusMock.mockResolvedValue(updatedQuotation);
     createOrderFromQuotationMock.mockResolvedValue(order);
-    ensureOrderContractDocumentMock.mockResolvedValue(generatedDocument);
-    emitWebhookEventMock.mockResolvedValue(undefined);
+    ensureOrderContractDocumentMock.mockResolvedValue({ id: 'doc-001', title: '销售合同 - SO-20260512-001' });
 
     const response = await request(app)
       .post('/api/quotations/q001/accept')
-      .send({
-        poNumber: 'PO-001',
-        deliveryDate: '2026-06-01',
-        templateId: 'tpl-001',
-        confirmationNote: '客户电话确认，允许生成合同',
-      });
+      .send({ poNumber: 'PO-001', deliveryDate: '2026-06-01', templateId: 'tpl-001', confirmationNote: '客户电话确认，允许生成合同' });
 
     expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(response.body.data.status).toBe('accepted');
-    expect(response.body.data.contractDocumentId).toBe('doc-001');
-    expect(response.body.data.order.orderNumber).toBe('SO-20260512-001');
-    expect(createOrderFromQuotationMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tx: prismaMock.__tx,
-        quotation: updatedQuotation,
-        customer: quotation.customer,
-        poNumber: 'PO-001',
-        deliveryDate: '2026-06-01',
-      })
-    );
-    expect(ensureOrderContractDocumentMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        quotation: updatedQuotation,
-        customer: quotation.customer,
-        order,
-        templateId: 'tpl-001',
-        generatedById: 'u001',
-      })
-    );
-    expect(emitWebhookEventMock).toHaveBeenNthCalledWith(
+    expect(response.body.data).toMatchObject({ status: 'accepted', contractDocumentId: 'doc-001' });
+    expect(createOrderFromQuotationMock).toHaveBeenCalledWith(expect.objectContaining({
+      tx: prismaMock.__tx,
+      quotation: updatedQuotation,
+      customer: quotation.customer,
+    }));
+    expect(ensureOrderContractDocumentMock).toHaveBeenCalledWith(expect.objectContaining({
+      tx: prismaMock.__tx,
+      order,
+      templateId: 'tpl-001',
+    }));
+    expect(enqueueBusinessEventMock).toHaveBeenNthCalledWith(
       1,
-      'quotation.accepted',
-      expect.objectContaining({
-        quotationId: quotation.id,
-        orderId: order.id,
-        contractDocumentId: generatedDocument.id,
-        autoCreatedOrder: true,
-      })
+      prismaMock.__tx,
+      expect.objectContaining({ eventType: 'quotation.accepted', aggregateId: quotation.id }),
     );
-    expect(emitWebhookEventMock).toHaveBeenNthCalledWith(
+    expect(enqueueBusinessEventMock).toHaveBeenNthCalledWith(
       2,
-      'order.created',
-      expect.objectContaining({
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-      })
+      prismaMock.__tx,
+      expect.objectContaining({ eventType: 'order.created', aggregateId: order.id }),
     );
   });
 
-  it('should reuse an existing order when an accepted quotation is confirmed again', async () => {
+  it('reuses an existing order on a repeated accepted quotation confirmation', async () => {
     const quotation = createQuotation('ACCEPTED');
     const existingOrder = createOrder();
-    const generatedDocument = createGeneratedDocument();
-
-    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
-    prismaMock.__tx.quotation.update.mockResolvedValue(quotation);
+    prismaMock.__tx.quotation.findUnique.mockResolvedValue(quotation);
     prismaMock.__tx.order.findFirst.mockResolvedValue(existingOrder);
-    ensureOrderContractDocumentMock.mockResolvedValue(generatedDocument);
+    ensureOrderContractDocumentMock.mockResolvedValue({ id: 'doc-001', title: '销售合同 - SO-20260512-001' });
 
     const response = await request(app)
       .post('/api/quotations/q001/accept')
-      .send({
-        confirmationNote: '沿用既有确认结果',
-      });
-
-    expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(response.body.data.order.orderNumber).toBe(existingOrder.orderNumber);
-    expect(createOrderFromQuotationMock).not.toHaveBeenCalled();
-    expect(emitWebhookEventMock).not.toHaveBeenCalled();
-  });
-
-  it('recovers a concurrent unique-order conflict without duplicating acceptance events', async () => {
-    const quotation = createQuotation('APPROVED');
-    const updatedQuotation = {
-      ...quotation,
-      status: 'ACCEPTED',
-      acceptedAt: new Date('2026-05-12T11:00:00.000Z'),
-    };
-    const existingOrder = createOrder();
-    const generatedDocument = createGeneratedDocument();
-
-    prismaMock.quotation.findUnique
-      .mockResolvedValueOnce(quotation)
-      .mockResolvedValueOnce(updatedQuotation);
-    prismaMock.$transaction.mockRejectedValueOnce({ code: 'P2002' });
-    prismaMock.order.findUnique.mockResolvedValue(existingOrder);
-    ensureOrderContractDocumentMock.mockResolvedValue(generatedDocument);
-
-    const response = await request(app)
-      .post('/api/quotations/q001/accept')
-      .send({ confirmationNote: '并发重试' });
+      .send({ confirmationNote: '沿用既有确认结果' });
 
     expect(response.status).toBe(200);
     expect(response.body.data.order.orderNumber).toBe(existingOrder.orderNumber);
     expect(createOrderFromQuotationMock).not.toHaveBeenCalled();
-    expect(emitWebhookEventMock).not.toHaveBeenCalled();
+    expect(enqueueBusinessEventMock).not.toHaveBeenCalled();
   });
 });

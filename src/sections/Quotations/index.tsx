@@ -1241,8 +1241,12 @@ function SendQuoteDialog({
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      await quotationApi.send(quote.id, { subject, message, version: quote.version });
-      toast.success(`Quote ${quote.quoteNumber} sent to ${quote.customerEmail || quote.customerName}.`);
+      const result = await quotationApi.send(quote.id, { subject, message, version: quote.version });
+      if (result.emailDeliveryStatus === 'queued') {
+        toast.success(`Quote ${quote.quoteNumber} email queued for ${quote.customerEmail || quote.customerName}.`);
+      } else {
+        toast.success(`Quote ${quote.quoteNumber} sent to ${quote.customerEmail || quote.customerName}.`);
+      }
       onClose();
       await onSent();
     } catch (error) {

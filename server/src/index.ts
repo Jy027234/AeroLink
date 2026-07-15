@@ -55,12 +55,15 @@ import exchangeVmiRoutes from './routes/exchangeVmi.js';
 import notificationPreferenceRoutes from './routes/notificationPreferences.js';
 import channelBindingRoutes from './routes/channelBindings.js';
 import pushRoutes from './routes/push.js';
+import outboxRoutes from './routes/outbox.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
 import { auditLogger } from './middleware/auditLogger.js';
 import { logger, requestLogger } from './lib/logger.js';
 import { initSocketIO, SocketRooms } from './lib/socketEvents.js';
 import { processPendingWebhookRetries } from './lib/webhookService.js';
+import { processPendingOutboxEvents } from './lib/outboxService.js';
+import { pruneExpiredIdempotencyRecords } from './lib/idempotencyService.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -176,6 +179,7 @@ app.use('/api/exchange-vmi', authenticate, auditLogger({ resourceType: 'INVENTOR
 app.use('/api/notification-preferences', authenticate, notificationPreferenceRoutes);
 app.use('/api/channel-bindings', authenticate, channelBindingRoutes);
 app.use('/api/push', authenticate, pushRoutes);
+app.use('/api/outbox', authenticate, auditLogger({ resourceType: 'SETTINGS', actions: ['UPDATE'] }), outboxRoutes);
 app.use('/uploads', authenticate, express.static('uploads'));
 
 app.get('/api/health', (_req, res) => {
@@ -244,15 +248,33 @@ const webhookRetryTimer = setInterval(() => {
   });
 }, 30_000);
 
+const outboxRetryTimer = setInterval(() => {
+  void processPendingOutboxEvents(30).catch((error) => {
+    logger.error({ error }, 'Transactional outbox worker execution failed');
+  });
+}, 5_000);
+
+const idempotencyCleanupTimer = setInterval(() => {
+  void pruneExpiredIdempotencyRecords().catch((error) => {
+    logger.error({ error }, 'Idempotency record cleanup failed');
+  });
+}, 6 * 60 * 60 * 1000);
+
 httpServer.listen(PORT, () => {
   logger.info(`🚀 AeroLink Server running on http://localhost:${PORT}`);
   logger.info(`📚 Health check: http://localhost:${PORT}/api/health`);
   logger.info('🔁 Webhook retry worker started (interval: 30s)');
+  logger.info('📮 Transactional outbox worker started (interval: 5s)');
+  void processPendingOutboxEvents(30).catch((error) => {
+    logger.error({ error }, 'Initial transactional outbox worker execution failed');
+  });
 });
 
 function gracefulShutdown(signal: string) {
   logger.info({ signal }, 'Shutting down gracefully...');
   clearInterval(webhookRetryTimer);
+  clearInterval(outboxRetryTimer);
+  clearInterval(idempotencyCleanupTimer);
   io.close(() => {
     logger.info('Socket.IO closed');
   });

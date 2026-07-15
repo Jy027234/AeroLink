@@ -37,6 +37,8 @@ export interface SendEmailInput {
   body: string;
   html?: string;
   attachments?: EmailAttachment[];
+  /** Stable Message-ID lets downstream mail systems de-duplicate outbox retries where supported. */
+  messageId?: string;
 }
 
 function getImapConfig(account: EmailAccountConfig) {
@@ -169,6 +171,7 @@ export async function sendEmail(
     text: input.body,
     html: input.html,
     attachments: input.attachments,
+    messageId: input.messageId,
   });
 
   return {

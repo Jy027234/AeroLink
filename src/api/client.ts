@@ -463,6 +463,18 @@ function redirectToLogin() {
   }
 }
 
+function createIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `aerolink-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function shouldAttachIdempotencyKey(endpoint: string, method?: string) {
+  const normalizedMethod = (method || 'GET').toUpperCase();
+  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(normalizedMethod) && !endpoint.startsWith('/auth/');
+}
+
 async function refreshAccessToken(): Promise<boolean> {
   if (!refreshPromise) {
     refreshPromise = (async () => {
@@ -504,16 +516,22 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const token = accessToken;
+  const requestHeaders = new Headers(options.headers || undefined);
+  if (!requestHeaders.has('Content-Type')) {
+    requestHeaders.set('Content-Type', 'application/json');
+  }
+  if (token && !requestHeaders.has('Authorization')) {
+    requestHeaders.set('Authorization', `Bearer ${token}`);
+  }
+  if (shouldAttachIdempotencyKey(endpoint, options.method) && !requestHeaders.has('Idempotency-Key')) {
+    requestHeaders.set('Idempotency-Key', createIdempotencyKey());
+  }
 
   const config: RequestInit = {
     ...options,
     signal,
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options.headers,
-    },
+    headers: requestHeaders,
   };
 
   try {
@@ -544,7 +562,7 @@ async function request<T>(
 
     if (response.status === 401) {
       if (!isAuthRequest && !retryAfterRefresh && await refreshAccessToken()) {
-        const retryHeaders = new Headers(options.headers || undefined);
+        const retryHeaders = new Headers(requestHeaders);
         const refreshedToken = accessToken;
         if (refreshedToken) retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);
         return request<T>(endpoint, { ...options, headers: retryHeaders }, signal, true, preserveEnvelope);

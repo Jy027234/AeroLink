@@ -12,6 +12,7 @@ export const SUPPORTED_WEBHOOK_EVENTS = [
   'quotation.approved',
   'quotation.rejected',
   'quotation.sent',
+  'quotation.withdrawn',
   'order.created',
   'order.status.changed',
   'agent.task.completed',
@@ -25,6 +26,17 @@ export interface WebhookEventEnvelope {
   version: string;
   source: string;
   data: Record<string, unknown>;
+}
+
+export interface QueueWebhookEventOptions {
+  /** Stable identifier supplied by the transactional outbox when applicable. */
+  eventId?: string;
+  /** Links each delivery to an outbox event for idempotent re-dispatch. */
+  outboxEventId?: string;
+  /** Preserve the business commit time rather than the worker execution time. */
+  occurredAt?: Date;
+  /** Legacy direct callers can still request immediate webhook delivery. */
+  deliverImmediately?: boolean;
 }
 
 interface EndpointHeaders {
@@ -221,11 +233,15 @@ export async function replaceWebhookSubscriptions(endpointId: string, eventTypes
   });
 }
 
-function buildDefaultEnvelope(eventType: string, data: Record<string, unknown>): WebhookEventEnvelope {
+function buildDefaultEnvelope(
+  eventType: string,
+  data: Record<string, unknown>,
+  options: Pick<QueueWebhookEventOptions, 'eventId' | 'occurredAt'> = {},
+): WebhookEventEnvelope {
   return {
-    id: crypto.randomUUID(),
+    id: options.eventId || crypto.randomUUID(),
     type: eventType,
-    occurred_at: new Date().toISOString(),
+    occurred_at: (options.occurredAt || new Date()).toISOString(),
     version: 'v1',
     source: 'aerolink',
     data,
@@ -367,8 +383,16 @@ async function deliverById(deliveryId: string) {
   await deliverOnce(delivery);
 }
 
-export async function emitWebhookEvent(eventType: string, data: Record<string, unknown>) {
-  const envelope = buildDefaultEnvelope(eventType, data);
+/**
+ * Materializes subscribed webhook deliveries. Outbox callers pass an
+ * `outboxEventId`, making this operation safe to repeat after a worker crash.
+ */
+export async function queueWebhookEvent(
+  eventType: string,
+  data: Record<string, unknown>,
+  options: QueueWebhookEventOptions = {},
+) {
+  const envelope = buildDefaultEnvelope(eventType, data, options);
   const payload = JSON.stringify(envelope);
 
   const endpoints = await prisma.webhookEndpoint.findMany({
@@ -396,28 +420,49 @@ export async function emitWebhookEvent(eventType: string, data: Record<string, u
   }
 
   const deliveries = await prisma.$transaction(
-    targets.map((endpoint) =>
-      prisma.webhookDelivery.create({
-        data: {
-          endpointId: endpoint.id,
-          eventId: envelope.id,
-          eventType,
-          payload,
-          status: 'pending',
+    targets.map((endpoint) => {
+      const data = {
+        endpointId: endpoint.id,
+        outboxEventId: options.outboxEventId ?? null,
+        eventId: envelope.id,
+        eventType,
+        payload,
+        status: 'pending',
+      };
+
+      if (!options.outboxEventId) {
+        return prisma.webhookDelivery.create({ data });
+      }
+
+      return prisma.webhookDelivery.upsert({
+        where: {
+          endpointId_outboxEventId: {
+            endpointId: endpoint.id,
+            outboxEventId: options.outboxEventId,
+          },
         },
-      })
-    )
+        create: data,
+        update: {},
+      });
+    })
   );
 
-  for (const delivery of deliveries) {
-    try {
-      await deliverById(delivery.id);
-    } catch (error) {
-      logger.error({ error, deliveryId: delivery.id, eventType }, 'Webhook delivery execution failed');
+  if (options.deliverImmediately) {
+    for (const delivery of deliveries) {
+      try {
+        await deliverById(delivery.id);
+      } catch (error) {
+        logger.error({ error, deliveryId: delivery.id, eventType }, 'Webhook delivery execution failed');
+      }
     }
   }
 
   return { eventId: envelope.id, queued: deliveries.length };
+}
+
+/** Legacy convenience API for non-outbox routes. */
+export async function emitWebhookEvent(eventType: string, data: Record<string, unknown>) {
+  return queueWebhookEvent(eventType, data, { deliverImmediately: true });
 }
 
 export async function sendWebhookPing(endpointId: string) {

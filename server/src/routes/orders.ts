@@ -8,16 +8,22 @@ import { createOrderFromQuotation, mapOrderResponse } from '../lib/orderWorkflow
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { generateOrderPDF } from '../lib/pdfService.js';
-import { emitWebhookEvent } from '../lib/webhookService.js';
+import { applyIdempotencyHeaders, buildIdempotencyContext, type IdempotentExecution, runIdempotentOperation } from '../lib/idempotencyService.js';
+import { enqueueBusinessEvent } from '../lib/outboxService.js';
+import { isUniqueConstraintError } from '../lib/prismaErrors.js';
+import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
 import { isOrderStatusTransitionAllowed, normalizeOrderStatus, toUiOrderStatus } from '../lib/orderStateMachine.js';
 import { isQuotationTransitionAllowed, normalizeQuotationStatus } from '../lib/quotationStateMachine.js';
 import { transitionOrderStatus, transitionQuotationStatus } from '../lib/transactionStateService.js';
-import { isUniqueConstraintError } from '../lib/prismaErrors.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
 
 type OrderWithCustomer = Prisma.OrderGetPayload<{ include: { customer: true } }>;
+type OrderCreateResponse = ReturnType<typeof mapOrderResponse> & {
+  contractDocumentId: string;
+  contractDocumentTitle: string;
+};
 
 function mapOrderStatusHistoryEntry(history: {
   id: string;
@@ -247,164 +253,197 @@ router.post(
       eSignatureCustomer, eSignatureSupplier,
     } = req.body;
 
-    const quotation = await prisma.quotation.findUnique({
-      where: { id: quotationId },
-      include: {
-        customer: true,
-      },
-    });
+    const actorId = (req as AuthRequest).user!.id;
+    const idempotencyContext = buildIdempotencyContext(req, actorId, 'POST:/orders');
+    let execution: IdempotentExecution<OrderCreateResponse>;
 
-    if (!quotation) {
-      throw new AppError('报价单不存在', 404);
-    }
-
-    if (quotation.customerId !== customerId) {
-      throw new AppError('订单客户与报价客户不一致', 400, 'BAD_REQUEST');
-    }
-
-    const existingOrder = await prisma.order.findUnique({
-      where: { quotationId },
-      include: { customer: true },
-    });
-
-    let order: OrderWithCustomer;
-    let updatedQuotation: Quotation;
-    let isNewOrder = false;
-    const now = new Date();
-
-    if (existingOrder) {
-      order = existingOrder;
-      updatedQuotation = quotation;
-    } else {
-      const quotationStatus = normalizeQuotationStatus(quotation.status);
-      if (!quotationStatus || !['APPROVED', 'SENT', 'ACCEPTED'].includes(quotationStatus)) {
-        throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
-      }
-      if (quotationStatus !== 'ACCEPTED' && !isQuotationTransitionAllowed(quotation.status, 'ACCEPTED')) {
-        throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
-      }
-
-      try {
-        const transactionResult = await prisma.$transaction(async (tx) => {
-          const updated = quotationStatus === 'ACCEPTED'
-            ? quotation
-            : await transitionQuotationStatus(tx, {
-              id: quotation.id,
-              currentStatus: quotation.status,
-              currentVersion: quotation.version,
-              nextStatus: 'ACCEPTED',
-              expectedVersion: quotationVersion,
-              actorId: (req as AuthRequest).user?.id,
-              reasonCode: 'ORDER_CREATED_FROM_QUOTATION',
-              data: {
-                acceptedAt: quotation.acceptedAt || now,
-              },
-            });
-
-          const createdOrder = await createOrderFromQuotation({
-            tx,
-            quotation: updated,
-            customer: quotation.customer,
-            poNumber,
-            deliveryDate,
-            saleType,
-            incoterm,
-            incotermLocation,
-            shipToId,
-            shipForId,
-            warrantyDays,
-            warrantyStartDate,
-            certificateRequired,
-            certificateType,
-            certificateDelivered,
-            packagingStandard,
-            shippingMethod,
-            carrierAccount,
-            inspectionRequired,
-            inspectionPassed,
-            inspectionDate,
-            customsClearanceRequired,
-            customsDeclarationNo,
-            importDuty,
-            vatAmount,
-            totalLandCost,
-            exchangeCoreCharge,
-            exchangeCoreDueDate,
-            eSignatureCustomer,
-            eSignatureSupplier,
-            actorId: (req as AuthRequest).user?.id,
-            reasonCode: 'ORDER_CREATED_FROM_QUOTATION',
+    try {
+      execution = await runIdempotentOperation(
+        idempotencyContext,
+        async (tx) => {
+          const quotation = await tx.quotation.findUnique({
+            where: { id: quotationId },
+            include: { customer: true },
           });
+          if (!quotation) {
+            throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+          }
+          if (quotation.customerId !== customerId) {
+            throw new AppError('订单客户与报价客户不一致', 400, 'BAD_REQUEST');
+          }
 
-          return { order: createdOrder, updatedQuotation: updated };
-        });
-        order = transactionResult.order;
-        updatedQuotation = transactionResult.updatedQuotation;
-        isNewOrder = true;
-      } catch (error) {
-        if (!isUniqueConstraintError(error)) {
-          throw error;
-        }
-
-        const [concurrentOrder, currentQuotation] = await Promise.all([
-          prisma.order.findUnique({
+          const existingOrder = await tx.order.findUnique({
             where: { quotationId },
             include: { customer: true },
-          }),
-          prisma.quotation.findUnique({ where: { id: quotationId } }),
-        ]);
+          });
 
-        if (!concurrentOrder || !currentQuotation) {
-          throw error;
-        }
+          let order: OrderWithCustomer;
+          let updatedQuotation: Quotation;
+          let isNewOrder = false;
 
-        order = concurrentOrder;
-        updatedQuotation = currentQuotation;
+          if (existingOrder) {
+            order = existingOrder;
+            updatedQuotation = quotation;
+          } else {
+            const quotationStatus = normalizeQuotationStatus(quotation.status);
+            if (!quotationStatus || !['APPROVED', 'SENT', 'ACCEPTED'].includes(quotationStatus)) {
+              throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
+            }
+            if (quotationStatus !== 'ACCEPTED' && !isQuotationTransitionAllowed(quotation.status, 'ACCEPTED')) {
+              throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
+            }
+
+            updatedQuotation = quotationStatus === 'ACCEPTED'
+              ? quotation
+              : await transitionQuotationStatus(tx, {
+                id: quotation.id,
+                currentStatus: quotation.status,
+                currentVersion: quotation.version,
+                nextStatus: 'ACCEPTED',
+                expectedVersion: quotationVersion,
+                actorId,
+                reasonCode: 'ORDER_CREATED_FROM_QUOTATION',
+                data: { acceptedAt: quotation.acceptedAt || new Date() },
+              });
+
+            order = await createOrderFromQuotation({
+              tx,
+              quotation: updatedQuotation,
+              customer: quotation.customer,
+              poNumber,
+              deliveryDate,
+              saleType,
+              incoterm,
+              incotermLocation,
+              shipToId,
+              shipForId,
+              warrantyDays,
+              warrantyStartDate,
+              certificateRequired,
+              certificateType,
+              certificateDelivered,
+              packagingStandard,
+              shippingMethod,
+              carrierAccount,
+              inspectionRequired,
+              inspectionPassed,
+              inspectionDate,
+              customsClearanceRequired,
+              customsDeclarationNo,
+              importDuty,
+              vatAmount,
+              totalLandCost,
+              exchangeCoreCharge,
+              exchangeCoreDueDate,
+              eSignatureCustomer,
+              eSignatureSupplier,
+              actorId,
+              reasonCode: 'ORDER_CREATED_FROM_QUOTATION',
+            });
+            isNewOrder = true;
+          }
+
+          const generatedDocument = await ensureOrderContractDocument({
+            quotation: updatedQuotation,
+            customer: quotation.customer,
+            order,
+            templateId,
+            generatedById: actorId,
+            tx,
+          });
+
+          if (isNewOrder) {
+            await enqueueBusinessEvent(tx, {
+              eventType: 'order.created',
+              aggregateType: 'ORDER',
+              aggregateId: order.id,
+              data: {
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                soNumber: order.soNumber,
+                quotationId: order.quotationId,
+                customerId: order.customerId,
+                customerName: order.customer.name,
+                status: order.status,
+                totalAmount: order.totalAmount,
+                createdAt: order.createdAt.toISOString(),
+              },
+              socket: {
+                room: SocketRooms.ORDERS,
+                event: SocketEvents.ORDER_CREATED,
+              },
+              createdById: actorId,
+            });
+            await enqueueBusinessEvent(tx, {
+              eventType: 'quotation.accepted',
+              aggregateType: 'QUOTATION',
+              aggregateId: updatedQuotation.id,
+              data: {
+                quotationId: updatedQuotation.id,
+                quoteNumber: updatedQuotation.quoteNumber,
+                acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
+                orderId: order.id,
+                contractDocumentId: generatedDocument.id,
+              },
+              socket: {
+                room: SocketRooms.QUOTATIONS,
+                event: SocketEvents.QUOTATION_UPDATED,
+              },
+              createdById: actorId,
+            });
+          }
+
+          return {
+            payload: {
+              ...mapOrderResponse(order),
+              contractDocumentId: generatedDocument.id,
+              contractDocumentTitle: generatedDocument.title,
+            },
+            statusCode: isNewOrder ? 201 : 200,
+            resourceType: 'ORDER',
+            resourceId: order.id,
+          };
+        },
+      );
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) {
+        throw error;
       }
+
+      // quotationId remains a natural idempotency boundary. If a concurrent
+      // request won the unique constraint, return its committed order instead
+      // of reporting a false conflict to a retrying caller.
+      const [concurrentOrder, currentQuotation] = await Promise.all([
+        prisma.order.findUnique({ where: { quotationId }, include: { customer: true } }),
+        prisma.quotation.findUnique({ where: { id: quotationId }, include: { customer: true } }),
+      ]);
+      if (!concurrentOrder || !currentQuotation || currentQuotation.customerId !== customerId) {
+        throw error;
+      }
+
+      const generatedDocument = await ensureOrderContractDocument({
+        quotation: currentQuotation,
+        customer: currentQuotation.customer,
+        order: concurrentOrder,
+        templateId,
+        generatedById: actorId,
+      });
+      execution = {
+        payload: {
+          ...mapOrderResponse(concurrentOrder),
+          contractDocumentId: generatedDocument.id,
+          contractDocumentTitle: generatedDocument.title,
+        },
+        statusCode: 200,
+        replayed: false,
+        key: idempotencyContext.key,
+      };
     }
 
-    /*
-     * quotationId is the natural idempotency key for order creation. The
-     * unique database constraint handles concurrent requests; retries return
-     * the existing order instead of emitting duplicate business events.
-     */
-    const generatedDocument = await ensureOrderContractDocument({
-      quotation: updatedQuotation,
-      customer: quotation.customer,
-      order,
-      templateId,
-      generatedById: (req as AuthRequest).user?.id,
-    });
-
-    if (isNewOrder) {
-      await emitWebhookEvent('order.created', {
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        soNumber: order.soNumber,
-        quotationId: order.quotationId,
-        customerId: order.customerId,
-        customerName: order.customer.name,
-        status: order.status,
-        totalAmount: order.totalAmount,
-        createdAt: order.createdAt.toISOString(),
-      });
-
-      await emitWebhookEvent('quotation.accepted', {
-        quotationId: updatedQuotation.id,
-        quoteNumber: updatedQuotation.quoteNumber,
-        acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
-        orderId: order.id,
-        contractDocumentId: generatedDocument.id,
-      });
-    }
-
-    res.status(isNewOrder ? 201 : 200).json({
+    applyIdempotencyHeaders(res, execution);
+    res.status(execution.statusCode).json({
       success: true,
-      data: {
-        ...mapOrderResponse(order),
-        contractDocumentId: generatedDocument.id,
-        contractDocumentTitle: generatedDocument.title,
-      },
+      data: execution.payload,
     });
   })
 );
@@ -414,46 +453,68 @@ router.patch(
   validateBody(orderStatusUpdateSchema),
   asyncHandler(async (req, res) => {
     const nextStatus = String(req.body.status);
+    const actorId = (req as AuthRequest).user!.id;
+    const execution = await runIdempotentOperation(
+      buildIdempotencyContext(req, actorId, 'PATCH:/orders/:id/status'),
+      async (tx) => {
+        const existing = await tx.order.findUnique({ where: { id: req.params.id } });
+        if (!existing) {
+          throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
+        }
 
-    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
-    if (!existing) {
-      throw new AppError('订单不存在', 404);
-    }
+        const currentStatus = normalizeOrderStatus(existing.status);
+        if (!isOrderStatusTransitionAllowed(currentStatus, nextStatus)) {
+          throw new AppError(`订单不允许从 ${toUiOrderStatus(currentStatus)} 变更为 ${toUiOrderStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
+        }
 
-    const currentStatus = normalizeOrderStatus(existing.status);
-    if (!isOrderStatusTransitionAllowed(currentStatus, nextStatus)) {
-      throw new AppError(`订单不允许从 ${toUiOrderStatus(currentStatus)} 变更为 ${toUiOrderStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
-    }
+        const order = existing.status === nextStatus
+          ? existing
+          : await transitionOrderStatus(tx, {
+            id: existing.id,
+            currentStatus: existing.status,
+            currentVersion: existing.version,
+            nextStatus,
+            expectedVersion: req.body.version,
+            actorId,
+            reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
+            reason: req.body.reason,
+          });
 
-    const order = existing.status === nextStatus
-      ? existing
-      : await prisma.$transaction((tx) => transitionOrderStatus(tx, {
-        id: existing.id,
-        currentStatus: existing.status,
-        currentVersion: existing.version,
-        nextStatus,
-        expectedVersion: req.body.version,
-        actorId: (req as AuthRequest).user?.id,
-        reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
-        reason: req.body.reason,
-      }));
+        if (existing.status !== order.status) {
+          await enqueueBusinessEvent(tx, {
+            eventType: 'order.status.changed',
+            aggregateType: 'ORDER',
+            aggregateId: order.id,
+            data: {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              oldStatus: existing.status,
+              newStatus: order.status,
+              changedAt: new Date().toISOString(),
+            },
+            socket: {
+              room: SocketRooms.ORDERS,
+              event: SocketEvents.ORDER_STATUS_CHANGED,
+            },
+            createdById: actorId,
+          });
+        }
 
-    if (existing.status !== order.status) {
-      await emitWebhookEvent('order.status.changed', {
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        oldStatus: existing.status,
-        newStatus: order.status,
-        changedAt: new Date().toISOString(),
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        ...order,
-        status: order.status.toLowerCase(),
+        return {
+          payload: {
+            ...order,
+            status: order.status.toLowerCase(),
+          },
+          resourceType: 'ORDER',
+          resourceId: order.id,
+        };
       },
+    );
+
+    applyIdempotencyHeaders(res, execution);
+    res.status(execution.statusCode).json({
+      success: true,
+      data: execution.payload,
     });
   })
 );
@@ -462,11 +523,6 @@ router.patch(
   '/:id',
   validateBody(orderUpdateSchema),
   asyncHandler(async (req, res) => {
-    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
-    if (!existing) {
-      throw new AppError('订单不存在', 404);
-    }
-
     const {
       poNumber, deliveryDate, saleType, incoterm, incotermLocation,
       shipToId, shipForId, warrantyDays, warrantyStartDate,
@@ -512,28 +568,46 @@ router.patch(
       carrier: carrier ?? undefined,
     };
 
-    const order = await prisma.order.update({
-      where: { id: req.params.id },
-      data,
-      include: {
-        customer: true,
-        quotation: true,
-        tracking: { include: { events: true } },
-        generatedDocuments: {
-          where: { documentType: ORDER_CONTRACT_DOCUMENT_TYPE },
-          orderBy: { generatedAt: 'desc' },
-        },
-      },
-    });
+    const actorId = (req as AuthRequest).user!.id;
+    const execution = await runIdempotentOperation(
+      buildIdempotencyContext(req, actorId, 'PATCH:/orders/:id'),
+      async (tx) => {
+        const existing = await tx.order.findUnique({ where: { id: req.params.id } });
+        if (!existing) {
+          throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
+        }
 
-    res.json({
-      success: true,
-      data: {
-        ...order,
-        status: order.status.toLowerCase(),
-        contractDocumentId: order.generatedDocuments[0]?.id,
-        contractDocumentTitle: order.generatedDocuments[0]?.title,
+        const order = await tx.order.update({
+          where: { id: req.params.id },
+          data,
+          include: {
+            customer: true,
+            quotation: true,
+            tracking: { include: { events: true } },
+            generatedDocuments: {
+              where: { documentType: ORDER_CONTRACT_DOCUMENT_TYPE },
+              orderBy: { generatedAt: 'desc' },
+            },
+          },
+        });
+
+        return {
+          payload: {
+            ...order,
+            status: order.status.toLowerCase(),
+            contractDocumentId: order.generatedDocuments[0]?.id,
+            contractDocumentTitle: order.generatedDocuments[0]?.title,
+          },
+          resourceType: 'ORDER',
+          resourceId: order.id,
+        };
       },
+    );
+
+    applyIdempotencyHeaders(res, execution);
+    res.status(execution.statusCode).json({
+      success: true,
+      data: execution.payload,
     });
   })
 );

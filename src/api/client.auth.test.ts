@@ -12,6 +12,10 @@ function jsonResponse(body: unknown, status = 200) {
   };
 }
 
+function requestHeader(request: RequestInit | undefined, name: string) {
+  return new Headers(request?.headers).get(name);
+}
+
 describe('auth token storage', () => {
   beforeEach(() => {
     setAccessToken(null);
@@ -63,9 +67,7 @@ describe('auth token storage', () => {
     await authApi.logout();
 
     expect(getAccessToken()).toBeNull();
-    expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: 'Bearer access-before-logout' }),
-    }));
+    expect(requestHeader(fetchMock.mock.calls[0]?.[1] as RequestInit | undefined, 'Authorization')).toBe('Bearer access-before-logout');
   });
 
   it('refreshes once and retries a failed business request with the memory token', async () => {
@@ -94,8 +96,33 @@ describe('auth token storage', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(getAccessToken()).toBe('access-refreshed');
-    expect(fetchMock.mock.calls[2]?.[1]).toEqual(expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: 'Bearer access-refreshed' }),
-    }));
+    expect(requestHeader(fetchMock.mock.calls[2]?.[1] as RequestInit | undefined, 'Authorization')).toBe('Bearer access-refreshed');
+  });
+
+  it('keeps one Idempotency-Key when an unsafe request is retried after refresh', async () => {
+    setAccessToken('access-expired');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ success: false, message: '登录已过期' }, 401))
+      .mockResolvedValueOnce(jsonResponse({
+        success: true,
+        data: { accessToken: 'access-refreshed' },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        success: true,
+        data: { id: 'rfq-1', status: 'pending' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await rfqApi.create({
+      customerId: 'c001',
+      partNumber: 'IDEMPOTENCY-TEST',
+      quantity: 1,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const firstKey = requestHeader(fetchMock.mock.calls[0]?.[1] as RequestInit | undefined, 'Idempotency-Key');
+    const retryKey = requestHeader(fetchMock.mock.calls[2]?.[1] as RequestInit | undefined, 'Idempotency-Key');
+    expect(firstKey).toBeTruthy();
+    expect(retryKey).toBe(firstKey);
   });
 });

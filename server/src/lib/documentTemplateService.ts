@@ -1,9 +1,11 @@
-import type { Customer, DocumentTemplate, Order, Quotation } from '@prisma/client';
+import type { Customer, DocumentTemplate, Order, Prisma, Quotation } from '@prisma/client';
 import { AppError } from '../middleware/errorHandler.js';
 import { generatePDF } from './pdfService.js';
 import prisma from './prisma.js';
 
 export const ORDER_CONTRACT_DOCUMENT_TYPE = 'ORDER_CONTRACT';
+
+type ContractDocumentClient = Pick<Prisma.TransactionClient, 'documentTemplate' | 'generatedDocument'>;
 
 export const ORDER_CONTRACT_TEMPLATE_VARIABLES = [
   'customer.name',
@@ -184,8 +186,8 @@ export function buildOrderContractPayload(args: {
   };
 }
 
-export async function ensureDefaultOrderContractTemplate(createdById?: string) {
-  const existing = await prisma.documentTemplate.findFirst({
+export async function ensureDefaultOrderContractTemplate(createdById?: string, db: ContractDocumentClient = prisma) {
+  const existing = await db.documentTemplate.findFirst({
     where: {
       documentType: ORDER_CONTRACT_DOCUMENT_TYPE,
       isDefault: true,
@@ -196,7 +198,7 @@ export async function ensureDefaultOrderContractTemplate(createdById?: string) {
     return existing;
   }
 
-  return prisma.documentTemplate.create({
+  return db.documentTemplate.create({
     data: {
       name: '标准销售合同模板',
       code: 'default-order-contract',
@@ -210,9 +212,9 @@ export async function ensureDefaultOrderContractTemplate(createdById?: string) {
   });
 }
 
-export async function getOrderContractTemplate(templateId?: string | null) {
+export async function getOrderContractTemplate(templateId?: string | null, db: ContractDocumentClient = prisma) {
   if (templateId) {
-    const template = await prisma.documentTemplate.findUnique({ where: { id: templateId } });
+    const template = await db.documentTemplate.findUnique({ where: { id: templateId } });
     if (!template) {
       throw new AppError('合同模板不存在', 404, 'RESOURCE_NOT_FOUND');
     }
@@ -222,7 +224,7 @@ export async function getOrderContractTemplate(templateId?: string | null) {
     return template;
   }
 
-  const defaultTemplate = await prisma.documentTemplate.findFirst({
+  const defaultTemplate = await db.documentTemplate.findFirst({
     where: {
       documentType: ORDER_CONTRACT_DOCUMENT_TYPE,
       isActive: true,
@@ -234,7 +236,7 @@ export async function getOrderContractTemplate(templateId?: string | null) {
     return defaultTemplate;
   }
 
-  const fallback = await prisma.documentTemplate.findFirst({
+  const fallback = await db.documentTemplate.findFirst({
     where: {
       documentType: ORDER_CONTRACT_DOCUMENT_TYPE,
       isActive: true,
@@ -248,7 +250,7 @@ export async function getOrderContractTemplate(templateId?: string | null) {
     return fallback;
   }
 
-  return ensureDefaultOrderContractTemplate();
+  return ensureDefaultOrderContractTemplate(undefined, db);
 }
 
 export async function createOrderContractDocument(args: {
@@ -257,14 +259,16 @@ export async function createOrderContractDocument(args: {
   order: Order;
   templateId?: string | null;
   generatedById?: string;
+  tx?: ContractDocumentClient;
 }) {
-  const template = await getOrderContractTemplate(args.templateId);
+  const db = args.tx ?? prisma;
+  const template = await getOrderContractTemplate(args.templateId, db);
   const payload = buildOrderContractPayload(args);
   const contentHtml = renderTemplate(template.bodyTemplate, payload);
 
   const title = `销售合同 - ${args.order.orderNumber}`;
 
-  return prisma.generatedDocument.create({
+  return db.generatedDocument.create({
     data: {
       templateId: template.id,
       quotationId: args.quotation.id,
@@ -286,8 +290,10 @@ export async function ensureOrderContractDocument(args: {
   order: Order;
   templateId?: string | null;
   generatedById?: string;
+  tx?: ContractDocumentClient;
 }) {
-  const existing = await prisma.generatedDocument.findFirst({
+  const db = args.tx ?? prisma;
+  const existing = await db.generatedDocument.findFirst({
     where: {
       orderId: args.order.id,
       documentType: ORDER_CONTRACT_DOCUMENT_TYPE,
@@ -301,7 +307,7 @@ export async function ensureOrderContractDocument(args: {
     return existing;
   }
 
-  return createOrderContractDocument(args);
+  return createOrderContractDocument({ ...args, tx: db });
 }
 
 export async function generateDocumentPdf(document: {

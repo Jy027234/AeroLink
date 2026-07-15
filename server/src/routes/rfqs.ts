@@ -4,8 +4,10 @@ import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { validateBody } from '../middleware/validate.js';
 import { rfqCreateSchema, rfqStatusUpdateSchema } from '../lib/validation.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { emitWebhookEvent } from '../lib/webhookService.js';
+import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
+import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import { isRfqStatusTransitionAllowed, normalizeRfqStatus, toUiRfqStatus } from '../lib/rfqStateMachine.js';
+import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
 import { createInitialStatusHistory, transitionRfqStatus } from '../lib/transactionStateService.js';
 import prisma from '../lib/prisma.js';
 
@@ -243,72 +245,90 @@ router.post(
       emailId,
     } = req.body;
 
-    const rfqNumber = `RFQ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-
     const userId = (req as AuthRequest).user!.id;
-    const rfq = await prisma.$transaction(async (tx) => {
-      const created = await tx.rFQ.create({
-        data: {
-          rfqNumber,
-          customerId,
-          partNumber,
-          quantity,
-          uom,
-          conditionCode,
-          description,
-          serialNumber,
-          batchNumber,
-          ataChapter,
-          aircraftType,
-          aircraftModel,
-          alternatePartNumbers,
-          targetPrice,
-          targetPriceCurrency,
-          certificateRequired,
-          certificateType,
-          requiredDate: requiredDate ? new Date(requiredDate) : new Date(),
-          responseDeadline: responseDeadline ? new Date(responseDeadline) : undefined,
-          leadTimeDays,
-          urgency: urgency?.toUpperCase() || 'STANDARD',
-          urgencyJustification,
-          status: 'PENDING',
-          notes,
-          emailId,
-          createdBy: userId,
-        },
-        include: {
-          customer: true,
-        },
-      });
+    const execution = await runIdempotentOperation(
+      buildIdempotencyContext(req, userId, 'POST:/rfqs'),
+      async (tx) => {
+        const rfqNumber = `RFQ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        const created = await tx.rFQ.create({
+          data: {
+            rfqNumber,
+            customerId,
+            partNumber,
+            quantity,
+            uom,
+            conditionCode,
+            description,
+            serialNumber,
+            batchNumber,
+            ataChapter,
+            aircraftType,
+            aircraftModel,
+            alternatePartNumbers,
+            targetPrice,
+            targetPriceCurrency,
+            certificateRequired,
+            certificateType,
+            requiredDate: requiredDate ? new Date(requiredDate) : new Date(),
+            responseDeadline: responseDeadline ? new Date(responseDeadline) : undefined,
+            leadTimeDays,
+            urgency: urgency?.toUpperCase() || 'STANDARD',
+            urgencyJustification,
+            status: 'PENDING',
+            notes,
+            emailId,
+            createdBy: userId,
+          },
+          include: {
+            customer: true,
+          },
+        });
 
-      await createInitialStatusHistory(tx, {
-        entityType: 'RFQ',
-        entityId: created.id,
-        toStatus: created.status,
-        reasonCode: 'RFQ_CREATED',
-        actorId: userId,
-        version: created.version,
-      });
+        await createInitialStatusHistory(tx, {
+          entityType: 'RFQ',
+          entityId: created.id,
+          toStatus: created.status,
+          reasonCode: 'RFQ_CREATED',
+          actorId: userId,
+          version: created.version,
+        });
 
-      return created;
-    });
+        await enqueueBusinessEvent(tx, {
+          eventType: 'rfq.created',
+          aggregateType: 'RFQ',
+          aggregateId: created.id,
+          data: {
+            rfqId: created.id,
+            rfqNumber: created.rfqNumber,
+            customerId: created.customerId,
+            customerName: created.customer.name,
+            partNumber: created.partNumber,
+            quantity: created.quantity,
+            requiredDate: created.requiredDate.toISOString(),
+            urgency: created.urgency,
+            status: created.status,
+            createdBy: userId,
+          },
+          socket: {
+            room: SocketRooms.RFQS,
+            event: SocketEvents.RFQ_CREATED,
+          },
+          createdById: userId,
+        });
 
-    await emitWebhookEvent('rfq.created', {
-      rfqId: rfq.id,
-      rfqNumber: rfq.rfqNumber,
-      customerId: rfq.customerId,
-      customerName: rfq.customer.name,
-      partNumber: rfq.partNumber,
-      quantity: rfq.quantity,
-      requiredDate: rfq.requiredDate.toISOString(),
-      urgency: rfq.urgency,
-      status: rfq.status,
-      createdBy: (req as AuthRequest).user?.id,
-    });
+        return {
+          payload: toRfqResponse(created),
+          statusCode: 201,
+          resourceType: 'RFQ',
+          resourceId: created.id,
+        };
+      },
+    );
 
-    res.status(201).json({
+    applyIdempotencyHeaders(res, execution);
+    res.status(execution.statusCode).json({
       success: true,
-      data: toRfqResponse(rfq),
+      data: execution.payload,
     });
   })
 );
@@ -318,10 +338,6 @@ router.patch(
   validateBody(rfqCreateSchema.partial()),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const existing = await prisma.rFQ.findUnique({ where: { id } });
-    if (!existing) {
-      throw new AppError('RFQ不存在', 404);
-    }
 
     const updateData: Prisma.RFQUpdateInput = {};
     const fields: string[] = [
@@ -363,20 +379,38 @@ router.patch(
       updateData.urgency = req.body.urgency.toUpperCase();
     }
 
-    const rfq = await prisma.rFQ.update({
-      where: { id },
-      data: updateData,
-      include: {
-        customer: true,
-        creator: {
-          select: { id: true, name: true },
-        },
-      },
-    });
+    const userId = (req as AuthRequest).user!.id;
+    const execution = await runIdempotentOperation(
+      buildIdempotencyContext(req, userId, 'PATCH:/rfqs/:id'),
+      async (tx) => {
+        const existing = await tx.rFQ.findUnique({ where: { id } });
+        if (!existing) {
+          throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
+        }
 
-    res.json({
+        const rfq = await tx.rFQ.update({
+          where: { id },
+          data: updateData,
+          include: {
+            customer: true,
+            creator: {
+              select: { id: true, name: true },
+            },
+          },
+        });
+
+        return {
+          payload: toRfqResponse(rfq),
+          resourceType: 'RFQ',
+          resourceId: rfq.id,
+        };
+      },
+    );
+
+    applyIdempotencyHeaders(res, execution);
+    res.status(execution.statusCode).json({
       success: true,
-      data: toRfqResponse(rfq),
+      data: execution.payload,
     });
   })
 );
@@ -386,71 +420,93 @@ router.patch(
   validateBody(rfqStatusUpdateSchema),
   asyncHandler(async (req, res) => {
     const nextStatus = String(req.body.status);
+    const userId = (req as AuthRequest).user!.id;
+    const execution = await runIdempotentOperation(
+      buildIdempotencyContext(req, userId, 'PATCH:/rfqs/:id/status'),
+      async (tx) => {
+        const current = await tx.rFQ.findUnique({ where: { id: req.params.id } });
+        if (!current) {
+          throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
+        }
 
-    const current = await prisma.rFQ.findUnique({ where: { id: req.params.id } });
-    if (!current) {
-      throw new AppError('RFQ不存在', 404);
-    }
+        const currentStatus = normalizeRfqStatus(current.status);
+        if (!currentStatus || !isRfqStatusTransitionAllowed(current.status, nextStatus)) {
+          throw new AppError(`RFQ 不允许从 ${toUiRfqStatus(current.status)} 变更为 ${toUiRfqStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
+        }
 
-    const currentStatus = normalizeRfqStatus(current.status);
-    if (!currentStatus || !isRfqStatusTransitionAllowed(current.status, nextStatus)) {
-      throw new AppError(`RFQ 不允许从 ${toUiRfqStatus(current.status)} 变更为 ${toUiRfqStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
-    }
-
-    const isNoop = current.status === nextStatus;
-    const rfq = isNoop
-      ? await prisma.rFQ.findUnique({
-        where: { id: req.params.id },
-        include: {
-          customer: true,
-          creator: {
-            select: { id: true, name: true },
-          },
-        },
-      })
-      : await prisma.$transaction(async (tx) => {
-        await transitionRfqStatus(tx, {
-          id: current.id,
-          currentStatus: current.status,
-          currentVersion: current.version,
-          nextStatus,
-          expectedVersion: req.body.version,
-          actorId: (req as AuthRequest).user?.id,
-          reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
-          reason: req.body.reason,
-        });
-
-        return tx.rFQ.findUnique({
-          where: { id: req.params.id },
-          include: {
-            customer: true,
-            creator: {
-              select: { id: true, name: true },
+        const isNoop = current.status === nextStatus;
+        const rfq = isNoop
+          ? await tx.rFQ.findUnique({
+            where: { id: req.params.id },
+            include: {
+              customer: true,
+              creator: {
+                select: { id: true, name: true },
+              },
             },
-          },
-        });
-      });
+          })
+          : await (async () => {
+            await transitionRfqStatus(tx, {
+              id: current.id,
+              currentStatus: current.status,
+              currentVersion: current.version,
+              nextStatus,
+              expectedVersion: req.body.version,
+              actorId: userId,
+              reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
+              reason: req.body.reason,
+            });
 
-    if (!rfq) {
-      throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
-    }
+            return tx.rFQ.findUnique({
+              where: { id: req.params.id },
+              include: {
+                customer: true,
+                creator: {
+                  select: { id: true, name: true },
+                },
+              },
+            });
+          })();
 
-    if (current.status !== rfq.status) {
-      await emitWebhookEvent('rfq.status.changed', {
-        rfqId: rfq.id,
-        rfqNumber: rfq.rfqNumber,
-        oldStatus: current.status,
-        newStatus: rfq.status,
-        changedBy: (req as AuthRequest).user?.id,
-        changedAt: new Date().toISOString(),
-      });
-    }
+        if (!rfq) {
+          throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
+        }
 
-    res.json({
+        if (!isNoop) {
+          await enqueueBusinessEvent(tx, {
+            eventType: 'rfq.status.changed',
+            aggregateType: 'RFQ',
+            aggregateId: rfq.id,
+            data: {
+              rfqId: rfq.id,
+              rfqNumber: rfq.rfqNumber,
+              oldStatus: current.status,
+              newStatus: rfq.status,
+              changedBy: userId,
+              changedAt: new Date().toISOString(),
+            },
+            socket: {
+              room: SocketRooms.RFQS,
+              event: SocketEvents.RFQ_UPDATED,
+            },
+            createdById: userId,
+          });
+        }
+
+        return {
+          payload: toRfqResponse(rfq),
+          resourceType: 'RFQ',
+          resourceId: rfq.id,
+        };
+      },
+    );
+
+    applyIdempotencyHeaders(res, execution);
+    res.status(execution.statusCode).json({
       success: true,
-      data: toRfqResponse(rfq),
+      data: execution.payload,
     });
-  })
+  }),
 );
 
 export default router;
