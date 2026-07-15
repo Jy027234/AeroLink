@@ -16,6 +16,18 @@ test.describe('Navigation', () => {
     await page.click('button[type="submit"]');
   }
 
+  async function expectHttpOnlyRefreshCookie(page: import('@playwright/test').Page) {
+    const refreshCookie = (await page.context().cookies('http://127.0.0.1:3000/api/auth/refresh'))
+      .find((cookie) => cookie.name === 'aerolink_refresh_token');
+
+    expect(refreshCookie).toBeDefined();
+    expect(refreshCookie).toMatchObject({
+      httpOnly: true,
+      sameSite: 'Lax',
+      path: '/api/auth',
+    });
+  }
+
   async function navigateFromSidebar(
     page: import('@playwright/test').Page,
     groupLabel: string,
@@ -53,6 +65,8 @@ test.describe('Navigation', () => {
     await login(page, '/orders');
     await expect(page).toHaveURL(/\/orders$/);
     await expect(page.getByRole('banner').getByRole('heading', { name: '订单管理' })).toBeVisible();
+    await expectHttpOnlyRefreshCookie(page);
+    await expect(page.getByRole('button', { name: /张经理/ })).toBeVisible();
 
     await navigateFromSidebar(page, '客户与供应商', /客户管理/);
     await expect(page).toHaveURL(/\/customers$/);
@@ -69,5 +83,6 @@ test.describe('Navigation', () => {
     await page.reload();
     await expect(page).toHaveURL(/\/customers$/);
     await expect(page.getByRole('banner').getByRole('heading', { name: '客户管理' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /张经理/ })).toBeVisible();
   });
 });

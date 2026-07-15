@@ -33,14 +33,13 @@ import type {
   WorkflowInstanceStep,
 } from '@/types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000/api';
 
 type ApiRecord = Record<string, unknown>;
 type ApiPayload = object;
 
 export interface AuthSuccessResponse {
   token: string;
-  refreshToken: string;
   user: User;
 }
 
@@ -476,7 +475,7 @@ async function refreshAccessToken(): Promise<boolean> {
         });
         if (!response.ok) return false;
 
-        const payload = await response.json() as { data?: { accessToken?: string; refreshToken?: string }; accessToken?: string; refreshToken?: string };
+        const payload = await response.json() as { data?: { accessToken?: string }; accessToken?: string };
         const tokens = payload.data ?? payload;
         if (!tokens.accessToken) return false;
 
@@ -1000,10 +999,9 @@ export const authApi = {
     return response;
   },
 
-  refresh: async (refreshToken?: string) => {
-    const response = await request<{ accessToken: string; refreshToken?: string }>('/auth/refresh', {
+  refresh: async () => {
+    const response = await request<{ accessToken: string }>('/auth/refresh', {
       method: 'POST',
-      ...(refreshToken ? { body: JSON.stringify({ refreshToken }) } : {}),
     });
     setAccessToken(response.accessToken);
     localStorage.removeItem('aerolink_token');

@@ -24,7 +24,6 @@ describe('auth token storage', () => {
       success: true,
       data: {
         token: 'access-login',
-        refreshToken: 'refresh-login',
         user: { id: 'u1', email: 'user@example.com', name: 'User', role: 'sales' },
       },
     }));
@@ -40,7 +39,7 @@ describe('auth token storage', () => {
   it('restores an access token through the HttpOnly refresh cookie', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       success: true,
-      data: { accessToken: 'access-refresh', refreshToken: 'refresh-rotated' },
+      data: { accessToken: 'access-refresh' },
     }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -51,6 +50,8 @@ describe('auth token storage', () => {
       expect.stringContaining('/auth/refresh'),
       expect.objectContaining({ method: 'POST', credentials: 'include' })
     );
+    const refreshRequest = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(refreshRequest?.body).toBeUndefined();
     expect(window.localStorage.getItem('aerolink_token')).toBeNull();
   });
 
@@ -73,7 +74,7 @@ describe('auth token storage', () => {
       .mockResolvedValueOnce(jsonResponse({ success: false, message: '登录已过期' }, 401))
       .mockResolvedValueOnce(jsonResponse({
         success: true,
-        data: { accessToken: 'access-refreshed', refreshToken: 'refresh-rotated' },
+        data: { accessToken: 'access-refreshed' },
       }))
       .mockResolvedValueOnce(jsonResponse({
         success: true,

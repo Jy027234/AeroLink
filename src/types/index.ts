@@ -11,7 +11,6 @@ export interface User {
   role: 'sales' | 'manager' | 'finance' | 'admin' | 'gm';
   department: string;
   token?: string;
-  refreshToken?: string;
   lastLoginAt?: string;
   isActive?: boolean;
   activationPending?: boolean;

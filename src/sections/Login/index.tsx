@@ -119,7 +119,7 @@ export function Login() {
     setFlowLoadError('');
   };
 
-  const completeAuthentication = (result: { token: string; refreshToken: string; user: User }) => {
+  const completeAuthentication = (result: { token: string; user: User }) => {
     localStorage.setItem('aerolink_user', JSON.stringify(result.user));
     storeLogin(result.user);
   };

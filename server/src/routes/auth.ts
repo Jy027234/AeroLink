@@ -129,7 +129,6 @@ router.post(
       success: true,
       data: {
         token: accessToken,
-        refreshToken,
         user: serializeAuthUser(user),
       },
     });
@@ -139,7 +138,7 @@ router.post(
 router.post(
   '/refresh',
   asyncHandler(async (req, res) => {
-    const refreshToken = readRefreshTokenCookie(req) || req.body?.refreshToken;
+    const refreshToken = readRefreshTokenCookie(req);
 
     if (!refreshToken) {
       throw new AppError('请提供刷新令牌', 401, 'AUTH_UNAUTHORIZED');
@@ -168,7 +167,7 @@ router.post(
 
     res.json({
       success: true,
-      data: tokens,
+      data: { accessToken: tokens.accessToken },
     });
   })
 );
@@ -298,7 +297,6 @@ router.post(
       success: true,
       data: {
         token: accessToken,
-        refreshToken,
         user: serializeAuthUser(updatedUser),
       },
     });
@@ -474,7 +472,6 @@ router.post(
       success: true,
       data: {
         token: accessToken,
-        refreshToken,
         user: serializeAuthUser(updatedUser),
       },
     });
