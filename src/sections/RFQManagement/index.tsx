@@ -60,7 +60,7 @@ import {
 import { useRFQStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
-import { useCustomers, useCreateRFQ, useUpdateRFQ, useSuppliers, useDispatchNotification } from '@/hooks/useApi';
+import { useCustomers, useCreateRFQ, useRFQs, useUpdateRFQ, useUpdateRFQStatus, useSuppliers, useDispatchNotification } from '@/hooks/useApi';
 import { ipcApi } from '@/api/client';
 import type { RFQ, RFQStatus, UrgencyLevel, ConditionCode, CertificateType } from '@/types';
 
@@ -870,20 +870,36 @@ export function RFQManagement() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const { rfqs, addRFQ, updateRFQ } = useRFQStore();
+  const pageSize = 10;
   const { mutate: createRFQ } = useCreateRFQ();
   const { mutate: updateRFQApi } = useUpdateRFQ();
+  const { updateStatus: updateRFQStatus, loading: statusUpdating } = useUpdateRFQStatus();
   const { mutate: dispatchNotification } = useDispatchNotification();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [urgencyFilter, setUrgencyFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 10;
   const [selectedRFQ, setSelectedRFQ] = useState<RFQ | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingRFQ, setEditingRFQ] = useState<RFQ | null>(null);
 
-  const filteredRFQs = rfqs.filter((rfq: RFQ) => {
+  const {
+    data: serverRFQs,
+    pagination: serverPagination,
+    summary: serverSummary,
+    refetch: refetchRFQs,
+  } = useRFQs({
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    urgency: urgencyFilter === 'all' ? undefined : urgencyFilter,
+    search: searchQuery,
+    page: currentPage,
+    limit: pageSize,
+  });
+
+  const sourceRFQs = serverRFQs ?? rfqs;
+
+  const filteredRFQs = sourceRFQs.filter((rfq: RFQ) => {
     if (statusFilter !== 'all' && rfq.status !== statusFilter) return false;
     if (urgencyFilter !== 'all' && rfq.urgency !== urgencyFilter) return false;
     if (searchQuery) {
@@ -897,11 +913,22 @@ export function RFQManagement() {
     return true;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filteredRFQs.length / pageSize));
+  const hasServerPagination = Boolean(serverRFQs);
+  const totalPages = hasServerPagination
+    ? Math.max(1, serverPagination?.totalPages ?? 1)
+    : Math.max(1, Math.ceil(filteredRFQs.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
-  const paginatedRFQs = filteredRFQs.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paginatedRFQs = hasServerPagination
+    ? filteredRFQs
+    : filteredRFQs.slice((safePage - 1) * pageSize, safePage * pageSize);
 
-  const stats = {
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const stats = serverSummary ?? {
     total: rfqs.length,
     pending: rfqs.filter((r: RFQ) => r.status === 'pending').length,
     sourcing: rfqs.filter((r: RFQ) => r.status === 'sourcing').length,
@@ -915,16 +942,30 @@ export function RFQManagement() {
     setIsDetailOpen(true);
   };
 
-  const handleStatusChange = (rfqId: string, newStatus: RFQStatus) => {
-    const rfq = rfqs.find((r: RFQ) => r.id === rfqId);
-    if (rfq) {
-      updateRFQ({ ...rfq, status: newStatus });
+  const handleStatusChange = async (rfqId: string, newStatus: RFQStatus) => {
+    const rfq = sourceRFQs.find((r: RFQ) => r.id === rfqId);
+    if (!rfq) return false;
+
+    try {
+      const updated = await updateRFQStatus(rfqId, newStatus);
+      if (!updated) return false;
+      updateRFQ(updated);
+      if (selectedRFQ?.id === updated.id) {
+        setSelectedRFQ(updated);
+      }
+      await refetchRFQs();
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : tx('状态更新失败', 'Failed to update RFQ status'));
+      return false;
     }
   };
 
-  const handleConvertToQuote = (rfq: RFQ) => {
-    toast.info(tx(`需求单 ${rfq.rfqNumber} 已转入报价阶段，请前往报价管理完成处理。`, `RFQ ${rfq.rfqNumber} has been moved to quoting. Please go to the Quotations page to complete it.`));
-    updateRFQ({ ...rfq, status: 'quoting' });
+  const handleConvertToQuote = async (rfq: RFQ) => {
+    const updated = await handleStatusChange(rfq.id, 'quoting');
+    if (updated) {
+      toast.info(tx(`需求单 ${rfq.rfqNumber} 已转入报价阶段，请前往报价管理完成处理。`, `RFQ ${rfq.rfqNumber} has been moved to quoting. Please go to the Quotations page to complete it.`));
+    }
   };
 
   const handleCreate = () => {
@@ -944,12 +985,14 @@ export function RFQManagement() {
         updateRFQ(result);
         setIsFormOpen(false);
         setEditingRFQ(null);
+        await refetchRFQs();
       }
     } else {
       const result = await createRFQ(data);
       if (result) {
         addRFQ(result);
         setIsFormOpen(false);
+        await refetchRFQs();
         // AOG 通知触发
         if ((data.urgency as string)?.toLowerCase() === 'aog') {
           void dispatchNotification({
@@ -1128,24 +1171,24 @@ export function RFQManagement() {
                               {tx('编辑', 'Edit')}
                             </DropdownMenuItem>
                             {rfq.status === 'pending' && (
-                              <DropdownMenuItem onClick={() => handleStatusChange(rfq.id, 'sourcing')}>
+                              <DropdownMenuItem disabled={statusUpdating} onClick={() => { void handleStatusChange(rfq.id, 'sourcing'); }}>
                                 <ChevronRight className="w-4 h-4 mr-2" />
                                 {tx('开始寻源', 'Start Sourcing')}
                               </DropdownMenuItem>
                             )}
                             {(rfq.status === 'pending' || rfq.status === 'sourcing') && (
-                              <DropdownMenuItem onClick={() => handleConvertToQuote(rfq)}>
+                               <DropdownMenuItem disabled={statusUpdating} onClick={() => { void handleConvertToQuote(rfq); }}>
                                 <Send className="w-4 h-4 mr-2" />
                                 Create Quotation
                               </DropdownMenuItem>
                             )}
                             {rfq.status === 'quoting' && (
                               <>
-                                <DropdownMenuItem onClick={() => handleStatusChange(rfq.id, 'won')}>
+                                <DropdownMenuItem disabled={statusUpdating} onClick={() => { void handleStatusChange(rfq.id, 'won'); }}>
                                   <CheckCircle className="w-4 h-4 mr-2 text-green-500" />
                                   Mark as Won
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleStatusChange(rfq.id, 'lost')}>
+                                <DropdownMenuItem disabled={statusUpdating} onClick={() => { void handleStatusChange(rfq.id, 'lost'); }}>
                                   <XCircle className="w-4 h-4 mr-2 text-red-500" />
                                   Mark as Lost
                                 </DropdownMenuItem>
@@ -1160,7 +1203,7 @@ export function RFQManagement() {
               )}
             </TableBody>
           </Table>
-          {filteredRFQs.length > pageSize && (
+          {totalPages > 1 && (
             <div className="flex items-center justify-between pt-2">
               <span className="text-sm text-gray-500">
                 {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}

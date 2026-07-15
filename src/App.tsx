@@ -1,5 +1,5 @@
 // App component
-import { Suspense, lazy, useEffect, useRef } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { I18nProvider } from '@/i18n';
 import { Layout } from '@/components/Layout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -9,6 +9,7 @@ import { useAuthStore, useUIStore } from '@/store';
 import { isKnownPagePath, resolvePageFromPathname } from '@/lib/pageRoutes';
 import { preloadPages } from '@/lib/pagePreload';
 import { useTranslation } from '@/i18n';
+import { authApi, getAccessToken } from '@/api/client';
 import {
   beginPageNavigation,
   completePageNavigation,
@@ -124,10 +125,11 @@ function withPageReady(pageId: string, element: React.ReactNode) {
 }
 
 function App() {
-  const { isAuthenticated, logout } = useAuthStore();
+  const { isAuthenticated, login: storeLogin, logout } = useAuthStore();
   const { currentPage } = useUIStore();
   const setCurrentPage = useUIStore((state) => state.setCurrentPage);
   const bootNavigationMarkedRef = useRef(false);
+  const [sessionRestoring, setSessionRestoring] = useState(false);
 
   useEffect(() => {
     const syncPageFromLocation = () => {
@@ -154,10 +156,36 @@ function App() {
   }, [setCurrentPage]);
 
   useEffect(() => {
-    if (isAuthenticated && !localStorage.getItem('aerolink_token')) {
-      logout();
+    if (!isAuthenticated || getAccessToken()) {
+      setSessionRestoring(false);
+      return;
     }
-  }, [isAuthenticated, logout]);
+
+    let cancelled = false;
+    setSessionRestoring(true);
+
+    void authApi.refresh()
+      .then(() => authApi.getMe())
+      .then((user) => {
+        if (!cancelled) {
+          storeLogin(user);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          logout();
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSessionRestoring(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, logout, storeLogin]);
 
   useEffect(() => {
     if (!isAuthenticated || bootNavigationMarkedRef.current) {
@@ -255,6 +283,15 @@ function App() {
         return withPageReady('dashboard', <Dashboard />);
     }
   };
+
+  if (isAuthenticated && (sessionRestoring || !getAccessToken())) {
+    return (
+      <I18nProvider>
+        <PageLoadingFallback />
+        <Toaster />
+      </I18nProvider>
+    );
+  }
 
   if (!isAuthenticated) {
     return (

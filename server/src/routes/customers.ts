@@ -76,15 +76,23 @@ function serializeCustomer(c: any) {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { status, page, limit } = req.query;
+    const { status, search, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * pageSize;
 
     const where: Prisma.CustomerWhereInput = {};
     if (status) where.status = status.toString().toUpperCase();
+    const searchValue = typeof search === 'string' ? search.trim() : '';
+    if (searchValue) {
+      where.OR = [
+        { name: { contains: searchValue, mode: 'insensitive' } },
+        { contactName: { contains: searchValue, mode: 'insensitive' } },
+        { email: { contains: searchValue, mode: 'insensitive' } },
+      ];
+    }
 
-    const [customers, total] = await Promise.all([
+    const [customers, total, statusCounts, revenueAggregate] = await Promise.all([
       prisma.customer.findMany({
         where,
         include: customerInclude,
@@ -93,11 +101,29 @@ router.get(
         take: pageSize,
       }),
       prisma.customer.count({ where }),
+      prisma.customer.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
+      prisma.customer.aggregate({
+        _sum: { annualRevenue: true },
+      }),
     ]);
+
+    const summaryCount = (statusValue: string) =>
+      statusCounts.find((entry) => entry.status === statusValue)?._count._all || 0;
+    const summary = {
+      total: statusCounts.reduce((sum, entry) => sum + entry._count._all, 0),
+      active: summaryCount('ACTIVE'),
+      atRisk: summaryCount('AT_RISK'),
+      inactive: summaryCount('INACTIVE'),
+      totalRevenue: revenueAggregate._sum.annualRevenue || 0,
+    };
 
     res.json({
       success: true,
       data: customers.map(serializeCustomer),
+      summary,
       pagination: {
         page: pageNum,
         limit: pageSize,

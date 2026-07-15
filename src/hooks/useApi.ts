@@ -84,8 +84,6 @@ export const useLogin = () => {
     setError(null);
     try {
       const response = await authApi.login(email, password);
-      localStorage.setItem('aerolink_token', response.token);
-      localStorage.setItem('aerolink_refresh_token', response.refreshToken);
       localStorage.setItem('aerolink_user', JSON.stringify(response.user));
       return response;
     } catch (err) {
@@ -98,8 +96,7 @@ export const useLogin = () => {
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('aerolink_token');
-    localStorage.removeItem('aerolink_refresh_token');
+    void authApi.logout().catch(() => undefined);
     localStorage.removeItem('aerolink_user');
     window.location.href = '/';
   }, []);
@@ -138,8 +135,14 @@ export const useRecentActivities = () => {
 };
 
 // ===== RFQ Hooks =====
-export const useRFQs = (filters?: { status?: string; urgency?: string }) => {
-  return useQuery(() => rfqApi.getAll(filters), [filters?.status, filters?.urgency]);
+export const useRFQs = (filters?: { status?: string; urgency?: string; search?: string; page?: number; limit?: number }) => {
+  const query = useQuery(() => rfqApi.getAll(filters), [filters?.status, filters?.urgency, filters?.search, filters?.page, filters?.limit]);
+  return {
+    ...query,
+    data: query.data?.data ?? null,
+    pagination: query.data?.pagination,
+    summary: query.data?.summary,
+  };
 };
 
 export const useRFQ = (id: string) => {
@@ -157,7 +160,7 @@ export const useUpdateRFQ = () => {
 export const useUpdateRFQStatus = () => {
   const [loading, setLoading] = useState(false);
 
-  const updateStatus = useCallback(async (id: string, status: string) => {
+  const updateStatus = useCallback(async (id: string, status: RFQ['status']) => {
     setLoading(true);
     try {
       return await rfqApi.updateStatus(id, status);
@@ -170,8 +173,14 @@ export const useUpdateRFQStatus = () => {
 };
 
 // ===== Quotation Hooks =====
-export const useQuotations = (filters?: { status?: string }) => {
-  return useQuery(() => quotationApi.getAll(filters), [filters?.status]);
+export const useQuotations = (filters?: { status?: string; search?: string; page?: number; limit?: number }) => {
+  const query = useQuery(() => quotationApi.getAll(filters), [filters?.status, filters?.search, filters?.page, filters?.limit]);
+  return {
+    ...query,
+    data: query.data?.data ?? null,
+    pagination: query.data?.pagination,
+    summary: query.data?.summary,
+  };
 };
 
 export const useQuotation = (id: string) => {
@@ -213,8 +222,14 @@ export const useApproveQuotation = () => {
 };
 
 // ===== Order Hooks =====
-export const useOrders = () => {
-  return useQuery(() => orderApi.getAll(), []);
+export const useOrders = (filters?: { status?: string; search?: string; page?: number; limit?: number }) => {
+  const query = useQuery(() => orderApi.getAll(filters), [filters?.status, filters?.search, filters?.page, filters?.limit]);
+  return {
+    ...query,
+    data: query.data?.data ?? null,
+    pagination: query.data?.pagination,
+    summary: query.data?.summary,
+  };
 };
 
 export const useOrder = (id: string) => {
@@ -247,8 +262,32 @@ export const useSaveDocumentTemplate = () => {
 };
 
 // ===== Inventory Hooks =====
-export const useInventory = () => {
-  return useQuery(() => inventoryApi.getAll(), []);
+export const useInventory = (filters?: {
+  search?: string;
+  conditionCode?: string;
+  certificateType?: string;
+  type?: string;
+  partCategory?: string;
+  location?: string;
+  page?: number;
+  limit?: number;
+}) => {
+  const query = useQuery(() => inventoryApi.getAll(filters), [
+    filters?.search,
+    filters?.conditionCode,
+    filters?.certificateType,
+    filters?.type,
+    filters?.partCategory,
+    filters?.location,
+    filters?.page,
+    filters?.limit,
+  ]);
+  return {
+    ...query,
+    data: query.data?.data ?? null,
+    pagination: query.data?.pagination,
+    summary: query.data?.summary,
+  };
 };
 
 export const useInventoryItem = (id: string) => {
@@ -285,8 +324,14 @@ export const useInventoryDetailById = (id: string) => {
 };
 
 // ===== Customer Hooks =====
-export const useCustomers = () => {
-  return useQuery(() => customerApi.getAll(), []);
+export const useCustomers = (params?: { status?: string; search?: string; page?: number; limit?: number }) => {
+  const query = useQuery(() => customerApi.getAll(params), [params?.status, params?.search, params?.page, params?.limit]);
+  return {
+    ...query,
+    data: query.data?.data ?? null,
+    pagination: query.data?.pagination,
+    summary: query.data?.summary,
+  };
 };
 
 export const useCustomer = (id: string) => {
@@ -294,8 +339,14 @@ export const useCustomer = (id: string) => {
 };
 
 // ===== Supplier Hooks =====
-export const useSuppliers = (params?: { level?: string; page?: number; limit?: number }) => {
-  return useQuery(() => supplierApi.getAll(params), [params?.level, params?.page, params?.limit]);
+export const useSuppliers = (params?: { level?: string; search?: string; followUpFilter?: string; page?: number; limit?: number }) => {
+  const query = useQuery(() => supplierApi.getAll(params), [params?.level, params?.search, params?.followUpFilter, params?.page, params?.limit]);
+  return {
+    ...query,
+    data: query.data?.data ?? null,
+    pagination: query.data?.pagination,
+    summary: query.data?.summary,
+  };
 };
 
 export const useSupplier = (id: string) => {

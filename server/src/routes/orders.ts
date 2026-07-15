@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Quotation } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
@@ -9,32 +9,77 @@ import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../li
 import { AuthRequest } from '../middleware/auth.js';
 import { generateOrderPDF } from '../lib/pdfService.js';
 import { emitWebhookEvent } from '../lib/webhookService.js';
+import { isOrderStatusTransitionAllowed, normalizeOrderStatus, toUiOrderStatus } from '../lib/orderStateMachine.js';
+import { isUniqueConstraintError } from '../lib/prismaErrors.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
 
+type OrderWithCustomer = Prisma.OrderGetPayload<{ include: { customer: true } }>;
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { status } = req.query;
+    const { status, search, page, limit } = req.query;
+    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+    const skip = (pageNum - 1) * pageSize;
 
     const where: Prisma.OrderWhereInput = {};
-    if (status) where.status = status.toString().toUpperCase().replace('-', '_');
+    const statusValue = typeof status === 'string' ? status.toLowerCase() : '';
+    if (statusValue === 'in_progress') {
+      where.status = { notIn: ['COMPLETED', 'DELIVERED'] };
+    } else if (statusValue === 'completed') {
+      where.status = { in: ['COMPLETED', 'DELIVERED'] };
+    } else if (statusValue) {
+      where.status = statusValue.toUpperCase().replace('-', '_');
+    }
+    const searchValue = typeof search === 'string' ? search.trim() : '';
+    if (searchValue) {
+      where.OR = [
+        { orderNumber: { contains: searchValue, mode: 'insensitive' } },
+        { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
+      ];
+    }
 
-    const orders = await prisma.order.findMany({
-      where,
-      include: {
-        customer: true,
-        quotation: { select: { quoteNumber: true } },
-        tracking: true,
-        generatedDocuments: {
-          where: { documentType: ORDER_CONTRACT_DOCUMENT_TYPE },
-          orderBy: { generatedAt: 'desc' },
-          take: 1,
+    const [orders, total, statusCounts, amountAggregate] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        include: {
+          customer: true,
+          quotation: { select: { quoteNumber: true } },
+          tracking: true,
+          generatedDocuments: {
+            where: { documentType: ORDER_CONTRACT_DOCUMENT_TYPE },
+            orderBy: { generatedAt: 'desc' },
+            take: 1,
+          },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.order.count({ where }),
+      prisma.order.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
+      prisma.order.aggregate({
+        _sum: { totalAmount: true },
+      }),
+    ]);
+
+    const summaryCount = (statusValue: string) =>
+      statusCounts.find((entry) => entry.status === statusValue)?._count._all || 0;
+    const summary = {
+      total: statusCounts.reduce((sum, entry) => sum + entry._count._all, 0),
+      inProgress: statusCounts.reduce(
+        (sum, entry) => sum + (entry.status === 'COMPLETED' || entry.status === 'DELIVERED' ? 0 : entry._count._all),
+        0,
+      ),
+      completed: summaryCount('COMPLETED') + summaryCount('DELIVERED'),
+      totalValue: amountAggregate._sum.totalAmount || 0,
+    };
 
     res.json({
       success: true,
@@ -83,6 +128,13 @@ router.get(
         eSignatureCustomer: o.eSignatureCustomer,
         eSignatureSupplier: o.eSignatureSupplier,
       })),
+      summary,
+      pagination: {
+        page: pageNum,
+        limit: pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+      },
     });
   })
 );
@@ -150,62 +202,95 @@ router.post(
       throw new AppError('订单客户与报价客户不一致', 400, 'BAD_REQUEST');
     }
 
-    const existingOrder = await prisma.order.findFirst({
+    const existingOrder = await prisma.order.findUnique({
       where: { quotationId },
       include: { customer: true },
     });
 
-    if (existingOrder) {
-      throw new AppError('该报价已生成订单，请勿重复创建', 409, 'RESOURCE_CONFLICT');
-    }
-
+    let order: OrderWithCustomer;
+    let updatedQuotation: Quotation;
+    let isNewOrder = false;
     const now = new Date();
 
-    const { order, updatedQuotation } = await prisma.$transaction(async (tx) => {
-      const updated = await tx.quotation.update({
-        where: { id: quotationId },
-        data: {
-          status: 'ACCEPTED',
-          acceptedAt: quotation.acceptedAt || now,
-        },
-      });
+    if (existingOrder) {
+      order = existingOrder;
+      updatedQuotation = quotation;
+    } else {
+      try {
+        const transactionResult = await prisma.$transaction(async (tx) => {
+          const updated = await tx.quotation.update({
+            where: { id: quotationId },
+            data: {
+              status: 'ACCEPTED',
+              acceptedAt: quotation.acceptedAt || now,
+            },
+          });
 
-      const createdOrder = await createOrderFromQuotation({
-        tx,
-        quotation: updated,
-        customer: quotation.customer,
-        poNumber,
-        deliveryDate,
-        saleType,
-        incoterm,
-        incotermLocation,
-        shipToId,
-        shipForId,
-        warrantyDays,
-        warrantyStartDate,
-        certificateRequired,
-        certificateType,
-        certificateDelivered,
-        packagingStandard,
-        shippingMethod,
-        carrierAccount,
-        inspectionRequired,
-        inspectionPassed,
-        inspectionDate,
-        customsClearanceRequired,
-        customsDeclarationNo,
-        importDuty,
-        vatAmount,
-        totalLandCost,
-        exchangeCoreCharge,
-        exchangeCoreDueDate,
-        eSignatureCustomer,
-        eSignatureSupplier,
-      });
+          const createdOrder = await createOrderFromQuotation({
+            tx,
+            quotation: updated,
+            customer: quotation.customer,
+            poNumber,
+            deliveryDate,
+            saleType,
+            incoterm,
+            incotermLocation,
+            shipToId,
+            shipForId,
+            warrantyDays,
+            warrantyStartDate,
+            certificateRequired,
+            certificateType,
+            certificateDelivered,
+            packagingStandard,
+            shippingMethod,
+            carrierAccount,
+            inspectionRequired,
+            inspectionPassed,
+            inspectionDate,
+            customsClearanceRequired,
+            customsDeclarationNo,
+            importDuty,
+            vatAmount,
+            totalLandCost,
+            exchangeCoreCharge,
+            exchangeCoreDueDate,
+            eSignatureCustomer,
+            eSignatureSupplier,
+          });
 
-      return { order: createdOrder, updatedQuotation: updated };
-    });
+          return { order: createdOrder, updatedQuotation: updated };
+        });
+        order = transactionResult.order;
+        updatedQuotation = transactionResult.updatedQuotation;
+        isNewOrder = true;
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) {
+          throw error;
+        }
 
+        const [concurrentOrder, currentQuotation] = await Promise.all([
+          prisma.order.findUnique({
+            where: { quotationId },
+            include: { customer: true },
+          }),
+          prisma.quotation.findUnique({ where: { id: quotationId } }),
+        ]);
+
+        if (!concurrentOrder || !currentQuotation) {
+          throw error;
+        }
+
+        order = concurrentOrder;
+        updatedQuotation = currentQuotation;
+      }
+    }
+
+    /*
+     * quotationId is the natural idempotency key for order creation. The
+     * unique database constraint handles concurrent requests; retries return
+     * the existing order instead of emitting duplicate business events.
+     */
     const generatedDocument = await ensureOrderContractDocument({
       quotation: updatedQuotation,
       customer: quotation.customer,
@@ -214,27 +299,29 @@ router.post(
       generatedById: (req as AuthRequest).user?.id,
     });
 
-    await emitWebhookEvent('order.created', {
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      soNumber: order.soNumber,
-      quotationId: order.quotationId,
-      customerId: order.customerId,
-      customerName: order.customer.name,
-      status: order.status,
-      totalAmount: order.totalAmount,
-      createdAt: order.createdAt.toISOString(),
-    });
+    if (isNewOrder) {
+      await emitWebhookEvent('order.created', {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        soNumber: order.soNumber,
+        quotationId: order.quotationId,
+        customerId: order.customerId,
+        customerName: order.customer.name,
+        status: order.status,
+        totalAmount: order.totalAmount,
+        createdAt: order.createdAt.toISOString(),
+      });
 
-    await emitWebhookEvent('quotation.accepted', {
-      quotationId: updatedQuotation.id,
-      quoteNumber: updatedQuotation.quoteNumber,
-      acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
-      orderId: order.id,
-      contractDocumentId: generatedDocument.id,
-    });
+      await emitWebhookEvent('quotation.accepted', {
+        quotationId: updatedQuotation.id,
+        quoteNumber: updatedQuotation.quoteNumber,
+        acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
+        orderId: order.id,
+        contractDocumentId: generatedDocument.id,
+      });
+    }
 
-    res.status(201).json({
+    res.status(isNewOrder ? 201 : 200).json({
       success: true,
       data: {
         ...mapOrderResponse(order),
@@ -249,25 +336,32 @@ router.patch(
   '/:id/status',
   validateBody(orderStatusUpdateSchema),
   asyncHandler(async (req, res) => {
-    const { status } = req.body;
+    const nextStatus = String(req.body.status);
 
     const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       throw new AppError('订单不存在', 404);
     }
 
+    const currentStatus = normalizeOrderStatus(existing.status);
+    if (!isOrderStatusTransitionAllowed(currentStatus, nextStatus)) {
+      throw new AppError(`订单不允许从 ${toUiOrderStatus(currentStatus)} 变更为 ${toUiOrderStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
+    }
+
     const order = await prisma.order.update({
       where: { id: req.params.id },
-      data: { status: status.toUpperCase().replace('-', '_') },
+      data: { status: nextStatus },
     });
 
-    await emitWebhookEvent('order.status.changed', {
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      oldStatus: existing.status,
-      newStatus: order.status,
-      changedAt: new Date().toISOString(),
-    });
+    if (existing.status !== order.status) {
+      await emitWebhookEvent('order.status.changed', {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        oldStatus: existing.status,
+        newStatus: order.status,
+        changedAt: new Date().toISOString(),
+      });
+    }
 
     res.json({
       success: true,

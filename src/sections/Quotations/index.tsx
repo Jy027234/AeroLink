@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   Calendar,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1379,12 +1381,26 @@ function WithdrawQuoteDialog({
 export function Quotations() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const { data: quotations, loading: quotesLoading, error: quotesError, refetch: refetchQuotes } = useQuotations();
+  const [activeTab, setActiveTab] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const {
+    data: quotations,
+    pagination: quotationPagination,
+    summary: quotationSummary,
+    loading: quotesLoading,
+    error: quotesError,
+    refetch: refetchQuotes,
+  } = useQuotations({
+    status: activeTab === 'all' ? undefined : activeTab,
+    search: searchQuery,
+    page: currentPage,
+    limit: pageSize,
+  });
   const { data: contractTemplates } = useDocumentTemplates('ORDER_CONTRACT');
   const { approve: approveQuote } = useApproveQuotation();
   const { mutate: dispatchNotification } = useDispatchNotification();
-  const [activeTab, setActiveTab] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -1412,7 +1428,16 @@ export function Quotations() {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 
-  const stats = {
+  const totalPages = Math.max(1, quotationPagination?.totalPages ?? 1);
+  const safePage = Math.min(currentPage, totalPages);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const stats = quotationSummary ?? {
     total: quotesList.length,
     pending: quotesList.filter((q) => q.status === 'pending_approval').length,
     approved: quotesList.filter((q) => q.status === 'approved').length,
@@ -1596,10 +1621,13 @@ export function Quotations() {
         <div className="flex-1 min-w-[300px] flex gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <Input
+        <Input
               placeholder={tx('搜索报价单号、件号或客户...', 'Search quote number, part number, or customer...')}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               className="pl-10"
             />
           </div>
@@ -1616,7 +1644,10 @@ export function Quotations() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(value) => {
+        setActiveTab(value);
+        setCurrentPage(1);
+      }}>
         <TabsList>
           <TabsTrigger value="all">{tx('全部', 'All')}</TabsTrigger>
           <TabsTrigger value="pending_approval">{tx('待审批', 'Pending')}</TabsTrigger>
@@ -1785,6 +1816,31 @@ export function Quotations() {
                   )}
                 </TableBody>
               </Table>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t px-4 py-3">
+                  <span className="text-sm text-gray-500">
+                    {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage <= 1}
+                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage >= totalPages}
+                      onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

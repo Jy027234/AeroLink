@@ -20,6 +20,7 @@ import {
   Truck,
   AlertTriangle,
   CheckCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -50,9 +51,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useInquiryStore, useUIStore } from '@/store';
+import { useAuthStore, useInquiryStore, useUIStore } from '@/store';
 import { useInventory } from '@/hooks/useApi';
-import { inventoryApi } from '@/api/client';
+import { inventoryApi, type InventoryReconciliationResult } from '@/api/client';
 import { ipcApi } from '@/api/client';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -1382,12 +1383,13 @@ function InventoryFormDialog({
 }
 
 export function InventoryCenter() {
-  const { data: inventory, loading: inventoryLoading } = useInventory();
   const { addInquiry } = useInquiryStore();
+  const currentUserRole = useAuthStore((state) => state.user?.role);
   const inventorySearchPreset = useUIStore((state) => state.inventorySearchPreset);
   const clearInventorySearchPreset = useUIStore((state) => state.clearInventorySearchPreset);
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
+  const canReconcileInventory = ['manager', 'gm', 'admin', 'administrator'].includes(currentUserRole ?? '');
   const descriptionMap: Record<string, string> = {
     'Fuel Pump Assembly': '燃油泵总成',
     'Fuel Pump Assembly (Overhauled)': '燃油泵总成（大修）',
@@ -1412,11 +1414,14 @@ export function InventoryCenter() {
 
   // Selected items
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [selectedItemMap, setSelectedItemMap] = useState<Map<string, Inventory>>(new Map());
 
   // Dialog state
   const [selectedItem, setSelectedItem] = useState<Inventory | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [reconciliation, setReconciliation] = useState<InventoryReconciliationResult | null>(null);
+  const [reconciliationLoading, setReconciliationLoading] = useState(false);
 
   const hasSearchPreset = Boolean(inventorySearchPreset);
   const activeSearchQuery = hasSearchPreset ? inventorySearchPreset : searchQuery;
@@ -1426,6 +1431,22 @@ export function InventoryCenter() {
   const activeCategoryFilter = hasSearchPreset ? 'all' : categoryFilter;
   const activeLocationFilter = hasSearchPreset ? '' : locationFilter;
   const activeCurrentPage = hasSearchPreset ? 1 : currentPage;
+  const {
+    data: inventory,
+    loading: inventoryLoading,
+    pagination: inventoryPagination,
+    summary: inventorySummary,
+    refetch: refetchInventory,
+  } = useInventory({
+    search: activeSearchQuery,
+    conditionCode: activeStatusFilter === 'all' ? undefined : activeStatusFilter,
+    certificateType: activeCertFilter === 'all' ? undefined : activeCertFilter,
+    type: activeTypeFilter === 'all' ? undefined : activeTypeFilter,
+    partCategory: activeCategoryFilter === 'all' ? undefined : activeCategoryFilter,
+    location: activeLocationFilter || undefined,
+    page: activeCurrentPage,
+    limit: pageSize,
+  });
 
   const consumeSearchPreset = () => {
     if (hasSearchPreset) {
@@ -1449,16 +1470,37 @@ export function InventoryCenter() {
   };
 
   const handleSave = () => {
-    window.location.reload();
+    void refetchInventory();
+  };
+
+  const runReconciliation = async () => {
+    setReconciliationLoading(true);
+    try {
+      const result = await inventoryApi.getReconciliation();
+      setReconciliation(result);
+      if (result.status === 'PASS') {
+        toast.success(tx('库存双模型数量一致', 'Inventory models are reconciled'));
+      } else {
+        toast.warning(tx(`发现 ${result.mismatches.length} 个件号差异`, `${result.mismatches.length} part-number mismatches found`));
+      }
+    } catch (error) {
+      console.error('Failed to reconcile inventory:', error);
+      toast.error(tx('库存对账失败，请确认权限和数据库结构', 'Inventory reconciliation failed; check permissions and schema'));
+    } finally {
+      setReconciliationLoading(false);
+    }
   };
 
   const inventoryList = useMemo(() => inventory || [], [inventory]);
 
   // Collect unique locations for filtering
   const locations = useMemo(() => {
+    if (inventorySummary?.locations?.length) {
+      return inventorySummary.locations;
+    }
     const locs = new Set(inventoryList.map(i => i.location).filter(Boolean));
     return Array.from(locs).sort();
-  }, [inventoryList]);
+  }, [inventoryList, inventorySummary?.locations]);
 
   // Filter inventory
   const filteredInventory = useMemo(() => {
@@ -1491,22 +1533,30 @@ export function InventoryCenter() {
     });
   }, [inventoryList, activeSearchQuery, activeStatusFilter, activeCertFilter, activeTypeFilter, activeCategoryFilter, activeLocationFilter]);
 
-  // Pagination
-  const totalPages = Math.ceil(filteredInventory.length / pageSize);
-  const paginatedInventory = filteredInventory.slice(
-    (activeCurrentPage - 1) * pageSize,
-    activeCurrentPage * pageSize
-  );
+  // Pagination is performed by the server; keep the local list as a safety filter
+  // for legacy responses while preserving the server total for navigation.
+  const totalRecords = inventoryPagination?.total ?? filteredInventory.length;
+  const totalPages = inventoryPagination?.totalPages ?? Math.ceil(totalRecords / pageSize);
+  const paginatedInventory = filteredInventory;
+  const rangeStart = totalRecords === 0 ? 0 : (activeCurrentPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(activeCurrentPage * pageSize, totalRecords);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, totalPages);
+    if (!hasSearchPreset && currentPage > maxPage) {
+      setCurrentPage(maxPage);
+    }
+  }, [currentPage, hasSearchPreset, totalPages]);
 
   // Stats by category
   const categoryStats = {
-    total: inventoryList.length,
-    rotable: inventoryList.filter((i) => i.partCategory === 'ROTABLE').length,
-    chemical: inventoryList.filter((i) => i.partCategory === 'CHEMICAL').length,
-    standardPart: inventoryList.filter((i) => i.partCategory === 'STANDARD_PART').length,
-    rawMaterial: inventoryList.filter((i) => i.partCategory === 'RAW_MATERIAL').length,
-    consumable: inventoryList.filter((i) => i.partCategory === 'CONSUMABLE').length,
-    totalValue: inventoryList.reduce((sum, i) => sum + i.unitCost * i.quantity, 0),
+    total: inventorySummary?.total ?? inventoryList.length,
+    rotable: inventorySummary?.rotable ?? inventoryList.filter((i) => i.partCategory === 'ROTABLE').length,
+    chemical: inventorySummary?.chemical ?? inventoryList.filter((i) => i.partCategory === 'CHEMICAL').length,
+    standardPart: inventorySummary?.standardPart ?? inventoryList.filter((i) => i.partCategory === 'STANDARD_PART').length,
+    rawMaterial: inventorySummary?.rawMaterial ?? inventoryList.filter((i) => i.partCategory === 'RAW_MATERIAL').length,
+    consumable: inventorySummary?.consumable ?? inventoryList.filter((i) => i.partCategory === 'CONSUMABLE').length,
+    totalValue: inventorySummary?.totalValue ?? inventoryList.reduce((sum, i) => sum + i.unitCost * i.quantity, 0),
   };
 
   // Select current page
@@ -1517,13 +1567,19 @@ export function InventoryCenter() {
     if (allSelected) {
       // Clear current page selection
       const newSelected = new Set(selectedItems);
+      const newSelectedItemMap = new Map(selectedItemMap);
       currentPageIds.forEach(id => newSelected.delete(id));
+      currentPageIds.forEach(id => newSelectedItemMap.delete(id));
       setSelectedItems(newSelected);
+      setSelectedItemMap(newSelectedItemMap);
     } else {
       // Select all current page items
       const newSelected = new Set(selectedItems);
+      const newSelectedItemMap = new Map(selectedItemMap);
       currentPageIds.forEach(id => newSelected.add(id));
+      paginatedInventory.forEach((item) => newSelectedItemMap.set(item.id, item));
       setSelectedItems(newSelected);
+      setSelectedItemMap(newSelectedItemMap);
     }
   };
 
@@ -1532,8 +1588,15 @@ export function InventoryCenter() {
     const newSelected = new Set(selectedItems);
     if (newSelected.has(id)) {
       newSelected.delete(id);
+      const newSelectedItemMap = new Map(selectedItemMap);
+      newSelectedItemMap.delete(id);
+      setSelectedItemMap(newSelectedItemMap);
     } else {
       newSelected.add(id);
+      const selectedItem = paginatedInventory.find((item) => item.id === id);
+      if (selectedItem) {
+        setSelectedItemMap(new Map(selectedItemMap).set(id, selectedItem));
+      }
     }
     setSelectedItems(newSelected);
   };
@@ -1553,10 +1616,11 @@ export function InventoryCenter() {
   // Clear selection
   const clearSelection = () => {
     setSelectedItems(new Set());
+    setSelectedItemMap(new Map());
   };
 
   // Resolve selected item data
-  const selectedItemsData = inventoryList.filter(i => selectedItems.has(i.id));
+  const selectedItemsData = Array.from(selectedItemMap.values());
 
   const handleAddToInquiry = () => {
     if (selectedItemsData.length === 0) return;
@@ -1786,16 +1850,58 @@ export function InventoryCenter() {
               <Download className="w-4 h-4 mr-1" />
               {tx('导出', 'Export')}
             </Button>
+            {canReconcileInventory && (
+              <Button variant="outline" size="sm" onClick={() => void runReconciliation()} disabled={reconciliationLoading}>
+                <RefreshCw className={cn('w-4 h-4 mr-1', reconciliationLoading && 'animate-spin')} />
+                {tx('运行对账', 'Run Reconciliation')}
+              </Button>
+            )}
           </div>
         </div>
       </Card>
+
+      {reconciliation && (
+        <Card className={reconciliation.status === 'PASS' ? 'border-green-200 bg-green-50/50' : 'border-amber-200 bg-amber-50/50'}>
+          <CardContent className="p-4 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {reconciliation.status === 'PASS' ? (
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5 text-amber-600" />
+                )}
+                <span className="font-medium">
+                  {reconciliation.status === 'PASS'
+                    ? tx('库存双模型对账通过', 'Inventory model reconciliation passed')
+                    : tx('库存双模型存在差异', 'Inventory model mismatches detected')}
+                </span>
+              </div>
+              <span className="text-sm text-gray-600">
+                {tx('件号', 'Part numbers')}: {reconciliation.checkedPartNumbers} · {tx('旧模型总量', 'Legacy total')}: {reconciliation.legacyTotal} · {tx('明细总量', 'Detail total')}: {reconciliation.detailTotal}
+              </span>
+            </div>
+            {reconciliation.mismatches.length > 0 && (
+              <div className="text-sm text-amber-800">
+                {reconciliation.mismatches.slice(0, 5).map((mismatch) => (
+                  <div key={mismatch.partNumber}>
+                    {mismatch.partNumber}: {mismatch.legacyQuantity} → {mismatch.detailQuantity} (Δ {mismatch.delta})
+                  </div>
+                ))}
+                {reconciliation.mismatches.length > 5 && (
+                  <div>{tx(`还有 ${reconciliation.mismatches.length - 5} 个差异未展开`, `${reconciliation.mismatches.length - 5} more mismatches hidden`)}</div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 数据表格 */}
       <Card>
         <div className="px-4 py-2 border-b flex items-center justify-between">
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-500">
-              {tx('共', 'Total')} {filteredInventory.length} {tx('条记录', 'records')}
+              {tx('共', 'Total')} {totalRecords} {tx('条记录', 'records')}
               {selectedItems.size > 0 && (
                 <span className="ml-2 text-blue-600">{selectedItems.size} {tx('已选', 'selected')}</span>
               )}
@@ -2091,7 +2197,7 @@ export function InventoryCenter() {
         {totalPages > 1 && (
           <div className="p-4 border-t flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-sm text-gray-500">
-              {tx('显示', 'Showing')} {(activeCurrentPage - 1) * pageSize + 1}-{Math.min(activeCurrentPage * pageSize, filteredInventory.length)} {tx('共', 'of')} {filteredInventory.length}
+              {tx('显示', 'Showing')} {rangeStart}-{rangeEnd} {tx('共', 'of')} {totalRecords}
             </p>
             <div className="flex items-center gap-2">
               <Button

@@ -728,7 +728,6 @@ export function Suppliers() {
     'Net 45': '月结45天',
     'Net 60': '月结60天',
   };
-  const { data: suppliers, loading: suppliersLoading, refetch } = useSuppliers();
   const allSupplierFollowUpLogs = useSupplierFollowUpStore((state) => state.logs);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
@@ -743,6 +742,19 @@ export function Suppliers() {
   const [createForm, setCreateForm] = useState({ ...emptyForm });
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
+  const {
+    data: suppliers,
+    loading: suppliersLoading,
+    pagination: suppliersPagination,
+    summary: suppliersSummary,
+    refetch,
+  } = useSuppliers({
+    level: activeTab === 'all' ? undefined : activeTab,
+    search: searchQuery,
+    followUpFilter,
+    page: currentPage,
+    limit: pageSize,
+  });
 
   const suppliersList = suppliers || [];
   const capabilityProfiles = suppliersList.map(getSupplierCapabilityProfile);
@@ -795,22 +807,29 @@ export function Suppliers() {
     return rightTime - leftTime;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filteredSuppliers.length / pageSize));
+  const totalRecords = suppliersPagination?.total ?? filteredSuppliers.length;
+  const totalPages = Math.max(1, suppliersPagination?.totalPages ?? Math.ceil(totalRecords / pageSize));
   const safePage = Math.min(currentPage, totalPages);
-  const paginatedSuppliers = filteredSuppliers.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paginatedSuppliers = filteredSuppliers;
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, activeTab, followUpFilter]);
 
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   // Stats
   const stats = {
-    total: suppliersList.length,
-    s: suppliersList.filter((s) => s.level === 'S').length,
-    a: suppliersList.filter((s) => s.level === 'A').length,
-    b: suppliersList.filter((s) => s.level === 'B').length,
-    c: suppliersList.filter((s) => s.level === 'C').length,
-    avgScore: Math.round(suppliersList.reduce((sum, s) => sum + (s.performanceScore || 0), 0) / (suppliersList.length || 1)),
+    total: suppliersSummary?.total ?? suppliersList.length,
+    s: suppliersSummary?.s ?? suppliersList.filter((s) => s.level === 'S').length,
+    a: suppliersSummary?.a ?? suppliersList.filter((s) => s.level === 'A').length,
+    b: suppliersSummary?.b ?? suppliersList.filter((s) => s.level === 'B').length,
+    c: suppliersSummary?.c ?? suppliersList.filter((s) => s.level === 'C').length,
+    avgScore: suppliersSummary?.avgScore ?? Math.round(suppliersList.reduce((sum, s) => sum + (s.performanceScore || 0), 0) / (suppliersList.length || 1)),
     autoReady: capabilityProfiles.filter((profile) => profile.automationMode === 'auto').length,
     manualOnly: capabilityProfiles.filter((profile) => profile.automationMode === 'manual').length,
     profileGap: capabilityProfiles.filter((profile) => profile.automationMode === 'blocked').length,
@@ -1205,7 +1224,7 @@ export function Suppliers() {
                   )}
                 </TableBody>
               </Table>
-              {filteredSuppliers.length > pageSize && (
+              {totalPages > 1 && (
                 <div className="flex items-center justify-between pt-2 px-4 pb-2">
                   <span className="text-sm text-gray-500">
                     {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}

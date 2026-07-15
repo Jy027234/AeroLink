@@ -1,15 +1,19 @@
-name: Deploy
+name: Build and Verify
 
 on:
   push:
     branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  build-and-deploy:
-    name: Build and Deploy
+  build-and-verify:
+    name: Build and Verify Release Artifacts
     runs-on: ubuntu-latest
-    needs: [ci]
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    timeout-minutes: 45
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
 
     steps:
       - uses: actions/checkout@v4
@@ -37,4 +41,43 @@ jobs:
 
       - name: Build backend
         working-directory: ./server
-        run: npx tsc --noEmit
+        run: npm run build
+
+      - name: Prepare local-only Compose secret for config validation
+        shell: bash
+        run: |
+          mkdir -p secrets ci-tls
+          printf 'ci-only-encryption-key-not-for-production\n' > secrets/encryption_key.txt
+
+      - name: Validate PostgreSQL production Compose
+        run: docker compose --env-file .env.production.example -f docker-compose.prod.yml config
+
+      - name: Validate TLS Compose overlay
+        env:
+          TLS_CERT_DIR: ${{ github.workspace }}/ci-tls
+        run: docker compose --env-file .env.production.example -f docker-compose.prod.yml -f docker-compose.prod.tls.yml config
+
+      - name: Build backend image (no push)
+        run: docker build --file deploy/Dockerfile.server --tag aerolink-backend:${{ github.sha }} .
+
+      - name: Build HTTP web image (no push)
+        run: docker build --file deploy/Dockerfile.web --build-arg VITE_API_URL=/api --tag aerolink-web-http:${{ github.sha }} .
+
+      - name: Build TLS web image (no push)
+        run: docker build --file deploy/Dockerfile.web --build-arg VITE_API_URL=/api --build-arg NGINX_CONFIG=deploy/nginx.tls.conf --tag aerolink-web-tls:${{ github.sha }} .
+
+      - name: Generate frontend SBOM
+        run: npm sbom --package-lock-only --sbom-format spdx > frontend.sbom.spdx.json
+
+      - name: Generate backend SBOM
+        working-directory: ./server
+        run: npm sbom --package-lock-only --sbom-format spdx > ../backend.sbom.spdx.json
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aerolink-sbom-${{ github.sha }}
+          path: |
+            frontend.sbom.spdx.json
+            backend.sbom.spdx.json
+          if-no-files-found: error

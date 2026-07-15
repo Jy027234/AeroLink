@@ -116,20 +116,36 @@ function mapSupplierFollowUpLog(log: SupplierFollowUpLogWithRelations) {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { level, page, limit } = req.query;
+    const { level, search, followUpFilter, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * pageSize;
 
-    const cacheKey = `${CACHE_KEY.SUPPLIER_LIST}:${level || 'all'}:${pageNum}:${pageSize}`;
+    const searchValue = typeof search === 'string' ? search.trim() : '';
+    const followUpFilterValue = typeof followUpFilter === 'string' ? followUpFilter : 'all';
+    const cacheKey = [CACHE_KEY.SUPPLIER_LIST, level || 'all', searchValue || 'all', followUpFilterValue, pageNum, pageSize].join(':');
 
     const result = await cache.getOrSet(
       cacheKey,
       async () => {
         const where: Prisma.SupplierWhereInput = {};
         if (level) where.level = level.toString().toUpperCase();
+        if (searchValue) {
+          where.OR = [
+            { name: { contains: searchValue, mode: 'insensitive' } },
+            { contactName: { contains: searchValue, mode: 'insensitive' } },
+            { email: { contains: searchValue, mode: 'insensitive' } },
+          ];
+        }
+        if (followUpFilterValue === 'with-follow-up') {
+          where.followUpLogs = { some: {} };
+        } else if (followUpFilterValue === 'waiting_quote') {
+          where.followUpLogs = { some: { outcome: 'contacted_waiting_quote' } };
+        } else if (followUpFilterValue === 'quote_promised') {
+          where.followUpLogs = { some: { outcome: 'quote_promised' } };
+        }
 
-        const [suppliers, total] = await Promise.all([
+        const [suppliers, total, levelCounts, performanceAggregate] = await Promise.all([
           prisma.supplier.findMany({
             where,
             orderBy: { name: 'asc' },
@@ -137,10 +153,25 @@ router.get(
             take: pageSize,
           }),
           prisma.supplier.count({ where }),
+          prisma.supplier.groupBy({
+            by: ['level'],
+            _count: { _all: true },
+          }),
+          prisma.supplier.aggregate({
+            _avg: { performanceScore: true },
+          }),
         ]);
 
         return {
           data: suppliers.map(mapSupplierResponse),
+          summary: {
+            total: levelCounts.reduce((sum, entry) => sum + entry._count._all, 0),
+            s: levelCounts.find((entry) => entry.level === 'S')?._count._all || 0,
+            a: levelCounts.find((entry) => entry.level === 'A')?._count._all || 0,
+            b: levelCounts.find((entry) => entry.level === 'B')?._count._all || 0,
+            c: levelCounts.find((entry) => entry.level === 'C')?._count._all || 0,
+            avgScore: Math.round(performanceAggregate._avg.performanceScore || 0),
+          },
           pagination: {
             page: pageNum,
             limit: pageSize,

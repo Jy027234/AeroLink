@@ -64,6 +64,7 @@ import { processPendingWebhookRetries } from './lib/webhookService.js';
 
 const app = express();
 const httpServer = createServer(app);
+const isProduction = process.env.NODE_ENV === 'production';
 
 const defaultClientOrigins = [
   'http://localhost:5173',
@@ -74,10 +75,13 @@ const defaultClientOrigins = [
   'http://127.0.0.1:5175',
 ];
 
-const clientOrigins = Array.from(new Set([
-  ...(process.env.CLIENT_URL?.split(',').map((origin) => origin.trim()).filter(Boolean) ?? []),
-  ...defaultClientOrigins,
-]));
+const configuredClientOrigins = process.env.CLIENT_URL
+  ?.split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean) ?? [];
+const clientOrigins = isProduction
+  ? Array.from(new Set(configuredClientOrigins))
+  : Array.from(new Set([...configuredClientOrigins, ...defaultClientOrigins]));
 
 const io = new Server(httpServer, {
   cors: {
@@ -87,8 +91,6 @@ const io = new Server(httpServer, {
 });
 
 initSocketIO(io);
-
-const isProduction = process.env.NODE_ENV === 'production';
 
 if (isProduction) {
   app.set('trust proxy', 1);

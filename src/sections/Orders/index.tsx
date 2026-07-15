@@ -1115,11 +1115,21 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 export function Orders() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const { data: orders, loading: ordersLoading } = useOrders();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
+  const {
+    data: orders,
+    pagination: orderPagination,
+    summary: orderSummary,
+    loading: ordersLoading,
+  } = useOrders({
+    status: activeTab === 'all' ? undefined : activeTab,
+    search: searchQuery,
+    page: currentPage,
+    limit: pageSize,
+  });
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
@@ -1142,12 +1152,18 @@ export function Orders() {
     return true;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
+  const totalPages = Math.max(1, orderPagination?.totalPages ?? 1);
   const safePage = Math.min(currentPage, totalPages);
-  const paginatedOrders = filteredOrders.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paginatedOrders = filteredOrders;
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Stats
-  const stats = {
+  const stats = orderSummary ?? {
     total: ordersList.length,
     inProgress: ordersList.filter((o) => o.status !== 'completed' && o.status !== 'delivered').length,
     completed: ordersList.filter((o) => o.status === 'completed' || o.status === 'delivered').length,
@@ -1338,7 +1354,7 @@ export function Orders() {
                   )}
                 </TableBody>
               </Table>
-              {filteredOrders.length > pageSize && (
+              {totalPages > 1 && (
                 <div className="flex items-center justify-between p-4">
                   <span className="text-sm text-gray-500">
                     {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}

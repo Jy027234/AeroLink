@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { validateBody } from '../middleware/validate.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
+import { requireRole } from '../middleware/rbac.js';
 import prisma from '../lib/prisma.js';
 import {
   startWorkflow,
@@ -13,6 +14,7 @@ import {
 } from '../lib/workflowEngine.js';
 
 const router = Router();
+const requireWorkflowManagementRole = requireRole('manager', 'admin');
 
 // Validation schemas
 const workflowDefinitionCreateSchema = z.object({
@@ -114,6 +116,7 @@ router.get(
 router.post(
   '/definitions',
   authenticate,
+  requireWorkflowManagementRole,
   validateBody(workflowDefinitionCreateSchema),
   asyncHandler(async (req: AuthRequest, res) => {
     const { steps, ...data } = req.body;
@@ -164,6 +167,7 @@ router.get(
 router.put(
   '/definitions/:id',
   authenticate,
+  requireWorkflowManagementRole,
   validateBody(workflowDefinitionUpdateSchema),
   asyncHandler(async (req: AuthRequest, res) => {
     const { id } = req.params;
@@ -216,6 +220,7 @@ router.put(
 router.delete(
   '/definitions/:id',
   authenticate,
+  requireWorkflowManagementRole,
   asyncHandler(async (req: AuthRequest, res) => {
     const { id } = req.params;
 
@@ -245,6 +250,7 @@ router.delete(
 router.post(
   '/definitions/:id/duplicate',
   authenticate,
+  requireWorkflowManagementRole,
   asyncHandler(async (req: AuthRequest, res) => {
     const { id } = req.params;
     const newDefinition = await duplicateDefinition(id, req.user!.id);

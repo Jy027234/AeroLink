@@ -6,6 +6,12 @@ const prisma = new PrismaClient();
 const SALT_ROUNDS = 12;
 
 async function main() {
+  const demoSeedPassword = process.env.DEMO_SEED_PASSWORD;
+  if (!demoSeedPassword || demoSeedPassword.length < 8) {
+    throw new Error('DEMO_SEED_PASSWORD (at least 8 characters) is required; refusing to seed demo data with a default password.');
+  }
+  const demoPasswordHash = await bcrypt.hash(demoSeedPassword, SALT_ROUNDS);
+
   console.log('开始播种数据...');
 
   await prisma.notification.deleteMany();
@@ -227,7 +233,7 @@ async function main() {
         id: 'u001',
         email: 'zhang@aerolink.com',
         name: '张经理',
-        password: await bcrypt.hash('password123', SALT_ROUNDS),
+        password: demoPasswordHash,
         role: 'MANAGER',
         department: '销售部',
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhang',
@@ -236,7 +242,7 @@ async function main() {
         id: 'u002',
         email: 'li@aerolink.com',
         name: '李财务',
-        password: await bcrypt.hash('password123', SALT_ROUNDS),
+        password: demoPasswordHash,
         role: 'FINANCE',
         department: '财务部',
       },
@@ -244,7 +250,7 @@ async function main() {
         id: 'u003',
         email: 'wang@aerolink.com',
         name: '王总监',
-        password: await bcrypt.hash('password123', SALT_ROUNDS),
+        password: demoPasswordHash,
         role: 'GM',
         department: '总经理室',
       },

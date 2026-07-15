@@ -16,6 +16,7 @@ model User {
   department  String?
   avatar      String?
   isActive    Boolean   @default(true)
+  tokenVersion Int      @default(0)
   activationToken String? @unique
   activationTokenExpiresAt DateTime?
   passwordResetToken String? @unique
@@ -675,7 +676,7 @@ model Order {
   orderNumber     String   @unique
   soNumber        String   @unique
   poNumber        String?
-  quotationId     String
+  quotationId     String   @unique
   customerId      String
   partNumber      String
   quantity        Int
@@ -747,6 +748,7 @@ model Order {
   certificates Certificate[]
   inventoryTransactions InventoryTransaction[]
 
+  @@index([status, createdAt])
   @@map("orders")
 }
 

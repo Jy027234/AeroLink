@@ -4,7 +4,8 @@ const path = require('path');
 
 const LOGIN_URL = 'http://127.0.0.1:8080';
 const EMAIL = 'zhang@aerolink.com';
-const PASSWORD = 'password123';
+const PASSWORD = process.env.E2E_PASSWORD;
+if (!PASSWORD) throw new Error('E2E_PASSWORD is required for the UI audit script.');
 const OUTPUT_DIR = path.join(__dirname, '..', 'test-results', 'ui-audit');
 
 // Ensure output directory exists

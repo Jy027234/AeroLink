@@ -7,6 +7,7 @@ import {
   type WebhookAuditLogItem,
   type WebhookDLQItem,
   type WebhookDLQStats,
+  type WebhookFailureReason,
 } from '@/api/client';
 import { useTranslation } from '@/i18n';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -77,6 +78,7 @@ interface PayloadTemplate {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 const TEST_PAYLOAD_TEMPLATES_KEY = 'webhook_test_payload_templates';
+const DLQ_FAILURE_REASONS: WebhookFailureReason[] = ['4xx', '5xx', 'timeout', 'connection_error', 'other'];
 
 async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
   const enc = new TextEncoder();
@@ -101,6 +103,12 @@ const initialForm: EndpointFormState = {
   secret: '',
 };
 
+const toIsoDateFilter = (value: string) => {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+};
+
 export function WebhookManagementPanel() {
   const { locale } = useTranslation();
   const tx = useCallback((zh: string, en: string) => (locale === 'zh-CN' ? zh : en), [locale]);
@@ -117,6 +125,7 @@ export function WebhookManagementPanel() {
   const [form, setForm] = useState<EndpointFormState>(initialForm);
   const [editId, setEditId] = useState<string | null>(null);
   const [deliveryStatusFilter, setDeliveryStatusFilter] = useState('all');
+  const [deliveryEndpointFilter, setDeliveryEndpointFilter] = useState('all');
   const [deliveryLimit] = useState(20);
   const [deliveryOffset, setDeliveryOffset] = useState(0);
   const [deliveryTotal, setDeliveryTotal] = useState(0);
@@ -128,6 +137,11 @@ export function WebhookManagementPanel() {
   const [auditLimit] = useState(20);
   const [auditOffset, setAuditOffset] = useState(0);
   const [auditTotal, setAuditTotal] = useState(0);
+  const [dlqEndpointFilter, setDlqEndpointFilter] = useState('all');
+  const [dlqFailureReasonFilter, setDlqFailureReasonFilter] = useState('all');
+  const [dlqLimit] = useState(20);
+  const [dlqOffset, setDlqOffset] = useState(0);
+  const [dlqTotal, setDlqTotal] = useState(0);
 
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [testTarget, setTestTarget] = useState<InboundWebhookEndpoint | null>(null);
@@ -168,6 +182,7 @@ export function WebhookManagementPanel() {
         inboundWebhookApi.listDeliveries({
           limit: deliveryLimit,
           offset: deliveryOffset,
+          endpointId: deliveryEndpointFilter === 'all' ? undefined : deliveryEndpointFilter,
           status: deliveryStatusFilter === 'all' ? undefined : deliveryStatusFilter,
         }),
         inboundWebhookApi.listAudit({
@@ -175,8 +190,15 @@ export function WebhookManagementPanel() {
           offset: auditOffset,
           action: auditActionFilter || undefined,
           resourceType: auditResourceFilter || undefined,
+          startDate: toIsoDateFilter(auditStart),
+          endDate: toIsoDateFilter(auditEnd),
         }),
-        webhooksPhase2Api.getDlqList({ limit: 20 }),
+        webhooksPhase2Api.getDlqList({
+          limit: dlqLimit,
+          offset: dlqOffset,
+          endpointId: dlqEndpointFilter === 'all' ? undefined : dlqEndpointFilter,
+          failureReason: dlqFailureReasonFilter === 'all' ? undefined : dlqFailureReasonFilter as WebhookFailureReason,
+        }),
         webhooksPhase2Api.getDlqStats(),
       ]);
 
@@ -187,6 +209,7 @@ export function WebhookManagementPanel() {
       setAuditTotal(auditRes.pagination.total);
       setDlqItems(dlqRes.data);
       setDlqStats(stats);
+      setDlqTotal(dlqRes.pagination.total);
     } catch (error) {
       console.error('Failed to load webhook management data:', error);
       toast.error(tx('加载 Webhook 管理数据失败', 'Failed to load webhook management data'));
@@ -196,17 +219,54 @@ export function WebhookManagementPanel() {
   }, [
     deliveryLimit,
     deliveryOffset,
+    deliveryEndpointFilter,
     deliveryStatusFilter,
     auditLimit,
     auditOffset,
     auditActionFilter,
     auditResourceFilter,
+    auditStart,
+    auditEnd,
+    dlqLimit,
+    dlqOffset,
+    dlqEndpointFilter,
+    dlqFailureReasonFilter,
     tx,
   ]);
 
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (dlqTotal === 0 && dlqOffset !== 0) {
+      setDlqOffset(0);
+      return;
+    }
+    if (dlqTotal > 0 && dlqOffset >= dlqTotal) {
+      setDlqOffset(Math.max(0, Math.floor((dlqTotal - 1) / dlqLimit) * dlqLimit));
+    }
+  }, [dlqLimit, dlqOffset, dlqTotal]);
+
+  useEffect(() => {
+    if (deliveryTotal === 0 && deliveryOffset !== 0) {
+      setDeliveryOffset(0);
+      return;
+    }
+    if (deliveryTotal > 0 && deliveryOffset >= deliveryTotal) {
+      setDeliveryOffset(Math.max(0, Math.floor((deliveryTotal - 1) / deliveryLimit) * deliveryLimit));
+    }
+  }, [deliveryLimit, deliveryOffset, deliveryTotal]);
+
+  useEffect(() => {
+    if (auditTotal === 0 && auditOffset !== 0) {
+      setAuditOffset(0);
+      return;
+    }
+    if (auditTotal > 0 && auditOffset >= auditTotal) {
+      setAuditOffset(Math.max(0, Math.floor((auditTotal - 1) / auditLimit) * auditLimit));
+    }
+  }, [auditLimit, auditOffset, auditTotal]);
 
   const onSubmit = async () => {
     if (!form.name || !form.sourceSystem || !form.urlPath) {
@@ -696,6 +756,26 @@ export function WebhookManagementPanel() {
                       <SelectItem value="failed">failed</SelectItem>
                     </SelectContent>
                   </Select>
+                  <span>{tx('端点', 'Endpoint')}</span>
+                  <Select
+                    value={deliveryEndpointFilter}
+                    onValueChange={(v) => {
+                      setDeliveryOffset(0);
+                      setDeliveryEndpointFilter(v);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-44">
+                      <SelectValue placeholder={tx('全部端点', 'All endpoints')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{tx('全部端点', 'All endpoints')}</SelectItem>
+                      {endpoints.map((endpoint) => (
+                        <SelectItem key={endpoint.id} value={endpoint.id}>
+                          {endpoint.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Button size="sm" variant="outline" onClick={exportDeliveriesCsv}>{tx('导出 CSV', 'Export CSV')}</Button>
                 </div>
               </CardDescription>
@@ -761,11 +841,11 @@ export function WebhookManagementPanel() {
               <CardTitle>{tx('审计日志', 'Audit Logs')}</CardTitle>
               <CardDescription>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Input className="h-8 w-36" value={auditActionFilter} onChange={(e) => setAuditActionFilter(e.target.value)} placeholder={tx('动作筛选', 'Action')} />
-                  <Input className="h-8 w-36" value={auditResourceFilter} onChange={(e) => setAuditResourceFilter(e.target.value)} placeholder={tx('资源类型', 'Resource')} />
-                  <Input className="h-8 w-40" type="datetime-local" value={auditStart} onChange={(e) => setAuditStart(e.target.value)} />
-                  <Input className="h-8 w-40" type="datetime-local" value={auditEnd} onChange={(e) => setAuditEnd(e.target.value)} />
-                  <Button size="sm" variant="outline" onClick={() => { setAuditOffset(0); void loadAll(); }}>{tx('应用', 'Apply')}</Button>
+                  <Input className="h-8 w-36" value={auditActionFilter} onChange={(e) => { setAuditOffset(0); setAuditActionFilter(e.target.value); }} placeholder={tx('动作筛选', 'Action')} />
+                  <Input className="h-8 w-36" value={auditResourceFilter} onChange={(e) => { setAuditOffset(0); setAuditResourceFilter(e.target.value); }} placeholder={tx('资源类型', 'Resource')} />
+                  <Input className="h-8 w-40" type="datetime-local" value={auditStart} onChange={(e) => { setAuditOffset(0); setAuditStart(e.target.value); }} />
+                  <Input className="h-8 w-40" type="datetime-local" value={auditEnd} onChange={(e) => { setAuditOffset(0); setAuditEnd(e.target.value); }} />
+                  <Button size="sm" variant="outline" onClick={() => setAuditOffset(0)}>{tx('应用', 'Apply')}</Button>
                   <Button size="sm" variant="outline" onClick={exportAuditCsv}>{tx('导出 CSV', 'Export CSV')}</Button>
                 </div>
               </CardDescription>
@@ -855,16 +935,63 @@ export function WebhookManagementPanel() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{tx('DLQ 列表', 'DLQ List')}</CardTitle>
+              <CardTitle className="flex items-center justify-between">
+                <span>{tx('DLQ 列表', 'DLQ List')}</span>
+                <span className="text-sm font-normal text-muted-foreground">
+                  {tx('总数', 'Total')}: {dlqTotal}
+                </span>
+              </CardTitle>
+              <CardDescription>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value={dlqEndpointFilter}
+                    onValueChange={(v) => {
+                      setDlqOffset(0);
+                      setDlqEndpointFilter(v);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-44">
+                      <SelectValue placeholder={tx('全部端点', 'All endpoints')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{tx('全部端点', 'All endpoints')}</SelectItem>
+                      {endpoints.map((endpoint) => (
+                        <SelectItem key={endpoint.id} value={endpoint.id}>
+                          {endpoint.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={dlqFailureReasonFilter}
+                    onValueChange={(v) => {
+                      setDlqOffset(0);
+                      setDlqFailureReasonFilter(v);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-48">
+                      <SelectValue placeholder={tx('全部失败原因', 'All failure reasons')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{tx('全部失败原因', 'All failure reasons')}</SelectItem>
+                      {DLQ_FAILURE_REASONS.map((reason) => (
+                        <SelectItem key={reason} value={reason}>{reason}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>{tx('ID', 'ID')}</TableHead>
+                    <TableHead>{tx('端点', 'Endpoint')}</TableHead>
                     <TableHead>{tx('状态', 'Status')}</TableHead>
                     <TableHead>{tx('失败原因', 'Failure Reason')}</TableHead>
                     <TableHead>{tx('重试次数', 'Retry Count')}</TableHead>
+                    <TableHead>{tx('隔离时间', 'Quarantined At')}</TableHead>
                     <TableHead>{tx('操作', 'Actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -872,9 +999,11 @@ export function WebhookManagementPanel() {
                   {dlqItems.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="font-mono text-xs">{item.id.slice(0, 8)}</TableCell>
-                      <TableCell>{item.status}</TableCell>
+                      <TableCell>{endpointMap.get(item.endpointId)?.name ?? item.endpointId.slice(0, 8)}</TableCell>
+                      <TableCell>quarantined</TableCell>
                       <TableCell>{item.failureReason || '-'}</TableCell>
-                      <TableCell>{item.retryCount}</TableCell>
+                      <TableCell>{item.attemptCount}</TableCell>
+                      <TableCell>{new Date(item.quarantineAt).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US')}</TableCell>
                       <TableCell className="space-x-2">
                         <Button size="sm" variant="outline" disabled={actionLoadingId === item.id + 'review'} onClick={() => void onDlqAction(item.id, 'review')}>
                           {tx('审核', 'Review')}
@@ -890,13 +1019,38 @@ export function WebhookManagementPanel() {
                   ))}
                   {dlqItems.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center text-muted-foreground">
                         {tx('暂无 DLQ 记录', 'No DLQ items')}
                       </TableCell>
                     </TableRow>
                   ) : null}
                 </TableBody>
               </Table>
+              <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+                <span>
+                  {dlqTotal === 0
+                    ? tx('暂无记录', 'No records')
+                    : tx('第', 'Items') + ' ' + (dlqOffset + 1) + '-' + Math.min(dlqOffset + dlqLimit, dlqTotal) + ' / ' + dlqTotal}
+                </span>
+                <div className="space-x-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={dlqOffset <= 0}
+                    onClick={() => setDlqOffset((value) => Math.max(0, value - dlqLimit))}
+                  >
+                    {tx('上一页', 'Prev')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={dlqOffset + dlqLimit >= dlqTotal}
+                    onClick={() => setDlqOffset((value) => value + dlqLimit)}
+                  >
+                    {tx('下一页', 'Next')}
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

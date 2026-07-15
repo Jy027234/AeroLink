@@ -115,6 +115,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     triggerClassName: 'gap-1',
     contentClassName: 'mt-4',
     featureStage: 'stable',
+    requiredRoles: ['admin', 'administrator', 'gm', 'manager'],
     render: () => <AgentManagement />,
   },
   {

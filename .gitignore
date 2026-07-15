@@ -21,3 +21,5 @@ nul
 *.pptx
 server/prisma/dev.db
 server/server.log
+secrets/*
+!secrets/.gitkeep

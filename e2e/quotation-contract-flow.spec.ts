@@ -1,11 +1,14 @@
 import { expect, test } from '@playwright/test';
 
+const E2E_PASSWORD = process.env.E2E_PASSWORD;
+if (!E2E_PASSWORD) throw new Error('E2E_PASSWORD is required for seeded E2E tests.');
+
 const managerUser = {
   email: 'zhang@aerolink.com',
-  password: 'password123',
+  password: E2E_PASSWORD,
 };
 
-const backendBaseUrl = 'http://127.0.0.1:3000/api';
+const backendBaseUrl = `${process.env.PLAYWRIGHT_API_ORIGIN || 'http://127.0.0.1:3000'}/api`;
 
 async function loginToApi(apiBaseUrl: string) {
   const loginResponse = await fetch(`${apiBaseUrl}/auth/login`, {
@@ -120,19 +123,38 @@ async function loginByUi(page: import('@playwright/test').Page) {
   await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible();
 }
 
-test('should confirm an approved quotation and download the generated contract from Orders', async ({ page }) => {
-  const dialogs: string[] = [];
-  page.on('dialog', async (dialog) => {
-    dialogs.push(dialog.message());
-    await dialog.accept();
-  });
+async function navigateFromSidebar(
+  page: import('@playwright/test').Page,
+  groupLabel: string,
+  itemLabel: RegExp,
+) {
+  const item = page.getByRole('button', { name: itemLabel });
+  if (!(await item.isVisible())) {
+    await page.getByRole('button', { name: groupLabel, exact: true }).click();
+  }
+  await item.click();
+}
 
+function quoteDetailTitle(quoteNumber: string) {
+  return new RegExp(`(?:报价详情|Quote Details)\\s*-\\s*${quoteNumber}`);
+}
+
+function orderDetailTitle(orderNumber: string) {
+  return new RegExp(`(?:订单详情|Order Details)\\s*-\\s*${orderNumber}`);
+}
+
+async function expectToast(page: import('@playwright/test').Page, message: string | RegExp) {
+  const toast = page.locator('[data-sonner-toast]').filter({ hasText: message }).last();
+  await expect(toast).toBeVisible();
+}
+
+test('should confirm an approved quotation and download the generated contract from Orders', async ({ page }) => {
   const { quotationId, quoteNumber } = await createApprovedQuotation(backendBaseUrl);
 
   await loginByUi(page);
 
   await test.step('在报价页定位新报价并执行客户确认', async () => {
-    await page.getByRole('button', { name: /报价管理/ }).click();
+    await navigateFromSidebar(page, '寻源报价', /报价管理/);
     await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
     await page.getByPlaceholder('搜索报价单号、件号或客户...').fill(quoteNumber);
@@ -141,14 +163,14 @@ test('should confirm an approved quotation and download the generated contract f
 
     await quoteRow.getByRole('button').first().click();
     const quoteDialog = page.getByRole('dialog');
-    await expect(quoteDialog.getByText(`Quote Details - ${quoteNumber}`)).toBeVisible();
+    await expect(quoteDialog.getByText(quoteDetailTitle(quoteNumber))).toBeVisible();
 
-    await quoteDialog.getByRole('button', { name: 'Confirm Customer & Generate Contract' }).click();
+    await quoteDialog.getByRole('button', { name: /确认客户并生成合同|Confirm Customer & Generate Contract/ }).click();
 
     const confirmationDialog = page.getByRole('dialog');
-    await expect(confirmationDialog.getByText('Customer Confirmation & Contract Generation')).toBeVisible();
-    await confirmationDialog.getByPlaceholder('Optional PO number').fill(`PO-${Date.now()}`);
-    await confirmationDialog.getByPlaceholder('Record how the customer confirmed the quotation...').fill('客户电话确认，允许系统自动生成合同并创建订单。');
+    await expect(confirmationDialog.getByText(/客户确认并生成合同|Customer Confirmation & Contract Generation/)).toBeVisible();
+    await confirmationDialog.getByPlaceholder(/可选采购单号|Optional PO number/).fill(`PO-${Date.now()}`);
+    await confirmationDialog.getByPlaceholder(/记录客户确认报价的方式|Record how the customer confirmed the quotation/).fill('客户电话确认，允许系统自动生成合同并创建订单。');
 
     const acceptResponsePromise = page.waitForResponse((response) =>
       response.request().method() === 'POST' &&
@@ -161,7 +183,7 @@ test('should confirm an approved quotation and download the generated contract f
       response.status() === 200
     );
 
-    await confirmationDialog.getByRole('button', { name: 'Confirm & Generate Contract' }).click();
+    await confirmationDialog.getByRole('button', { name: /确认并生成合同|Confirm & Generate Contract/ }).click();
 
     const acceptResponse = await acceptResponsePromise;
     const acceptPayload = await acceptResponse.json() as {
@@ -175,6 +197,7 @@ test('should confirm an approved quotation and download the generated contract f
 
     expect(acceptPayload.data.status).toBe('accepted');
     expect(initialContractDownload.status()).toBe(200);
+    await expectToast(page, new RegExp(`客户确认已记录，合同已生成：${quoteNumber}。|Customer confirmation recorded\\. Contract generated for ${quoteNumber}\\.`));
 
     await expect(quoteRow).toContainText('已接受');
 
@@ -182,7 +205,7 @@ test('should confirm an approved quotation and download the generated contract f
     const { orderNumber } = order;
 
     await test.step('在订单页打开新订单并再次下载合同', async () => {
-      await page.getByRole('button', { name: /订单管理/ }).click();
+      await navigateFromSidebar(page, '订单与库存', /订单管理/);
       await expect(page.getByRole('banner').getByRole('heading', { name: '订单管理' })).toBeVisible();
 
       await page.getByPlaceholder('搜索订单号、件号或客户...').fill(orderNumber);
@@ -191,7 +214,7 @@ test('should confirm an approved quotation and download the generated contract f
 
       await orderRow.getByRole('button').first().click();
       const orderDialog = page.getByRole('dialog');
-      await expect(orderDialog.getByText(`Order Details - ${orderNumber}`)).toBeVisible();
+      await expect(orderDialog.getByText(orderDetailTitle(orderNumber))).toBeVisible();
 
       const orderDownloadResponsePromise = page.waitForResponse((response) =>
         response.request().method() === 'GET' &&
@@ -199,16 +222,14 @@ test('should confirm an approved quotation and download the generated contract f
         response.status() === 200
       );
 
-      await orderDialog.getByRole('button', { name: 'Download Contract' }).click();
+      await orderDialog.getByRole('button', { name: /下载合同|Download Contract/ }).click();
       const orderDownloadResponse = await orderDownloadResponsePromise;
 
       expect(orderDownloadResponse.status()).toBe(200);
       expect(orderDownloadResponse.headers()['content-type']).toContain('application/pdf');
-      await orderDialog.getByRole('button', { name: 'Close' }).first().click();
+      await orderDialog.getByRole('button', { name: /关闭|Close/ }).first().click();
     });
   });
-
-  expect(dialogs).toContain(`Customer confirmation recorded. Contract generated for ${quoteNumber}.`);
 });
 
 test('should show a retryable error banner when quotation details fail to load', async ({ page }) => {
@@ -216,7 +237,7 @@ test('should show a retryable error banner when quotation details fail to load',
   let remainingFailures = 1;
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.route(`**/api/quotations/${quotationId}`, async (route) => {
@@ -247,7 +268,7 @@ test('should show a retryable error banner when quotation details fail to load',
 
   await quoteRow.getByRole('button').first().click();
   const quoteDialog = page.getByRole('dialog');
-  await expect(quoteDialog.getByText(`Quote Details - ${quoteNumber}`)).toBeVisible();
+  await expect(quoteDialog.getByText(quoteDetailTitle(quoteNumber))).toBeVisible();
 
   const errorBanner = quoteDialog.getByRole('alert').filter({ hasText: '报价详情加载失败' });
   await expect(errorBanner).toBeVisible();
@@ -262,14 +283,14 @@ test('should show a retryable error banner when quotation details fail to load',
   await retryResponsePromise;
 
   await expect(errorBanner).toHaveCount(0);
-  await quoteDialog.getByRole('button', { name: 'Close' }).first().click();
+  await quoteDialog.getByRole('button', { name: /关闭|Close/ }).first().click();
 });
 
 test('should show an alert and keep the quotation approved when confirmation request fails', async ({ page }) => {
   const { quotationId, quoteNumber } = await createApprovedQuotation(backendBaseUrl);
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.getByPlaceholder('搜索报价单号、件号或客户...').fill(quoteNumber);
@@ -278,13 +299,13 @@ test('should show an alert and keep the quotation approved when confirmation req
 
   await quoteRow.getByRole('button').first().click();
   const quoteDialog = page.getByRole('dialog');
-  await expect(quoteDialog.getByText(`Quote Details - ${quoteNumber}`)).toBeVisible();
-  await quoteDialog.getByRole('button', { name: 'Confirm Customer & Generate Contract' }).click();
+  await expect(quoteDialog.getByText(quoteDetailTitle(quoteNumber))).toBeVisible();
+  await quoteDialog.getByRole('button', { name: /确认客户并生成合同|Confirm Customer & Generate Contract/ }).click();
 
   const confirmationDialog = page.getByRole('dialog');
-  await expect(confirmationDialog.getByText('Customer Confirmation & Contract Generation')).toBeVisible();
-  await confirmationDialog.getByPlaceholder('Optional PO number').fill(`PO-${Date.now()}`);
-  await confirmationDialog.getByPlaceholder('Record how the customer confirmed the quotation...').fill('模拟接口失败，验证前端错误提示。');
+  await expect(confirmationDialog.getByText(/客户确认并生成合同|Customer Confirmation & Contract Generation/)).toBeVisible();
+  await confirmationDialog.getByPlaceholder(/可选采购单号|Optional PO number/).fill(`PO-${Date.now()}`);
+  await confirmationDialog.getByPlaceholder(/记录客户确认报价的方式|Record how the customer confirmed the quotation/).fill('模拟接口失败，验证前端错误提示。');
 
   await page.route(`**/api/quotations/${quotationId}/accept`, async (route) => {
     await route.fulfill({
@@ -297,15 +318,11 @@ test('should show an alert and keep the quotation approved when confirmation req
     });
   });
 
-  const alertPromise = page.waitForEvent('dialog');
-  await confirmationDialog.getByRole('button', { name: 'Confirm & Generate Contract' }).click();
-  const alertDialog = await alertPromise;
+  await confirmationDialog.getByRole('button', { name: /确认并生成合同|Confirm & Generate Contract/ }).click();
+  await expectToast(page, /确认报价失败，请重试。|Failed to confirm quote\. Please try again\./);
 
-  expect(alertDialog.message()).toBe('Failed to confirm quote. Please try again.');
-  await alertDialog.accept();
-
-  await expect(confirmationDialog.getByText('Customer Confirmation & Contract Generation')).toBeVisible();
-  await confirmationDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirmationDialog.getByText(/客户确认并生成合同|Customer Confirmation & Contract Generation/)).toBeVisible();
+  await confirmationDialog.getByRole('button', { name: /取消|Cancel/ }).click();
   await expect(quoteRow).toContainText('已审批');
 });
 
@@ -315,7 +332,7 @@ test('should show a localized alert when contract download fails in Orders page'
   const { orderNumber, contractDocumentId } = await acceptApprovedQuotation(backendBaseUrl, token, quotationId);
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /订单管理/ }).click();
+  await navigateFromSidebar(page, '订单与库存', /订单管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '订单管理' })).toBeVisible();
 
   await page.getByPlaceholder('搜索订单号、件号或客户...').fill(orderNumber);
@@ -324,7 +341,7 @@ test('should show a localized alert when contract download fails in Orders page'
 
   await orderRow.getByRole('button').first().click();
   const orderDialog = page.getByRole('dialog');
-  await expect(orderDialog.getByText(`Order Details - ${orderNumber}`)).toBeVisible();
+  await expect(orderDialog.getByText(orderDetailTitle(orderNumber))).toBeVisible();
 
   await page.route(`**/api/documents/${contractDocumentId}/pdf`, async (route) => {
     await route.fulfill({
@@ -337,15 +354,11 @@ test('should show a localized alert when contract download fails in Orders page'
     });
   });
 
-  const alertPromise = page.waitForEvent('dialog');
-  await orderDialog.getByRole('button', { name: 'Download Contract' }).click();
-  const alertDialog = await alertPromise;
+  await orderDialog.getByRole('button', { name: /下载合同|Download Contract/ }).click();
+  await expectToast(page, /下载合同失败。|Failed to download contract\./);
 
-  expect(alertDialog.message()).toBe('下载合同失败。');
-  await alertDialog.accept();
-
-  await expect(orderDialog.getByText(`Order Details - ${orderNumber}`)).toBeVisible();
-  await orderDialog.getByRole('button', { name: 'Close' }).first().click();
+  await expect(orderDialog.getByText(orderDetailTitle(orderNumber))).toBeVisible();
+  await orderDialog.getByRole('button', { name: /关闭|Close/ }).first().click();
 });
 
 test('should show a retryable error banner when order details fail to load', async ({ page }) => {
@@ -355,7 +368,7 @@ test('should show a retryable error banner when order details fail to load', asy
   let remainingFailures = 1;
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /订单管理/ }).click();
+  await navigateFromSidebar(page, '订单与库存', /订单管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '订单管理' })).toBeVisible();
 
   await page.route(`**/api/orders/${orderId}`, async (route) => {
@@ -386,7 +399,7 @@ test('should show a retryable error banner when order details fail to load', asy
 
   await orderRow.getByRole('button').first().click();
   const orderDialog = page.getByRole('dialog');
-  await expect(orderDialog.getByText(`Order Details - ${orderNumber}`)).toBeVisible();
+  await expect(orderDialog.getByText(orderDetailTitle(orderNumber))).toBeVisible();
 
   const errorBanner = orderDialog.getByRole('alert').filter({ hasText: '订单详情加载失败' });
   await expect(errorBanner).toBeVisible();
@@ -401,14 +414,14 @@ test('should show a retryable error banner when order details fail to load', asy
   await retryResponsePromise;
 
   await expect(errorBanner).toHaveCount(0);
-  await orderDialog.getByRole('button', { name: 'Close' }).first().click();
+  await orderDialog.getByRole('button', { name: /关闭|Close/ }).first().click();
 });
 
 test('should show an alert and keep the quotation approved when send quote request fails', async ({ page }) => {
   const { quotationId, quoteNumber } = await createApprovedQuotation(backendBaseUrl);
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.getByPlaceholder('搜索报价单号、件号或客户...').fill(quoteNumber);
@@ -428,17 +441,13 @@ test('should show an alert and keep the quotation approved when send quote reque
 
   await quoteRow.getByRole('button').nth(1).click();
   const sendDialog = page.getByRole('dialog');
-  await expect(sendDialog.getByText('Send Quote Email')).toBeVisible();
+  await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
 
-  const alertPromise = page.waitForEvent('dialog');
-  await sendDialog.getByRole('button', { name: 'Send with PDF' }).click();
-  const alertDialog = await alertPromise;
+  await sendDialog.getByRole('button', { name: /发送并附 PDF|Send with PDF/ }).click();
+  await expectToast(page, 'Failed to send quote. Please verify the default outbound email account.');
 
-  expect(alertDialog.message()).toBe('Failed to send quote. Please verify the default outbound email account.');
-  await alertDialog.accept();
-
-  await expect(sendDialog.getByText('Send Quote Email')).toBeVisible();
-  await sendDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
+  await sendDialog.getByRole('button', { name: /取消|Cancel/ }).click();
   await expect(quoteRow).toContainText('已审批');
 });
 
@@ -448,7 +457,7 @@ test('should show a retryable error banner when quotation list refresh fails aft
   let failNextProjectedRefresh = false;
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.route(`**/api/quotations/${quotationId}/send`, async (route) => {
@@ -539,13 +548,10 @@ test('should show a retryable error banner when quotation list refresh fails aft
 
   await quoteRow.getByRole('button').nth(1).click();
   const sendDialog = page.getByRole('dialog');
-  await expect(sendDialog.getByText('Send Quote Email')).toBeVisible();
+  await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
 
-  const sendAlertPromise = page.waitForEvent('dialog');
-  await sendDialog.getByRole('button', { name: 'Send with PDF' }).click();
-  const sendAlert = await sendAlertPromise;
-  expect(sendAlert.message()).toContain(`Quote ${quoteNumber} sent to`);
-  await sendAlert.accept();
+  await sendDialog.getByRole('button', { name: /发送并附 PDF|Send with PDF/ }).click();
+  await expectToast(page, new RegExp(`Quote ${quoteNumber} sent to`));
 
   const errorBanner = page.getByRole('alert').filter({ hasText: '报价列表刷新失败' });
   await expect(errorBanner).toBeVisible();
@@ -562,7 +568,7 @@ test('should show a localized alert and keep the quotation approved when quotati
   const { quotationId, quoteNumber } = await createApprovedQuotation(backendBaseUrl);
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.getByPlaceholder('搜索报价单号、件号或客户...').fill(quoteNumber);
@@ -580,12 +586,8 @@ test('should show a localized alert and keep the quotation approved when quotati
     });
   });
 
-  const alertPromise = page.waitForEvent('dialog');
   await quoteRow.getByRole('button').last().click();
-  const alertDialog = await alertPromise;
-
-  expect(alertDialog.message()).toBe('下载报价 PDF 失败。');
-  await alertDialog.accept();
+  await expectToast(page, /下载报价 PDF 失败。|Failed to download quotation PDF\./);
 
   await expect(quoteRow).toContainText('已审批');
 });
@@ -595,7 +597,7 @@ test('should show an alert and keep the quotation sent when withdraw request fai
   let shouldMockSentState = false;
 
   await loginByUi(page);
-  await page.getByRole('button', { name: /报价管理/ }).click();
+  await navigateFromSidebar(page, '寻源报价', /报价管理/);
   await expect(page.getByRole('banner').getByRole('heading', { name: '报价管理' })).toBeVisible();
 
   await page.route(`**/api/quotations/${quotationId}/send`, async (route) => {
@@ -672,23 +674,20 @@ test('should show an alert and keep the quotation sent when withdraw request fai
 
   await quoteRow.getByRole('button').nth(1).click();
   const sendDialog = page.getByRole('dialog');
-  await expect(sendDialog.getByText('Send Quote Email')).toBeVisible();
+  await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
 
-  const sendAlertPromise = page.waitForEvent('dialog');
-  await sendDialog.getByRole('button', { name: 'Send with PDF' }).click();
-  const sendAlert = await sendAlertPromise;
-  expect(sendAlert.message()).toContain(`Quote ${quoteNumber} sent to`);
-  await sendAlert.accept();
+  await sendDialog.getByRole('button', { name: /发送并附 PDF|Send with PDF/ }).click();
+  await expectToast(page, new RegExp(`Quote ${quoteNumber} sent to`));
 
   await expect(quoteRow).toContainText('已发送');
 
   await quoteRow.getByRole('button').first().click();
   const quoteDialog = page.getByRole('dialog');
-  await expect(quoteDialog.getByText(`Quote Details - ${quoteNumber}`)).toBeVisible();
-  await quoteDialog.getByRole('button', { name: 'Withdraw Quote' }).click();
+  await expect(quoteDialog.getByText(quoteDetailTitle(quoteNumber))).toBeVisible();
+  await quoteDialog.getByRole('button', { name: /撤回报价|Withdraw Quote/ }).click();
 
   const withdrawDialog = page.getByRole('dialog');
-  await expect(withdrawDialog.getByRole('heading', { name: 'Withdraw Quote' })).toBeVisible();
+  await expect(withdrawDialog.getByRole('heading', { name: /撤回报价|Withdraw Quote/ })).toBeVisible();
   await withdrawDialog.locator('textarea').fill('模拟撤回接口失败，验证前端错误提示。');
 
   await page.route(`**/api/quotations/${quotationId}/withdraw`, async (route) => {
@@ -702,14 +701,10 @@ test('should show an alert and keep the quotation sent when withdraw request fai
     });
   });
 
-  const alertPromise = page.waitForEvent('dialog');
-  await withdrawDialog.getByRole('button', { name: 'Withdraw Quote' }).click();
-  const alertDialog = await alertPromise;
+  await withdrawDialog.getByRole('button', { name: /撤回报价|Withdraw Quote/ }).click();
+  await expectToast(page, 'Failed to withdraw quote.');
 
-  expect(alertDialog.message()).toBe('Failed to withdraw quote.');
-  await alertDialog.accept();
-
-  await expect(withdrawDialog.getByText('Send withdrawal notice')).toBeVisible();
-  await withdrawDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(withdrawDialog.getByText(/发送撤回通知|Send withdrawal notice/)).toBeVisible();
+  await withdrawDialog.getByRole('button', { name: /取消|Cancel/ }).click();
   await expect(quoteRow).toContainText('已发送');
 });

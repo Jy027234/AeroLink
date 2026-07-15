@@ -1,8 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 
+const E2E_PASSWORD = process.env.E2E_PASSWORD;
+if (!E2E_PASSWORD) throw new Error('E2E_PASSWORD is required for seeded E2E tests.');
+const API_ORIGIN = process.env.PLAYWRIGHT_EXTERNAL === 'true'
+  ? ''
+  : (process.env.PLAYWRIGHT_API_ORIGIN ?? 'http://127.0.0.1:3000');
+
 const validUser = {
   email: 'zhang@aerolink.com',
-  password: 'password123',
+  password: E2E_PASSWORD,
 };
 
 async function login(page: Page) {
@@ -23,13 +29,24 @@ async function navigateToAgentWorkbench(page: Page) {
     await page.getByRole('button', { name: /AGENT工作台/ }).click();
   }
 
-  await expect(page.getByRole('heading', { name: '智能航材销售AGENT' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /AGENT工作台|智能航材销售AGENT|AI Agent Workbench/ })).toBeVisible();
 }
 
 async function getRfqSnapshot(page: Page) {
-  return page.evaluate(async () => {
-    const token = window.localStorage.getItem('aerolink_token');
-    const response = await fetch('http://127.0.0.1:3000/api/rfqs', {
+  return page.evaluate(async (apiOrigin) => {
+    const apiBase = apiOrigin ? `${apiOrigin}/api` : '/api';
+    const refreshResponse = await fetch(`${apiBase}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const refreshPayload = await refreshResponse.json();
+    const token = refreshPayload.data?.accessToken ?? refreshPayload.accessToken;
+
+    if (!refreshResponse.ok || !token) {
+      throw new Error(`Refresh request failed: ${refreshResponse.status}`);
+    }
+
+    const response = await fetch(`${apiBase}/rfqs`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
 
@@ -44,7 +61,7 @@ async function getRfqSnapshot(page: Page) {
       count: rfqs.length,
       latestRfqNumber: rfqs[0]?.rfqNumber ?? null,
     };
-  });
+  }, API_ORIGIN);
 }
 
 test.describe('Agent Workbench', () => {

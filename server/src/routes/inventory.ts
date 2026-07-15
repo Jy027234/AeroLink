@@ -5,6 +5,7 @@ import { validateBody } from '../middleware/validate.js';
 import { requireRole } from '../middleware/rbac.js';
 import { inventoryUpdateSchema, inventoryCreateSchema } from '../lib/validation.js';
 import { SocketEvents, SocketRooms, emitToRoom } from '../lib/socketEvents.js';
+import { loadInventoryReconciliation } from '../lib/inventoryReconciliation.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -12,18 +13,31 @@ const router = Router();
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { partNumber, conditionCode, certificateType, type, page, limit } = req.query;
+    const { partNumber, search, conditionCode, certificateType, type, partCategory, location, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * pageSize;
 
     const where: Prisma.InventoryWhereInput = {};
-    if (partNumber) where.partNumber = { contains: partNumber.toString() };
+    const searchValue = typeof search === 'string' ? search.trim() : '';
+    if (searchValue) {
+      where.OR = [
+        { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { description: { contains: searchValue, mode: 'insensitive' } },
+        { serialNumber: { contains: searchValue, mode: 'insensitive' } },
+        { batchNumber: { contains: searchValue, mode: 'insensitive' } },
+        { manufacturer: { contains: searchValue, mode: 'insensitive' } },
+      ];
+    } else if (partNumber) {
+      where.partNumber = { contains: partNumber.toString() };
+    }
     if (conditionCode) where.conditionCode = conditionCode.toString().toUpperCase();
     if (certificateType) where.certificateType = certificateType.toString().toUpperCase();
     if (type) where.type = type.toString().toUpperCase();
+    if (partCategory) where.partCategory = partCategory.toString().toUpperCase();
+    if (location) where.location = location.toString();
 
-    const [inventory, total] = await Promise.all([
+    const [inventory, total, categoryCounts, valueRows, locationCounts] = await Promise.all([
       prisma.inventory.findMany({
         where,
         include: {
@@ -34,7 +48,32 @@ router.get(
         take: pageSize,
       }),
       prisma.inventory.count({ where }),
+      prisma.inventory.groupBy({
+        by: ['partCategory'],
+        _count: { _all: true },
+      }),
+      prisma.inventory.findMany({
+        select: { quantity: true, unitCost: true },
+      }),
+      prisma.inventory.groupBy({
+        by: ['location'],
+        _count: { _all: true },
+      }),
     ]);
+
+    const categoryCount = (category: string) =>
+      categoryCounts.find((entry) => entry.partCategory === category)?._count._all || 0;
+    const summary = {
+      total: categoryCounts.reduce((sum, entry) => sum + entry._count._all, 0),
+      rotable: categoryCount('ROTABLE'),
+      repairable: categoryCount('REPAIRABLE'),
+      chemical: categoryCount('CHEMICAL'),
+      standardPart: categoryCount('STANDARD_PART'),
+      rawMaterial: categoryCount('RAW_MATERIAL'),
+      consumable: categoryCount('CONSUMABLE'),
+      totalValue: valueRows.reduce((sum, item) => sum + item.quantity * item.unitCost, 0),
+      locations: locationCounts.map((entry) => entry.location).filter(Boolean).sort(),
+    };
 
     res.json({
       success: true,
@@ -56,6 +95,8 @@ router.get(
         manufacturerCageCode: item.manufacturerCageCode,
         ataChapter: item.ataChapter,
         alternatePartNumbers: item.alternatePartNumbers,
+        partCategory: item.partCategory,
+        trackingType: item.trackingType,
         unitOfMeasure: item.unitOfMeasure,
         countryOfOrigin: item.countryOfOrigin,
         hsCode: item.hsCode,
@@ -89,7 +130,12 @@ router.get(
         // 存储与包装（P2）
         storageCondition: item.storageCondition,
         ata300Packaging: item.ata300Packaging,
+        shelfLifeDays: item.shelfLifeDays,
+        storageTempMin: item.storageTempMin,
+        storageTempMax: item.storageTempMax,
+        hazardClass: item.hazardClass,
       })),
+      summary,
       pagination: {
         page: pageNum,
         limit: pageSize,
@@ -97,6 +143,28 @@ router.get(
         totalPages: Math.ceil(total / pageSize),
       },
     });
+  })
+);
+
+router.get(
+  '/reconciliation',
+  requireRole('manager', 'admin'),
+  asyncHandler(async (_req, res) => {
+    try {
+      const result = await loadInventoryReconciliation();
+      res.json({
+        success: true,
+        data: {
+          ...result,
+          status: result.mismatches.length === 0 ? 'PASS' : 'MISMATCH',
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021') {
+        throw new AppError('库存对账依赖的表尚未就绪', 503, 'BAD_REQUEST');
+      }
+      throw error;
+    }
   })
 );
 

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { authenticate } from '../middleware/auth.js';
@@ -7,6 +8,19 @@ import { requireRole } from '../middleware/rbac.js';
 import { webhookAudit } from '../middleware/webhookAudit.js';
 
 const router = Router();
+
+const parseDateQuery = (value: unknown, fieldName: string) => {
+  if (typeof value !== 'string' || !value.trim()) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new AppError(`${fieldName} must be a valid date`, 400, 'BAD_REQUEST');
+  }
+
+  return parsed;
+};
 
 const createInboundAlert = async (title: string, message: string, link = '/settings') => {
   await prisma.notification.create({
@@ -228,10 +242,20 @@ router.get(
     const offset = Number(req.query.offset ?? 0);
     const action = typeof req.query.action === 'string' ? req.query.action : undefined;
     const resourceType = typeof req.query.resourceType === 'string' ? req.query.resourceType : undefined;
+    const startDate = parseDateQuery(req.query.startDate, 'startDate');
+    const endDate = parseDateQuery(req.query.endDate, 'endDate');
 
-    const where = {
+    const where: Prisma.WebhookAuditLogWhereInput = {
       ...(action ? { action } : {}),
       ...(resourceType ? { resourceType } : {}),
+      ...(startDate || endDate
+        ? {
+            createdAt: {
+              ...(startDate ? { gte: startDate } : {}),
+              ...(endDate ? { lte: endDate } : {}),
+            },
+          }
+        : {}),
     };
 
     const [data, total] = await Promise.all([

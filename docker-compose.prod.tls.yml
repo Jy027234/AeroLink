@@ -1,0 +1,22 @@
+name: aerolink-prod
+
+# Requires Docker Compose v2.24+ for the !override merge tag. Use as an
+# override with docker-compose.prod.yml after certificates are
+# provisioned and verified outside the repository:
+# docker compose -f docker-compose.prod.yml -f docker-compose.prod.tls.yml up -d --build
+services:
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+      args:
+        VITE_API_URL: /api
+        NGINX_CONFIG: deploy/nginx.tls.conf
+    ports: !override
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - type: bind
+        source: "${TLS_CERT_DIR:?TLS_CERT_DIR is required}"
+        target: /etc/nginx/tls
+        read_only: true

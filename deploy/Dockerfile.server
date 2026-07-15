@@ -56,6 +56,7 @@ COPY server/ ./
 
 RUN npm run build
 
+COPY deploy/sqlite-legacy-backfill.sql ./deploy/sqlite-legacy-backfill.sql
 COPY deploy/server-entrypoint.sh /usr/local/bin/server-entrypoint.sh
 RUN chmod +x /usr/local/bin/server-entrypoint.sh
 

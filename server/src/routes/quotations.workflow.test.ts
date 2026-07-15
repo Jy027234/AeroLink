@@ -130,6 +130,9 @@ function createPrismaMock() {
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    order: {
+      findUnique: vi.fn(),
+    },
     emailAccount: {
       findFirst: vi.fn(),
     },
@@ -291,6 +294,81 @@ describe('Quotation workflow routes', () => {
     );
   });
 
+  it('should reject submitting a quotation from a terminal state', async () => {
+    const quotation = createQuotation('ACCEPTED');
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/submit')
+      .send();
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.quotation.update).not.toHaveBeenCalled();
+    expect(emitWebhookEventMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject approving a quotation that is not pending approval', async () => {
+    const quotation = {
+      ...createQuotation('SENT'),
+      rfq: null,
+    };
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/approve')
+      .send({ action: 'approve' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.quotation.update).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.quotation.update).not.toHaveBeenCalled();
+    expect(emitWebhookEventMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject sending an accepted quotation', async () => {
+    const quotation = createQuotation('ACCEPTED');
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/send')
+      .send({ subject: '重复发送', message: '不应发送' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.emailAccount.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('should reject withdrawing a quotation that was not sent', async () => {
+    const quotation = createQuotation('APPROVED');
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/withdraw')
+      .send({ reason: '不应撤回' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.outboundEmail.create).not.toHaveBeenCalled();
+  });
+
+  it('should reject accepting a draft quotation', async () => {
+    const quotation = {
+      ...createQuotation('APPROVED'),
+      status: 'DRAFT',
+    };
+    prismaMock.quotation.findUnique.mockResolvedValue(quotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/accept')
+      .send({ confirmationNote: '不应接受' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
+    expect(prismaMock.__tx.quotation.update).not.toHaveBeenCalled();
+    expect(createOrderFromQuotationMock).not.toHaveBeenCalled();
+  });
+
   it('should withdraw a sent quotation and optionally send a withdrawal notice', async () => {
     const quotation = {
       ...createQuotation('SENT'),
@@ -443,14 +521,33 @@ describe('Quotation workflow routes', () => {
     expect(response.body.success).toBe(true);
     expect(response.body.data.order.orderNumber).toBe(existingOrder.orderNumber);
     expect(createOrderFromQuotationMock).not.toHaveBeenCalled();
-    expect(emitWebhookEventMock).toHaveBeenCalledTimes(1);
-    expect(emitWebhookEventMock).toHaveBeenCalledWith(
-      'quotation.accepted',
-      expect.objectContaining({
-        quotationId: quotation.id,
-        orderId: existingOrder.id,
-        autoCreatedOrder: false,
-      })
-    );
+    expect(emitWebhookEventMock).not.toHaveBeenCalled();
+  });
+
+  it('recovers a concurrent unique-order conflict without duplicating acceptance events', async () => {
+    const quotation = createQuotation('APPROVED');
+    const updatedQuotation = {
+      ...quotation,
+      status: 'ACCEPTED',
+      acceptedAt: new Date('2026-05-12T11:00:00.000Z'),
+    };
+    const existingOrder = createOrder();
+    const generatedDocument = createGeneratedDocument();
+
+    prismaMock.quotation.findUnique
+      .mockResolvedValueOnce(quotation)
+      .mockResolvedValueOnce(updatedQuotation);
+    prismaMock.$transaction.mockRejectedValueOnce({ code: 'P2002' });
+    prismaMock.order.findUnique.mockResolvedValue(existingOrder);
+    ensureOrderContractDocumentMock.mockResolvedValue(generatedDocument);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/accept')
+      .send({ confirmationNote: '并发重试' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.order.orderNumber).toBe(existingOrder.orderNumber);
+    expect(createOrderFromQuotationMock).not.toHaveBeenCalled();
+    expect(emitWebhookEventMock).not.toHaveBeenCalled();
   });
 });

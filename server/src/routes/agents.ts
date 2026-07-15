@@ -10,6 +10,7 @@ import { emitWebhookEvent } from '../lib/webhookService.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+const requireAgentManagementRole = requireRole('manager', 'admin');
 
 type RuntimePrismaClient = Prisma.TransactionClient | typeof prisma;
 
@@ -471,6 +472,7 @@ router.get(
 
 router.post(
   '/',
+  requireAgentManagementRole,
   validateBody(agentCreateSchema),
   asyncHandler(async (req, res) => {
     const { name, type, description, isActive, config, prompts } = req.body;
@@ -499,6 +501,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requireAgentManagementRole,
   validateBody(agentUpdateSchema),
   asyncHandler(async (req, res) => {
     const { name, type, description, isActive, config, prompts } = req.body;
@@ -528,6 +531,7 @@ router.patch(
 
 router.delete(
   '/:id',
+  requireAgentManagementRole,
   asyncHandler(async (req, res) => {
     await prisma.aIAgent.delete({
       where: { id: req.params.id },
@@ -542,6 +546,7 @@ router.delete(
 
 router.post(
   '/:id/toggle',
+  requireAgentManagementRole,
   asyncHandler(async (req, res) => {
     const agent = await prisma.aIAgent.findUnique({
       where: { id: req.params.id },
@@ -659,6 +664,7 @@ router.post(
 
 router.get(
   '/:id/logs',
+  requireAgentManagementRole,
   asyncHandler(async (req, res) => {
     const logs = await prisma.agentLog.findMany({
       where: { agentId: req.params.id },

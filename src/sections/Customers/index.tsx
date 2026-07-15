@@ -998,7 +998,6 @@ function CustomerFormDialog({
 }
 
 export function Customers() {
-  const { data: customers, loading: customersLoading, refetch: refetchCustomers } = useCustomers();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -1007,10 +1006,22 @@ export function Customers() {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
 
-  const customersList = customers || [];
   const { t, locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const dateLocale = locale === 'en' ? 'en-US' : 'zh-CN';
+  const {
+    data: customers,
+    loading: customersLoading,
+    pagination: customersPagination,
+    summary: customersSummary,
+    refetch: refetchCustomers,
+  } = useCustomers({
+    status: activeTab === 'all' ? undefined : activeTab,
+    search: searchQuery,
+    page: currentPage,
+    limit: pageSize,
+  });
+  const customersList = customers || [];
 
   const filteredCustomers = customersList.filter((customer) => {
     if (searchQuery && !customer.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
@@ -1021,20 +1032,27 @@ export function Customers() {
     return customer.status === activeTab;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / pageSize));
+  const totalRecords = customersPagination?.total ?? filteredCustomers.length;
+  const totalPages = Math.max(1, customersPagination?.totalPages ?? Math.ceil(totalRecords / pageSize));
   const safePage = Math.min(currentPage, totalPages);
-  const paginatedCustomers = filteredCustomers.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paginatedCustomers = filteredCustomers;
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, activeTab]);
 
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const stats = {
-    total: customersList.length,
-    active: customersList.filter((c) => c.status === 'active').length,
-    atRisk: customersList.filter((c) => c.status === 'at_risk').length,
-    inactive: customersList.filter((c) => c.status === 'inactive').length,
-    totalRevenue: customersList.reduce((sum, c) => sum + (c.annualRevenue || 0), 0),
+    total: customersSummary?.total ?? customersList.length,
+    active: customersSummary?.active ?? customersList.filter((c) => c.status === 'active').length,
+    atRisk: customersSummary?.atRisk ?? customersList.filter((c) => c.status === 'at_risk').length,
+    inactive: customersSummary?.inactive ?? customersList.filter((c) => c.status === 'inactive').length,
+    totalRevenue: customersSummary?.totalRevenue ?? customersList.reduce((sum, c) => sum + (c.annualRevenue || 0), 0),
   };
 
   const handleViewDetail = (customer: Customer) => {
@@ -1215,7 +1233,7 @@ export function Customers() {
                   )}
                 </TableBody>
               </Table>
-              {filteredCustomers.length > pageSize && (
+              {totalPages > 1 && (
                 <div className="flex items-center justify-between pt-2 px-4 pb-2">
                   <span className="text-sm text-gray-500">
                     {tx('第', 'Page')} {safePage} / {totalPages} {tx('页', '')}

@@ -1,8 +1,9 @@
 import { test } from '@playwright/test';
 
-const LOGIN_URL = 'http://127.0.0.1:5173';
+const LOGIN_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173';
 const EMAIL = 'zhang@aerolink.com';
-const PASSWORD = 'password123';
+const PASSWORD = process.env.E2E_PASSWORD;
+if (!PASSWORD) throw new Error('E2E_PASSWORD is required for seeded E2E tests.');
 
 // All pages from the sidebar navigation
 const pages = [

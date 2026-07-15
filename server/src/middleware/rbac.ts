@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth.js';
 import { AppError } from './errorHandler.js';
 
-export type Role = 'admin' | 'manager' | 'finance' | 'sales' | 'gm' | 'operator' | 'viewer';
+export type Role = 'admin' | 'administrator' | 'manager' | 'finance' | 'sales' | 'gm' | 'operator' | 'viewer';
 
 const roleHierarchy: Record<string, number> = {
   viewer: 1,
@@ -12,6 +12,7 @@ const roleHierarchy: Record<string, number> = {
   manager: 4,
   gm: 5,
   admin: 6,
+  administrator: 6,
 };
 
 export const requireRole = (...allowedRoles: Role[]) => {
@@ -25,7 +26,7 @@ export const requireRole = (...allowedRoles: Role[]) => {
     const minRequiredLevel = Math.min(...allowedRoles.map((r) => roleHierarchy[r] || 0));
 
     if (userLevel < minRequiredLevel) {
-      throw new AppError('权限不足，无法执行此操作', 403);
+      throw new AppError('权限不足，无法执行此操作', 403, 'AUTH_FORBIDDEN');
     }
 
     next();
@@ -41,7 +42,7 @@ export const requireExactRole = (...allowedRoles: Role[]) => {
     const userRole = req.user.role.toLowerCase() as Role;
 
     if (!allowedRoles.includes(userRole)) {
-      throw new AppError('权限不足，无法执行此操作', 403);
+      throw new AppError('权限不足，无法执行此操作', 403, 'AUTH_FORBIDDEN');
     }
 
     next();

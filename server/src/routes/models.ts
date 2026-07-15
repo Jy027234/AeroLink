@@ -7,6 +7,7 @@ import { generateCompletion } from '../lib/aiService.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+const requireModelManagementRole = requireRole('manager', 'admin');
 
 const SUPPORTED_PROVIDERS = ['openai', 'anthropic', 'azure', 'ollama', 'deepseek', 'custom'];
 
@@ -74,6 +75,7 @@ router.get(
 
 router.post(
   '/',
+  requireModelManagementRole,
   validateBody(modelCreateSchema),
   asyncHandler(async (req, res) => {
     const { name, provider, modelId, apiKey, baseUrl, isActive, isDefault, config, capabilities } = req.body;
@@ -116,6 +118,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requireModelManagementRole,
   validateBody(modelUpdateSchema),
   asyncHandler(async (req, res) => {
     const { name, provider, modelId, apiKey, baseUrl, isActive, isDefault, config, capabilities } = req.body;
@@ -169,6 +172,7 @@ router.patch(
 
 router.delete(
   '/:id',
+  requireModelManagementRole,
   asyncHandler(async (req, res) => {
     const model = await prisma.aIModel.findUnique({
       where: { id: req.params.id },
@@ -195,6 +199,7 @@ router.delete(
 
 router.post(
   '/:id/test',
+  requireModelManagementRole,
   asyncHandler(async (req, res) => {
     const model = await prisma.aIModel.findUnique({
       where: { id: req.params.id },
@@ -239,7 +244,7 @@ router.post(
 
 router.post(
   '/:id/set-default',
-  requireRole('admin'),
+  requireModelManagementRole,
   asyncHandler(async (req, res) => {
     const model = await prisma.aIModel.findUnique({
       where: { id: req.params.id },

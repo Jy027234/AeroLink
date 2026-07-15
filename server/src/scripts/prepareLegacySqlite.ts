@@ -32,6 +32,12 @@ const requiredColumns: Array<{ table: string; column: string; definition: string
   { table: 'inventory', column: 'certificateType', definition: "TEXT DEFAULT 'NONE'" },
 ];
 
+const legacySourceColumns: Array<{ table: string; columns: string[] }> = [
+  { table: 'customers', columns: ['address'] },
+  { table: 'quotations', columns: ['deliveryTerms', 'paymentTerms'] },
+  { table: 'inventory', columns: ['status', 'certificateStatus'] },
+];
+
 function getColumnNames(db: DatabaseSync, table: string) {
   const escapedTable = table.replace(/'/g, "''");
   const rows = db.prepare(`PRAGMA table_info('${escapedTable}')`).all() as TableInfoRow[];
@@ -48,6 +54,34 @@ function ensureRequiredColumns(db: DatabaseSync) {
     db.exec(`ALTER TABLE "${item.table}" ADD COLUMN "${item.column}" ${item.definition}`);
     console.log(`Added column ${item.table}.${item.column}`);
   }
+}
+
+function shouldRunBackfill(db: DatabaseSync) {
+  const missing: string[] = [];
+  let foundAnyLegacyColumn = false;
+
+  for (const item of legacySourceColumns) {
+    const columns = getColumnNames(db, item.table);
+
+    for (const column of item.columns) {
+      if (columns.has(column)) {
+        foundAnyLegacyColumn = true;
+      } else {
+        missing.push(`${item.table}.${column}`);
+      }
+    }
+  }
+
+  if (!foundAnyLegacyColumn) {
+    console.log('No legacy source columns found; skipping backfill SQL');
+    return false;
+  }
+
+  if (missing.length > 0) {
+    throw new Error(`Legacy SQLite schema is partially migrated; missing source columns: ${missing.join(', ')}`);
+  }
+
+  return true;
 }
 
 function printSummary(db: DatabaseSync) {
@@ -68,7 +102,9 @@ function main() {
 
   try {
     ensureRequiredColumns(db);
-    db.exec(readFileSync(backfillSqlPath, 'utf8'));
+    if (shouldRunBackfill(db)) {
+      db.exec(readFileSync(backfillSqlPath, 'utf8'));
+    }
     printSummary(db);
   } finally {
     db.close();

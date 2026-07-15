@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Quotation } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
@@ -17,9 +17,18 @@ import { sendEmail, type EmailAccountConfig } from '../lib/emailService.js';
 import { createOrderFromQuotation, mapOrderResponse } from '../lib/orderWorkflowService.js';
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { emitWebhookEvent } from '../lib/webhookService.js';
+import { isQuotationTransitionAllowed, normalizeQuotationStatus, type QuotationStatus } from '../lib/quotationStateMachine.js';
+import { isUniqueConstraintError } from '../lib/prismaErrors.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+type OrderWithCustomer = Prisma.OrderGetPayload<{ include: { customer: true } }>;
+type AcceptOrderResult = {
+  updatedQuotation: Quotation;
+  order: OrderWithCustomer;
+  isNewOrder: boolean;
+};
 
 function buildOutboundAccountConfig(account: {
   id: string;
@@ -65,18 +74,37 @@ function textToHtml(text: string) {
     .join('');
 }
 
+function assertQuotationTransition(current: string, target: QuotationStatus) {
+  if (!isQuotationTransitionAllowed(current, target)) {
+    const normalizedCurrent = normalizeQuotationStatus(current) || current;
+    throw new AppError(
+      `报价状态不能从 ${normalizedCurrent} 转为 ${target}`,
+      409,
+      'INVALID_STATE_TRANSITION',
+    );
+  }
+}
+
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { status, page, limit } = req.query;
+    const { status, search, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * pageSize;
 
     const where: Prisma.QuotationWhereInput = {};
     if (status) where.status = status.toString().toUpperCase();
+    const searchValue = typeof search === 'string' ? search.trim() : '';
+    if (searchValue) {
+      where.OR = [
+        { quoteNumber: { contains: searchValue, mode: 'insensitive' } },
+        { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
+      ];
+    }
 
-    const [quotations, total] = await Promise.all([
+    const [quotations, total, statusCounts, acceptedAggregate] = await Promise.all([
       prisma.quotation.findMany({
         where,
         include: {
@@ -103,7 +131,27 @@ router.get(
         take: pageSize,
       }),
       prisma.quotation.count({ where }),
+      prisma.quotation.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
+      prisma.quotation.aggregate({
+        where: { status: 'ACCEPTED' },
+        _sum: { totalPrice: true },
+      }),
     ]);
+
+    const summaryCount = (statusValue: string) =>
+      statusCounts.find((entry) => entry.status === statusValue)?._count._all || 0;
+    const summary = {
+      total: statusCounts.reduce((sum, entry) => sum + entry._count._all, 0),
+      pending: summaryCount('PENDING_APPROVAL'),
+      approved: summaryCount('APPROVED'),
+      sent: summaryCount('SENT'),
+      accepted: summaryCount('ACCEPTED'),
+      withdrawn: summaryCount('WITHDRAWN'),
+      totalValue: acceptedAggregate._sum.totalPrice || 0,
+    };
 
     const userRole = (req as AuthRequest).user?.role;
     const isAdminOrManager = userRole === 'admin' || userRole === 'manager';
@@ -171,6 +219,7 @@ router.get(
           rfqUrgency: q.rfq?.urgency?.toLowerCase(),
         };
       }),
+      summary,
       pagination: { page: pageNum, limit: pageSize, total, totalPages: Math.ceil(total / pageSize) },
     });
   })
@@ -375,6 +424,24 @@ router.post(
 router.post(
   '/:id/submit',
   asyncHandler(async (req, res) => {
+    const currentQuotation = await prisma.quotation.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!currentQuotation) {
+      throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+    }
+
+    assertQuotationTransition(currentQuotation.status, 'PENDING_APPROVAL');
+
+    if (currentQuotation.status === 'PENDING_APPROVAL') {
+      res.json({
+        success: true,
+        data: { ...currentQuotation, status: currentQuotation.status.toLowerCase() },
+      });
+      return;
+    }
+
     const quotation = await prisma.quotation.update({
       where: { id: req.params.id },
       data: { status: 'PENDING_APPROVAL' },
@@ -412,6 +479,16 @@ router.post(
     }
 
     const isAog = quotationWithRfq.rfq?.urgency?.toUpperCase() === 'AOG';
+    const targetStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
+    assertQuotationTransition(quotationWithRfq.status, targetStatus);
+
+    if (quotationWithRfq.status === targetStatus) {
+      res.json({
+        success: true,
+        data: { ...quotationWithRfq, status: quotationWithRfq.status.toLowerCase() },
+      });
+      return;
+    }
 
     const quotation = await prisma.quotation.update({
       where: { id: req.params.id },
@@ -466,6 +543,8 @@ router.post(
     if (quotation.status === 'WITHDRAWN') {
       throw new AppError('已撤回的报价不能再次发送，请复制或新建报价后重新发送', 400, 'BAD_REQUEST');
     }
+
+    assertQuotationTransition(quotation.status, 'SENT');
 
     if (!['APPROVED', 'SENT'].includes(quotation.status)) {
       throw new AppError('只有已审批报价才能发送给客户', 400, 'BAD_REQUEST');
@@ -634,6 +713,8 @@ router.post(
       throw new AppError('该报价已撤回，无需重复操作', 400, 'BAD_REQUEST');
     }
 
+    assertQuotationTransition(quotation.status, 'WITHDRAWN');
+
     const latestSentEmail = quotation.outboundEmails[0];
     if (!latestSentEmail) {
       throw new AppError('当前报价没有已发送记录，不能执行撤回', 400, 'BAD_REQUEST');
@@ -766,6 +847,8 @@ router.post(
       throw new AppError('已撤回的报价不能登记客户确认', 400, 'BAD_REQUEST');
     }
 
+    assertQuotationTransition(quotation.status, 'ACCEPTED');
+
     if (!['APPROVED', 'SENT', 'ACCEPTED'].includes(quotation.status)) {
       throw new AppError('当前报价状态不能登记客户确认', 400, 'BAD_REQUEST');
     }
@@ -773,43 +856,76 @@ router.post(
     const acceptedAt = quotation.acceptedAt || new Date();
     const { poNumber, deliveryDate, templateId, confirmationNote } = req.body;
 
-    const { updatedQuotation, order, isNewOrder } = await prisma.$transaction(async (tx) => {
-      const updated = await tx.quotation.update({
-        where: { id: quotation.id },
-        data: {
-          status: 'ACCEPTED',
-          acceptedAt,
-          customerConfirmationNote: confirmationNote ?? quotation.customerConfirmationNote,
-        },
-      });
+    let recoveredFromConflict = false;
+    let acceptedOrderResult: AcceptOrderResult;
 
-      const existingOrder = await tx.order.findFirst({
-        where: { quotationId: quotation.id },
-        include: { customer: true },
-      });
+    try {
+      acceptedOrderResult = await prisma.$transaction(async (tx) => {
+        const updated = await tx.quotation.update({
+          where: { id: quotation.id },
+          data: {
+            status: 'ACCEPTED',
+            acceptedAt,
+            customerConfirmationNote: confirmationNote ?? quotation.customerConfirmationNote,
+          },
+        });
 
-      if (existingOrder) {
+        const existingOrder = await tx.order.findFirst({
+          where: { quotationId: quotation.id },
+          include: { customer: true },
+        });
+
+        if (existingOrder) {
+          return {
+            updatedQuotation: updated,
+            order: existingOrder,
+            isNewOrder: false,
+          };
+        }
+
+        const createdOrder = await createOrderFromQuotation({
+          tx,
+          quotation: updated,
+          customer: quotation.customer,
+          poNumber,
+          deliveryDate,
+        });
+
         return {
           updatedQuotation: updated,
-          order: existingOrder,
-          isNewOrder: false,
+          order: createdOrder,
+          isNewOrder: true,
         };
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) {
+        throw error;
       }
 
-      const createdOrder = await createOrderFromQuotation({
-        tx,
-        quotation: updated,
-        customer: quotation.customer,
-        poNumber,
-        deliveryDate,
-      });
+      const [currentQuotation, existingOrder] = await Promise.all([
+        prisma.quotation.findUnique({
+          where: { id: quotation.id },
+          include: { customer: true },
+        }),
+        prisma.order.findUnique({
+          where: { quotationId: quotation.id },
+          include: { customer: true },
+        }),
+      ]);
 
-      return {
-        updatedQuotation: updated,
-        order: createdOrder,
-        isNewOrder: true,
+      if (!currentQuotation || !existingOrder) {
+        throw error;
+      }
+
+      recoveredFromConflict = true;
+      acceptedOrderResult = {
+        updatedQuotation: currentQuotation,
+        order: existingOrder,
+        isNewOrder: false,
       };
-    });
+    }
+
+    const { updatedQuotation, order, isNewOrder } = acceptedOrderResult;
 
     const generatedDocument = await ensureOrderContractDocument({
       quotation: updatedQuotation,
@@ -819,14 +935,16 @@ router.post(
       generatedById: (req as AuthRequest).user?.id,
     });
 
-    await emitWebhookEvent('quotation.accepted', {
-      quotationId: updatedQuotation.id,
-      quoteNumber: updatedQuotation.quoteNumber,
-      acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
-      orderId: order.id,
-      contractDocumentId: generatedDocument.id,
-      autoCreatedOrder: isNewOrder,
-    });
+    if (!recoveredFromConflict && (isNewOrder || quotation.status !== 'ACCEPTED')) {
+      await emitWebhookEvent('quotation.accepted', {
+        quotationId: updatedQuotation.id,
+        quoteNumber: updatedQuotation.quoteNumber,
+        acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
+        orderId: order.id,
+        contractDocumentId: generatedDocument.id,
+        autoCreatedOrder: isNewOrder,
+      });
+    }
 
     if (isNewOrder) {
       await emitWebhookEvent('order.created', {

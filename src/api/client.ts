@@ -11,6 +11,7 @@ import type {
 import type {
   User,
   RFQ,
+  RFQStatus,
   Quotation,
   Order,
   InventoryItem,
@@ -430,18 +431,85 @@ class ApiException extends Error {
 }
 
 let unauthorizedRedirecting = false;
+let refreshPromise: Promise<boolean> | null = null;
+let accessToken: string | null = null;
+
+/**
+ * Access tokens are intentionally kept in memory only. The refresh token is
+ * rotated through the HttpOnly cookie managed by the API, so JavaScript does
+ * not need a persistent bearer token that an injected script could read.
+ */
+export function setAccessToken(token?: string | null) {
+  accessToken = token || null;
+}
+
+export function getAccessToken() {
+  return accessToken;
+}
+
+function clearAuthState() {
+  setAccessToken(null);
+  // Remove legacy persisted credentials left by older builds during logout or
+  // an invalid-session recovery. New sessions never write these keys.
+  localStorage.removeItem('aerolink_token');
+  localStorage.removeItem('aerolink_user');
+  localStorage.removeItem('aerolink_refresh_token');
+  localStorage.removeItem('auth-storage');
+}
+
+function redirectToLogin() {
+  if (!unauthorizedRedirecting) {
+    unauthorizedRedirecting = true;
+    window.location.replace('/');
+  }
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+        const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          headers,
+          credentials: 'include',
+        });
+        if (!response.ok) return false;
+
+        const payload = await response.json() as { data?: { accessToken?: string; refreshToken?: string }; accessToken?: string; refreshToken?: string };
+        const tokens = payload.data ?? payload;
+        if (!tokens.accessToken) return false;
+
+        setAccessToken(tokens.accessToken);
+        // Refresh tokens are now kept in the HttpOnly cookie. Remove any legacy copy.
+        localStorage.removeItem('aerolink_refresh_token');
+        unauthorizedRedirecting = false;
+        return true;
+      } catch {
+        return false;
+      }
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
+}
 
 async function request<T>(
   endpoint: string,
   options: RequestInit = {},
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  retryAfterRefresh = false,
+  preserveEnvelope = false
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
-  const token = localStorage.getItem('aerolink_token');
+  const token = accessToken;
 
   const config: RequestInit = {
     ...options,
     signal,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
@@ -471,19 +539,21 @@ async function request<T>(
       endpoint === '/auth/forgot-password' ||
       endpoint === '/auth/activate' ||
       endpoint === '/auth/reset-password' ||
+      endpoint === '/auth/logout' ||
       endpoint.startsWith('/auth/activation/') ||
       endpoint.startsWith('/auth/reset/');
 
     if (response.status === 401) {
-      if (!isAuthRequest) {
-        localStorage.removeItem('aerolink_token');
-        localStorage.removeItem('aerolink_user');
-        localStorage.removeItem('aerolink_refresh_token');
-        localStorage.removeItem('auth-storage');
-        if (!unauthorizedRedirecting) {
-          unauthorizedRedirecting = true;
-          window.location.replace('/');
-        }
+      if (!isAuthRequest && !retryAfterRefresh && await refreshAccessToken()) {
+        const retryHeaders = new Headers(options.headers || undefined);
+        const refreshedToken = accessToken;
+        if (refreshedToken) retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);
+        return request<T>(endpoint, { ...options, headers: retryHeaders }, signal, true, preserveEnvelope);
+      }
+
+      if (!isAuthRequest || endpoint === '/auth/refresh') {
+        clearAuthState();
+        redirectToLogin();
       }
       throw new ApiException(data.message || '登录已过期，请重新登录', 401);
     }
@@ -500,7 +570,14 @@ async function request<T>(
       if (!wrapped.success) {
         throw new ApiException(wrapped.message || '请求失败');
       }
+      if (preserveEnvelope) {
+        return data as T;
+      }
       return (wrapped.data as T) ?? (data as T);
+    }
+
+    if (preserveEnvelope) {
+      return data as T;
     }
 
     if (typeof data === 'object' && data !== null && 'data' in data) {
@@ -521,13 +598,22 @@ async function request<T>(
   }
 }
 
-async function requestBlob(
+async function requestEnvelope<T>(
   endpoint: string,
   options: RequestInit = {},
   signal?: AbortSignal
+): Promise<T> {
+  return request<T>(endpoint, options, signal, false, true);
+}
+
+async function requestBlob(
+  endpoint: string,
+  options: RequestInit = {},
+  signal?: AbortSignal,
+  retryAfterRefresh = false
 ): Promise<Blob> {
   const url = `${API_BASE_URL}${endpoint}`;
-  const token = localStorage.getItem('aerolink_token');
+  const token = accessToken;
 
   const headers = new Headers(options.headers || undefined);
   if (token) {
@@ -540,18 +626,20 @@ async function requestBlob(
   const response = await fetch(url, {
     ...options,
     signal,
+    credentials: 'include',
     headers,
   });
 
   if (response.status === 401) {
-    localStorage.removeItem('aerolink_token');
-    localStorage.removeItem('aerolink_user');
-    localStorage.removeItem('aerolink_refresh_token');
-    localStorage.removeItem('auth-storage');
-    if (!unauthorizedRedirecting) {
-      unauthorizedRedirecting = true;
-      window.location.replace('/');
+    if (!retryAfterRefresh && await refreshAccessToken()) {
+      const retryHeaders = new Headers(options.headers || undefined);
+      const refreshedToken = accessToken;
+      if (refreshedToken) retryHeaders.set('Authorization', `Bearer ${refreshedToken}`);
+      return requestBlob(endpoint, { ...options, headers: retryHeaders }, signal, true);
     }
+
+    clearAuthState();
+    redirectToLogin();
     throw new ApiException('登录已过期，请重新登录', 401);
   }
 
@@ -597,14 +685,15 @@ export interface WebhookAuditLogItem {
   createdAt: string;
 }
 
+export type WebhookFailureReason = '4xx' | '5xx' | 'timeout' | 'connection_error' | 'other';
+
 export interface WebhookDLQItem {
   id: string;
   endpointId: string;
-  status: string;
-  failureReason?: string | null;
-  lastError?: string | null;
-  retryCount: number;
-  createdAt: string;
+  failureReason: WebhookFailureReason;
+  quarantineAt: string;
+  attemptCount: number;
+  lastError: string;
 }
 
 export interface AuditLogItem {
@@ -646,6 +735,110 @@ export interface PaginatedAuditLogs {
   };
 }
 
+export interface PaginatedList<T> {
+  data: T;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface RFQSummary {
+  total: number;
+  pending: number;
+  sourcing: number;
+  quoting: number;
+  won: number;
+  lost: number;
+}
+
+export interface PaginatedRFQs extends PaginatedList<RFQ[]> {
+  summary: RFQSummary;
+}
+
+export interface QuotationSummary {
+  total: number;
+  pending: number;
+  approved: number;
+  sent: number;
+  accepted: number;
+  withdrawn: number;
+  totalValue: number;
+}
+
+export interface PaginatedQuotations extends PaginatedList<Quotation[]> {
+  summary: QuotationSummary;
+}
+
+export interface OrderSummary {
+  total: number;
+  inProgress: number;
+  completed: number;
+  totalValue: number;
+}
+
+export interface PaginatedOrders extends PaginatedList<Order[]> {
+  summary: OrderSummary;
+}
+
+export interface InventorySummary {
+  total: number;
+  rotable: number;
+  repairable: number;
+  chemical: number;
+  standardPart: number;
+  rawMaterial: number;
+  consumable: number;
+  totalValue: number;
+  locations: string[];
+}
+
+export interface PaginatedInventory extends PaginatedList<Inventory[]> {
+  summary: InventorySummary;
+}
+
+export interface InventoryReconciliationMismatch {
+  partNumber: string;
+  legacyQuantity: number;
+  detailQuantity: number;
+  delta: number;
+}
+
+export interface InventoryReconciliationResult {
+  status: 'PASS' | 'MISMATCH';
+  checkedPartNumbers: number;
+  legacyTotal: number;
+  detailTotal: number;
+  mismatches: InventoryReconciliationMismatch[];
+}
+
+export interface CustomerSummary {
+  total: number;
+  active: number;
+  atRisk: number;
+  inactive: number;
+  totalRevenue: number;
+}
+
+export interface PaginatedCustomers extends PaginatedList<Customer[]> {
+  summary: CustomerSummary;
+}
+
+export interface SupplierSummary {
+  total: number;
+  s: number;
+  a: number;
+  b: number;
+  c: number;
+  avgScore: number;
+}
+
+export interface PaginatedSuppliers extends PaginatedList<Supplier[]> {
+  summary: SupplierSummary;
+}
+
 // ===== Audit Log API =====
 export const auditLogApi = {
   getAll: async (filters?: {
@@ -672,7 +865,7 @@ export const auditLogApi = {
     if (filters?.endDate) params.append('endDate', filters.endDate);
     if (filters?.search) params.append('search', filters.search);
     const query = params.toString();
-    return request<PaginatedAuditLogs>(`/audit-logs${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedAuditLogs>(`/audit-logs${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -688,7 +881,7 @@ export const auditLogApi = {
     if (page) params.append('page', String(page));
     if (limit) params.append('limit', String(limit));
     const query = params.toString();
-    return request<PaginatedAuditLogs>(`/audit-logs/resource/${type}/${id}${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedAuditLogs>(`/audit-logs/resource/${type}/${id}${query ? `?${query}` : ''}`);
   },
 
   getByUser: async (userId: string, page?: number, limit?: number) => {
@@ -696,7 +889,7 @@ export const auditLogApi = {
     if (page) params.append('page', String(page));
     if (limit) params.append('limit', String(limit));
     const query = params.toString();
-    return request<PaginatedAuditLogs>(`/audit-logs/user/${userId}${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedAuditLogs>(`/audit-logs/user/${userId}${query ? `?${query}` : ''}`);
   },
 
   create: async (data: {
@@ -797,17 +990,37 @@ export const pricingApi = {
 // ===== Auth API =====
 export const authApi = {
   login: async (email: string, password: string) => {
-    return request<AuthSuccessResponse>('/auth/login', {
+    const response = await request<AuthSuccessResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
+    setAccessToken(response.token);
+    localStorage.removeItem('aerolink_token');
+    localStorage.removeItem('aerolink_refresh_token');
+    return response;
   },
 
-  refresh: async (refreshToken: string) => {
-    return request<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
+  refresh: async (refreshToken?: string) => {
+    const response = await request<{ accessToken: string; refreshToken?: string }>('/auth/refresh', {
       method: 'POST',
-      body: JSON.stringify({ refreshToken }),
+      ...(refreshToken ? { body: JSON.stringify({ refreshToken }) } : {}),
     });
+    setAccessToken(response.accessToken);
+    localStorage.removeItem('aerolink_token');
+    localStorage.removeItem('aerolink_refresh_token');
+    return response;
+  },
+
+  logout: async () => {
+    try {
+      return await request<{ success: boolean }>('/auth/logout', {
+        method: 'POST',
+      });
+    } finally {
+      setAccessToken(null);
+      localStorage.removeItem('aerolink_token');
+      localStorage.removeItem('aerolink_refresh_token');
+    }
   },
 
   getMe: async () => {
@@ -833,10 +1046,14 @@ export const authApi = {
   },
 
   activateAccount: async (token: string, password: string) => {
-    return request<AuthSuccessResponse>('/auth/activate', {
+    const response = await request<AuthSuccessResponse>('/auth/activate', {
       method: 'POST',
       body: JSON.stringify({ token, password }),
     });
+    setAccessToken(response.token);
+    localStorage.removeItem('aerolink_token');
+    localStorage.removeItem('aerolink_refresh_token');
+    return response;
   },
 
   forgotPassword: async (email: string) => {
@@ -851,10 +1068,14 @@ export const authApi = {
   },
 
   resetPassword: async (token: string, password: string) => {
-    return request<AuthSuccessResponse>('/auth/reset-password', {
+    const response = await request<AuthSuccessResponse>('/auth/reset-password', {
       method: 'POST',
       body: JSON.stringify({ token, password }),
     });
+    setAccessToken(response.token);
+    localStorage.removeItem('aerolink_token');
+    localStorage.removeItem('aerolink_refresh_token');
+    return response;
   },
 };
 
@@ -1005,12 +1226,15 @@ export const ipcApi = {
 
 // ===== RFQ API =====
 export const rfqApi = {
-  getAll: async (filters?: { status?: string; urgency?: string }) => {
+  getAll: async (filters?: { status?: string; urgency?: string; search?: string; page?: number; limit?: number }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.append('status', filters.status);
     if (filters?.urgency) params.append('urgency', filters.urgency);
+    if (filters?.search?.trim()) params.append('search', filters.search.trim());
+    params.append('page', String(filters?.page ?? 1));
+    params.append('limit', String(filters?.limit ?? 100));
     const query = params.toString();
-    return request<RFQ[]>(`/rfqs${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedRFQs>(`/rfqs${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1031,8 +1255,8 @@ export const rfqApi = {
     });
   },
 
-  updateStatus: async (id: string, status: string) => {
-    return request<ApiRecord>(`/rfqs/${id}/status`, {
+  updateStatus: async (id: string, status: RFQStatus) => {
+    return request<RFQ>(`/rfqs/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });
@@ -1041,11 +1265,14 @@ export const rfqApi = {
 
 // ===== Quotation API =====
 export const quotationApi = {
-  getAll: async (filters?: { status?: string }) => {
+  getAll: async (filters?: { status?: string; search?: string; page?: number; limit?: number }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.append('status', filters.status);
+    if (filters?.search?.trim()) params.append('search', filters.search.trim());
+    params.append('page', String(filters?.page ?? 1));
+    params.append('limit', String(filters?.limit ?? 100));
     const query = params.toString();
-    return request<Quotation[]>(`/quotations${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedQuotations>(`/quotations${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1102,8 +1329,14 @@ export const quotationApi = {
 
 // ===== Order API =====
 export const orderApi = {
-  getAll: async () => {
-    return request<Order[]>('/orders');
+  getAll: async (filters?: { status?: string; search?: string; page?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.search?.trim()) params.append('search', filters.search.trim());
+    params.append('page', String(filters?.page ?? 1));
+    params.append('limit', String(filters?.limit ?? 100));
+    const query = params.toString();
+    return requestEnvelope<PaginatedOrders>(`/orders${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1180,8 +1413,30 @@ export const documentApi = {
 
 // ===== Inventory API =====
 export const inventoryApi = {
-  getAll: async () => {
-    return request<Inventory[]>('/inventory');
+  getAll: async (params?: {
+    search?: string;
+    conditionCode?: string;
+    certificateType?: string;
+    type?: string;
+    partCategory?: string;
+    location?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const search = new URLSearchParams();
+    if (params?.search?.trim()) search.append('search', params.search.trim());
+    if (params?.conditionCode) search.append('conditionCode', params.conditionCode);
+    if (params?.certificateType) search.append('certificateType', params.certificateType);
+    if (params?.type) search.append('type', params.type);
+    if (params?.partCategory) search.append('partCategory', params.partCategory);
+    if (params?.location) search.append('location', params.location);
+    search.append('page', String(params?.page ?? 1));
+    search.append('limit', String(params?.limit ?? 100));
+    return requestEnvelope<PaginatedInventory>(`/inventory?${search.toString()}`);
+  },
+
+  getReconciliation: async () => {
+    return request<InventoryReconciliationResult>('/inventory/reconciliation');
   },
 
   getById: async (id: string) => {
@@ -1266,8 +1521,14 @@ export const inventoryDetailApi = {
 
 // ===== Customer API =====
 export const customerApi = {
-  getAll: async () => {
-    return request<Customer[]>('/customers');
+  getAll: async (params?: { status?: string; search?: string; page?: number; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.append('status', params.status);
+    if (params?.search?.trim()) searchParams.append('search', params.search.trim());
+    searchParams.append('page', String(params?.page ?? 1));
+    searchParams.append('limit', String(params?.limit ?? 100));
+    const query = searchParams.toString();
+    return requestEnvelope<PaginatedCustomers>(`/customers${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1291,13 +1552,15 @@ export const customerApi = {
 
 // ===== Supplier API =====
 export const supplierApi = {
-  getAll: async (params?: { level?: string; page?: number; limit?: number }) => {
+  getAll: async (params?: { level?: string; search?: string; followUpFilter?: string; page?: number; limit?: number }) => {
     const searchParams = new URLSearchParams();
     if (params?.level) searchParams.append('level', params.level);
-    if (params?.page) searchParams.append('page', String(params.page));
-    if (params?.limit) searchParams.append('limit', String(params.limit));
+    if (params?.search?.trim()) searchParams.append('search', params.search.trim());
+    if (params?.followUpFilter && params.followUpFilter !== 'all') searchParams.append('followUpFilter', params.followUpFilter);
+    searchParams.append('page', String(params?.page ?? 1));
+    searchParams.append('limit', String(params?.limit ?? 100));
     const query = searchParams.toString();
-    return request<Supplier[]>(`/suppliers${query ? `?${query}` : ''}`);
+    return requestEnvelope<PaginatedSuppliers>(`/suppliers${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -1743,14 +2006,13 @@ export const aiApi = {
 // ===== Webhook Phase 2 API =====
 export interface WebhookDLQStats {
   totalQuarantined: number;
-  byEndpoint: { endpointId: string; endpointName: string; count: number }[];
-  byReason: { reason: string; count: number }[];
   byAge: {
     lessThan1h: number;
     between1hAnd24h: number;
     moreThan24h: number;
   };
-  oldestQuarantineAt: string | null;
+  byFailureReason: Record<WebhookFailureReason, number>;
+  recoveryRate: number;
 }
 
 export const webhooksPhase2Api = {
@@ -1762,7 +2024,7 @@ export const webhooksPhase2Api = {
     limit?: number;
     offset?: number;
     endpointId?: string;
-    failureReason?: string;
+    failureReason?: WebhookFailureReason;
   }) => {
     const search = new URLSearchParams();
     if (params?.limit) search.append('limit', String(params.limit));
@@ -1770,7 +2032,7 @@ export const webhooksPhase2Api = {
     if (params?.endpointId) search.append('endpointId', params.endpointId);
     if (params?.failureReason) search.append('failureReason', params.failureReason);
     const query = search.toString();
-    const result = await request<
+    const result = await requestEnvelope<
       WebhookDLQItem[] | { data: WebhookDLQItem[]; pagination?: { limit: number; offset: number; total: number } }
     >(`/webhooks/phase2/dlq${query ? `?${query}` : ''}`);
 
@@ -1964,7 +2226,7 @@ export const inboundWebhookApi = {
     if (params?.endpointId) search.append('endpointId', params.endpointId);
     if (params?.status) search.append('status', params.status);
     const query = search.toString();
-    const result = await request<
+    const result = await requestEnvelope<
       InboundWebhookDelivery[] | {
         data: InboundWebhookDelivery[];
         pagination?: { limit: number; offset: number; total: number };
@@ -1992,15 +2254,19 @@ export const inboundWebhookApi = {
     offset?: number;
     action?: string;
     resourceType?: string;
+    startDate?: string;
+    endDate?: string;
   }) => {
     const search = new URLSearchParams();
     if (params?.limit) search.append('limit', String(params.limit));
     if (params?.offset) search.append('offset', String(params.offset));
     if (params?.action) search.append('action', params.action);
     if (params?.resourceType) search.append('resourceType', params.resourceType);
+    if (params?.startDate) search.append('startDate', params.startDate);
+    if (params?.endDate) search.append('endDate', params.endDate);
     const query = search.toString();
 
-    const result = await request<
+    const result = await requestEnvelope<
       WebhookAuditLogItem[] | {
         data: WebhookAuditLogItem[];
         pagination?: { limit: number; offset: number; total: number };
@@ -2072,7 +2338,7 @@ export const workflowApi = {
     if (params?.page) searchParams.append('page', String(params.page));
     if (params?.limit) searchParams.append('limit', String(params.limit));
     const query = searchParams.toString();
-    return request<{ data: WorkflowInstance[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } }>(
+    return requestEnvelope<{ data: WorkflowInstance[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } }>(
       `/workflows/instances${query ? `?${query}` : ''}`
     );
   },

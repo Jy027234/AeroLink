@@ -53,6 +53,11 @@ import {
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+
+function buildPreviewDocument(html: string, emptyLabel: string) {
+  const content = html || `<p>${emptyLabel}</p>`;
+  return `<!doctype html><html><head><meta charset="utf-8" /><style>body{font-family:Arial,sans-serif;color:#111827;margin:0;padding:8px;line-height:1.5}table{border-collapse:collapse;width:100%}td,th{border:1px solid #d1d5db;padding:4px;text-align:left}img{max-width:100%;height:auto}</style></head><body>${content}</body></html>`;
+}
 import {
   AlertDialog,
   AlertDialogContent,
@@ -282,17 +287,32 @@ function TemplateFormDialog({
             {formData.headerTemplate && (
               <div className="border rounded-lg p-4 bg-gray-50">
                 <p className="text-xs text-gray-400 mb-2">{tx('页眉', 'Header')}</p>
-                <div dangerouslySetInnerHTML={{ __html: formData.headerTemplate }} />
+                <iframe
+                  title={tx('页眉预览', 'Header preview')}
+                  sandbox=""
+                  srcDoc={buildPreviewDocument(formData.headerTemplate, tx('暂无内容', 'No content'))}
+                  className="w-full min-h-16 border-0 bg-white"
+                />
               </div>
             )}
             <div className="border rounded-lg p-4">
               <p className="text-xs text-gray-400 mb-2">{tx('正文', 'Body')}</p>
-              <div dangerouslySetInnerHTML={{ __html: formData.bodyTemplate || `<p class="text-gray-400">${tx('暂无内容', 'No content')}</p>` }} />
+              <iframe
+                title={tx('正文预览', 'Body preview')}
+                sandbox=""
+                srcDoc={buildPreviewDocument(formData.bodyTemplate, tx('暂无内容', 'No content'))}
+                className="w-full min-h-32 border-0 bg-white"
+              />
             </div>
             {formData.footerTemplate && (
               <div className="border rounded-lg p-4 bg-gray-50">
                 <p className="text-xs text-gray-400 mb-2">{tx('页脚', 'Footer')}</p>
-                <div dangerouslySetInnerHTML={{ __html: formData.footerTemplate }} />
+                <iframe
+                  title={tx('页脚预览', 'Footer preview')}
+                  sandbox=""
+                  srcDoc={buildPreviewDocument(formData.footerTemplate, tx('暂无内容', 'No content'))}
+                  className="w-full min-h-16 border-0 bg-white"
+                />
               </div>
             )}
           </div>
