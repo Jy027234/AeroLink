@@ -5,43 +5,11 @@ import { validateBody } from '../middleware/validate.js';
 import { rfqCreateSchema, rfqStatusUpdateSchema } from '../lib/validation.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { emitWebhookEvent } from '../lib/webhookService.js';
+import { isRfqStatusTransitionAllowed, normalizeRfqStatus, toUiRfqStatus } from '../lib/rfqStateMachine.js';
+import { createInitialStatusHistory, transitionRfqStatus } from '../lib/transactionStateService.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
-
-const RFQ_STATUS_UI: Record<string, string> = {
-  PENDING: 'pending',
-  SOURCING: 'sourcing',
-  QUOTING: 'quoting',
-  APPROVING: 'approved',
-  ORDERED: 'sent',
-  COMPLETED: 'won',
-  CANCELLED: 'lost',
-};
-
-const RFQ_STATUS_PERSISTED: Record<string, string> = {
-  pending: 'PENDING',
-  sourcing: 'SOURCING',
-  quoting: 'QUOTING',
-  approved: 'APPROVING',
-  sent: 'ORDERED',
-  won: 'COMPLETED',
-  lost: 'CANCELLED',
-};
-
-const RFQ_ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
-  PENDING: ['SOURCING', 'QUOTING', 'CANCELLED'],
-  SOURCING: ['QUOTING', 'CANCELLED'],
-  QUOTING: ['APPROVING', 'ORDERED', 'COMPLETED', 'CANCELLED'],
-  APPROVING: ['ORDERED', 'COMPLETED', 'CANCELLED'],
-  ORDERED: ['COMPLETED', 'CANCELLED'],
-  COMPLETED: [],
-  CANCELLED: [],
-};
-
-function toUiRfqStatus(status: string): string {
-  return RFQ_STATUS_UI[status.toUpperCase()] || status.toLowerCase();
-}
 
 function parseAlternatePartNumbers(value: string | null): string[] | undefined {
   if (!value) return undefined;
@@ -81,9 +49,38 @@ function toRfqResponse(rfq: Awaited<ReturnType<typeof prisma.rFQ.findUnique>> & 
     urgency: rfq.urgency.toLowerCase(),
     urgencyJustification: rfq.urgencyJustification,
     status: toUiRfqStatus(rfq.status),
+    version: rfq.version,
     notes: rfq.notes,
     createdAt: rfq.createdAt.toISOString(),
     createdBy: rfq.creator?.name || '',
+  };
+}
+
+function mapStatusHistoryEntry(history: {
+  id: string;
+  entityType: string;
+  entityId: string;
+  fromStatus: string | null;
+  toStatus: string;
+  reasonCode: string;
+  reason: string | null;
+  actorId: string | null;
+  version: number;
+  createdAt: Date;
+  actor?: { id: string; name: string } | null;
+}) {
+  return {
+    id: history.id,
+    entityType: history.entityType,
+    entityId: history.entityId,
+    fromStatus: history.fromStatus ? toUiRfqStatus(history.fromStatus) : null,
+    toStatus: toUiRfqStatus(history.toStatus),
+    reasonCode: history.reasonCode,
+    reason: history.reason,
+    actorId: history.actorId,
+    actorName: history.actor?.name || null,
+    version: history.version,
+    createdAt: history.createdAt.toISOString(),
   };
 }
 
@@ -98,7 +95,7 @@ router.get(
     const where: Prisma.RFQWhereInput = {};
     if (status) {
       const statusValue = status.toString();
-      where.status = RFQ_STATUS_PERSISTED[statusValue.toLowerCase()] || statusValue.toUpperCase();
+      where.status = normalizeRfqStatus(statusValue) || statusValue.toUpperCase();
     }
     if (urgency) where.urgency = urgency.toString().toUpperCase();
     const searchValue = typeof search === 'string' ? search.trim() : '';
@@ -151,6 +148,35 @@ router.get(
         total,
         totalPages: Math.ceil(total / pageSize),
       },
+    });
+  })
+);
+
+router.get(
+  '/:id/status-history',
+  asyncHandler(async (req, res) => {
+    const rfq = await prisma.rFQ.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    });
+
+    if (!rfq) {
+      throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
+    }
+
+    const history = await prisma.transactionStatusHistory.findMany({
+      where: { entityType: 'RFQ', entityId: rfq.id },
+      include: {
+        actor: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    res.json({
+      success: true,
+      data: history.map(mapStatusHistoryEntry),
     });
   })
 );
@@ -219,38 +245,52 @@ router.post(
 
     const rfqNumber = `RFQ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-    const rfq = await prisma.rFQ.create({
-      data: {
-        rfqNumber,
-        customerId,
-        partNumber,
-        quantity,
-        uom,
-        conditionCode,
-        description,
-        serialNumber,
-        batchNumber,
-        ataChapter,
-        aircraftType,
-        aircraftModel,
-        alternatePartNumbers,
-        targetPrice,
-        targetPriceCurrency,
-        certificateRequired,
-        certificateType,
-        requiredDate: requiredDate ? new Date(requiredDate) : new Date(),
-        responseDeadline: responseDeadline ? new Date(responseDeadline) : undefined,
-        leadTimeDays,
-        urgency: urgency?.toUpperCase() || 'STANDARD',
-        urgencyJustification,
-        status: 'PENDING',
-        notes,
-        emailId,
-        createdBy: (req as AuthRequest).user!.id,
-      },
-      include: {
-        customer: true,
-      },
+    const userId = (req as AuthRequest).user!.id;
+    const rfq = await prisma.$transaction(async (tx) => {
+      const created = await tx.rFQ.create({
+        data: {
+          rfqNumber,
+          customerId,
+          partNumber,
+          quantity,
+          uom,
+          conditionCode,
+          description,
+          serialNumber,
+          batchNumber,
+          ataChapter,
+          aircraftType,
+          aircraftModel,
+          alternatePartNumbers,
+          targetPrice,
+          targetPriceCurrency,
+          certificateRequired,
+          certificateType,
+          requiredDate: requiredDate ? new Date(requiredDate) : new Date(),
+          responseDeadline: responseDeadline ? new Date(responseDeadline) : undefined,
+          leadTimeDays,
+          urgency: urgency?.toUpperCase() || 'STANDARD',
+          urgencyJustification,
+          status: 'PENDING',
+          notes,
+          emailId,
+          createdBy: userId,
+        },
+        include: {
+          customer: true,
+        },
+      });
+
+      await createInitialStatusHistory(tx, {
+        entityType: 'RFQ',
+        entityId: created.id,
+        toStatus: created.status,
+        reasonCode: 'RFQ_CREATED',
+        actorId: userId,
+        version: created.version,
+      });
+
+      return created;
     });
 
     await emitWebhookEvent('rfq.created', {
@@ -352,20 +392,48 @@ router.patch(
       throw new AppError('RFQ不存在', 404);
     }
 
-    if (current.status !== nextStatus && !RFQ_ALLOWED_TRANSITIONS[current.status]?.includes(nextStatus)) {
+    const currentStatus = normalizeRfqStatus(current.status);
+    if (!currentStatus || !isRfqStatusTransitionAllowed(current.status, nextStatus)) {
       throw new AppError(`RFQ 不允许从 ${toUiRfqStatus(current.status)} 变更为 ${toUiRfqStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
     }
 
-    const rfq = await prisma.rFQ.update({
-      where: { id: req.params.id },
-      data: { status: nextStatus },
-      include: {
-        customer: true,
-        creator: {
-          select: { id: true, name: true },
+    const isNoop = current.status === nextStatus;
+    const rfq = isNoop
+      ? await prisma.rFQ.findUnique({
+        where: { id: req.params.id },
+        include: {
+          customer: true,
+          creator: {
+            select: { id: true, name: true },
+          },
         },
-      },
-    });
+      })
+      : await prisma.$transaction(async (tx) => {
+        await transitionRfqStatus(tx, {
+          id: current.id,
+          currentStatus: current.status,
+          currentVersion: current.version,
+          nextStatus,
+          expectedVersion: req.body.version,
+          actorId: (req as AuthRequest).user?.id,
+          reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
+          reason: req.body.reason,
+        });
+
+        return tx.rFQ.findUnique({
+          where: { id: req.params.id },
+          include: {
+            customer: true,
+            creator: {
+              select: { id: true, name: true },
+            },
+          },
+        });
+      });
+
+    if (!rfq) {
+      throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
+    }
 
     if (current.status !== rfq.status) {
       await emitWebhookEvent('rfq.status.changed', {

@@ -14,6 +14,7 @@ async function main() {
 
   console.log('开始播种数据...');
 
+  await prisma.transactionStatusHistory.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.approval.deleteMany();
   await prisma.trackingEvent.deleteMany();
@@ -853,7 +854,7 @@ Air China Procurement`,
         conditionCode: 'NE',
         requiredDate: new Date('2026-04-20'),
         urgency: 'STANDARD',
-        status: 'APPROVED',
+        status: 'APPROVING',
         createdBy: 'u001',
       },
       {
@@ -867,7 +868,7 @@ Air China Procurement`,
         requiredDate: new Date('2026-04-10'),
         aircraftType: 'B737-800',
         urgency: 'URGENT',
-        status: 'SENT',
+        status: 'ORDERED',
         createdBy: 'u001',
       },
     ],
@@ -1060,6 +1061,53 @@ Air China Procurement`,
     ],
   });
   console.log(`创建了 ${orders.count} 个订单`);
+
+  const [seededRfqs, seededQuotations, seededOrders] = await Promise.all([
+    prisma.rFQ.findMany({
+      select: { id: true, status: true, version: true, createdBy: true, createdAt: true },
+    }),
+    prisma.quotation.findMany({
+      select: { id: true, status: true, version: true, createdBy: true, createdAt: true },
+    }),
+    prisma.order.findMany({
+      select: { id: true, status: true, version: true, createdAt: true },
+    }),
+  ]);
+
+  const statusHistory = await prisma.transactionStatusHistory.createMany({
+    data: [
+      ...seededRfqs.map((rfq) => ({
+        entityType: 'RFQ',
+        entityId: rfq.id,
+        toStatus: rfq.status,
+        reasonCode: 'SEEDED_INITIAL_STATE',
+        reason: 'Created by the development seed.',
+        actorId: rfq.createdBy,
+        version: rfq.version,
+        createdAt: rfq.createdAt,
+      })),
+      ...seededQuotations.map((quotation) => ({
+        entityType: 'QUOTATION',
+        entityId: quotation.id,
+        toStatus: quotation.status,
+        reasonCode: 'SEEDED_INITIAL_STATE',
+        reason: 'Created by the development seed.',
+        actorId: quotation.createdBy,
+        version: quotation.version,
+        createdAt: quotation.createdAt,
+      })),
+      ...seededOrders.map((order) => ({
+        entityType: 'ORDER',
+        entityId: order.id,
+        toStatus: order.status,
+        reasonCode: 'SEEDED_INITIAL_STATE',
+        reason: 'Created by the development seed.',
+        version: order.version,
+        createdAt: order.createdAt,
+      })),
+    ],
+  });
+  console.log(`创建了 ${statusHistory.count} 条交易状态历史`);
 
   await prisma.shipmentTracking.create({
     data: {

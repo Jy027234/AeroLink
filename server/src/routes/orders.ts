@@ -10,12 +10,42 @@ import { AuthRequest } from '../middleware/auth.js';
 import { generateOrderPDF } from '../lib/pdfService.js';
 import { emitWebhookEvent } from '../lib/webhookService.js';
 import { isOrderStatusTransitionAllowed, normalizeOrderStatus, toUiOrderStatus } from '../lib/orderStateMachine.js';
+import { isQuotationTransitionAllowed, normalizeQuotationStatus } from '../lib/quotationStateMachine.js';
+import { transitionOrderStatus, transitionQuotationStatus } from '../lib/transactionStateService.js';
 import { isUniqueConstraintError } from '../lib/prismaErrors.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
 
 type OrderWithCustomer = Prisma.OrderGetPayload<{ include: { customer: true } }>;
+
+function mapOrderStatusHistoryEntry(history: {
+  id: string;
+  entityType: string;
+  entityId: string;
+  fromStatus: string | null;
+  toStatus: string;
+  reasonCode: string;
+  reason: string | null;
+  actorId: string | null;
+  version: number;
+  createdAt: Date;
+  actor?: { id: string; name: string } | null;
+}) {
+  return {
+    id: history.id,
+    entityType: history.entityType,
+    entityId: history.entityId,
+    fromStatus: history.fromStatus ? toUiOrderStatus(history.fromStatus) : null,
+    toStatus: toUiOrderStatus(history.toStatus),
+    reasonCode: history.reasonCode,
+    reason: history.reason,
+    actorId: history.actorId,
+    actorName: history.actor?.name || null,
+    version: history.version,
+    createdAt: history.createdAt.toISOString(),
+  };
+}
 router.get(
   '/',
   asyncHandler(async (req, res) => {
@@ -95,6 +125,7 @@ router.get(
         quantity: o.quantity,
         totalAmount: o.totalAmount,
         status: o.status.toLowerCase(),
+        version: o.version,
         createdAt: o.createdAt.toISOString(),
         deliveryDate: o.deliveryDate?.toISOString(),
         trackingNumber: o.trackingNumber,
@@ -140,6 +171,35 @@ router.get(
 );
 
 router.get(
+  '/:id/status-history',
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    });
+
+    if (!order) {
+      throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
+    }
+
+    const history = await prisma.transactionStatusHistory.findMany({
+      where: { entityType: 'ORDER', entityId: order.id },
+      include: {
+        actor: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    res.json({
+      success: true,
+      data: history.map(mapOrderStatusHistoryEntry),
+    });
+  })
+);
+
+router.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const order = await prisma.order.findUnique({
@@ -176,7 +236,7 @@ router.post(
   validateBody(orderCreateSchema),
   asyncHandler(async (req, res) => {
     const {
-      quotationId, customerId, poNumber, deliveryDate, templateId,
+      quotationId, customerId, quotationVersion, poNumber, deliveryDate, templateId,
       saleType, incoterm, incotermLocation, shipToId, shipForId,
       warrantyDays, warrantyStartDate,
       certificateRequired, certificateType, certificateDelivered,
@@ -216,15 +276,30 @@ router.post(
       order = existingOrder;
       updatedQuotation = quotation;
     } else {
+      const quotationStatus = normalizeQuotationStatus(quotation.status);
+      if (!quotationStatus || !['APPROVED', 'SENT', 'ACCEPTED'].includes(quotationStatus)) {
+        throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
+      }
+      if (quotationStatus !== 'ACCEPTED' && !isQuotationTransitionAllowed(quotation.status, 'ACCEPTED')) {
+        throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
+      }
+
       try {
         const transactionResult = await prisma.$transaction(async (tx) => {
-          const updated = await tx.quotation.update({
-            where: { id: quotationId },
-            data: {
-              status: 'ACCEPTED',
-              acceptedAt: quotation.acceptedAt || now,
-            },
-          });
+          const updated = quotationStatus === 'ACCEPTED'
+            ? quotation
+            : await transitionQuotationStatus(tx, {
+              id: quotation.id,
+              currentStatus: quotation.status,
+              currentVersion: quotation.version,
+              nextStatus: 'ACCEPTED',
+              expectedVersion: quotationVersion,
+              actorId: (req as AuthRequest).user?.id,
+              reasonCode: 'ORDER_CREATED_FROM_QUOTATION',
+              data: {
+                acceptedAt: quotation.acceptedAt || now,
+              },
+            });
 
           const createdOrder = await createOrderFromQuotation({
             tx,
@@ -257,6 +332,8 @@ router.post(
             exchangeCoreDueDate,
             eSignatureCustomer,
             eSignatureSupplier,
+            actorId: (req as AuthRequest).user?.id,
+            reasonCode: 'ORDER_CREATED_FROM_QUOTATION',
           });
 
           return { order: createdOrder, updatedQuotation: updated };
@@ -348,10 +425,18 @@ router.patch(
       throw new AppError(`订单不允许从 ${toUiOrderStatus(currentStatus)} 变更为 ${toUiOrderStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
     }
 
-    const order = await prisma.order.update({
-      where: { id: req.params.id },
-      data: { status: nextStatus },
-    });
+    const order = existing.status === nextStatus
+      ? existing
+      : await prisma.$transaction((tx) => transitionOrderStatus(tx, {
+        id: existing.id,
+        currentStatus: existing.status,
+        currentVersion: existing.version,
+        nextStatus,
+        expectedVersion: req.body.version,
+        actorId: (req as AuthRequest).user?.id,
+        reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
+        reason: req.body.reason,
+      }));
 
     if (existing.status !== order.status) {
       await emitWebhookEvent('order.status.changed', {

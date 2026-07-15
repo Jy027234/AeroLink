@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { transitionOrderStatus } from '../lib/transactionStateService.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -128,14 +129,29 @@ router.post(
         },
       });
 
-      await tx.order.update({
-        where: { id: orderId },
-        data: {
-          outboundQuantity: nextOutboundQuantity,
-          outboundStatus: nextOutboundStatus,
-          status: nextStatus,
-        },
-      });
+      if (nextStatus !== order.status) {
+        await transitionOrderStatus(tx, {
+          id: order.id,
+          currentStatus: order.status,
+          currentVersion: order.version,
+          nextStatus,
+          actorId: req.user!.id,
+          reasonCode: 'OUTBOUND_COMPLETED',
+          reason: notes || 'Inventory outbound completed.',
+          data: {
+            outboundQuantity: nextOutboundQuantity,
+            outboundStatus: nextOutboundStatus,
+          },
+        });
+      } else {
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            outboundQuantity: nextOutboundQuantity,
+            outboundStatus: nextOutboundStatus,
+          },
+        });
+      }
 
       return created;
     });

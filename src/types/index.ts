@@ -65,6 +65,7 @@ export interface RFQ {
   urgency: UrgencyLevel;
   urgencyJustification?: string;
   status: RFQStatus;
+  version: number;
   createdAt: string;
   createdBy: string;
   notes?: string;
@@ -458,6 +459,7 @@ export interface Quotation {
   certificateFiles: string[];
   template: QuoteTemplate;
   status: QuoteStatus;
+  version: number;
   // 审批与流程
   createdAt: string;
   createdBy: string;
@@ -559,6 +561,7 @@ export interface Order {
   quantity: number;
   totalAmount: number;
   status: OrderStatus;
+  version: number;
   createdAt: string;
   deliveryDate?: string;
   trackingNumber?: string;

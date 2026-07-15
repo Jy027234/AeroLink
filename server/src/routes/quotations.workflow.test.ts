@@ -32,6 +32,7 @@ function createQuotation(status: 'APPROVED' | 'SENT' | 'ACCEPTED' | 'WITHDRAWN' 
     certificateFiles: 'FAA8130,EASAForm1',
     template: 'STANDARD',
     status,
+    version: 1,
     validityDays: 14,
     saleType: 'Sale',
     incoterm: 'EXW',
@@ -100,6 +101,7 @@ function createOrder() {
     quantity: 2,
     totalAmount: 4200,
     status: 'SO_CREATED',
+    version: 1,
     createdAt: new Date('2026-05-12T11:00:00.000Z'),
     deliveryDate: new Date('2026-06-01T00:00:00.000Z'),
     trackingNumber: null,
@@ -122,6 +124,12 @@ function createPrismaMock() {
     },
     order: {
       findFirst: vi.fn(),
+    },
+    outboundEmail: {
+      update: vi.fn(),
+    },
+    approval: {
+      create: vi.fn(),
     },
   };
 
@@ -164,6 +172,7 @@ describe('Quotation workflow routes', () => {
   let mapOrderResponseMock: ReturnType<typeof vi.fn>;
   let ensureOrderContractDocumentMock: ReturnType<typeof vi.fn>;
   let emitWebhookEventMock: ReturnType<typeof vi.fn>;
+  let transitionQuotationStatusMock: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     process.env.JWT_SECRET = 'test-jwt-secret';
@@ -185,6 +194,7 @@ describe('Quotation workflow routes', () => {
     }));
     ensureOrderContractDocumentMock = vi.fn();
     emitWebhookEventMock = vi.fn();
+    transitionQuotationStatusMock = vi.fn();
 
     vi.doMock('../lib/prisma.js', () => ({
       default: prismaMock,
@@ -208,6 +218,11 @@ describe('Quotation workflow routes', () => {
     }));
     vi.doMock('../lib/webhookService.js', () => ({
       emitWebhookEvent: emitWebhookEventMock,
+    }));
+    vi.doMock('../lib/transactionStateService.js', () => ({
+      transitionQuotationStatus: transitionQuotationStatusMock,
+      transitionRfqStatus: vi.fn(),
+      createInitialStatusHistory: vi.fn(),
     }));
 
     const quotationsRouter = (await import('./quotations.js')).default;
@@ -242,12 +257,13 @@ describe('Quotation workflow routes', () => {
     prismaMock.quotation.findUnique.mockResolvedValue(quotation);
     prismaMock.emailAccount.findFirst.mockResolvedValue(account);
     prismaMock.outboundEmail.create.mockResolvedValue(pendingEmail);
-    prismaMock.quotation.update.mockResolvedValue({
+    transitionQuotationStatusMock.mockResolvedValue({
       ...quotation,
       status: 'SENT',
       sentAt,
+      version: 2,
     });
-    prismaMock.outboundEmail.update.mockResolvedValue({
+    prismaMock.__tx.outboundEmail.update.mockResolvedValue({
       ...pendingEmail,
       id: 'mail-pending-001',
       status: 'SENT',
@@ -305,6 +321,7 @@ describe('Quotation workflow routes', () => {
     expect(response.status).toBe(409);
     expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
     expect(prismaMock.quotation.update).not.toHaveBeenCalled();
+    expect(transitionQuotationStatusMock).not.toHaveBeenCalled();
     expect(emitWebhookEventMock).not.toHaveBeenCalled();
   });
 
@@ -322,7 +339,7 @@ describe('Quotation workflow routes', () => {
     expect(response.status).toBe(409);
     expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
     expect(prismaMock.quotation.update).not.toHaveBeenCalled();
-    expect(prismaMock.__tx.quotation.update).not.toHaveBeenCalled();
+    expect(transitionQuotationStatusMock).not.toHaveBeenCalled();
     expect(emitWebhookEventMock).not.toHaveBeenCalled();
   });
 
@@ -365,7 +382,7 @@ describe('Quotation workflow routes', () => {
 
     expect(response.status).toBe(409);
     expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
-    expect(prismaMock.__tx.quotation.update).not.toHaveBeenCalled();
+    expect(transitionQuotationStatusMock).not.toHaveBeenCalled();
     expect(createOrderFromQuotationMock).not.toHaveBeenCalled();
   });
 
@@ -382,25 +399,25 @@ describe('Quotation workflow routes', () => {
 
     prismaMock.quotation.findUnique.mockResolvedValue(quotation);
     prismaMock.emailAccount.findFirst.mockResolvedValue(createEmailAccount());
-    prismaMock.quotation.update.mockResolvedValue({
+    transitionQuotationStatusMock.mockResolvedValue({
       ...quotation,
       status: 'WITHDRAWN',
       withdrawnAt,
       withdrawalReason: '价格调整，旧报价作废',
+      version: 2,
     });
-    prismaMock.outboundEmail.update
-      .mockResolvedValueOnce({
-        ...quotation.outboundEmails[0],
-        status: 'WITHDRAWN',
-        withdrawnAt,
-        withdrawalReason: '价格调整，旧报价作废',
-      })
-      .mockResolvedValueOnce({
-        ...notice,
-        status: 'SENT',
-        sentAt: withdrawnAt,
-        providerMessageId: 'smtp-withdraw-001',
-      });
+    prismaMock.__tx.outboundEmail.update.mockResolvedValue({
+      ...quotation.outboundEmails[0],
+      status: 'WITHDRAWN',
+      withdrawnAt,
+      withdrawalReason: '价格调整，旧报价作废',
+    });
+    prismaMock.outboundEmail.update.mockResolvedValue({
+      ...notice,
+      status: 'SENT',
+      sentAt: withdrawnAt,
+      providerMessageId: 'smtp-withdraw-001',
+    });
     prismaMock.outboundEmail.create.mockResolvedValue(notice);
     sendEmailMock.mockResolvedValue({ messageId: 'smtp-withdraw-001' });
 
@@ -443,7 +460,7 @@ describe('Quotation workflow routes', () => {
     const generatedDocument = createGeneratedDocument();
 
     prismaMock.quotation.findUnique.mockResolvedValue(quotation);
-    prismaMock.__tx.quotation.update.mockResolvedValue(updatedQuotation);
+    transitionQuotationStatusMock.mockResolvedValue(updatedQuotation);
     prismaMock.__tx.order.findFirst.mockResolvedValue(null);
     createOrderFromQuotationMock.mockResolvedValue(order);
     ensureOrderContractDocumentMock.mockResolvedValue(generatedDocument);

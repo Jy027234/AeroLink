@@ -94,6 +94,7 @@ export const mockEmails: Email[] = [
 export const mockRFQs: RFQ[] = [
   {
     id: 'rfq001',
+    version: 1,
     rfqNumber: 'RFQ-20260402-001',
     emailId: 'e001',
     customerId: 'c001',
@@ -114,6 +115,7 @@ export const mockRFQs: RFQ[] = [
   },
   {
     id: 'rfq002',
+    version: 1,
     rfqNumber: 'RFQ-20260402-002',
     emailId: 'e002',
     customerId: 'c002',
@@ -134,6 +136,7 @@ export const mockRFQs: RFQ[] = [
   },
   {
     id: 'rfq003',
+    version: 1,
     rfqNumber: 'RFQ-20260402-003',
     emailId: 'e003',
     customerId: 'c003',
@@ -153,6 +156,7 @@ export const mockRFQs: RFQ[] = [
   },
   {
     id: 'rfq004',
+    version: 1,
     rfqNumber: 'RFQ-20260401-004',
     customerId: 'c004',
     customerName: '厦门航空',
@@ -170,6 +174,7 @@ export const mockRFQs: RFQ[] = [
   },
   {
     id: 'rfq005',
+    version: 1,
     rfqNumber: 'RFQ-20260401-005',
     customerId: 'c001',
     customerName: '中国国航',
@@ -459,6 +464,7 @@ export const mockCustomers: Customer[] = [
 export const mockQuotations: Quotation[] = [
   {
     id: 'q001',
+    version: 1,
     quoteNumber: 'QT-20260401-001',
     rfqId: 'rfq004',
     customerId: 'c004',
@@ -493,6 +499,7 @@ export const mockQuotations: Quotation[] = [
   },
   {
     id: 'q002',
+    version: 1,
     quoteNumber: 'QT-20260402-002',
     rfqId: 'rfq002',
     customerId: 'c002',
@@ -525,6 +532,7 @@ export const mockQuotations: Quotation[] = [
   },
   {
     id: 'q003',
+    version: 1,
     quoteNumber: 'QT-20260402-003',
     rfqId: 'rfq001',
     customerId: 'c001',
@@ -559,6 +567,7 @@ export const mockQuotations: Quotation[] = [
   },
   {
     id: 'q004',
+    version: 1,
     quoteNumber: 'QT-20260328-004',
     rfqId: 'rfq005',
     customerId: 'c001',
@@ -597,6 +606,7 @@ export const mockQuotations: Quotation[] = [
 export const mockOrders: Order[] = [
   {
     id: 'o001',
+    version: 1,
     orderNumber: 'SO-20260328-001',
     soNumber: 'SO-20260328-001',
     poNumber: 'PO-20260329-001',
@@ -638,6 +648,7 @@ export const mockOrders: Order[] = [
   },
   {
     id: 'o002',
+    version: 1,
     orderNumber: 'SO-20260401-002',
     soNumber: 'SO-20260401-002',
     quotationId: 'q001',

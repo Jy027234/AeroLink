@@ -1253,10 +1253,10 @@ export const rfqApi = {
     });
   },
 
-  updateStatus: async (id: string, status: RFQStatus) => {
+  updateStatus: async (id: string, status: RFQStatus, version?: number) => {
     return request<RFQ>(`/rfqs/${id}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, version }),
     });
   },
 };
@@ -1284,34 +1284,35 @@ export const quotationApi = {
     });
   },
 
-  submitForApproval: async (id: string) => {
+  submitForApproval: async (id: string, version?: number) => {
     return request<ApiRecord>(`/quotations/${id}/submit`, {
       method: 'POST',
+      body: JSON.stringify({ version }),
     });
   },
 
-  approve: async (id: string, action: 'approve' | 'reject') => {
+  approve: async (id: string, action: 'approve' | 'reject', version?: number, comment?: string) => {
     return request<ApiRecord>(`/quotations/${id}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, version, comment }),
     });
   },
 
-  send: async (id: string, data?: { subject?: string; message?: string }) => {
+  send: async (id: string, data?: { subject?: string; message?: string; version?: number; reasonCode?: string; reason?: string }) => {
     return request<ApiRecord>(`/quotations/${id}/send`, {
       method: 'POST',
       body: JSON.stringify(data || {}),
     });
   },
 
-  withdraw: async (id: string, data: { reason: string; sendWithdrawalNotice?: boolean }) => {
+  withdraw: async (id: string, data: { reason: string; sendWithdrawalNotice?: boolean; version?: number; reasonCode?: string }) => {
     return request<ApiRecord>(`/quotations/${id}/withdraw`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  accept: async (id: string, data?: { poNumber?: string; deliveryDate?: string; templateId?: string; confirmationNote?: string }) => {
+  accept: async (id: string, data?: { poNumber?: string; deliveryDate?: string; templateId?: string; confirmationNote?: string; version?: number; reasonCode?: string; reason?: string }) => {
     return request<ApiRecord>(`/quotations/${id}/accept`, {
       method: 'POST',
       body: JSON.stringify(data || {}),
@@ -1355,10 +1356,10 @@ export const orderApi = {
     });
   },
 
-  updateStatus: async (id: string, status: string) => {
+  updateStatus: async (id: string, status: string, version?: number) => {
     return request<ApiRecord>(`/orders/${id}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, version }),
     });
   },
 };

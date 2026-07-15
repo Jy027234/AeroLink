@@ -5,6 +5,7 @@ import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
 import {
   quotationCreateSchema,
+  quotationSubmitSchema,
   quotationApproveSchema,
   quotationSendSchema,
   quotationWithdrawSchema,
@@ -18,6 +19,12 @@ import { createOrderFromQuotation, mapOrderResponse } from '../lib/orderWorkflow
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { emitWebhookEvent } from '../lib/webhookService.js';
 import { isQuotationTransitionAllowed, normalizeQuotationStatus, type QuotationStatus } from '../lib/quotationStateMachine.js';
+import { isRfqStatusTransitionAllowed, normalizeRfqStatus } from '../lib/rfqStateMachine.js';
+import {
+  createInitialStatusHistory,
+  transitionQuotationStatus,
+  transitionRfqStatus,
+} from '../lib/transactionStateService.js';
 import { isUniqueConstraintError } from '../lib/prismaErrors.js';
 import prisma from '../lib/prisma.js';
 
@@ -83,6 +90,38 @@ function assertQuotationTransition(current: string, target: QuotationStatus) {
       'INVALID_STATE_TRANSITION',
     );
   }
+}
+
+function toUiQuotationStatus(status: string) {
+  return normalizeQuotationStatus(status)?.toLowerCase() || status.toLowerCase();
+}
+
+function mapQuotationStatusHistoryEntry(history: {
+  id: string;
+  entityType: string;
+  entityId: string;
+  fromStatus: string | null;
+  toStatus: string;
+  reasonCode: string;
+  reason: string | null;
+  actorId: string | null;
+  version: number;
+  createdAt: Date;
+  actor?: { id: string; name: string } | null;
+}) {
+  return {
+    id: history.id,
+    entityType: history.entityType,
+    entityId: history.entityId,
+    fromStatus: history.fromStatus ? toUiQuotationStatus(history.fromStatus) : null,
+    toStatus: toUiQuotationStatus(history.toStatus),
+    reasonCode: history.reasonCode,
+    reason: history.reason,
+    actorId: history.actorId,
+    actorName: history.actor?.name || null,
+    version: history.version,
+    createdAt: history.createdAt.toISOString(),
+  };
 }
 
 router.get(
@@ -178,6 +217,7 @@ router.get(
           certificateFiles: q.certificateFiles?.split(',').filter(Boolean) || [],
           template: q.template.toLowerCase(),
           status: q.status.toLowerCase(),
+          version: q.version,
           validityDays: q.validityDays,
           saleType: q.saleType,
           incoterm: q.incoterm,
@@ -221,6 +261,35 @@ router.get(
       }),
       summary,
       pagination: { page: pageNum, limit: pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    });
+  })
+);
+
+router.get(
+  '/:id/status-history',
+  asyncHandler(async (req, res) => {
+    const quotation = await prisma.quotation.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    });
+
+    if (!quotation) {
+      throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+    }
+
+    const history = await prisma.transactionStatusHistory.findMany({
+      where: { entityType: 'QUOTATION', entityId: quotation.id },
+      include: {
+        actor: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    res.json({
+      success: true,
+      data: history.map(mapQuotationStatusHistoryEntry),
     });
   })
 );
@@ -308,14 +377,11 @@ router.post(
     eSignature, eSignatureStatus, countryOfOrigin, hsCode, eccn, dualUse,
   } = req.body;
 
-    // Check if associated RFQ is AOG
-    let isAog = false;
-    if (rfqId) {
-      const rfq = await prisma.rFQ.findUnique({ where: { id: rfqId } });
-      if (rfq && rfq.urgency.toUpperCase() === 'AOG') {
-        isAog = true;
-      }
-    }
+    // Keep the RFQ snapshot for the in-transaction AOG status transition.
+    const relatedRfq = rfqId
+      ? await prisma.rFQ.findUnique({ where: { id: rfqId } })
+      : null;
+    const isAog = relatedRfq?.urgency.toUpperCase() === 'AOG';
 
     const finalValidityDays = isAog ? 1 : (validityDays || 7);
     const totalPrice = quantity * unitPrice;
@@ -326,57 +392,83 @@ router.post(
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + finalValidityDays);
 
-    const quotation = await prisma.quotation.create({
-      data: {
-        quoteNumber,
-        rfqId,
-        customerId,
-        partNumber,
-        quantity,
-        unitPrice,
-        totalPrice,
-        costPrice,
-        margin,
-        certificateFiles: Array.isArray(certificateFiles) ? certificateFiles.join(',') : certificateFiles,
-        template: template?.toUpperCase() || 'STANDARD',
-        status: isAog ? 'PENDING_APPROVAL' : 'DRAFT',
-        validityDays: finalValidityDays,
-        saleType: saleType || 'Sale',
-        shipToId: shipToId || null,
-        shipForId: shipForId || null,
-        incoterm: incoterm || null,
-        incotermLocation: incotermLocation || null,
-        leadTimeDays: leadTimeDays || null,
-        leadTimeBasis: leadTimeBasis || null,
-        moq: moq || null,
-        mpq: mpq || null,
-        priceBasis: priceBasis || null,
-        taxIncluded: taxIncluded !== undefined ? taxIncluded : true,
-        taxRate: taxRate || null,
-        warrantyDays: warrantyDays || 90,
-        warrantyTerms: warrantyTerms || null,
-        packagingRequirement: packagingRequirement || null,
-        shippingMethod: shippingMethod || null,
-        ccRecipients: Array.isArray(ccRecipients) ? JSON.stringify(ccRecipients) : ccRecipients || null,
-        commonNote: commonNote || null,
-        eSignature: eSignature || null,
-        eSignatureStatus: eSignatureStatus || 'Unsigned',
-        countryOfOrigin: countryOfOrigin || null,
-        hsCode: hsCode || null,
-        eccn: eccn || null,
-        dualUse: dualUse !== undefined ? dualUse : false,
-        expiryDate,
-        createdBy: (req as AuthRequest).user!.id,
-      },
-      include: { customer: true },
+    const actorId = (req as AuthRequest).user!.id;
+    const quotation = await prisma.$transaction(async (tx) => {
+      const created = await tx.quotation.create({
+        data: {
+          quoteNumber,
+          rfqId,
+          customerId,
+          partNumber,
+          quantity,
+          unitPrice,
+          totalPrice,
+          costPrice,
+          margin,
+          certificateFiles: Array.isArray(certificateFiles) ? certificateFiles.join(',') : certificateFiles,
+          template: template?.toUpperCase() || 'STANDARD',
+          status: isAog ? 'PENDING_APPROVAL' : 'DRAFT',
+          validityDays: finalValidityDays,
+          saleType: saleType || 'Sale',
+          shipToId: shipToId || null,
+          shipForId: shipForId || null,
+          incoterm: incoterm || null,
+          incotermLocation: incotermLocation || null,
+          leadTimeDays: leadTimeDays || null,
+          leadTimeBasis: leadTimeBasis || null,
+          moq: moq || null,
+          mpq: mpq || null,
+          priceBasis: priceBasis || null,
+          taxIncluded: taxIncluded !== undefined ? taxIncluded : true,
+          taxRate: taxRate || null,
+          warrantyDays: warrantyDays || 90,
+          warrantyTerms: warrantyTerms || null,
+          packagingRequirement: packagingRequirement || null,
+          shippingMethod: shippingMethod || null,
+          ccRecipients: Array.isArray(ccRecipients) ? JSON.stringify(ccRecipients) : ccRecipients || null,
+          commonNote: commonNote || null,
+          eSignature: eSignature || null,
+          eSignatureStatus: eSignatureStatus || 'Unsigned',
+          countryOfOrigin: countryOfOrigin || null,
+          hsCode: hsCode || null,
+          eccn: eccn || null,
+          dualUse: dualUse !== undefined ? dualUse : false,
+          expiryDate,
+          createdBy: actorId,
+        },
+        include: { customer: true },
+      });
+
+      await createInitialStatusHistory(tx, {
+        entityType: 'QUOTATION',
+        entityId: created.id,
+        toStatus: created.status,
+        reasonCode: isAog ? 'AOG_QUOTATION_CREATED' : 'QUOTATION_CREATED',
+        actorId,
+        version: created.version,
+      });
+
+      if (isAog && relatedRfq && relatedRfq.status !== 'QUOTING') {
+        if (!normalizeRfqStatus(relatedRfq.status) || !isRfqStatusTransitionAllowed(relatedRfq.status, 'QUOTING')) {
+          throw new AppError('AOG 报价不能将当前 RFQ 变更为报价中', 409, 'INVALID_STATE_TRANSITION');
+        }
+
+        await transitionRfqStatus(tx, {
+          id: relatedRfq.id,
+          currentStatus: relatedRfq.status,
+          currentVersion: relatedRfq.version,
+          nextStatus: 'QUOTING',
+          actorId,
+          reasonCode: 'AOG_QUOTATION_CREATED',
+          reason: `AOG quotation ${created.quoteNumber} created.`,
+        });
+      }
+
+      return created;
     });
 
-    // If AOG, update RFQ status to quoting and notify managers
+    // If AOG, notify managers after the quotation and RFQ transition commit.
     if (isAog && rfqId) {
-      await prisma.rFQ.update({
-        where: { id: rfqId },
-        data: { status: 'QUOTING' },
-      });
 
       // Create parallel approval notifications for manager and gm
       const managers = await prisma.user.findMany({
@@ -414,6 +506,7 @@ router.post(
         quoteNumber: quotation.quoteNumber,
         customerName: quotation.customer.name,
         status: quotation.status.toLowerCase(),
+        version: quotation.version,
         totalPrice: quotation.totalPrice,
         margin: quotation.margin,
       },
@@ -423,6 +516,7 @@ router.post(
 
 router.post(
   '/:id/submit',
+  validateBody(quotationSubmitSchema),
   asyncHandler(async (req, res) => {
     const currentQuotation = await prisma.quotation.findUnique({
       where: { id: req.params.id },
@@ -442,10 +536,16 @@ router.post(
       return;
     }
 
-    const quotation = await prisma.quotation.update({
-      where: { id: req.params.id },
-      data: { status: 'PENDING_APPROVAL' },
-    });
+    const quotation = await prisma.$transaction((tx) => transitionQuotationStatus(tx, {
+      id: currentQuotation.id,
+      currentStatus: currentQuotation.status,
+      currentVersion: currentQuotation.version,
+      nextStatus: 'PENDING_APPROVAL',
+      expectedVersion: req.body.version,
+      actorId: (req as AuthRequest).user?.id,
+      reasonCode: req.body.reasonCode || 'QUOTATION_SUBMITTED_FOR_APPROVAL',
+      reason: req.body.reason,
+    }));
 
     await emitWebhookEvent('quotation.submitted', {
       quotationId: quotation.id,
@@ -466,7 +566,7 @@ router.post(
   '/:id/approve',
   validateBody(quotationApproveSchema),
   asyncHandler(async (req, res) => {
-    const { action, comment } = req.body;
+    const { action, comment, reasonCode, version } = req.body;
     const userId = (req as AuthRequest).user!.id;
 
     const quotationWithRfq = await prisma.quotation.findUnique({
@@ -490,23 +590,33 @@ router.post(
       return;
     }
 
-    const quotation = await prisma.quotation.update({
-      where: { id: req.params.id },
-      data: {
-        status: action === 'approve' ? 'APPROVED' : 'REJECTED',
-        approvedBy: action === 'approve' ? userId : null,
-        approvedAt: action === 'approve' ? new Date() : null,
-      },
-    });
+    const quotation = await prisma.$transaction(async (tx) => {
+      const updated = await transitionQuotationStatus(tx, {
+        id: quotationWithRfq.id,
+        currentStatus: quotationWithRfq.status,
+        currentVersion: quotationWithRfq.version,
+        nextStatus: targetStatus,
+        expectedVersion: version,
+        actorId: userId,
+        reasonCode: reasonCode || (action === 'approve' ? 'QUOTATION_APPROVED' : 'QUOTATION_REJECTED'),
+        reason: comment,
+        data: {
+          approvedBy: action === 'approve' ? userId : null,
+          approvedAt: action === 'approve' ? new Date() : null,
+        },
+      });
 
-    await prisma.approval.create({
-      data: {
-        quotationId: req.params.id,
-        level: isAog ? 'AOG' : (quotation.totalPrice > 50000 ? 'GM' : quotation.totalPrice > 5000 ? 'FINANCE' : 'MANAGER'),
-        approverId: userId,
-        action: action.toUpperCase(),
-        comment,
-      },
+      await tx.approval.create({
+        data: {
+          quotationId: req.params.id,
+          level: isAog ? 'AOG' : (updated.totalPrice > 50000 ? 'GM' : updated.totalPrice > 5000 ? 'FINANCE' : 'MANAGER'),
+          approverId: userId,
+          action: action.toUpperCase(),
+          comment,
+        },
+      });
+
+      return updated;
     });
 
     await emitWebhookEvent(action === 'approve' ? 'quotation.approved' : 'quotation.rejected', {
@@ -634,23 +744,29 @@ router.post(
       });
 
       const sentAt = new Date();
-      const [updatedQuotation, updatedEmail] = await prisma.$transaction([
-        prisma.quotation.update({
-          where: { id: quotation.id },
-          data: {
-            status: 'SENT',
-            sentAt,
-          },
-        }),
-        prisma.outboundEmail.update({
+      const { updatedQuotation, updatedEmail } = await prisma.$transaction(async (tx) => {
+        const updated = await transitionQuotationStatus(tx, {
+          id: quotation.id,
+          currentStatus: quotation.status,
+          currentVersion: quotation.version,
+          nextStatus: 'SENT',
+          expectedVersion: req.body.version,
+          actorId: (req as AuthRequest).user?.id,
+          reasonCode: req.body.reasonCode || (quotation.status === 'SENT' ? 'QUOTATION_RE_SENT' : 'QUOTATION_SENT'),
+          reason: req.body.reason,
+          data: { sentAt },
+        });
+        const email = await tx.outboundEmail.update({
           where: { id: pendingEmail.id },
           data: {
             status: 'SENT',
             sentAt,
             providerMessageId: sendResult.messageId ?? undefined,
           },
-        }),
-      ]);
+        });
+
+        return { updatedQuotation: updated, updatedEmail: email };
+      });
 
       await emitWebhookEvent('quotation.sent', {
         quotationId: updatedQuotation.id,
@@ -667,6 +783,7 @@ router.post(
           id: updatedQuotation.id,
           quoteNumber: updatedQuotation.quoteNumber,
           status: updatedQuotation.status.toLowerCase(),
+          version: updatedQuotation.version,
           sentAt: updatedQuotation.sentAt?.toISOString(),
           outboundEmailId: updatedEmail.id,
           customerEmail: quotation.customer.email,
@@ -680,6 +797,9 @@ router.post(
           errorMessage: error instanceof Error ? error.message : 'Unknown send error',
         },
       });
+      if (error instanceof AppError) {
+        throw error;
+      }
       throw new AppError('报价邮件发送失败，请检查默认邮箱账户配置后重试', 500, 'INTERNAL_ERROR');
     }
   })
@@ -724,24 +844,33 @@ router.post(
     const sendWithdrawalNotice = req.body.sendWithdrawalNotice ?? true;
     const withdrawnAt = new Date();
 
-    const [updatedQuotation] = await prisma.$transaction([
-      prisma.quotation.update({
-        where: { id: quotation.id },
+    const updatedQuotation = await prisma.$transaction(async (tx) => {
+      const updated = await transitionQuotationStatus(tx, {
+        id: quotation.id,
+        currentStatus: quotation.status,
+        currentVersion: quotation.version,
+        nextStatus: 'WITHDRAWN',
+        expectedVersion: req.body.version,
+        actorId: (req as AuthRequest).user?.id,
+        reasonCode: req.body.reasonCode || 'QUOTATION_WITHDRAWN',
+        reason,
         data: {
-          status: 'WITHDRAWN',
           withdrawnAt,
           withdrawalReason: reason,
         },
-      }),
-      prisma.outboundEmail.update({
+      });
+
+      await tx.outboundEmail.update({
         where: { id: latestSentEmail.id },
         data: {
           status: 'WITHDRAWN',
           withdrawnAt,
           withdrawalReason: reason,
         },
-      }),
-    ]);
+      });
+
+      return updated;
+    });
 
     let noticeId: string | undefined;
     if (sendWithdrawalNotice) {
@@ -820,6 +949,7 @@ router.post(
         id: updatedQuotation.id,
         quoteNumber: updatedQuotation.quoteNumber,
         status: updatedQuotation.status.toLowerCase(),
+        version: updatedQuotation.version,
         withdrawnAt: updatedQuotation.withdrawnAt?.toISOString(),
         withdrawalReason: updatedQuotation.withdrawalReason,
         withdrawalNoticeId: noticeId,
@@ -854,21 +984,30 @@ router.post(
     }
 
     const acceptedAt = quotation.acceptedAt || new Date();
-    const { poNumber, deliveryDate, templateId, confirmationNote } = req.body;
+    const { poNumber, deliveryDate, templateId, confirmationNote, reasonCode, reason, version } = req.body;
+    const actorId = (req as AuthRequest).user?.id;
 
     let recoveredFromConflict = false;
     let acceptedOrderResult: AcceptOrderResult;
 
     try {
       acceptedOrderResult = await prisma.$transaction(async (tx) => {
-        const updated = await tx.quotation.update({
-          where: { id: quotation.id },
-          data: {
-            status: 'ACCEPTED',
-            acceptedAt,
-            customerConfirmationNote: confirmationNote ?? quotation.customerConfirmationNote,
-          },
-        });
+        const updated = quotation.status === 'ACCEPTED'
+          ? quotation
+          : await transitionQuotationStatus(tx, {
+            id: quotation.id,
+            currentStatus: quotation.status,
+            currentVersion: quotation.version,
+            nextStatus: 'ACCEPTED',
+            expectedVersion: version,
+            actorId,
+            reasonCode: reasonCode || 'CUSTOMER_ACCEPTED_QUOTATION',
+            reason: confirmationNote ?? reason,
+            data: {
+              acceptedAt,
+              customerConfirmationNote: confirmationNote ?? quotation.customerConfirmationNote,
+            },
+          });
 
         const existingOrder = await tx.order.findFirst({
           where: { quotationId: quotation.id },
@@ -889,6 +1028,9 @@ router.post(
           customer: quotation.customer,
           poNumber,
           deliveryDate,
+          actorId,
+          reasonCode: 'ORDER_CREATED_FROM_ACCEPTED_QUOTATION',
+          reason: confirmationNote ?? reason,
         });
 
         return {
@@ -966,6 +1108,7 @@ router.post(
         id: updatedQuotation.id,
         quoteNumber: updatedQuotation.quoteNumber,
         status: updatedQuotation.status.toLowerCase(),
+        version: updatedQuotation.version,
         acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
         customerConfirmationNote: updatedQuotation.customerConfirmationNote,
         order: mapOrderResponse(order),

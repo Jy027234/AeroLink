@@ -1088,6 +1088,7 @@ function ConvertToOrderDialog({
         deliveryDate,
         templateId: templateId || undefined,
         confirmationNote: confirmationNote || undefined,
+        version: quote.version,
       });
 
       if ((result as { contractDocumentId?: string }).contractDocumentId) {
@@ -1240,7 +1241,7 @@ function SendQuoteDialog({
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      await quotationApi.send(quote.id, { subject, message });
+      await quotationApi.send(quote.id, { subject, message, version: quote.version });
       toast.success(`Quote ${quote.quoteNumber} sent to ${quote.customerEmail || quote.customerName}.`);
       onClose();
       await onSent();
@@ -1326,6 +1327,7 @@ function WithdrawQuoteDialog({
       await quotationApi.withdraw(quote.id, {
         reason,
         sendWithdrawalNotice: sendNotice,
+        version: quote.version,
       });
       toast.success(`Quote ${quote.quoteNumber} has been withdrawn.`);
       onClose();
@@ -1453,9 +1455,8 @@ export function Quotations() {
   };
 
   const handleApprove = async (comment: string) => {
-    void comment;
     if (!selectedQuote) return;
-    const result = await approveQuote(selectedQuote.id, 'approve');
+    const result = await approveQuote(selectedQuote.id, 'approve', selectedQuote.version, comment);
     if (result) {
       setIsApprovalOpen(false);
       setSelectedQuote(null);
@@ -1477,9 +1478,8 @@ export function Quotations() {
   };
 
   const handleReject = async (comment: string) => {
-    void comment;
     if (!selectedQuote) return;
-    const result = await approveQuote(selectedQuote.id, 'reject');
+    const result = await approveQuote(selectedQuote.id, 'reject', selectedQuote.version, comment);
     if (result) {
       setIsApprovalOpen(false);
       setSelectedQuote(null);

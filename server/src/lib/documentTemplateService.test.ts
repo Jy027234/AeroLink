@@ -120,6 +120,7 @@ describe('documentTemplateService', () => {
         quantity: 2,
         totalAmount: 3600,
         status: 'SO_CREATED',
+        version: 1,
         createdAt: new Date('2026-05-12T08:00:00Z'),
         deliveryDate: new Date('2026-06-01T00:00:00Z'),
         trackingNumber: null,

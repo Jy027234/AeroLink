@@ -33,6 +33,7 @@ model User {
   notificationPreferences NotificationPreference[]
   channelBindings     UserChannelBinding[]
   pushSubscriptions   PushSubscription[]
+  statusHistoryChanges TransactionStatusHistory[] @relation("TransactionStatusActor")
 
   @@map("users")
 }
@@ -468,6 +469,7 @@ model RFQ {
   urgency           String   @default("STANDARD")
   urgencyJustification String?
   status            String   @default("PENDING")
+  version           Int      @default(1)
   notes             String?
   createdAt         DateTime @default(now())
   createdBy         String
@@ -611,6 +613,7 @@ model Quotation {
   certificateFiles String?
   template        String   @default("STANDARD")
   status          String   @default("DRAFT")
+  version         Int      @default(1)
 
   // 审批与流程
   createdAt       DateTime @default(now())
@@ -682,6 +685,7 @@ model Order {
   quantity        Int
   totalAmount     Float
   status          String   @default("SO_CREATED")
+  version         Int      @default(1)
   createdAt       DateTime @default(now())
   deliveryDate    DateTime?
   trackingNumber  String?
@@ -750,6 +754,25 @@ model Order {
 
   @@index([status, createdAt])
   @@map("orders")
+}
+
+model TransactionStatusHistory {
+  id         String   @id @default(uuid())
+  entityType String
+  entityId   String
+  fromStatus String?
+  toStatus   String
+  reasonCode String
+  reason     String?
+  actorId    String?
+  version    Int
+  createdAt  DateTime @default(now())
+
+  actor User? @relation("TransactionStatusActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("transaction_status_history")
 }
 
 // ===== 新增：库存事务表（Phase 5：支持部分发货）=====

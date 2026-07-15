@@ -160,10 +160,10 @@ export const useUpdateRFQ = () => {
 export const useUpdateRFQStatus = () => {
   const [loading, setLoading] = useState(false);
 
-  const updateStatus = useCallback(async (id: string, status: RFQ['status']) => {
+  const updateStatus = useCallback(async (id: string, status: RFQ['status'], version?: number) => {
     setLoading(true);
     try {
-      return await rfqApi.updateStatus(id, status);
+      return await rfqApi.updateStatus(id, status, version);
     } finally {
       setLoading(false);
     }
@@ -194,10 +194,10 @@ export const useCreateQuotation = () => {
 export const useSubmitQuotation = () => {
   const [loading, setLoading] = useState(false);
 
-  const submit = useCallback(async (id: string) => {
+  const submit = useCallback(async (id: string, version?: number) => {
     setLoading(true);
     try {
-      return await quotationApi.submitForApproval(id);
+      return await quotationApi.submitForApproval(id, version);
     } finally {
       setLoading(false);
     }
@@ -209,10 +209,10 @@ export const useSubmitQuotation = () => {
 export const useApproveQuotation = () => {
   const [loading, setLoading] = useState(false);
 
-  const approve = useCallback(async (id: string, action: 'approve' | 'reject') => {
+  const approve = useCallback(async (id: string, action: 'approve' | 'reject', version?: number, comment?: string) => {
     setLoading(true);
     try {
-      return await quotationApi.approve(id, action);
+      return await quotationApi.approve(id, action, version, comment);
     } finally {
       setLoading(false);
     }

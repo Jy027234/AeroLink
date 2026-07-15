@@ -947,7 +947,7 @@ export function RFQManagement() {
     if (!rfq) return false;
 
     try {
-      const updated = await updateRFQStatus(rfqId, newStatus);
+      const updated = await updateRFQStatus(rfqId, newStatus, rfq.version);
       if (!updated) return false;
       updateRFQ(updated);
       if (selectedRFQ?.id === updated.id) {

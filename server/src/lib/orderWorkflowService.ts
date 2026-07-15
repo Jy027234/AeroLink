@@ -1,4 +1,5 @@
 import type { Customer, Order, Prisma, Quotation } from '@prisma/client';
+import { createInitialStatusHistory } from './transactionStateService.js';
 
 export function buildSalesOrderNumber() {
   return `SO-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
@@ -36,10 +37,13 @@ export async function createOrderFromQuotation(args: {
   exchangeCoreDueDate?: string;
   eSignatureCustomer?: string;
   eSignatureSupplier?: string;
+  actorId?: string | null;
+  reasonCode?: string;
+  reason?: string | null;
 }) {
   const orderNumber = buildSalesOrderNumber();
 
-  return args.tx.order.create({
+  const order = await args.tx.order.create({
     data: {
       orderNumber,
       soNumber: orderNumber,
@@ -82,6 +86,18 @@ export async function createOrderFromQuotation(args: {
       customer: true,
     },
   });
+
+  await createInitialStatusHistory(args.tx, {
+    entityType: 'ORDER',
+    entityId: order.id,
+    toStatus: order.status,
+    reasonCode: args.reasonCode || 'ORDER_CREATED_FROM_QUOTATION',
+    reason: args.reason,
+    actorId: args.actorId,
+    version: order.version,
+  });
+
+  return order;
 }
 
 export function mapOrderResponse(order: Order & { customer: Customer }) {
@@ -97,6 +113,7 @@ export function mapOrderResponse(order: Order & { customer: Customer }) {
     quantity: order.quantity,
     totalAmount: order.totalAmount,
     status: order.status.toLowerCase(),
+    version: order.version,
     createdAt: order.createdAt.toISOString(),
     deliveryDate: order.deliveryDate?.toISOString(),
     trackingNumber: order.trackingNumber,

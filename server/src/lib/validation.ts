@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ORDER_STATUSES, normalizeOrderStatus } from './orderStateMachine.js';
+import { normalizeRfqStatus } from './rfqStateMachine.js';
 
 export const loginSchema = z.object({
   email: z.string().email('请提供有效的邮箱'),
@@ -63,30 +64,24 @@ export const rfqCreateSchema = z.object({
   emailId: z.string().optional(),
 });
 
-const rfqStatusAliases = [
-  'PENDING', 'SOURCING', 'QUOTING', 'APPROVING', 'ORDERED', 'COMPLETED', 'CANCELLED',
-  'pending', 'sourcing', 'quoting', 'approved', 'sent', 'won', 'lost',
-] as const;
-
-const rfqStatusPersistenceMap: Record<(typeof rfqStatusAliases)[number], string> = {
-  PENDING: 'PENDING',
-  SOURCING: 'SOURCING',
-  QUOTING: 'QUOTING',
-  APPROVING: 'APPROVING',
-  ORDERED: 'ORDERED',
-  COMPLETED: 'COMPLETED',
-  CANCELLED: 'CANCELLED',
-  pending: 'PENDING',
-  sourcing: 'SOURCING',
-  quoting: 'QUOTING',
-  approved: 'APPROVING',
-  sent: 'ORDERED',
-  won: 'COMPLETED',
-  lost: 'CANCELLED',
+const stateTransitionMetadataSchema = {
+  version: z.number().int().positive('状态版本必须为正整数').optional(),
+  reasonCode: z.string()
+    .trim()
+    .min(1, '原因码不能为空')
+    .max(64, '原因码不能超过64个字符')
+    .regex(/^[A-Z][A-Z0-9_]*$/, '原因码只能包含大写字母、数字和下划线')
+    .optional(),
+  reason: z.string().trim().max(1000, '原因说明不能超过1000个字符').optional(),
 };
 
 export const rfqStatusUpdateSchema = z.object({
-  status: z.enum(rfqStatusAliases).transform((status) => rfqStatusPersistenceMap[status]),
+  status: z.string()
+    .trim()
+    .min(1, '状态不能为空')
+    .refine((status) => normalizeRfqStatus(status) !== null, 'RFQ状态无效')
+    .transform((status) => normalizeRfqStatus(status)!),
+  ...stateTransitionMetadataSchema,
 });
 
 export const quotationCreateSchema = z.object({
@@ -127,22 +122,30 @@ export const quotationCreateSchema = z.object({
   dualUse: z.boolean().optional().default(false),
 });
 
+export const quotationSubmitSchema = z.object({
+  ...stateTransitionMetadataSchema,
+});
+
 export const quotationApproveSchema = z.object({
   action: z.enum(['approve', 'reject']),
   comment: z.string().optional(),
+  ...stateTransitionMetadataSchema,
 });
 
 export const quotationSendSchema = z.object({
   subject: z.string().min(1, '邮件主题不能为空').optional(),
   message: z.string().min(1, '邮件正文不能为空').optional(),
+  ...stateTransitionMetadataSchema,
 });
 
 export const quotationWithdrawSchema = z.object({
+  ...stateTransitionMetadataSchema,
   reason: z.string().min(1, '撤回原因不能为空'),
   sendWithdrawalNotice: z.boolean().optional().default(true),
 });
 
 export const quotationAcceptSchema = z.object({
+  ...stateTransitionMetadataSchema,
   poNumber: z.string().optional(),
   deliveryDate: z.string().optional(),
   templateId: z.string().optional(),
@@ -152,6 +155,7 @@ export const quotationAcceptSchema = z.object({
 export const orderCreateSchema = z.object({
   quotationId: z.string().min(1, '报价单ID不能为空'),
   customerId: z.string().min(1, '客户ID不能为空'),
+  quotationVersion: z.number().int().positive('报价版本必须为正整数').optional(),
   poNumber: z.string().optional(),
   deliveryDate: z.string().optional(),
   templateId: z.string().optional(),
@@ -237,6 +241,7 @@ export const orderStatusUpdateSchema = z.object({
     .min(1, '状态不能为空')
     .transform(normalizeOrderStatus)
     .pipe(z.enum(ORDER_STATUSES)),
+  ...stateTransitionMetadataSchema,
 });
 
 export const customerCreateSchema = z.object({
