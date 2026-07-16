@@ -213,6 +213,9 @@ model SupplierPortalUser {
   @@map("supplier_portal_users")
 }
 
+// Legacy compatibility snapshot. New inventory writes must use InventoryItem
+// and InventoryDetail; this table remains only for historical references and
+// cutover reconciliation until a later archival migration is approved.
 model Inventory {
   id                String   @id @default(uuid())
   partNumber        String

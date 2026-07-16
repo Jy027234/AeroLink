@@ -1,9 +1,16 @@
+import { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { apiKeyAuth } from '../middleware/apiKeyAuth.js';
+import { serializeInventoryDetail } from '../lib/inventoryProjection.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+const inventoryDetailInclude = {
+  inventoryItem: true,
+  supplier: { select: { id: true, name: true } },
+} satisfies Prisma.InventoryDetailInclude;
 
 // 所有开放 API 都需要 API Key 认证
 router.use(apiKeyAuth);
@@ -122,16 +129,32 @@ router.get(
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * pageSize;
 
-    const where: any = {};
-    if (partNumber) where.partNumber = { contains: partNumber };
-    if (conditionCode) where.conditionCode = conditionCode;
+    const where: Prisma.InventoryDetailWhereInput = {};
+    const normalizedPartNumber = typeof partNumber === 'string' ? partNumber.trim() : '';
+    const normalizedConditionCode = typeof conditionCode === 'string' ? conditionCode.trim() : '';
+    if (normalizedPartNumber) {
+      where.inventoryItem = {
+        partNumber: { contains: normalizedPartNumber, mode: 'insensitive' },
+      };
+    }
+    if (normalizedConditionCode) where.conditionCode = normalizedConditionCode.toUpperCase();
 
     const [data, total] = await Promise.all([
-      prisma.inventory.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: pageSize }),
-      prisma.inventory.count({ where }),
+      prisma.inventoryDetail.findMany({
+        where,
+        include: inventoryDetailInclude,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.inventoryDetail.count({ where }),
     ]);
 
-    res.json({ success: true, data, pagination: { page: pageNum, pageSize, total, totalPages: Math.ceil(total / pageSize) } });
+    res.json({
+      success: true,
+      data: data.map(serializeInventoryDetail),
+      pagination: { page: pageNum, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    });
   })
 );
 
@@ -139,9 +162,12 @@ router.get(
   '/inventory/:id',
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const data = await prisma.inventory.findUnique({ where: { id } });
+    const data = await prisma.inventoryDetail.findUnique({
+      where: { id },
+      include: inventoryDetailInclude,
+    });
     if (!data) throw new AppError('库存不存在', 404, 'RESOURCE_NOT_FOUND');
-    res.json({ success: true, data });
+    res.json({ success: true, data: serializeInventoryDetail(data) });
   })
 );
 

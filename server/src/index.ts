@@ -138,7 +138,7 @@ app.use('/api/dashboard', authenticate, dashboardRoutes);
 app.use('/api/rfqs', authenticate, auditLogger({ resourceType: 'RFQ', prismaModel: 'rFQ' }), rfqRoutes);
 app.use('/api/quotations', authenticate, auditLogger({ resourceType: 'QUOTATION', prismaModel: 'quotation' }), quotationRoutes);
 app.use('/api/orders', authenticate, auditLogger({ resourceType: 'ORDER', prismaModel: 'order' }), orderRoutes);
-app.use('/api/inventory', authenticate, auditLogger({ resourceType: 'INVENTORY', prismaModel: 'inventory' }), inventoryRoutes);
+app.use('/api/inventory', authenticate, auditLogger({ resourceType: 'INVENTORY', prismaModel: 'inventoryDetail' }), inventoryRoutes);
 app.use('/api/customers', authenticate, auditLogger({ resourceType: 'CUSTOMER', prismaModel: 'customer' }), customerRoutes);
 app.use('/api/suppliers', authenticate, auditLogger({ resourceType: 'SUPPLIER', prismaModel: 'supplier' }), supplierRoutes);
 app.use('/api/notifications', authenticate, notificationRoutes);

@@ -330,7 +330,10 @@ export const customerUpdateSchema = z.object({
 });
 
 export const inventoryUpdateSchema = z.object({
-  quantity: z.number().int().optional(),
+  description: z.string().min(1, '描述不能为空').optional(),
+  partCategory: z.string().optional(),
+  trackingType: z.string().optional(),
+  quantity: z.number().int().min(0, '库存数量不能为负数').optional(),
   location: z.string().optional(),
   warehouse: z.string().optional(),
   shelf: z.string().optional(),
@@ -347,6 +350,10 @@ export const inventoryUpdateSchema = z.object({
   unitOfMeasure: z.string().optional(),
   countryOfOrigin: z.string().optional(),
   hsCode: z.string().optional(),
+  unitCost: z.number().min(0, '单位成本不能为负数').optional(),
+  type: z.string().optional(),
+  supplierId: z.string().optional(),
+  eta: z.string().optional(),
   // 时寿件管理（P1）
   lifeLimited: z.boolean().optional(),
   totalHours: z.number().optional(),
@@ -371,11 +378,18 @@ export const inventoryUpdateSchema = z.object({
   // 存储与包装（P2）
   storageCondition: z.string().optional(),
   ata300Packaging: z.boolean().optional(),
+  shelfLifeDays: z.number().int().min(0).optional(),
+  storageTempMin: z.number().optional(),
+  storageTempMax: z.number().optional(),
+  hazardClass: z.string().optional(),
+  notes: z.string().max(2000).optional(),
 });
 
 export const inventoryCreateSchema = z.object({
   partNumber: z.string().min(1, '件号不能为空'),
   description: z.string().min(1, '描述不能为空'),
+  partCategory: z.string().optional().default('CONSUMABLE'),
+  trackingType: z.string().optional().default('BATCH'),
   quantity: z.number().int().min(0).optional().default(0),
   location: z.string().min(1, '库位不能为空'),
   warehouse: z.string().optional(),
@@ -396,6 +410,7 @@ export const inventoryCreateSchema = z.object({
   unitCost: z.number().min(0).optional().default(0),
   type: z.string().optional().default('OWN'),
   supplierId: z.string().optional(),
+  eta: z.string().optional(),
   // 时寿件管理（P1）
   lifeLimited: z.boolean().optional().default(false),
   totalHours: z.number().optional(),
@@ -420,6 +435,11 @@ export const inventoryCreateSchema = z.object({
   // 存储与包装（P2）
   storageCondition: z.string().optional(),
   ata300Packaging: z.boolean().optional().default(false),
+  shelfLifeDays: z.number().int().min(0).optional(),
+  storageTempMin: z.number().optional(),
+  storageTempMax: z.number().optional(),
+  hazardClass: z.string().optional(),
+  notes: z.string().max(2000).optional(),
 });
 
 export const emailClassifySchema = z.object({

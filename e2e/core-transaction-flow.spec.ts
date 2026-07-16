@@ -384,7 +384,6 @@ test.describe('core transaction flow', () => {
 
     const certificateKey = `e2e-core-certificate-${suffix}`;
     const certificateBody = {
-      inventoryId: inventoryDetailId,
       inventoryDetailId,
       orderId,
       quotationId: createdQuote.data.id,

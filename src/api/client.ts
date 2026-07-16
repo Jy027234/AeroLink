@@ -827,7 +827,13 @@ export interface InventoryReconciliationResult {
   status: 'PASS' | 'MISMATCH';
   checkedPartNumbers: number;
   legacyTotal: number;
+  comparedLegacyTotal: number;
   detailTotal: number;
+  comparedDetailTotal: number;
+  transactionalLegacyDetails: number;
+  transactionalLegacyQuantity: number;
+  canonicalOnlyDetails: number;
+  canonicalOnlyQuantity: number;
   mismatches: InventoryReconciliationMismatch[];
 }
 

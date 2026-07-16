@@ -2,13 +2,79 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 
+function createCanonicalDetail() {
+  return {
+    id: 'inventory-1',
+    inventoryItemId: 'item-1',
+    serialNumber: 'SN-1',
+    batchNumber: null,
+    quantity: 2,
+    conditionCode: 'SV',
+    status: 'AVAILABLE',
+    warehouse: 'Main',
+    shelf: 'S1',
+    location: 'A1',
+    certificateType: 'FAA-8130-3',
+    certificateNumber: null,
+    certificateFileUrl: null,
+    lifeLimited: false,
+    totalHours: null,
+    remainingHours: null,
+    totalCycles: null,
+    remainingCycles: null,
+    manufactureDate: null,
+    shelfLifeDate: null,
+    overhaulDate: null,
+    nextOverhaulDue: null,
+    adStatus: null,
+    sbStatus: null,
+    repairScheme: null,
+    previousOperator: null,
+    removalAircraftReg: null,
+    removalDate: null,
+    removalReason: null,
+    nonIncidentStatement: false,
+    militarySource: false,
+    traceabilityDocs: null,
+    storageCondition: null,
+    ata300Packaging: false,
+    shelfLifeDays: null,
+    storageTempMin: null,
+    storageTempMax: null,
+    hazardClass: null,
+    unitCost: 100,
+    supplierId: null,
+    eta: null,
+    type: 'OWN',
+    createdAt: new Date('2026-07-14T00:00:00.000Z'),
+    updatedAt: new Date('2026-07-14T00:00:00.000Z'),
+    supplier: null,
+    inventoryItem: {
+      id: 'item-1',
+      partNumber: 'PN-100',
+      description: 'Fuel pump',
+      partCategory: 'ROTABLE',
+      trackingType: 'SERIAL',
+      manufacturer: 'OEM',
+      manufacturerCageCode: null,
+      ataChapter: '29',
+      alternatePartNumbers: null,
+      unitOfMeasure: 'EA',
+      countryOfOrigin: 'US',
+      hsCode: null,
+      createdAt: new Date('2026-07-14T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-14T00:00:00.000Z'),
+    },
+  };
+}
+
 describe('Inventory server-side pagination', () => {
   let reconciliationMock: ReturnType<typeof vi.fn>;
   let prismaMock: {
-    inventory: {
+    inventory: { findMany: ReturnType<typeof vi.fn> };
+    inventoryDetail: {
       findMany: ReturnType<typeof vi.fn>;
       count: ReturnType<typeof vi.fn>;
-      groupBy: ReturnType<typeof vi.fn>;
     };
   };
 
@@ -16,17 +82,16 @@ describe('Inventory server-side pagination', () => {
     vi.resetModules();
     reconciliationMock = vi.fn();
     prismaMock = {
-      inventory: {
+      inventory: { findMany: vi.fn() },
+      inventoryDetail: {
         findMany: vi.fn(),
         count: vi.fn(),
-        groupBy: vi.fn(),
       },
     };
     vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
     vi.doMock('../lib/socketEvents.js', () => ({
       SocketEvents: { INVENTORY_UPDATED: 'inventory.updated' },
       SocketRooms: { INVENTORY: 'inventory' },
-      emitToRoom: vi.fn(),
     }));
     vi.doMock('../lib/inventoryReconciliation.js', () => ({
       loadInventoryReconciliation: reconciliationMock,
@@ -46,72 +111,14 @@ describe('Inventory server-side pagination', () => {
     return app;
   }
 
-  it('pushes inventory filters and page boundaries into the database query', async () => {
-    const inventory = {
-      id: 'inventory-1',
-      partNumber: 'PN-100',
-      description: 'Fuel pump',
-      quantity: 2,
-      location: 'A1',
-      warehouse: 'Main',
-      shelf: 'S1',
-      conditionCode: 'SV',
-      certificateType: 'FAA-8130-3',
-      certificateNumber: null,
-      certificateFileUrl: null,
-      serialNumber: 'SN-1',
-      batchNumber: null,
-      manufacturer: 'OEM',
-      manufacturerCageCode: null,
-      ataChapter: '29',
-      alternatePartNumbers: null,
-      partCategory: 'ROTABLE',
-      trackingType: 'SERIAL',
-      unitOfMeasure: 'EA',
-      countryOfOrigin: 'US',
-      hsCode: null,
-      type: 'OWN',
-      unitCost: 100,
-      supplierId: null,
-      supplier: null,
-      eta: null,
-      createdAt: new Date('2026-07-14T00:00:00.000Z'),
-      lifeLimited: false,
-      totalHours: null,
-      totalCycles: null,
-      remainingHours: null,
-      remainingCycles: null,
-      manufactureDate: null,
-      shelfLifeDate: null,
-      overhaulDate: null,
-      nextOverhaulDue: null,
-      adStatus: null,
-      sbStatus: null,
-      repairScheme: null,
-      previousOperator: null,
-      removalAircraftReg: null,
-      removalDate: null,
-      removalReason: null,
-      nonIncidentStatement: false,
-      militarySource: false,
-      traceabilityDocs: null,
-      storageCondition: null,
-      ata300Packaging: false,
-      shelfLifeDays: null,
-      storageTempMin: null,
-      storageTempMax: null,
-      hazardClass: null,
-    };
-
-    prismaMock.inventory.findMany.mockImplementation((args: { select?: unknown }) =>
-      args.select ? [{ quantity: 2, unitCost: 100 }] : [inventory],
+  it('pushes canonical-detail filters and page boundaries into the database query', async () => {
+    const detail = createCanonicalDetail();
+    prismaMock.inventoryDetail.findMany.mockImplementation((args: { select?: unknown }) =>
+      args.select
+        ? [{ quantity: 2, unitCost: 100, location: 'A1', inventoryItem: { partCategory: 'ROTABLE' } }]
+        : [detail],
     );
-    prismaMock.inventory.count.mockResolvedValue(12);
-    prismaMock.inventory.groupBy.mockImplementation((args: { by: string[] }) =>
-      args.by[0] === 'partCategory'
-        ? [{ partCategory: 'ROTABLE', _count: { _all: 12 } }]
-        : [{ location: 'A1', _count: { _all: 12 }}],
-    );
+    prismaMock.inventoryDetail.count.mockResolvedValue(12);
 
     const app = await buildApp();
     const response = await request(app)
@@ -130,10 +137,17 @@ describe('Inventory server-side pagination', () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       success: true,
-      data: [{ id: 'inventory-1', partNumber: 'PN-100', partCategory: 'ROTABLE', trackingType: 'SERIAL' }],
+      data: [{
+        id: 'inventory-1',
+        inventoryItemId: 'item-1',
+        partNumber: 'PN-100',
+        partCategory: 'ROTABLE',
+        trackingType: 'SERIAL',
+        status: 'AVAILABLE',
+      }],
       summary: {
-        total: 12,
-        rotable: 12,
+        total: 1,
+        rotable: 1,
         repairable: 0,
         chemical: 0,
         standardPart: 0,
@@ -145,27 +159,36 @@ describe('Inventory server-side pagination', () => {
       pagination: { page: 2, limit: 10, total: 12, totalPages: 2 },
     });
 
-    const findManyArgs = prismaMock.inventory.findMany.mock.calls.find((call) => !call[0]?.select)?.[0];
+    const findManyArgs = prismaMock.inventoryDetail.findMany.mock.calls.find((call) => !call[0]?.select)?.[0];
     expect(findManyArgs).toEqual(expect.objectContaining({ skip: 10, take: 10 }));
     expect(findManyArgs.where).toEqual(expect.objectContaining({
       conditionCode: 'SV',
       certificateType: 'FAA-8130-3',
       type: 'OWN',
-      partCategory: 'ROTABLE',
       location: 'A1',
+      inventoryItem: expect.objectContaining({
+        partCategory: 'ROTABLE',
+      }),
       OR: expect.arrayContaining([
-        { partNumber: { contains: 'pn-100', mode: 'insensitive' } },
-        { description: { contains: 'pn-100', mode: 'insensitive' } },
+        { inventoryItem: { partNumber: { contains: 'pn-100', mode: 'insensitive' } } },
+        { inventoryItem: { description: { contains: 'pn-100', mode: 'insensitive' } } },
       ]),
     }));
-    expect(prismaMock.inventory.count).toHaveBeenCalledWith({ where: findManyArgs.where });
+    expect(prismaMock.inventoryDetail.count).toHaveBeenCalledWith({ where: findManyArgs.where });
+    expect(prismaMock.inventory.findMany).not.toHaveBeenCalled();
   });
 
   it('exposes a read-only reconciliation result for authorized operators', async () => {
     reconciliationMock.mockResolvedValue({
       checkedPartNumbers: 2,
       legacyTotal: 8,
-      detailTotal: 7,
+      comparedLegacyTotal: 6,
+      detailTotal: 10,
+      comparedDetailTotal: 7,
+      transactionalLegacyDetails: 1,
+      transactionalLegacyQuantity: 1,
+      canonicalOnlyDetails: 1,
+      canonicalOnlyQuantity: 3,
       mismatches: [
         { partNumber: 'PN-200', legacyQuantity: 5, detailQuantity: 4, delta: 1 },
       ],
@@ -181,7 +204,13 @@ describe('Inventory server-side pagination', () => {
         status: 'MISMATCH',
         checkedPartNumbers: 2,
         legacyTotal: 8,
-        detailTotal: 7,
+        comparedLegacyTotal: 6,
+        detailTotal: 10,
+        comparedDetailTotal: 7,
+        transactionalLegacyDetails: 1,
+        transactionalLegacyQuantity: 1,
+        canonicalOnlyDetails: 1,
+        canonicalOnlyQuantity: 3,
         mismatches: [{ partNumber: 'PN-200', delta: 1 }],
       },
     });

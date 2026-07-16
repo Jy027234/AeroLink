@@ -117,21 +117,23 @@ export async function calculateSafetyStockRecommendations(
   partNumber?: string,
   leadTimeDays: number = 30
 ): Promise<SafetyStockRecommendation[]> {
-  // 获取当前库存
-  const inventoryItems = await prisma.inventory.findMany({
+  // 以件号主数据聚合可用的批次/序号级库存。预留库存不应被当作
+  // 可再次订货的可用量，但仍会在资产价值统计中保留。
+  const inventoryItems = await prisma.inventoryItem.findMany({
     where: partNumber ? { partNumber } : {},
     select: {
-      id: true,
       partNumber: true,
-      quantity: true,
-      unitCost: true,
-      conditionCode: true,
+      details: {
+        where: { status: 'AVAILABLE' },
+        select: { quantity: true },
+      },
     },
   });
 
   const recommendations: SafetyStockRecommendation[] = [];
 
   for (const item of inventoryItems) {
+    const currentStock = item.details.reduce((sum, detail) => sum + detail.quantity, 0);
     // 获取该件号过去12个月的订单数据
     const cutoffDate = new Date();
     cutoffDate.setMonth(cutoffDate.getMonth() - 12);
@@ -194,15 +196,15 @@ export async function calculateSafetyStockRecommendations(
 
     // 当前库存可供应天数
     const dailyConsumption = avgMonthlyConsumption / 30;
-    const daysOfSupply = dailyConsumption > 0 ? Math.floor(item.quantity / dailyConsumption) : 999;
+    const daysOfSupply = dailyConsumption > 0 ? Math.floor(currentStock / dailyConsumption) : 999;
 
     // 库存状态
     let stockStatus: SafetyStockRecommendation['stockStatus'] = 'adequate';
-    if (item.quantity <= safetyStockLevel * 0.5) {
+    if (currentStock <= safetyStockLevel * 0.5) {
       stockStatus = 'critical';
-    } else if (item.quantity <= safetyStockLevel) {
+    } else if (currentStock <= safetyStockLevel) {
       stockStatus = 'low';
-    } else if (item.quantity > safetyStockLevel * 4) {
+    } else if (currentStock > safetyStockLevel * 4) {
       stockStatus = 'excess';
     }
 
@@ -211,7 +213,7 @@ export async function calculateSafetyStockRecommendations(
 
     recommendations.push({
       partNumber: item.partNumber,
-      currentStock: item.quantity,
+      currentStock,
       avgMonthlyConsumption: Math.round(avgMonthlyConsumption * 100) / 100,
       maxMonthlyConsumption,
       leadTimeDays,
@@ -239,7 +241,8 @@ export async function getInventoryHealthSummary(): Promise<InventoryHealthSummar
   const adequateItems = recommendations.filter((r) => r.stockStatus === 'adequate').length;
 
   // 计算总库存价值
-  const inventory = await prisma.inventory.findMany({
+  const inventory = await prisma.inventoryDetail.findMany({
+    where: { status: { not: 'SCRAPPED' } },
     select: { quantity: true, unitCost: true },
   });
   const totalInventoryValue = inventory.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);

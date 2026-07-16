@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { requireRole } from '../middleware/rbac.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+const requireInventoryItemMutationRole = requireRole('manager', 'admin');
 
 // GET / - list all inventory items
 router.get(
@@ -58,6 +60,7 @@ router.get(
 // POST /
 router.post(
   '/',
+  requireInventoryItemMutationRole,
   asyncHandler(async (req, res) => {
     const { partNumber, description, partCategory, trackingType, manufacturer, unitOfMeasure } = req.body;
     if (!partNumber || !description) {
@@ -80,6 +83,7 @@ router.post(
 // PATCH /:id
 router.patch(
   '/:id',
+  requireInventoryItemMutationRole,
   asyncHandler(async (req, res) => {
     const existing = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new AppError('InventoryItem not found', 404);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reconcileInventoryQuantities } from '../lib/inventoryReconciliation.js';
+import { reconcileInventoryQuantities, reconcileLegacyInventorySnapshot } from '../lib/inventoryReconciliation.js';
 
 describe('inventory reconciliation', () => {
   it('aggregates duplicate legacy rows and detail rows by part number', () => {
@@ -46,5 +46,44 @@ describe('inventory reconciliation', () => {
 
     expect(result.mismatches).toEqual([]);
     expect(result.legacyTotal).toBe(result.detailTotal);
+  });
+
+  it('keeps post-cutover canonical-only details visible without treating them as legacy mismatches', () => {
+    const result = reconcileLegacyInventorySnapshot(
+      [{ id: 'legacy-1', partNumber: 'PN-1', quantity: 5 }],
+      [
+        { id: 'legacy-1', partNumber: 'PN-1', quantity: 5 },
+        { id: 'canonical-2', partNumber: 'PN-2', quantity: 3 },
+      ],
+    );
+
+    expect(result).toMatchObject({
+      checkedPartNumbers: 2,
+      legacyTotal: 5,
+      comparedLegacyTotal: 5,
+      comparedDetailTotal: 5,
+      detailTotal: 8,
+      canonicalOnlyDetails: 1,
+      canonicalOnlyQuantity: 3,
+      mismatches: [],
+    });
+  });
+
+  it('keeps ledger-backed legacy details out of the frozen snapshot comparison', () => {
+    const result = reconcileLegacyInventorySnapshot(
+      [{ id: 'legacy-1', partNumber: 'PN-1', quantity: 5 }],
+      [{ id: 'legacy-1', partNumber: 'PN-1', quantity: 3 }],
+      ['legacy-1'],
+    );
+
+    expect(result).toMatchObject({
+      legacyTotal: 5,
+      comparedLegacyTotal: 0,
+      detailTotal: 3,
+      comparedDetailTotal: 0,
+      transactionalLegacyDetails: 1,
+      transactionalLegacyQuantity: 3,
+      mismatches: [],
+    });
   });
 });

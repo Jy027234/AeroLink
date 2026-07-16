@@ -1479,7 +1479,7 @@ export function InventoryCenter() {
       const result = await inventoryApi.getReconciliation();
       setReconciliation(result);
       if (result.status === 'PASS') {
-        toast.success(tx('库存双模型数量一致', 'Inventory models are reconciled'));
+        toast.success(tx('库存迁移快照对账通过', 'Inventory migration snapshot reconciled'));
       } else {
         toast.warning(tx(`发现 ${result.mismatches.length} 个件号差异`, `${result.mismatches.length} part-number mismatches found`));
       }
@@ -1872,14 +1872,30 @@ export function InventoryCenter() {
                 )}
                 <span className="font-medium">
                   {reconciliation.status === 'PASS'
-                    ? tx('库存双模型对账通过', 'Inventory model reconciliation passed')
-                    : tx('库存双模型存在差异', 'Inventory model mismatches detected')}
+                    ? tx('库存迁移快照对账通过', 'Inventory migration snapshot reconciled')
+                    : tx('库存迁移快照存在差异', 'Inventory migration snapshot mismatches detected')}
                 </span>
               </div>
               <span className="text-sm text-gray-600">
-                {tx('件号', 'Part numbers')}: {reconciliation.checkedPartNumbers} · {tx('旧模型总量', 'Legacy total')}: {reconciliation.legacyTotal} · {tx('明细总量', 'Detail total')}: {reconciliation.detailTotal}
+                {tx('件号', 'Part numbers')}: {reconciliation.checkedPartNumbers} · {tx('旧模型总量', 'Legacy total')}: {reconciliation.legacyTotal} · {tx('严格比较旧量', 'Strict legacy total')}: {reconciliation.comparedLegacyTotal} · {tx('迁移映射明细量', 'Mapped detail total')}: {reconciliation.comparedDetailTotal} · {tx('明细总量', 'Detail total')}: {reconciliation.detailTotal}
               </span>
             </div>
+            {reconciliation.transactionalLegacyDetails > 0 && (
+              <div className="text-sm text-slate-600">
+                {tx(
+                  `已有流水的历史映射明细 ${reconciliation.transactionalLegacyDetails} 条（当前数量 ${reconciliation.transactionalLegacyQuantity}），其运行时变动不与冻结旧快照直接比较。`,
+                  `${reconciliation.transactionalLegacyDetails} ledger-backed mapped details (${reconciliation.transactionalLegacyQuantity} units) are excluded from direct comparison with the frozen legacy snapshot.`,
+                )}
+              </div>
+            )}
+            {reconciliation.canonicalOnlyDetails > 0 && (
+              <div className="text-sm text-slate-600">
+                {tx(
+                  `切换后新增明细 ${reconciliation.canonicalOnlyDetails} 条（数量 ${reconciliation.canonicalOnlyQuantity}），不参与旧模型快照差异判断。`,
+                  `${reconciliation.canonicalOnlyDetails} post-cutover canonical details (${reconciliation.canonicalOnlyQuantity} units) are excluded from legacy snapshot comparison.`,
+                )}
+              </div>
+            )}
             {reconciliation.mismatches.length > 0 && (
               <div className="text-sm text-amber-800">
                 {reconciliation.mismatches.slice(0, 5).map((mismatch) => (

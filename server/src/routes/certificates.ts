@@ -34,7 +34,7 @@ function serializeTraceHistory(history: Array<Record<string, unknown>>): string 
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const { status, certificateType, partNumber, inventoryId, orderId, page, limit } = req.query;
+    const { status, certificateType, partNumber, inventoryId, inventoryDetailId, orderId, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * pageSize;
@@ -43,7 +43,16 @@ router.get(
     if (status) where.status = status.toString().toUpperCase();
     if (certificateType) where.certificateType = certificateType.toString().toUpperCase();
     if (partNumber) where.partNumber = { contains: partNumber.toString() };
-    if (inventoryId) where.inventoryId = inventoryId.toString();
+    if (inventoryDetailId) {
+      where.inventoryDetailId = inventoryDetailId.toString();
+    } else if (inventoryId) {
+      // inventoryId remains a read-compatible alias for records created before
+      // the detail-layer cutover. New certificates only persist inventoryDetailId.
+      where.OR = [
+        { inventoryId: inventoryId.toString() },
+        { inventoryDetailId: inventoryId.toString() },
+      ];
+    }
     if (orderId) where.orderId = orderId.toString();
 
     const [certificates, total] = await Promise.all([
@@ -57,7 +66,7 @@ router.get(
               id: true,
               serialNumber: true,
               batchNumber: true,
-              inventoryItem: { select: { partNumber: true } },
+              inventoryItem: { select: { partNumber: true, description: true } },
             },
           },
           order: { select: { id: true, orderNumber: true } },
@@ -80,8 +89,8 @@ router.get(
         templateName: c.template?.name,
         templateCode: c.template?.code,
         inventoryId: c.inventoryId,
-        inventoryPartNumber: c.inventory?.partNumber,
-        inventoryDescription: c.inventory?.description,
+        inventoryPartNumber: c.inventoryDetail?.inventoryItem.partNumber ?? c.inventory?.partNumber,
+        inventoryDescription: c.inventoryDetail?.inventoryItem.description ?? c.inventory?.description,
         inventoryDetailId: c.inventoryDetailId,
         inventoryDetailPartNumber: c.inventoryDetail?.inventoryItem.partNumber,
         orderId: c.orderId,
@@ -278,14 +287,17 @@ router.post(
 
     const user = (req as AuthRequest).user;
     const actorId = user!.id;
+    const resolvedInventoryDetailId = inventoryDetailId || inventoryId || null;
+    if (inventoryId && inventoryDetailId && inventoryId !== inventoryDetailId) {
+      throw new AppError('新证书只接受一个库存明细标识，inventoryId 仅作为兼容别名', 400, 'VALIDATION_ERROR');
+    }
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/certificates/issue'),
       async (tx) => {
-        const [inventory, inventoryDetail, order, quotation] = await Promise.all([
-          inventoryId ? tx.inventory.findUnique({ where: { id: inventoryId } }) : null,
-          inventoryDetailId
+        const [inventoryDetail, order, quotation] = await Promise.all([
+          resolvedInventoryDetailId
             ? tx.inventoryDetail.findUnique({
-              where: { id: inventoryDetailId },
+              where: { id: resolvedInventoryDetailId },
               include: { inventoryItem: true },
             })
             : null,
@@ -293,10 +305,7 @@ router.post(
           quotationId ? tx.quotation.findUnique({ where: { id: quotationId } }) : null,
         ]);
 
-        if (inventoryId && !inventory) {
-          throw new AppError('库存记录不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        if (inventoryDetailId && !inventoryDetail) {
+        if (resolvedInventoryDetailId && !inventoryDetail) {
           throw new AppError('库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
         }
         if (orderId && !order) {
@@ -304,9 +313,6 @@ router.post(
         }
         if (quotationId && !quotation) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        if (inventory && inventory.partNumber !== partNumber) {
-          throw new AppError('证书件号与库存记录不一致', 409, 'RESOURCE_CONFLICT');
         }
         if (inventoryDetail && inventoryDetail.inventoryItem.partNumber !== partNumber) {
           throw new AppError('证书件号与库存明细不一致', 409, 'RESOURCE_CONFLICT');
@@ -334,16 +340,18 @@ router.post(
           data: {
             certificateNumber: generateCertificateNumber(),
             templateId: templateId || null,
-            inventoryId: inventoryId || null,
-            inventoryDetailId: inventoryDetailId || null,
+            // The legacy inventoryId foreign key remains for historic records
+            // only. All new certificates bind the canonical detail instead.
+            inventoryId: null,
+            inventoryDetailId: resolvedInventoryDetailId,
             orderId: orderId || null,
             supplierId: supplierId || null,
             quotationId: quotationId || null,
             partNumber,
             serialNumber: serialNumber || inventoryDetail?.serialNumber || null,
-            description: description || inventory?.description || null,
+            description: description || inventoryDetail?.inventoryItem.description || null,
             quantity: quantity ?? null,
-            conditionCode: conditionCode || inventoryDetail?.conditionCode || inventory?.conditionCode || null,
+            conditionCode: conditionCode || inventoryDetail?.conditionCode || null,
             certificateType: certificateType?.toUpperCase() || 'AAC-038',
             expiryDate: expiryDate ? new Date(expiryDate) : null,
             issuedBy: issuedBy || user?.name || 'System',
@@ -356,12 +364,11 @@ router.post(
             countryOfOrigin: countryOfOrigin || null,
             manufactureDate: manufactureDate ? new Date(manufactureDate) : null,
             batchNumber: batchNumber || inventoryDetail?.batchNumber || null,
-            ataChapter: ataChapter || inventory?.ataChapter || null,
+            ataChapter: ataChapter || inventoryDetail?.inventoryItem.ataChapter || null,
             aircraftModel: aircraftModel || null,
           },
           include: {
             template: { select: { id: true, name: true, code: true } },
-            inventory: { select: { id: true, partNumber: true, description: true } },
             inventoryDetail: { select: { id: true } },
             order: { select: { id: true, orderNumber: true } },
             supplier: { select: { id: true, name: true } },
@@ -450,6 +457,12 @@ router.post(
       include: {
         template: { select: { id: true, name: true, code: true } },
         inventory: { select: { id: true, partNumber: true, description: true } },
+        inventoryDetail: {
+          select: {
+            id: true,
+            inventoryItem: { select: { partNumber: true } },
+          },
+        },
         order: { select: { id: true, orderNumber: true } },
         supplier: { select: { id: true, name: true } },
         quotation: { select: { id: true, quoteNumber: true } },
@@ -490,7 +503,8 @@ router.post(
         issuedBy: certificate.issuedBy,
         issuerCompany: certificate.issuerCompany,
         templateName: certificate.template?.name,
-        inventoryPartNumber: certificate.inventory?.partNumber,
+        inventoryPartNumber: certificate.inventoryDetail?.inventoryItem.partNumber ?? certificate.inventory?.partNumber,
+        inventoryDetailId: certificate.inventoryDetailId,
         orderNumber: certificate.order?.orderNumber,
         supplierName: certificate.supplier?.name,
         verificationTimestamp: now.toISOString(),
@@ -530,13 +544,6 @@ router.post(
       data: {
         status: 'REVOKED',
         traceHistory: serializeTraceHistory(history),
-      },
-      include: {
-        template: { select: { id: true, name: true, code: true } },
-        inventory: { select: { id: true, partNumber: true, description: true } },
-        order: { select: { id: true, orderNumber: true } },
-        supplier: { select: { id: true, name: true } },
-        quotation: { select: { id: true, quoteNumber: true } },
       },
     });
 
@@ -592,13 +599,6 @@ router.post(
         status: 'ISSUED',
         traceHistory: serializeTraceHistory(history),
       },
-      include: {
-        template: { select: { id: true, name: true, code: true } },
-        inventory: { select: { id: true, partNumber: true, description: true } },
-        order: { select: { id: true, orderNumber: true } },
-        supplier: { select: { id: true, name: true } },
-        quotation: { select: { id: true, quoteNumber: true } },
-      },
     });
 
     res.json({
@@ -623,6 +623,7 @@ router.get(
       include: {
         template: true,
         inventory: true,
+        inventoryDetail: { include: { inventoryItem: true } },
         order: true,
         supplier: true,
         quotation: true,
@@ -674,6 +675,24 @@ router.get(
               quantity: certificate.inventory.quantity,
               conditionCode: certificate.inventory.conditionCode,
             }
+          : certificate.inventoryDetail
+            ? {
+                partNumber: certificate.inventoryDetail.inventoryItem.partNumber,
+                description: certificate.inventoryDetail.inventoryItem.description,
+                serialNumber: certificate.inventoryDetail.serialNumber,
+                quantity: certificate.inventoryDetail.quantity,
+                conditionCode: certificate.inventoryDetail.conditionCode,
+              }
+            : null,
+        inventoryDetail: certificate.inventoryDetail
+          ? {
+              id: certificate.inventoryDetail.id,
+              partNumber: certificate.inventoryDetail.inventoryItem.partNumber,
+              serialNumber: certificate.inventoryDetail.serialNumber,
+              batchNumber: certificate.inventoryDetail.batchNumber,
+              quantity: certificate.inventoryDetail.quantity,
+              conditionCode: certificate.inventoryDetail.conditionCode,
+            }
           : null,
         order: certificate.order
           ? {
@@ -719,6 +738,12 @@ router.get(
       include: {
         template: { select: { id: true, name: true, code: true } },
         inventory: { select: { id: true, partNumber: true, description: true } },
+        inventoryDetail: {
+          select: {
+            id: true,
+            inventoryItem: { select: { partNumber: true } },
+          },
+        },
         order: { select: { id: true, orderNumber: true } },
         supplier: { select: { id: true, name: true } },
       },
@@ -739,7 +764,8 @@ router.get(
           ? Math.ceil((c.expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
           : null,
         inventoryId: c.inventoryId,
-        inventoryPartNumber: c.inventory?.partNumber,
+        inventoryDetailId: c.inventoryDetailId,
+        inventoryPartNumber: c.inventoryDetail?.inventoryItem.partNumber ?? c.inventory?.partNumber,
         orderId: c.orderId,
         orderNumber: c.order?.orderNumber,
         supplierId: c.supplierId,
