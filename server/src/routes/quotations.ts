@@ -16,6 +16,7 @@ import { generateQuotationPDF } from '../lib/pdfService.js';
 import { createOrderFromQuotation, mapOrderResponse } from '../lib/orderWorkflowService.js';
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
+import { calculateMarginPercent, calculateMoneyTotal, normalizeMoney, preferredMoneyValue } from '../lib/money.js';
 import { enqueueBusinessEvent, enqueueOutboundEmail } from '../lib/outboxService.js';
 import { isQuotationTransitionAllowed, normalizeQuotationStatus, type QuotationStatus } from '../lib/quotationStateMachine.js';
 import { isRfqStatusTransitionAllowed, normalizeRfqStatus } from '../lib/rfqStateMachine.js';
@@ -64,6 +65,76 @@ function assertQuotationTransition(current: string, target: QuotationStatus) {
 
 function toUiQuotationStatus(status: string) {
   return normalizeQuotationStatus(status)?.toLowerCase() || status.toLowerCase();
+}
+
+type QuotationMoneySource = {
+  unitPrice: number;
+  unitPriceDecimal: Prisma.Decimal | null;
+  totalPrice: number;
+  totalPriceDecimal: Prisma.Decimal | null;
+  costPrice: number;
+  costPriceDecimal: Prisma.Decimal | null;
+};
+
+type RelatedOrderMoneySource = {
+  totalAmount: number;
+  totalAmountDecimal: Prisma.Decimal | null;
+  importDuty: number | null;
+  importDutyDecimal: Prisma.Decimal | null;
+  vatAmount: number | null;
+  vatAmountDecimal: Prisma.Decimal | null;
+  totalLandCost: number | null;
+  totalLandCostDecimal: Prisma.Decimal | null;
+  exchangeCoreCharge: number | null;
+  exchangeCoreChargeDecimal: Prisma.Decimal | null;
+};
+
+function projectQuotationMoney<T extends QuotationMoneySource>(quotation: T) {
+  const {
+    unitPriceDecimal,
+    totalPriceDecimal,
+    costPriceDecimal,
+    unitPrice,
+    totalPrice,
+    costPrice,
+    ...rest
+  } = quotation;
+
+  return {
+    ...rest,
+    unitPrice: preferredMoneyValue(unitPriceDecimal, unitPrice) ?? 0,
+    totalPrice: preferredMoneyValue(totalPriceDecimal, totalPrice) ?? 0,
+    costPrice: preferredMoneyValue(costPriceDecimal, costPrice) ?? 0,
+  };
+}
+
+function quotationTotalPrice(quotation: Pick<QuotationMoneySource, 'totalPrice' | 'totalPriceDecimal'>) {
+  return preferredMoneyValue(quotation.totalPriceDecimal, quotation.totalPrice) ?? 0;
+}
+
+function projectRelatedOrderMoney<T extends RelatedOrderMoneySource>(order: T) {
+  const {
+    totalAmountDecimal,
+    importDutyDecimal,
+    vatAmountDecimal,
+    totalLandCostDecimal,
+    exchangeCoreChargeDecimal,
+    totalAmount,
+    importDuty,
+    vatAmount,
+    totalLandCost,
+    exchangeCoreCharge,
+    ...rest
+  } = order;
+
+  return {
+    ...rest,
+    totalAmount: preferredMoneyValue(totalAmountDecimal, totalAmount) ?? 0,
+    importDuty: preferredMoneyValue(importDutyDecimal, importDuty),
+    vatAmount: preferredMoneyValue(vatAmountDecimal, vatAmount),
+    totalLandCost: preferredMoneyValue(totalLandCostDecimal, totalLandCost),
+    exchangeCoreCharge: preferredMoneyValue(exchangeCoreChargeDecimal, exchangeCoreCharge),
+  };
 }
 
 function mapQuotationStatusHistoryEntry(history: {
@@ -146,7 +217,7 @@ router.get(
       }),
       prisma.quotation.aggregate({
         where: { status: 'ACCEPTED' },
-        _sum: { totalPrice: true },
+        _sum: { totalPrice: true, totalPriceDecimal: true },
       }),
     ]);
 
@@ -159,7 +230,10 @@ router.get(
       sent: summaryCount('SENT'),
       accepted: summaryCount('ACCEPTED'),
       withdrawn: summaryCount('WITHDRAWN'),
-      totalValue: acceptedAggregate._sum.totalPrice || 0,
+      totalValue: preferredMoneyValue(
+        acceptedAggregate._sum.totalPriceDecimal,
+        acceptedAggregate._sum.totalPrice,
+      ) ?? 0,
     };
 
     const userRole = (req as AuthRequest).user?.role;
@@ -167,6 +241,7 @@ router.get(
     res.json({
       success: true,
       data: quotations.map((q) => {
+        const money = projectQuotationMoney(q);
         const latestContract = q.generatedDocuments.find((doc) => doc.documentType === ORDER_CONTRACT_DOCUMENT_TYPE);
         const latestEmail = q.outboundEmails.find((email) => email.purpose === 'QUOTATION_SEND');
         const latestOrder = q.orders[0];
@@ -181,9 +256,9 @@ router.get(
           customerContactName: q.customer.contactName,
           partNumber: q.partNumber,
           quantity: q.quantity,
-          unitPrice: q.unitPrice,
-          totalPrice: q.totalPrice,
-          ...(isAdminOrManager ? { costPrice: q.costPrice, margin: q.margin } : {}),
+          unitPrice: money.unitPrice,
+          totalPrice: money.totalPrice,
+          ...(isAdminOrManager ? { costPrice: money.costPrice, margin: q.margin } : {}),
           certificateFiles: q.certificateFiles?.split(',').filter(Boolean) || [],
           template: q.template.toLowerCase(),
           status: q.status.toLowerCase(),
@@ -299,10 +374,14 @@ router.get(
       throw new AppError('报价单不存在', 404);
     }
 
+    const projectedQuotation = {
+      ...projectQuotationMoney(quotation),
+      orders: quotation.orders.map(projectRelatedOrderMoney),
+    };
     res.json({
       success: true,
       data: {
-        ...quotation,
+        ...projectedQuotation,
         status: quotation.status.toLowerCase(),
         template: quotation.template.toLowerCase(),
         acceptedAt: quotation.acceptedAt?.toISOString(),
@@ -353,10 +432,10 @@ router.post(
         const relatedRfq = rfqId ? await tx.rFQ.findUnique({ where: { id: rfqId } }) : null;
         const isAog = relatedRfq?.urgency.toUpperCase() === 'AOG';
         const finalValidityDays = isAog ? 1 : (validityDays || 7);
-        const totalPrice = quantity * unitPrice;
-        const margin = totalPrice > 0
-          ? ((totalPrice - costPrice * quantity) / totalPrice * 100)
-          : 0;
+        const unitPriceDecimal = normalizeMoney(unitPrice);
+        const costPriceDecimal = normalizeMoney(costPrice);
+        const totalPriceDecimal = calculateMoneyTotal(unitPriceDecimal, quantity);
+        const margin = calculateMarginPercent(totalPriceDecimal, costPriceDecimal, quantity);
         const quoteNumber = `QT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
         const expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + finalValidityDays);
@@ -368,9 +447,12 @@ router.post(
             customerId,
             partNumber,
             quantity,
-            unitPrice,
-            totalPrice,
-            costPrice,
+            unitPrice: unitPriceDecimal.toNumber(),
+            unitPriceDecimal,
+            totalPrice: totalPriceDecimal.toNumber(),
+            totalPriceDecimal,
+            costPrice: costPriceDecimal.toNumber(),
+            costPriceDecimal,
             margin,
             certificateFiles: Array.isArray(certificateFiles) ? certificateFiles.join(',') : certificateFiles,
             template: template?.toUpperCase() || 'STANDARD',
@@ -474,7 +556,7 @@ router.post(
             customerName: quotation.customer.name,
             rfqId: quotation.rfqId,
             status: quotation.status,
-            totalPrice: quotation.totalPrice,
+            totalPrice: quotationTotalPrice(quotation),
             margin: quotation.margin,
             createdBy: actorId,
           },
@@ -489,7 +571,7 @@ router.post(
             customerName: quotation.customer.name,
             status: quotation.status.toLowerCase(),
             version: quotation.version,
-            totalPrice: quotation.totalPrice,
+            totalPrice: quotationTotalPrice(quotation),
             margin: quotation.margin,
           },
           statusCode: 201,
@@ -553,7 +635,7 @@ router.post(
         }
 
         return {
-          payload: { ...quotation, status: quotation.status.toLowerCase() },
+          payload: { ...projectQuotationMoney(quotation), status: quotation.status.toLowerCase() },
           resourceType: 'QUOTATION',
           resourceId: quotation.id,
         };
@@ -610,7 +692,7 @@ router.post(
           await tx.approval.create({
             data: {
               quotationId: req.params.id,
-              level: isAog ? 'AOG' : (quotation.totalPrice > 50000 ? 'GM' : quotation.totalPrice > 5000 ? 'FINANCE' : 'MANAGER'),
+              level: isAog ? 'AOG' : (quotationTotalPrice(quotation) > 50000 ? 'GM' : quotationTotalPrice(quotation) > 5000 ? 'FINANCE' : 'MANAGER'),
               approverId: userId,
               action: action.toUpperCase(),
               comment,
@@ -624,7 +706,7 @@ router.post(
               quotationId: quotation.id,
               quoteNumber: quotation.quoteNumber,
               status: quotation.status,
-              totalPrice: quotation.totalPrice,
+              totalPrice: quotationTotalPrice(quotation),
               comment,
               approvedBy: action === 'approve' ? userId : null,
               reviewedBy: userId,
@@ -639,7 +721,7 @@ router.post(
         }
 
         return {
-          payload: { ...quotation, status: quotation.status.toLowerCase() },
+          payload: { ...projectQuotationMoney(quotation), status: quotation.status.toLowerCase() },
           resourceType: 'QUOTATION',
           resourceId: quotation.id,
         };
@@ -687,7 +769,7 @@ router.post(
           '',
           `附件为报价单 ${quotation.quoteNumber}，对应件号 ${quotation.partNumber}。`,
           `数量：${quotation.quantity}`,
-          `总价：USD ${quotation.totalPrice.toLocaleString('en-US')}`,
+          `总价：USD ${quotationTotalPrice(quotation).toLocaleString('en-US')}`,
           `销售类型：${quotation.saleType || 'Sale'}`,
           `贸易术语：${quotation.incoterm || '-'} ${quotation.incotermLocation || ''}`,
           `交货期：${quotation.leadTimeDays || '-'} 天`,
@@ -1058,7 +1140,7 @@ router.post(
               customerId: order.customerId,
               customerName: order.customer.name,
               status: order.status,
-              totalAmount: order.totalAmount,
+              totalAmount: mapOrderResponse(order).totalAmount,
               createdAt: order.createdAt.toISOString(),
             },
             socket: { room: SocketRooms.ORDERS, event: SocketEvents.ORDER_CREATED },
@@ -1109,9 +1191,9 @@ router.get(
       customerName: quotation.customer.name,
       partNumber: quotation.partNumber,
       quantity: quotation.quantity,
-      unitPrice: quotation.unitPrice,
-      totalPrice: quotation.totalPrice,
-      costPrice: quotation.costPrice,
+      unitPrice: preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0,
+      totalPrice: quotationTotalPrice(quotation),
+      costPrice: preferredMoneyValue(quotation.costPriceDecimal, quotation.costPrice) ?? 0,
       margin: quotation.margin,
       validityDays: quotation.validityDays,
       saleType: quotation.saleType,

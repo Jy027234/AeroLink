@@ -2,6 +2,7 @@ import type { OutboxEvent, Prisma } from '@prisma/client';
 import { decrypt } from './crypto.js';
 import { sendEmail, type EmailAccountConfig } from './emailService.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { preferredMoneyValue } from './money.js';
 import { generateQuotationPDF } from './pdfService.js';
 import prisma from './prisma.js';
 import { isQuotationTransitionAllowed } from './quotationStateMachine.js';
@@ -206,9 +207,9 @@ async function buildQuotationAttachment(quotation: NonNullable<Awaited<ReturnTyp
     customerName: customer.name,
     partNumber: quotation.partNumber,
     quantity: quotation.quantity,
-    unitPrice: quotation.unitPrice,
-    totalPrice: quotation.totalPrice,
-    costPrice: quotation.costPrice,
+    unitPrice: preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0,
+    totalPrice: preferredMoneyValue(quotation.totalPriceDecimal, quotation.totalPrice) ?? 0,
+    costPrice: preferredMoneyValue(quotation.costPriceDecimal, quotation.costPrice) ?? 0,
     margin: quotation.margin,
     validityDays: quotation.validityDays,
     saleType: quotation.saleType,

@@ -1,5 +1,6 @@
 import type { Customer, DocumentTemplate, Order, Prisma, Quotation } from '@prisma/client';
 import { AppError } from '../middleware/errorHandler.js';
+import { preferredMoneyValue } from './money.js';
 import { generatePDF } from './pdfService.js';
 import prisma from './prisma.js';
 
@@ -160,8 +161,8 @@ export function buildOrderContractPayload(args: {
       quoteNumber: quotation.quoteNumber,
       partNumber: quotation.partNumber,
       quantity: quotation.quantity,
-      unitPrice: quotation.unitPrice,
-      totalPrice: quotation.totalPrice,
+      unitPrice: preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0,
+      totalPrice: preferredMoneyValue(quotation.totalPriceDecimal, quotation.totalPrice) ?? 0,
       saleType: quotation.saleType,
       incoterm: quotation.incoterm,
       incotermLocation: quotation.incotermLocation,

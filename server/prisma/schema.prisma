@@ -525,6 +525,10 @@ model SupplierQuote {
   quantity     Int
   unitPrice    Float
   totalPrice   Float
+  // P1-04 monetary shadows. The Float columns remain the compatibility
+  // projection until the later read-cutover migration is approved.
+  unitPriceDecimal Decimal? @db.Decimal(18, 4)
+  totalPriceDecimal Decimal? @db.Decimal(18, 4)
   leadTimeDays Int
   validUntil   DateTime?
   notes        String?
@@ -574,6 +578,11 @@ model Quotation {
   totalPrice      Float
   costPrice       Float
   margin          Float
+  // P1-04 monetary shadows. New writes dual-write these Decimal values while
+  // preserving the existing Float fields for backwards-compatible API output.
+  unitPriceDecimal Decimal? @db.Decimal(18, 4)
+  totalPriceDecimal Decimal? @db.Decimal(18, 4)
+  costPriceDecimal Decimal? @db.Decimal(18, 4)
 
   // 销售与交付
   saleType        String   @default("Sale")
@@ -687,6 +696,8 @@ model Order {
   partNumber      String
   quantity        Int
   totalAmount     Float
+  // P1-04 monetary shadow. The legacy Float remains until the read cutover.
+  totalAmountDecimal Decimal? @db.Decimal(18, 4)
   status          String   @default("SO_CREATED")
   version         Int      @default(1)
   createdAt       DateTime @default(now())
@@ -726,6 +737,9 @@ model Order {
   importDuty      Float?
   vatAmount       Float?
   totalLandCost   Float?
+  importDutyDecimal Decimal? @db.Decimal(18, 4)
+  vatAmountDecimal Decimal? @db.Decimal(18, 4)
+  totalLandCostDecimal Decimal? @db.Decimal(18, 4)
 
   // 订单号映射（P2）
   poNumberCustomer String?
@@ -733,6 +747,7 @@ model Order {
 
   // 交换件（P2）
   exchangeCoreCharge Float?
+  exchangeCoreChargeDecimal Decimal? @db.Decimal(18, 4)
   exchangeCoreDueDate DateTime?
 
   // 电子签名（P2）

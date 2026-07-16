@@ -1,4 +1,5 @@
 import type { Customer, Order, Prisma, Quotation } from '@prisma/client';
+import { normalizeMoney, normalizeOptionalMoney, preferredMoneyValue } from './money.js';
 import { createInitialStatusHistory } from './transactionStateService.js';
 
 export function buildSalesOrderNumber() {
@@ -42,6 +43,13 @@ export async function createOrderFromQuotation(args: {
   reason?: string | null;
 }) {
   const orderNumber = buildSalesOrderNumber();
+  const totalAmountDecimal = normalizeMoney(
+    preferredMoneyValue(args.quotation.totalPriceDecimal, args.quotation.totalPrice) ?? args.quotation.totalPrice,
+  );
+  const importDutyDecimal = normalizeOptionalMoney(args.importDuty);
+  const vatAmountDecimal = normalizeOptionalMoney(args.vatAmount);
+  const totalLandCostDecimal = normalizeOptionalMoney(args.totalLandCost);
+  const exchangeCoreChargeDecimal = normalizeOptionalMoney(args.exchangeCoreCharge);
 
   const order = await args.tx.order.create({
     data: {
@@ -51,7 +59,8 @@ export async function createOrderFromQuotation(args: {
       customerId: args.customer.id,
       partNumber: args.quotation.partNumber,
       quantity: args.quotation.quantity,
-      totalAmount: args.quotation.totalPrice,
+      totalAmount: totalAmountDecimal.toNumber(),
+      totalAmountDecimal,
       inventoryDetailId: args.quotation.inventoryDetailId,
       serialNumber: args.quotation.serialNumber,
       batchNumber: args.quotation.batchNumber,
@@ -77,10 +86,14 @@ export async function createOrderFromQuotation(args: {
       inspectionDate: args.inspectionDate ? new Date(args.inspectionDate) : null,
       customsClearanceRequired: args.customsClearanceRequired ?? false,
       customsDeclarationNo: args.customsDeclarationNo,
-      importDuty: args.importDuty,
-      vatAmount: args.vatAmount,
-      totalLandCost: args.totalLandCost,
-      exchangeCoreCharge: args.exchangeCoreCharge,
+      importDuty: importDutyDecimal?.toNumber() ?? null,
+      importDutyDecimal,
+      vatAmount: vatAmountDecimal?.toNumber() ?? null,
+      vatAmountDecimal,
+      totalLandCost: totalLandCostDecimal?.toNumber() ?? null,
+      totalLandCostDecimal,
+      exchangeCoreCharge: exchangeCoreChargeDecimal?.toNumber() ?? null,
+      exchangeCoreChargeDecimal,
       exchangeCoreDueDate: args.exchangeCoreDueDate ? new Date(args.exchangeCoreDueDate) : null,
       eSignatureCustomer: args.eSignatureCustomer,
       eSignatureSupplier: args.eSignatureSupplier,
@@ -114,7 +127,7 @@ export function mapOrderResponse(order: Order & { customer: Customer }) {
     customerName: order.customer.name,
     partNumber: order.partNumber,
     quantity: order.quantity,
-    totalAmount: order.totalAmount,
+    totalAmount: preferredMoneyValue(order.totalAmountDecimal, order.totalAmount) ?? 0,
     status: order.status.toLowerCase(),
     version: order.version,
     createdAt: order.createdAt.toISOString(),
@@ -140,10 +153,10 @@ export function mapOrderResponse(order: Order & { customer: Customer }) {
     inspectionDate: order.inspectionDate?.toISOString(),
     customsClearanceRequired: order.customsClearanceRequired,
     customsDeclarationNo: order.customsDeclarationNo,
-    importDuty: order.importDuty,
-    vatAmount: order.vatAmount,
-    totalLandCost: order.totalLandCost,
-    exchangeCoreCharge: order.exchangeCoreCharge,
+    importDuty: preferredMoneyValue(order.importDutyDecimal, order.importDuty),
+    vatAmount: preferredMoneyValue(order.vatAmountDecimal, order.vatAmount),
+    totalLandCost: preferredMoneyValue(order.totalLandCostDecimal, order.totalLandCost),
+    exchangeCoreCharge: preferredMoneyValue(order.exchangeCoreChargeDecimal, order.exchangeCoreCharge),
     exchangeCoreDueDate: order.exchangeCoreDueDate?.toISOString(),
     eSignatureCustomer: order.eSignatureCustomer,
     eSignatureSupplier: order.eSignatureSupplier,

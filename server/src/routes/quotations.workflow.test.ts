@@ -98,7 +98,7 @@ function createOrder() {
 
 function createPrismaMock() {
   const tx = {
-    quotation: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
+    quotation: { findUnique: vi.fn(), create: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     order: { findFirst: vi.fn(), findUnique: vi.fn() },
     emailAccount: { findFirst: vi.fn() },
     outboundEmail: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
@@ -226,6 +226,44 @@ describe('Quotation workflow routes', () => {
     expect(response.status).toBe(409);
     expect(response.body.code).toBe('INVALID_STATE_TRANSITION');
     expect(prismaMock.__tx.emailAccount.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('dual-writes rounded Decimal monetary shadows when creating a quotation', async () => {
+    const customer = createCustomer();
+    prismaMock.__tx.rFQ.findUnique.mockResolvedValue(null);
+    prismaMock.__tx.quotation.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...createQuotation('APPROVED'),
+      ...data,
+      id: 'q-decimal-001',
+      customer,
+      version: 1,
+    }));
+
+    const response = await request(app)
+      .post('/api/quotations')
+      .send({
+        rfqId: 'r001',
+        customerId: customer.id,
+        partNumber: 'BAC31GK0020',
+        quantity: 3,
+        unitPrice: 12.34565,
+        costPrice: 8.10005,
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data).toMatchObject({
+      id: 'q-decimal-001',
+      totalPrice: 37.0371,
+      status: 'draft',
+    });
+
+    const createData = prismaMock.__tx.quotation.create.mock.calls[0][0].data;
+    expect(createData.unitPrice).toBeCloseTo(12.3457, 10);
+    expect(String(createData.unitPriceDecimal)).toBe('12.3457');
+    expect(createData.totalPrice).toBeCloseTo(37.0371, 10);
+    expect(String(createData.totalPriceDecimal)).toBe('37.0371');
+    expect(createData.costPrice).toBeCloseTo(8.1001, 10);
+    expect(String(createData.costPriceDecimal)).toBe('8.1001');
   });
 
   it('withdraws a sent quotation and queues its withdrawal notice transactionally', async () => {

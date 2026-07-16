@@ -7,6 +7,7 @@ import { orderCreateSchema, orderStatusUpdateSchema, orderUpdateSchema } from '.
 import { createOrderFromQuotation, mapOrderResponse } from '../lib/orderWorkflowService.js';
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { normalizeMoney, preferredMoneyValue } from '../lib/money.js';
 import { generateOrderPDF } from '../lib/pdfService.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, type IdempotentExecution, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { enqueueBusinessEvent } from '../lib/outboxService.js';
@@ -24,6 +25,87 @@ type OrderCreateResponse = ReturnType<typeof mapOrderResponse> & {
   contractDocumentId: string;
   contractDocumentTitle: string;
 };
+
+type OrderMoneySource = {
+  totalAmount: number;
+  totalAmountDecimal: Prisma.Decimal | null;
+  importDuty: number | null;
+  importDutyDecimal: Prisma.Decimal | null;
+  vatAmount: number | null;
+  vatAmountDecimal: Prisma.Decimal | null;
+  totalLandCost: number | null;
+  totalLandCostDecimal: Prisma.Decimal | null;
+  exchangeCoreCharge: number | null;
+  exchangeCoreChargeDecimal: Prisma.Decimal | null;
+};
+
+type RelatedQuotationMoneySource = {
+  unitPrice: number;
+  unitPriceDecimal: Prisma.Decimal | null;
+  totalPrice: number;
+  totalPriceDecimal: Prisma.Decimal | null;
+  costPrice: number;
+  costPriceDecimal: Prisma.Decimal | null;
+};
+
+function orderTotalAmount(order: Pick<OrderMoneySource, 'totalAmount' | 'totalAmountDecimal'>) {
+  return preferredMoneyValue(order.totalAmountDecimal, order.totalAmount) ?? 0;
+}
+
+function projectOrderMoney<T extends OrderMoneySource>(order: T) {
+  const {
+    totalAmountDecimal,
+    importDutyDecimal,
+    vatAmountDecimal,
+    totalLandCostDecimal,
+    exchangeCoreChargeDecimal,
+    totalAmount,
+    importDuty,
+    vatAmount,
+    totalLandCost,
+    exchangeCoreCharge,
+    ...rest
+  } = order;
+
+  return {
+    ...rest,
+    totalAmount: preferredMoneyValue(totalAmountDecimal, totalAmount) ?? 0,
+    importDuty: preferredMoneyValue(importDutyDecimal, importDuty),
+    vatAmount: preferredMoneyValue(vatAmountDecimal, vatAmount),
+    totalLandCost: preferredMoneyValue(totalLandCostDecimal, totalLandCost),
+    exchangeCoreCharge: preferredMoneyValue(exchangeCoreChargeDecimal, exchangeCoreCharge),
+  };
+}
+
+function projectRelatedQuotationMoney<T extends RelatedQuotationMoneySource>(quotation: T | null) {
+  if (!quotation) {
+    return quotation;
+  }
+
+  const {
+    unitPriceDecimal,
+    totalPriceDecimal,
+    costPriceDecimal,
+    unitPrice,
+    totalPrice,
+    costPrice,
+    ...rest
+  } = quotation;
+
+  return {
+    ...rest,
+    unitPrice: preferredMoneyValue(unitPriceDecimal, unitPrice) ?? 0,
+    totalPrice: preferredMoneyValue(totalPriceDecimal, totalPrice) ?? 0,
+    costPrice: preferredMoneyValue(costPriceDecimal, costPrice) ?? 0,
+  };
+}
+
+function projectOrderWithQuotation<T extends OrderMoneySource & { quotation: RelatedQuotationMoneySource | null }>(order: T) {
+  return {
+    ...projectOrderMoney(order),
+    quotation: projectRelatedQuotationMoney(order.quotation),
+  };
+}
 
 function mapOrderStatusHistoryEntry(history: {
   id: string;
@@ -101,7 +183,7 @@ router.get(
         _count: { _all: true },
       }),
       prisma.order.aggregate({
-        _sum: { totalAmount: true },
+        _sum: { totalAmount: true, totalAmountDecimal: true },
       }),
     ]);
 
@@ -114,7 +196,10 @@ router.get(
         0,
       ),
       completed: summaryCount('COMPLETED') + summaryCount('DELIVERED'),
-      totalValue: amountAggregate._sum.totalAmount || 0,
+      totalValue: preferredMoneyValue(
+        amountAggregate._sum.totalAmountDecimal,
+        amountAggregate._sum.totalAmount,
+      ) ?? 0,
     };
 
     res.json({
@@ -129,7 +214,7 @@ router.get(
         customerName: o.customer.name,
         partNumber: o.partNumber,
         quantity: o.quantity,
-        totalAmount: o.totalAmount,
+        totalAmount: orderTotalAmount(o),
         status: o.status.toLowerCase(),
         version: o.version,
         createdAt: o.createdAt.toISOString(),
@@ -157,10 +242,10 @@ router.get(
         inspectionDate: o.inspectionDate?.toISOString(),
         customsClearanceRequired: o.customsClearanceRequired,
         customsDeclarationNo: o.customsDeclarationNo,
-        importDuty: o.importDuty,
-        vatAmount: o.vatAmount,
-        totalLandCost: o.totalLandCost,
-        exchangeCoreCharge: o.exchangeCoreCharge,
+        importDuty: preferredMoneyValue(o.importDutyDecimal, o.importDuty),
+        vatAmount: preferredMoneyValue(o.vatAmountDecimal, o.vatAmount),
+        totalLandCost: preferredMoneyValue(o.totalLandCostDecimal, o.totalLandCost),
+        exchangeCoreCharge: preferredMoneyValue(o.exchangeCoreChargeDecimal, o.exchangeCoreCharge),
         exchangeCoreDueDate: o.exchangeCoreDueDate?.toISOString(),
         eSignatureCustomer: o.eSignatureCustomer,
         eSignatureSupplier: o.eSignatureSupplier,
@@ -225,10 +310,11 @@ router.get(
       throw new AppError('订单不存在', 404);
     }
 
+    const projectedOrder = projectOrderWithQuotation(order);
     res.json({
       success: true,
       data: {
-        ...order,
+        ...projectedOrder,
         status: order.status.toLowerCase(),
         contractDocumentId: order.generatedDocuments[0]?.id,
         contractDocumentTitle: order.generatedDocuments[0]?.title,
@@ -365,7 +451,7 @@ router.post(
                 customerId: order.customerId,
                 customerName: order.customer.name,
                 status: order.status,
-                totalAmount: order.totalAmount,
+                totalAmount: orderTotalAmount(order),
                 createdAt: order.createdAt.toISOString(),
               },
               socket: {
@@ -502,7 +588,7 @@ router.patch(
 
         return {
           payload: {
-            ...order,
+            ...projectOrderMoney(order),
             status: order.status.toLowerCase(),
           },
           resourceType: 'ORDER',
@@ -536,6 +622,10 @@ router.patch(
       trackingNumber, carrier,
     } = req.body;
 
+    const importDutyDecimal = importDuty === undefined ? undefined : normalizeMoney(importDuty);
+    const vatAmountDecimal = vatAmount === undefined ? undefined : normalizeMoney(vatAmount);
+    const totalLandCostDecimal = totalLandCost === undefined ? undefined : normalizeMoney(totalLandCost);
+    const exchangeCoreChargeDecimal = exchangeCoreCharge === undefined ? undefined : normalizeMoney(exchangeCoreCharge);
     const data: Prisma.OrderUpdateInput = {
       poNumber: poNumber ?? undefined,
       deliveryDate: deliveryDate ? new Date(deliveryDate) : deliveryDate === null ? null : undefined,
@@ -557,10 +647,14 @@ router.patch(
       inspectionDate: inspectionDate ? new Date(inspectionDate) : inspectionDate === null ? null : undefined,
       customsClearanceRequired: customsClearanceRequired ?? undefined,
       customsDeclarationNo: customsDeclarationNo ?? undefined,
-      importDuty: importDuty ?? undefined,
-      vatAmount: vatAmount ?? undefined,
-      totalLandCost: totalLandCost ?? undefined,
-      exchangeCoreCharge: exchangeCoreCharge ?? undefined,
+      importDuty: importDutyDecimal?.toNumber(),
+      importDutyDecimal,
+      vatAmount: vatAmountDecimal?.toNumber(),
+      vatAmountDecimal,
+      totalLandCost: totalLandCostDecimal?.toNumber(),
+      totalLandCostDecimal,
+      exchangeCoreCharge: exchangeCoreChargeDecimal?.toNumber(),
+      exchangeCoreChargeDecimal,
       exchangeCoreDueDate: exchangeCoreDueDate ? new Date(exchangeCoreDueDate) : exchangeCoreDueDate === null ? null : undefined,
       eSignatureCustomer: eSignatureCustomer ?? undefined,
       eSignatureSupplier: eSignatureSupplier ?? undefined,
@@ -593,7 +687,7 @@ router.patch(
 
         return {
           payload: {
-            ...order,
+            ...projectOrderWithQuotation(order),
             status: order.status.toLowerCase(),
             contractDocumentId: order.generatedDocuments[0]?.id,
             contractDocumentTitle: order.generatedDocuments[0]?.title,
@@ -648,7 +742,7 @@ router.get(
       customerName: order.customer.name,
       partNumber: order.partNumber,
       quantity: order.quantity,
-      totalAmount: order.totalAmount,
+      totalAmount: orderTotalAmount(order),
       status: order.status,
       poNumber: order.poNumber || undefined,
       deliveryDate: order.deliveryDate?.toISOString().split('T')[0],

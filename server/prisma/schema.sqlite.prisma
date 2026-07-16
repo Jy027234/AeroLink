@@ -522,6 +522,8 @@ model SupplierQuote {
   quantity     Int
   unitPrice    Float
   totalPrice   Float
+  unitPriceDecimal Decimal?
+  totalPriceDecimal Decimal?
   leadTimeDays Int
   validUntil   DateTime?
   notes        String?
@@ -571,6 +573,9 @@ model Quotation {
   totalPrice      Float
   costPrice       Float
   margin          Float
+  unitPriceDecimal Decimal?
+  totalPriceDecimal Decimal?
+  costPriceDecimal Decimal?
 
   // 销售与交付
   saleType        String   @default("Sale")
@@ -684,6 +689,7 @@ model Order {
   partNumber      String
   quantity        Int
   totalAmount     Float
+  totalAmountDecimal Decimal?
   status          String   @default("SO_CREATED")
   version         Int      @default(1)
   createdAt       DateTime @default(now())
@@ -723,6 +729,9 @@ model Order {
   importDuty      Float?
   vatAmount       Float?
   totalLandCost   Float?
+  importDutyDecimal Decimal?
+  vatAmountDecimal Decimal?
+  totalLandCostDecimal Decimal?
 
   // 订单号映射（P2）
   poNumberCustomer String?
@@ -730,6 +739,7 @@ model Order {
 
   // 交换件（P2）
   exchangeCoreCharge Float?
+  exchangeCoreChargeDecimal Decimal?
   exchangeCoreDueDate DateTime?
 
   // 电子签名（P2）

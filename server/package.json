@@ -16,6 +16,7 @@
     "db:preflight:order-uniqueness": "node --import tsx src/scripts/checkOrderUniqueness.ts",
     "db:check-active-admin": "node --import tsx src/scripts/checkActiveAdmin.ts",
     "db:check:inventory-reconciliation": "node --import tsx src/scripts/checkInventoryReconciliation.ts",
+    "db:check:money-reconciliation": "node --import tsx src/scripts/checkMoneyReconciliation.ts",
     "db:rotate-encryption-key": "node --import tsx src/scripts/rotateEncryptionKey.ts",
     "db:seed": "node --import tsx src/seed.ts",
     "db:bootstrap-admin": "node --import tsx src/scripts/bootstrapAdmin.ts",

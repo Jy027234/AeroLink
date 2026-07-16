@@ -2,10 +2,35 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { validateBody } from '../middleware/validate.js';
+import { calculateMoneyTotal, normalizeMoney, preferredMoneyValue } from '../lib/money.js';
 import { supplierQuoteCreateSchema, supplierQuoteUpdateSchema } from '../lib/validation.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+type SupplierQuoteMoneySource = {
+  unitPrice: number;
+  unitPriceDecimal: Prisma.Decimal | null;
+  totalPrice: number;
+  totalPriceDecimal: Prisma.Decimal | null;
+};
+
+function supplierQuoteUnitPrice(quote: Pick<SupplierQuoteMoneySource, 'unitPrice' | 'unitPriceDecimal'>) {
+  return preferredMoneyValue(quote.unitPriceDecimal, quote.unitPrice) ?? 0;
+}
+
+function supplierQuoteTotalPrice(quote: Pick<SupplierQuoteMoneySource, 'totalPrice' | 'totalPriceDecimal'>) {
+  return preferredMoneyValue(quote.totalPriceDecimal, quote.totalPrice) ?? 0;
+}
+
+function projectSupplierQuoteMoney<T extends SupplierQuoteMoneySource>(quote: T) {
+  const { unitPriceDecimal, totalPriceDecimal, unitPrice, totalPrice, ...rest } = quote;
+  return {
+    ...rest,
+    unitPrice: preferredMoneyValue(unitPriceDecimal, unitPrice) ?? 0,
+    totalPrice: preferredMoneyValue(totalPriceDecimal, totalPrice) ?? 0,
+  };
+}
 
 router.get(
   '/',
@@ -56,8 +81,8 @@ router.get(
         partNumber: q.partNumber,
         description: q.description,
         quantity: q.quantity,
-        unitPrice: q.unitPrice,
-        totalPrice: q.totalPrice,
+        unitPrice: supplierQuoteUnitPrice(q),
+        totalPrice: supplierQuoteTotalPrice(q),
         leadTimeDays: q.leadTimeDays,
         validUntil: q.validUntil?.toISOString() || null,
         notes: q.notes,
@@ -103,7 +128,7 @@ router.get(
 
     res.json({
       success: true,
-      data: quote,
+      data: projectSupplierQuoteMoney(quote),
     });
   })
 );
@@ -124,7 +149,8 @@ router.post(
       validUntil,
       notes,
     } = req.body;
-    const totalPrice = quantity * unitPrice;
+    const unitPriceDecimal = normalizeMoney(unitPrice);
+    const totalPriceDecimal = calculateMoneyTotal(unitPriceDecimal, quantity);
 
     const quote = await prisma.supplierQuote.create({
       data: {
@@ -134,8 +160,10 @@ router.post(
         partNumber,
         description,
         quantity,
-        unitPrice,
-        totalPrice,
+        unitPrice: unitPriceDecimal.toNumber(),
+        unitPriceDecimal,
+        totalPrice: totalPriceDecimal.toNumber(),
+        totalPriceDecimal,
         leadTimeDays: leadTimeDays || 0,
         validUntil: validUntil ? new Date(validUntil) : null,
         notes,
@@ -145,7 +173,7 @@ router.post(
 
     res.status(201).json({
       success: true,
-      data: quote,
+      data: projectSupplierQuoteMoney(quote),
     });
   })
 );
@@ -172,15 +200,21 @@ router.put(
     }
 
     const updateData: Prisma.SupplierQuoteUpdateInput = {};
-    if (unitPrice !== undefined) updateData.unitPrice = unitPrice;
+    const unitPriceDecimal = unitPrice === undefined ? undefined : normalizeMoney(unitPrice);
+    if (unitPriceDecimal) {
+      updateData.unitPrice = unitPriceDecimal.toNumber();
+      updateData.unitPriceDecimal = unitPriceDecimal;
+    }
     if (leadTimeDays !== undefined) updateData.leadTimeDays = leadTimeDays;
     if (validUntil !== undefined) updateData.validUntil = new Date(validUntil);
     if (notes !== undefined) updateData.notes = notes;
     if (status !== undefined) updateData.status = status;
     if (isWinner !== undefined) updateData.isWinner = isWinner;
 
-    if (unitPrice !== undefined && existing.quantity) {
-      updateData.totalPrice = unitPrice * existing.quantity;
+    if (unitPriceDecimal && existing.quantity) {
+      const totalPriceDecimal = calculateMoneyTotal(unitPriceDecimal, existing.quantity);
+      updateData.totalPrice = totalPriceDecimal.toNumber();
+      updateData.totalPriceDecimal = totalPriceDecimal;
     }
 
     const quote = await prisma.supplierQuote.update({
@@ -190,7 +224,7 @@ router.put(
 
     res.json({
       success: true,
-      data: quote,
+      data: projectSupplierQuoteMoney(quote),
     });
   })
 );
@@ -245,12 +279,14 @@ router.post(
       throw new AppError('没有找到供应商报价', 404);
     }
 
-    const minPrice = Math.min(...quotes.map((q) => q.unitPrice));
-    const maxPrice = Math.max(...quotes.map((q) => q.unitPrice));
-    const avgPrice = quotes.reduce((sum, q) => sum + q.unitPrice, 0) / quotes.length;
+    const minPrice = Math.min(...quotes.map(supplierQuoteUnitPrice));
+    const maxPrice = Math.max(...quotes.map(supplierQuoteUnitPrice));
+    const avgPrice = quotes.reduce((sum, q) => sum + supplierQuoteUnitPrice(q), 0) / quotes.length;
 
     const comparedQuotes = quotes.map((quote) => {
-      const priceScore = maxPrice === minPrice ? 100 : ((maxPrice - quote.unitPrice) / (maxPrice - minPrice)) * 100;
+      const unitPrice = supplierQuoteUnitPrice(quote);
+      const totalPrice = supplierQuoteTotalPrice(quote);
+      const priceScore = maxPrice === minPrice ? 100 : ((maxPrice - unitPrice) / (maxPrice - minPrice)) * 100;
       const leadTimeScore = quote.leadTimeDays <= 7 ? 100 : Math.max(0, 100 - (quote.leadTimeDays - 7) * 5);
       const supplierScore = quote.supplier.performanceScore || 50;
       const qualityScore = (quote.supplier.performanceScore || 50) * 0.8 + 10;
@@ -274,7 +310,7 @@ router.post(
         recommendation = '不推荐 - 存在明显劣势';
       }
 
-      const priceDiff = ((quote.unitPrice - minPrice) / minPrice * 100).toFixed(1);
+      const priceDiff = ((unitPrice - minPrice) / minPrice * 100).toFixed(1);
 
       return {
         id: quote.id,
@@ -285,11 +321,11 @@ router.post(
           level: quote.supplier.level,
           performanceScore: quote.supplier.performanceScore,
         },
-        unitPrice: quote.unitPrice,
-        totalPrice: quote.totalPrice,
+        unitPrice,
+        totalPrice,
         leadTimeDays: quote.leadTimeDays,
         priceDiff,
-        isLowestPrice: quote.unitPrice === minPrice,
+        isLowestPrice: unitPrice === minPrice,
         scores: {
           price: Math.round(priceScore),
           leadTime: Math.round(leadTimeScore),
@@ -368,7 +404,7 @@ router.post(
     res.json({
       success: true,
       message: '已选择最优供应商',
-      data: updated,
+      data: projectSupplierQuoteMoney(updated),
     });
   })
 );
