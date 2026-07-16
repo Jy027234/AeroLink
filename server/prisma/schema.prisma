@@ -1099,6 +1099,9 @@ model WebhookEndpoint {
   authToken        String?
   secret           String?
   customHeaders    String   @default("{}")
+  // P1-04 JSON shadow. The String column remains the compatibility source
+  // while configuration writes also persist structured JSONB values.
+  customHeadersJson Json?
   timeoutMs        Int      @default(10000)
   maxRetries       Int      @default(3)
   isActive         Boolean  @default(true)
@@ -1117,7 +1120,9 @@ model WebhookSubscription {
   id          String   @id @default(uuid())
   endpointId  String
   eventTypes  String   @default("[]")  // JSON array of event types
+  eventTypesJson Json?
   filters     String   @default("{\"logic\":\"AND\",\"rules\":[]}")  // Advanced filter rules (Phase 2)
+  filtersJson Json?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1137,6 +1142,7 @@ model WebhookDelivery {
   eventType       String
   payload         String
   requestHeaders  String   @default("{}")
+  requestHeadersJson Json?
   status          String   @default("pending")  // pending / delivered / failed / quarantined (Phase 2)
   attemptCount    Int      @default(0)
   maxRetries      Int      @default(5)
@@ -1171,7 +1177,9 @@ model WebhookReplayBatch {
   id               String   @id @default(uuid())
   triggeredBy      String   @default("SYSTEM")  // User ID or "SYSTEM"
   filterQuery      String   @default("{}")  // JSON filter for replay query
+  filterQueryJson  Json?
   deliveryIds      String   @default("[]")  // JSON array of delivery IDs to replay
+  deliveryIdsJson  Json?
   totalDeliveries  Int      @default(0)
   succeeded        Int      @default(0)
   failed           Int      @default(0)
@@ -1487,6 +1495,7 @@ model WorkflowInstance {
   completedAt  DateTime?
   startedBy    String
   context      String   @default("{}") // JSON: 工作流上下文数据
+  contextJson  Json?
 
   definition WorkflowDefinition @relation(fields: [definitionId], references: [id])
   steps      WorkflowInstanceStep[]
@@ -1529,6 +1538,7 @@ model WorkflowAction {
   actorName    String?
   comment      String?
   payload      String   @default("{}") // JSON: 附加数据
+  payloadJson  Json?
   createdAt    DateTime @default(now())
 
   instance     WorkflowInstance     @relation(fields: [instanceId], references: [id], onDelete: Cascade)
@@ -1723,6 +1733,7 @@ model ApiKey {
   keyHash     String   @unique
   keyPrefix   String   // 用于显示的前缀，如 "ak_live_abc..."
   scopes      String   @default("[\"read\"]") // JSON 数组: read, write, admin
+  scopesJson  Json?
   rateLimit   Int      @default(1000) // 每小时请求数
   isActive    Boolean  @default(true)
   lastUsedAt  DateTime?

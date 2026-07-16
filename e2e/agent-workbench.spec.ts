@@ -2,9 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 
 const E2E_PASSWORD = process.env.E2E_PASSWORD;
 if (!E2E_PASSWORD) throw new Error('E2E_PASSWORD is required for seeded E2E tests.');
-const API_ORIGIN = process.env.PLAYWRIGHT_EXTERNAL === 'true'
-  ? ''
-  : (process.env.PLAYWRIGHT_API_ORIGIN ?? 'http://127.0.0.1:3000');
+const API_ORIGIN = process.env.PLAYWRIGHT_API_ORIGIN
+  ?? (process.env.PLAYWRIGHT_EXTERNAL === 'true' ? '' : 'http://127.0.0.1:3000');
 
 const validUser = {
   email: 'zhang@aerolink.com',

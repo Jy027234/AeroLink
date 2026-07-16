@@ -16,6 +16,20 @@ import {
 const router = Router();
 const requireWorkflowManagementRole = requireRole('manager', 'admin');
 
+function projectWorkflowJsonShadows<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => projectWorkflowJsonShadows(entry)) as T;
+  }
+  if (!value || typeof value !== 'object' || value instanceof Date) {
+    return value;
+  }
+
+  const { contextJson: _contextJson, payloadJson: _payloadJson, ...rest } = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(rest).map(([key, entry]) => [key, projectWorkflowJsonShadows(entry)]),
+  ) as T;
+}
+
 // Validation schemas
 const workflowDefinitionCreateSchema = z.object({
   name: z.string().min(1, '名称不能为空'),
@@ -294,7 +308,7 @@ router.get(
 
     res.json({
       success: true,
-      data: instances,
+      data: projectWorkflowJsonShadows(instances),
       pagination: { page: pageNum, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     });
   })
@@ -321,7 +335,7 @@ router.get(
       throw new AppError('工作流实例不存在', 404, 'RESOURCE_NOT_FOUND');
     }
 
-    res.json({ success: true, data: instance });
+    res.json({ success: true, data: projectWorkflowJsonShadows(instance) });
   })
 );
 
@@ -338,7 +352,7 @@ router.post(
       req.user!.id,
       context || {}
     );
-    res.status(201).json({ success: true, data: instance });
+    res.status(201).json({ success: true, data: projectWorkflowJsonShadows(instance) });
   })
 );
 
@@ -350,7 +364,7 @@ router.post(
     const { id } = req.params;
     const { comment, payload } = req.body;
     const instance = await processStep(id, 'APPROVE', req.user!.id, comment, payload);
-    res.json({ success: true, data: instance });
+    res.json({ success: true, data: projectWorkflowJsonShadows(instance) });
   })
 );
 
@@ -362,7 +376,7 @@ router.post(
     const { id } = req.params;
     const { comment, payload } = req.body;
     const instance = await processStep(id, 'REJECT', req.user!.id, comment, payload);
-    res.json({ success: true, data: instance });
+    res.json({ success: true, data: projectWorkflowJsonShadows(instance) });
   })
 );
 
@@ -383,7 +397,7 @@ router.post(
       targetUserId,
       targetRole,
     });
-    res.json({ success: true, data: instance });
+    res.json({ success: true, data: projectWorkflowJsonShadows(instance) });
   })
 );
 
@@ -395,7 +409,7 @@ router.post(
     const { id } = req.params;
     const { reason } = req.body;
     const instance = await cancelWorkflow(id, req.user!.id, reason);
-    res.json({ success: true, data: instance });
+    res.json({ success: true, data: projectWorkflowJsonShadows(instance) });
   })
 );
 
@@ -426,7 +440,7 @@ router.get(
       orderBy: { dueAt: 'asc' },
     });
 
-    res.json({ success: true, data: pendingSteps });
+    res.json({ success: true, data: projectWorkflowJsonShadows(pendingSteps) });
   })
 );
 
@@ -449,7 +463,7 @@ router.get(
       orderBy: { startedAt: 'desc' },
     });
 
-    res.json({ success: true, data: instances });
+    res.json({ success: true, data: projectWorkflowJsonShadows(instances) });
   })
 );
 

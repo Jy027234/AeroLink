@@ -1,7 +1,13 @@
 import crypto from 'crypto';
-import { WebhookDelivery, WebhookEndpoint } from '@prisma/client';
+import { type Prisma, WebhookDelivery, WebhookEndpoint, WebhookSubscription } from '@prisma/client';
 import prisma from './prisma.js';
 import { decrypt, encrypt } from './crypto.js';
+import {
+  buildJsonArrayShadow,
+  buildJsonObjectShadow,
+  preferredJsonArray,
+  preferredJsonObject,
+} from './jsonConfigurationShadows.js';
 import { logger } from './logger.js';
 
 export const SUPPORTED_WEBHOOK_EVENTS = [
@@ -51,21 +57,16 @@ interface EndpointHeaders {
   [key: string]: string;
 }
 
-function tryParseHeaders(headers: string): EndpointHeaders {
-  try {
-    const parsed = JSON.parse(headers) as EndpointHeaders;
-    if (!parsed || typeof parsed !== 'object') {
-      return {};
+function tryParseHeaders(
+  headers: string,
+  headersJson?: Prisma.JsonValue | null,
+): EndpointHeaders {
+  return Object.entries(preferredJsonObject(headersJson, headers)).reduce<EndpointHeaders>((acc, [key, value]) => {
+    if (typeof value === 'string' && key.trim()) {
+      acc[key] = value;
     }
-    return Object.entries(parsed).reduce<EndpointHeaders>((acc, [k, v]) => {
-      if (typeof v === 'string' && k.trim()) {
-        acc[k] = v;
-      }
-      return acc;
-    }, {});
-  } catch {
-    return {};
-  }
+    return acc;
+  }, {});
 }
 
 function scheduleNextRetry(attemptCount: number): Date {
@@ -93,7 +94,7 @@ function serializeEndpoint(endpoint: WebhookEndpoint) {
     url: endpoint.url,
     method: endpoint.method,
     authType: endpoint.authType,
-    customHeaders: tryParseHeaders(endpoint.customHeaders),
+    customHeaders: tryParseHeaders(endpoint.customHeaders, endpoint.customHeadersJson),
     timeoutMs: endpoint.timeoutMs,
     maxRetries: endpoint.maxRetries,
     isActive: endpoint.isActive,
@@ -123,7 +124,7 @@ export async function listWebhookEndpoints() {
     ...serializeEndpoint(endpoint),
     subscriptions: endpoint.subscriptions.map((s) => ({
       id: s.id,
-      eventTypes: JSON.parse(s.eventTypes || '[]'),
+      eventTypes: preferredJsonArray(s.eventTypesJson, s.eventTypes),
       isActive: s.isActive,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
@@ -147,7 +148,7 @@ export async function getWebhookEndpointById(id: string) {
 
   return {
     ...serializeEndpoint(endpoint),
-    subscriptions: endpoint.subscriptions,
+    subscriptions: endpoint.subscriptions.map(projectWebhookSubscription),
   };
 }
 
@@ -163,6 +164,7 @@ export async function createWebhookEndpoint(input: {
   maxRetries?: number;
   isActive?: boolean;
 }) {
+  const customHeaders = buildJsonObjectShadow(input.customHeaders ?? {});
   const endpoint = await prisma.webhookEndpoint.create({
     data: {
       name: input.name,
@@ -171,7 +173,8 @@ export async function createWebhookEndpoint(input: {
       authType: input.authType ?? 'none',
       authToken: input.authToken ? encrypt(input.authToken) : null,
       secret: input.secret ? encrypt(input.secret) : null,
-      customHeaders: JSON.stringify(input.customHeaders ?? {}),
+      customHeaders: customHeaders.legacy,
+      customHeadersJson: customHeaders.shadow,
       timeoutMs: input.timeoutMs ?? 10000,
       maxRetries: input.maxRetries ?? 3,
       isActive: input.isActive ?? true,
@@ -193,6 +196,9 @@ export async function updateWebhookEndpoint(id: string, input: {
   maxRetries?: number;
   isActive?: boolean;
 }) {
+  const customHeaders = input.customHeaders === undefined
+    ? undefined
+    : buildJsonObjectShadow(input.customHeaders);
   const updateData: Record<string, unknown> = {
     ...(input.name !== undefined && { name: input.name }),
     ...(input.url !== undefined && { url: input.url }),
@@ -201,7 +207,10 @@ export async function updateWebhookEndpoint(id: string, input: {
     ...(input.timeoutMs !== undefined && { timeoutMs: input.timeoutMs }),
     ...(input.maxRetries !== undefined && { maxRetries: input.maxRetries }),
     ...(input.isActive !== undefined && { isActive: input.isActive }),
-    ...(input.customHeaders !== undefined && { customHeaders: JSON.stringify(input.customHeaders) }),
+    ...(customHeaders && {
+      customHeaders: customHeaders.legacy,
+      customHeadersJson: customHeaders.shadow,
+    }),
   };
 
   if (input.authToken !== undefined) {
@@ -221,6 +230,8 @@ export async function updateWebhookEndpoint(id: string, input: {
 
 export async function replaceWebhookSubscriptions(endpointId: string, eventTypes: string[]) {
   const uniqueEventTypes = Array.from(new Set(eventTypes.map((e) => e.trim()).filter(Boolean)));
+  const eventTypesJson = buildJsonArrayShadow(uniqueEventTypes);
+  const filtersJson = buildJsonObjectShadow({ logic: 'AND', rules: [] });
 
   await prisma.$transaction(async (tx) => {
     await tx.webhookSubscription.deleteMany({ where: { endpointId } });
@@ -228,7 +239,10 @@ export async function replaceWebhookSubscriptions(endpointId: string, eventTypes
       await tx.webhookSubscription.create({
         data: {
           endpointId,
-          eventTypes: JSON.stringify(uniqueEventTypes),
+          eventTypes: eventTypesJson.legacy,
+          eventTypesJson: eventTypesJson.shadow,
+          filters: filtersJson.legacy,
+          filtersJson: filtersJson.shadow,
           isActive: true,
         },
       });
@@ -263,7 +277,7 @@ async function deliverOnce(delivery: WebhookDelivery & { endpoint: WebhookEndpoi
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...tryParseHeaders(endpoint.customHeaders),
+    ...tryParseHeaders(endpoint.customHeaders, endpoint.customHeadersJson),
   };
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -292,9 +306,11 @@ async function deliverOnce(delivery: WebhookDelivery & { endpoint: WebhookEndpoi
     });
 
     const responseText = await response.text();
+    const requestHeaders = buildJsonObjectShadow(headers);
     const commonData = {
       attemptCount,
-      requestHeaders: JSON.stringify(headers),
+      requestHeaders: requestHeaders.legacy,
+      requestHeadersJson: requestHeaders.shadow,
       responseStatus: response.status,
       responseBody: getBodyPreview(responseText),
       lastError: null,
@@ -340,13 +356,15 @@ async function deliverOnce(delivery: WebhookDelivery & { endpoint: WebhookEndpoi
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     const shouldRetry = attemptCount <= endpoint.maxRetries;
+    const requestHeaders = buildJsonObjectShadow(headers);
 
     await prisma.$transaction([
       prisma.webhookDelivery.update({
         where: { id: delivery.id },
         data: {
           attemptCount,
-          requestHeaders: JSON.stringify(headers),
+          requestHeaders: requestHeaders.legacy,
+          requestHeadersJson: requestHeaders.shadow,
           status: shouldRetry ? 'retrying' : 'failed',
           nextRetryAt: shouldRetry ? scheduleNextRetry(attemptCount) : null,
           deliveredAt: null,
@@ -414,12 +432,8 @@ export async function queueWebhookEvent(
 
   const targets = endpoints.filter((endpoint) =>
     endpoint.subscriptions.some((subscription) => {
-      try {
-        const types = JSON.parse(subscription.eventTypes || '[]') as string[];
-        return Array.isArray(types) && types.includes(eventType);
-      } catch {
-        return false;
-      }
+      const types = preferredJsonArray(subscription.eventTypesJson, subscription.eventTypes);
+      return types.some((type) => type === eventType);
     })
   );
 
@@ -429,12 +443,15 @@ export async function queueWebhookEvent(
 
   const deliveries = await prisma.$transaction(
     targets.map((endpoint) => {
+      const requestHeaders = buildJsonObjectShadow({});
       const data = {
         endpointId: endpoint.id,
         outboxEventId: options.outboxEventId ?? null,
         eventId: envelope.id,
         eventType,
         payload,
+        requestHeaders: requestHeaders.legacy,
+        requestHeadersJson: requestHeaders.shadow,
         status: 'pending',
       };
 
@@ -468,6 +485,16 @@ export async function queueWebhookEvent(
   return { eventId: envelope.id, queued: deliveries.length };
 }
 
+export function projectWebhookSubscription(subscription: WebhookSubscription) {
+  const { eventTypesJson: _eventTypesJson, filtersJson: _filtersJson, ...legacySubscription } = subscription;
+  return legacySubscription;
+}
+
+export function projectWebhookDelivery(delivery: WebhookDelivery) {
+  const { requestHeadersJson: _requestHeadersJson, ...legacyDelivery } = delivery;
+  return legacyDelivery;
+}
+
 /** Legacy convenience API for non-outbox routes. */
 export async function emitWebhookEvent(eventType: string, data: Record<string, unknown>) {
   return queueWebhookEvent(eventType, data, { deliverImmediately: true });
@@ -482,6 +509,7 @@ export async function sendWebhookPing(endpointId: string) {
   const envelope = buildDefaultEnvelope('webhook.ping', {
     message: 'AeroLink webhook test event',
   });
+  const requestHeaders = buildJsonObjectShadow({});
 
   const delivery = await prisma.webhookDelivery.create({
     data: {
@@ -489,6 +517,8 @@ export async function sendWebhookPing(endpointId: string) {
       eventId: envelope.id,
       eventType: envelope.type,
       payload: JSON.stringify(envelope),
+      requestHeaders: requestHeaders.legacy,
+      requestHeadersJson: requestHeaders.shadow,
       status: 'pending',
     },
   });
@@ -513,7 +543,7 @@ export async function listWebhookDeliveries(endpointId: string, page = 1, limit 
   ]);
 
   return {
-    items,
+    items: items.map(projectWebhookDelivery),
     pagination: {
       page: pageNum,
       limit: pageSize,
@@ -529,12 +559,15 @@ export async function retryWebhookDelivery(deliveryId: string) {
     return null;
   }
 
+  const requestHeaders = buildJsonObjectShadow({});
   const cloned = await prisma.webhookDelivery.create({
     data: {
       endpointId: existing.endpointId,
       eventId: existing.eventId,
       eventType: existing.eventType,
       payload: existing.payload,
+      requestHeaders: requestHeaders.legacy,
+      requestHeadersJson: requestHeaders.shadow,
       status: 'pending',
       attemptCount: 0,
       nextRetryAt: null,

@@ -1,5 +1,6 @@
 import prisma from './prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { buildJsonObjectShadow } from './jsonConfigurationShadows.js';
 import { logger } from './logger.js';
 
 export type WorkflowActionType = 'APPROVE' | 'REJECT' | 'TRANSFER' | 'COMMENT' | 'ESCALATE' | 'AUTO_ACTION';
@@ -8,6 +9,14 @@ function generateWorkflowNumber(): string {
   const year = new Date().getFullYear();
   const random = Math.floor(10000 + Math.random() * 90000);
   return `WF-${year}-${random}`;
+}
+
+function workflowActionPayload(value: Record<string, unknown>) {
+  const shadow = buildJsonObjectShadow(value);
+  return {
+    payload: shadow.legacy,
+    payloadJson: shadow.shadow,
+  };
 }
 
 export async function startWorkflow(
@@ -45,6 +54,7 @@ export async function startWorkflow(
 
   const instanceNumber = generateWorkflowNumber();
   const enrichedContext = { ...context, instanceNumber };
+  const contextShadow = buildJsonObjectShadow(enrichedContext);
 
   const instance = await prisma.workflowInstance.create({
     data: {
@@ -53,7 +63,8 @@ export async function startWorkflow(
       entityId,
       status: 'RUNNING',
       startedBy,
-      context: JSON.stringify(enrichedContext),
+      context: contextShadow.legacy,
+      contextJson: contextShadow.shadow,
     },
   });
 
@@ -91,7 +102,7 @@ export async function startWorkflow(
       actionType: 'AUTO_ACTION',
       actorId: startedBy,
       comment: `工作流已启动: ${definition.name}`,
-      payload: JSON.stringify({ instanceNumber }),
+      ...workflowActionPayload({ instanceNumber }),
     },
   });
 
@@ -147,6 +158,7 @@ export async function processStep(
   }
 
   const now = new Date();
+  const actionPayload = workflowActionPayload(payload);
 
   if (action === 'APPROVE') {
     await prisma.workflowInstanceStep.update({
@@ -167,7 +179,7 @@ export async function processStep(
         actorRole: actor?.role || null,
         actorName: actor?.name || null,
         comment: comment || '批准',
-        payload: JSON.stringify(payload),
+        ...actionPayload,
       },
     });
 
@@ -214,7 +226,7 @@ export async function processStep(
         actorRole: actor?.role || null,
         actorName: actor?.name || null,
         comment: comment || '驳回',
-        payload: JSON.stringify(payload),
+        ...actionPayload,
       },
     });
 
@@ -246,7 +258,7 @@ export async function processStep(
         actorRole: actor?.role || null,
         actorName: actor?.name || null,
         comment: comment || `转交给 ${targetUserId || targetRole}`,
-        payload: JSON.stringify(payload),
+        ...actionPayload,
       },
     });
   } else if (action === 'COMMENT') {
@@ -259,7 +271,7 @@ export async function processStep(
         actorRole: actor?.role || null,
         actorName: actor?.name || null,
         comment: comment || '',
-        payload: JSON.stringify(payload),
+        ...actionPayload,
       },
     });
   } else if (action === 'ESCALATE') {
@@ -274,7 +286,7 @@ export async function processStep(
         actorRole: actor?.role || null,
         actorName: actor?.name || null,
         comment: comment || '自动执行',
-        payload: JSON.stringify(payload),
+        ...actionPayload,
       },
     });
   }
@@ -386,7 +398,7 @@ export async function escalateStep(
       actorRole: actor?.role || null,
       actorName: actor?.name || null,
       comment: comment || `升级至 ${nextRole}`,
-      payload: JSON.stringify({ fromRole: currentRole, toRole: nextRole }),
+      ...workflowActionPayload({ fromRole: currentRole, toRole: nextRole }),
     },
   });
 
@@ -408,7 +420,7 @@ export async function autoAction(step: {
       actionType: 'AUTO_ACTION',
       actorId: 'system',
       comment: `自动执行: ${step.step.autoAction}`,
-      payload: JSON.stringify({ autoAction: step.step.autoAction }),
+      ...workflowActionPayload({ autoAction: step.step.autoAction }),
     },
   });
 
@@ -461,7 +473,7 @@ export async function cancelWorkflow(instanceId: string, actorId: string, reason
       actionType: 'AUTO_ACTION',
       actorId,
       comment: reason || '工作流已取消',
-      payload: JSON.stringify({ cancelled: true }),
+      ...workflowActionPayload({ cancelled: true }),
     },
   });
 

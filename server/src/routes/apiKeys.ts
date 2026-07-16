@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth.js';
 import { requirePrivilegedRole } from '../lib/accessControl.js';
 import prisma from '../lib/prisma.js';
 import crypto from 'crypto';
+import { buildJsonArrayShadow, preferredJsonArray } from '../lib/jsonConfigurationShadows.js';
 
 const router = Router();
 
@@ -20,6 +21,18 @@ function generateApiKey(): { fullKey: string; prefix: string; hash: string } {
   return { fullKey, prefix: fullKey.slice(0, 16) + '...', hash };
 }
 
+function normalizeScopes(value: unknown): string[] {
+  const scopes = value === undefined ? ['read'] : value;
+  if (!Array.isArray(scopes) || !scopes.every((scope) => typeof scope === 'string' && scope.trim())) {
+    throw new AppError('scopes 必须是仅含非空字符串的数组', 400, 'BAD_REQUEST');
+  }
+  return Array.from(new Set(scopes.map((scope) => scope.trim())));
+}
+
+function projectScopes(scopesJson: Parameters<typeof preferredJsonArray>[0], scopes: string): string[] {
+  return preferredJsonArray(scopesJson, scopes).filter((scope): scope is string => typeof scope === 'string');
+}
+
 /**
  * GET /api/api-keys - list API keys
  */
@@ -33,6 +46,7 @@ router.get(
         name: true,
         keyPrefix: true,
         scopes: true,
+        scopesJson: true,
         rateLimit: true,
         isActive: true,
         lastUsedAt: true,
@@ -45,9 +59,9 @@ router.get(
 
     res.json({
       success: true,
-      data: keys.map((k) => ({
-        ...k,
-        scopes: JSON.parse(k.scopes || '[]'),
+      data: keys.map(({ scopesJson, ...key }) => ({
+        ...key,
+        scopes: projectScopes(scopesJson, key.scopes),
       })),
     });
   })
@@ -66,13 +80,16 @@ router.post(
     }
 
     const { fullKey, prefix, hash } = generateApiKey();
+    const normalizedScopes = normalizeScopes(scopes);
+    const scopesShadow = buildJsonArrayShadow(normalizedScopes);
 
     const key = await prisma.apiKey.create({
       data: {
         name,
         keyHash: hash,
         keyPrefix: prefix,
-        scopes: JSON.stringify(scopes || ['read']),
+        scopes: scopesShadow.legacy,
+        scopesJson: scopesShadow.shadow,
         rateLimit: rateLimit || 1000,
         expiresAt: expiresAt ? new Date(expiresAt) : null,
         createdBy: req.user!.id,
@@ -86,7 +103,7 @@ router.post(
         name: key.name,
         key: fullKey, // 仅创建时返回一次
         keyPrefix: key.keyPrefix,
-        scopes: scopes || ['read'],
+        scopes: normalizedScopes,
         rateLimit: key.rateLimit,
         isActive: key.isActive,
         expiresAt: key.expiresAt,
@@ -128,11 +145,16 @@ router.put(
     const key = await prisma.apiKey.findUnique({ where: { id } });
     if (!key) throw new AppError('API Key 不存在', 404, 'RESOURCE_NOT_FOUND');
 
+    const normalizedScopes = scopes === undefined ? undefined : normalizeScopes(scopes);
+    const scopesShadow = normalizedScopes === undefined ? undefined : buildJsonArrayShadow(normalizedScopes);
     const updated = await prisma.apiKey.update({
       where: { id },
       data: {
         name: name || key.name,
-        scopes: scopes ? JSON.stringify(scopes) : key.scopes,
+        ...(scopesShadow && {
+          scopes: scopesShadow.legacy,
+          scopesJson: scopesShadow.shadow,
+        }),
         rateLimit: rateLimit || key.rateLimit,
         isActive: isActive !== undefined ? isActive : key.isActive,
         expiresAt: expiresAt ? new Date(expiresAt) : key.expiresAt,
@@ -142,10 +164,13 @@ router.put(
 
     res.json({
       success: true,
-      data: {
-        ...updated,
-        scopes: JSON.parse(updated.scopes || '[]'),
-      },
+      data: (() => {
+        const { scopesJson, ...legacyKey } = updated;
+        return {
+          ...legacyKey,
+          scopes: projectScopes(scopesJson, legacyKey.scopes),
+        };
+      })(),
     });
   })
 );

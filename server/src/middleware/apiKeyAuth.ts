@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AppError } from './errorHandler.js';
 import prisma from '../lib/prisma.js';
 import crypto from 'crypto';
+import { preferredJsonArray } from '../lib/jsonConfigurationShadows.js';
 
 // 简单的内存限流存储（生产环境应使用 Redis）
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
@@ -56,7 +57,8 @@ export async function apiKeyAuth(req: Request, _res: Response, next: NextFunctio
     (req as any).apiKey = {
       id: key.id,
       name: key.name,
-      scopes: JSON.parse(key.scopes || '[]'),
+      scopes: preferredJsonArray(key.scopesJson, key.scopes)
+        .filter((scope): scope is string => typeof scope === 'string'),
       rateLimit: key.rateLimit,
     };
 

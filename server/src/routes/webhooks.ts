@@ -13,6 +13,8 @@ import {
   getWebhookEndpointById,
   listWebhookDeliveries,
   listWebhookEndpoints,
+  projectWebhookDelivery,
+  projectWebhookSubscription,
   replaceWebhookSubscriptions,
   retryWebhookDelivery,
   sendWebhookPing,
@@ -116,7 +118,7 @@ router.get(
       orderBy: { createdAt: 'asc' },
     });
 
-    res.json({ success: true, data: subscriptions });
+    res.json({ success: true, data: subscriptions.map(projectWebhookSubscription) });
   })
 );
 
@@ -131,7 +133,7 @@ router.put(
     }
 
     const subscriptions = await replaceWebhookSubscriptions(req.params.id, req.body.eventTypes);
-    res.json({ success: true, data: subscriptions });
+    res.json({ success: true, data: subscriptions.map(projectWebhookSubscription) });
   })
 );
 
@@ -144,7 +146,7 @@ router.post(
       throw new AppError('Webhook端点不存在', 404, 'RESOURCE_NOT_FOUND');
     }
     const delivery = await prisma.webhookDelivery.findUnique({ where: { id: deliveryId } });
-    res.json({ success: true, data: delivery });
+    res.json({ success: true, data: delivery ? projectWebhookDelivery(delivery) : null });
   })
 );
 
@@ -175,7 +177,7 @@ router.post(
     }
 
     const delivery = await prisma.webhookDelivery.findUnique({ where: { id: deliveryId } });
-    res.json({ success: true, data: delivery });
+    res.json({ success: true, data: delivery ? projectWebhookDelivery(delivery) : null });
   })
 );
 

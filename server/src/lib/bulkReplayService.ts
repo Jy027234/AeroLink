@@ -1,5 +1,6 @@
 ﻿import prisma from './prisma.js';
 import { emitWebhookEvent } from './webhookService.js';
+import { buildJsonArrayShadow, buildJsonObjectShadow } from './jsonConfigurationShadows.js';
 
 export interface ReplayQuery {
 	startDate?: Date;
@@ -103,12 +104,16 @@ export class BulkReplayService {
 		}
 	): Promise<{ batchId: string }> {
 		const { concurrency = 3, overridePayload, triggeredBy = 'MANUAL' } = options ?? {};
+		const filterQuery = buildJsonObjectShadow({ source: 'manual_replay' });
+		const replayDeliveryIds = buildJsonArrayShadow(deliveryIds);
 
 		const batch = await prisma.webhookReplayBatch.create({
 			data: {
 				triggeredBy,
-				filterQuery: JSON.stringify({ source: 'manual_replay' }),
-				deliveryIds: JSON.stringify(deliveryIds),
+				filterQuery: filterQuery.legacy,
+				filterQueryJson: filterQuery.shadow,
+				deliveryIds: replayDeliveryIds.legacy,
+				deliveryIdsJson: replayDeliveryIds.shadow,
 				totalDeliveries: deliveryIds.length,
 				pending: deliveryIds.length,
 				status: 'IN_PROGRESS',
