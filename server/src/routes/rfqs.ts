@@ -9,6 +9,11 @@ import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import { isRfqStatusTransitionAllowed, normalizeRfqStatus, toUiRfqStatus } from '../lib/rfqStateMachine.js';
 import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
 import { createInitialStatusHistory, transitionRfqStatus } from '../lib/transactionStateService.js';
+import {
+  preferredQuotationStatus,
+  preferredRfqStatus,
+  toRfqStatusEnum,
+} from '../lib/transactionStatusShadows.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -50,7 +55,7 @@ function toRfqResponse(rfq: Awaited<ReturnType<typeof prisma.rFQ.findUnique>> & 
     leadTimeDays: rfq.leadTimeDays,
     urgency: rfq.urgency.toLowerCase(),
     urgencyJustification: rfq.urgencyJustification,
-    status: toUiRfqStatus(rfq.status),
+    status: toUiRfqStatus(preferredRfqStatus(rfq.statusEnum, rfq.status)),
     version: rfq.version,
     notes: rfq.notes,
     createdAt: rfq.createdAt.toISOString(),
@@ -208,7 +213,7 @@ router.get(
         quotations: rfq.quotations.map((q) => ({
           id: q.id,
           quoteNumber: q.quoteNumber,
-          status: q.status.toLowerCase(),
+          status: preferredQuotationStatus(q.statusEnum, q.status).toLowerCase(),
         })),
       },
     });
@@ -275,6 +280,7 @@ router.post(
             urgency: urgency?.toUpperCase() || 'STANDARD',
             urgencyJustification,
             status: 'PENDING',
+            statusEnum: toRfqStatusEnum('PENDING')!,
             notes,
             emailId,
             createdBy: userId,
@@ -429,12 +435,14 @@ router.patch(
           throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
         }
 
-        const currentStatus = normalizeRfqStatus(current.status);
-        if (!currentStatus || !isRfqStatusTransitionAllowed(current.status, nextStatus)) {
-          throw new AppError(`RFQ 不允许从 ${toUiRfqStatus(current.status)} 变更为 ${toUiRfqStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
+        const effectiveCurrentStatus = preferredRfqStatus(current.statusEnum, current.status);
+        const currentStatus = normalizeRfqStatus(effectiveCurrentStatus);
+        const normalizedNextStatus = toRfqStatusEnum(nextStatus);
+        if (!currentStatus || !normalizedNextStatus || !isRfqStatusTransitionAllowed(effectiveCurrentStatus, normalizedNextStatus)) {
+          throw new AppError(`RFQ 不允许从 ${toUiRfqStatus(effectiveCurrentStatus)} 变更为 ${toUiRfqStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
         }
 
-        const isNoop = current.status === nextStatus;
+        const isNoop = currentStatus === normalizedNextStatus;
         const rfq = isNoop
           ? await tx.rFQ.findUnique({
             where: { id: req.params.id },
@@ -450,7 +458,7 @@ router.patch(
               id: current.id,
               currentStatus: current.status,
               currentVersion: current.version,
-              nextStatus,
+              nextStatus: normalizedNextStatus,
               expectedVersion: req.body.version,
               actorId: userId,
               reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
@@ -480,8 +488,8 @@ router.patch(
             data: {
               rfqId: rfq.id,
               rfqNumber: rfq.rfqNumber,
-              oldStatus: current.status,
-              newStatus: rfq.status,
+              oldStatus: effectiveCurrentStatus,
+              newStatus: preferredRfqStatus(rfq.statusEnum, rfq.status),
               changedBy: userId,
               changedAt: new Date().toISOString(),
             },

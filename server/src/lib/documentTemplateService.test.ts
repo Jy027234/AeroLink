@@ -121,6 +121,7 @@ describe('documentTemplateService', () => {
         totalAmount: 3600,
         totalAmountDecimal: null,
         status: 'SO_CREATED',
+        statusEnum: null,
         version: 1,
         createdAt: new Date('2026-05-12T08:00:00Z'),
         deliveryDate: new Date('2026-06-01T00:00:00Z'),

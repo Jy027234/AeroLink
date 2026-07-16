@@ -46,6 +46,7 @@ describe('transaction state service', () => {
       where: { id: 'rfq-1', status: 'PENDING', version: 1 },
       data: {
         status: 'SOURCING',
+        statusEnum: 'SOURCING',
         version: { increment: 1 },
       },
     });
@@ -104,6 +105,7 @@ describe('transaction state service', () => {
       where: { id: 'quotation-1', status: 'PENDING_APPROVAL', version: 3 },
       data: expect.objectContaining({
         status: 'APPROVED',
+        statusEnum: 'APPROVED',
         version: { increment: 1 },
         approvedBy: 'manager-1',
       }),
@@ -136,6 +138,9 @@ describe('transaction state service', () => {
       statusCode: 409,
     });
 
+    expect(tx.order.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'PO_CREATED', statusEnum: 'PO_CREATED' }),
+    }));
     expect(tx.transactionStatusHistory.create).not.toHaveBeenCalled();
   });
 

@@ -1,8 +1,13 @@
 import { Router } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, type RfqStatusEnum, type SupplierQuoteStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { validateBody } from '../middleware/validate.js';
 import { calculateMoneyTotal, normalizeMoney, preferredMoneyValue } from '../lib/money.js';
+import {
+  preferredRfqStatus,
+  preferredSupplierQuoteStatus,
+  toSupplierQuoteStatusEnum,
+} from '../lib/transactionStatusShadows.js';
 import { supplierQuoteCreateSchema, supplierQuoteUpdateSchema } from '../lib/validation.js';
 import prisma from '../lib/prisma.js';
 
@@ -15,6 +20,32 @@ type SupplierQuoteMoneySource = {
   totalPriceDecimal: Prisma.Decimal | null;
 };
 
+type SupplierQuoteStatusShadow = {
+  status: string;
+  statusEnum?: SupplierQuoteStatusEnum | null;
+};
+
+type RfqStatusShadow = {
+  status: string;
+  statusEnum?: RfqStatusEnum | null;
+};
+
+function supplierQuoteStatus(quote: SupplierQuoteStatusShadow) {
+  return preferredSupplierQuoteStatus(quote.statusEnum, quote.status);
+}
+
+function projectRfqStatus<T extends RfqStatusShadow>(rfq: T | null) {
+  if (!rfq) {
+    return rfq;
+  }
+
+  const { status, statusEnum, ...rest } = rfq;
+  return {
+    ...rest,
+    status: preferredRfqStatus(statusEnum, status),
+  };
+}
+
 function supplierQuoteUnitPrice(quote: Pick<SupplierQuoteMoneySource, 'unitPrice' | 'unitPriceDecimal'>) {
   return preferredMoneyValue(quote.unitPriceDecimal, quote.unitPrice) ?? 0;
 }
@@ -23,10 +54,11 @@ function supplierQuoteTotalPrice(quote: Pick<SupplierQuoteMoneySource, 'totalPri
   return preferredMoneyValue(quote.totalPriceDecimal, quote.totalPrice) ?? 0;
 }
 
-function projectSupplierQuoteMoney<T extends SupplierQuoteMoneySource>(quote: T) {
-  const { unitPriceDecimal, totalPriceDecimal, unitPrice, totalPrice, ...rest } = quote;
+function projectSupplierQuoteMoney<T extends SupplierQuoteMoneySource & SupplierQuoteStatusShadow>(quote: T) {
+  const { unitPriceDecimal, totalPriceDecimal, unitPrice, totalPrice, status, statusEnum, ...rest } = quote;
   return {
     ...rest,
+    status: supplierQuoteStatus({ status, statusEnum }),
     unitPrice: preferredMoneyValue(unitPriceDecimal, unitPrice) ?? 0,
     totalPrice: preferredMoneyValue(totalPriceDecimal, totalPrice) ?? 0,
   };
@@ -86,7 +118,7 @@ router.get(
         leadTimeDays: q.leadTimeDays,
         validUntil: q.validUntil?.toISOString() || null,
         notes: q.notes,
-        status: q.status,
+        status: supplierQuoteStatus(q),
         isWinner: q.isWinner,
         aiScore: q.aiScore,
         aiRecommendation: q.aiRecommendation,
@@ -128,7 +160,10 @@ router.get(
 
     res.json({
       success: true,
-      data: projectSupplierQuoteMoney(quote),
+      data: {
+        ...projectSupplierQuoteMoney(quote),
+        rfq: projectRfqStatus(quote.rfq),
+      },
     });
   })
 );
@@ -168,6 +203,7 @@ router.post(
         validUntil: validUntil ? new Date(validUntil) : null,
         notes,
         status: 'pending',
+        statusEnum: toSupplierQuoteStatusEnum('pending')!,
       },
     });
 
@@ -208,7 +244,14 @@ router.put(
     if (leadTimeDays !== undefined) updateData.leadTimeDays = leadTimeDays;
     if (validUntil !== undefined) updateData.validUntil = new Date(validUntil);
     if (notes !== undefined) updateData.notes = notes;
-    if (status !== undefined) updateData.status = status;
+    if (status !== undefined) {
+      const statusEnum = toSupplierQuoteStatusEnum(status);
+      if (!statusEnum) {
+        throw new AppError('供应商报价状态无效', 400, 'BAD_REQUEST');
+      }
+      updateData.status = statusEnum;
+      updateData.statusEnum = statusEnum;
+    }
     if (isWinner !== undefined) updateData.isWinner = isWinner;
 
     if (unitPriceDecimal && existing.quantity) {
@@ -335,7 +378,7 @@ router.post(
         },
         aiScore: Math.round(aiScore * 100) / 100,
         aiRecommendation: recommendation,
-        status: quote.status,
+        status: supplierQuoteStatus(quote),
         isWinner: quote.isWinner,
       };
     });
@@ -398,6 +441,7 @@ router.post(
       data: {
         isWinner: true,
         status: 'accepted',
+        statusEnum: toSupplierQuoteStatusEnum('accepted')!,
       },
     });
 

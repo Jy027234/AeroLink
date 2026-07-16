@@ -23,7 +23,7 @@ export const ORDER_ALLOWED_TRANSITIONS: Record<OrderStatus, readonly OrderStatus
 };
 
 export function normalizeOrderStatus(status: string): string {
-  return status.trim().toUpperCase().replace(/-/g, '_');
+  return status.trim().toUpperCase().replace(/[-\s]+/g, '_');
 }
 
 export function isOrderStatusTransitionAllowed(currentStatus: string, nextStatus: string): boolean {

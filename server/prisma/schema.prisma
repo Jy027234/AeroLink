@@ -7,6 +7,48 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// P1-04 status shadows. The legacy String status columns remain available
+// during the compatibility window while new writes also persist these stable
+// PostgreSQL enum values.
+enum RfqStatusEnum {
+  PENDING
+  SOURCING
+  QUOTING
+  APPROVING
+  ORDERED
+  COMPLETED
+  CANCELLED
+}
+
+enum QuotationStatusEnum {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SENT
+  ACCEPTED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum OrderStatusEnum {
+  SO_CREATED
+  PO_CREATED
+  SHIPPED
+  IN_TRANSIT
+  CUSTOMS
+  INSPECTION
+  DELIVERED
+  COMPLETED
+}
+
+enum SupplierQuoteStatusEnum {
+  pending
+  accepted
+  rejected
+  expired
+}
+
 model User {
   id          String    @id @default(uuid())
   email       String    @unique
@@ -472,6 +514,7 @@ model RFQ {
   urgency           String   @default("STANDARD")
   urgencyJustification String?
   status            String   @default("PENDING")
+  statusEnum        RfqStatusEnum?
   version           Int      @default(1)
   notes             String?
   createdAt         DateTime @default(now())
@@ -533,6 +576,7 @@ model SupplierQuote {
   validUntil   DateTime?
   notes        String?
   status       String    @default("pending")
+  statusEnum   SupplierQuoteStatusEnum?
   isWinner     Boolean   @default(false)
   aiScore     Float?
   aiRecommendation String?
@@ -625,6 +669,7 @@ model Quotation {
   certificateFiles String?
   template        String   @default("STANDARD")
   status          String   @default("DRAFT")
+  statusEnum      QuotationStatusEnum?
   version         Int      @default(1)
 
   // 审批与流程
@@ -699,6 +744,7 @@ model Order {
   // P1-04 monetary shadow. The legacy Float remains until the read cutover.
   totalAmountDecimal Decimal? @db.Decimal(18, 4)
   status          String   @default("SO_CREATED")
+  statusEnum      OrderStatusEnum?
   version         Int      @default(1)
   createdAt       DateTime @default(now())
   deliveryDate    DateTime?

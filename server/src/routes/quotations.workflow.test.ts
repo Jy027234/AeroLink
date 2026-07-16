@@ -258,6 +258,8 @@ describe('Quotation workflow routes', () => {
     });
 
     const createData = prismaMock.__tx.quotation.create.mock.calls[0][0].data;
+    expect(createData.status).toBe('DRAFT');
+    expect(createData.statusEnum).toBe('DRAFT');
     expect(createData.unitPrice).toBeCloseTo(12.3457, 10);
     expect(String(createData.unitPriceDecimal)).toBe('12.3457');
     expect(createData.totalPrice).toBeCloseTo(37.0371, 10);

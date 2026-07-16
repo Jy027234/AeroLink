@@ -469,6 +469,7 @@ model RFQ {
   urgency           String   @default("STANDARD")
   urgencyJustification String?
   status            String   @default("PENDING")
+  statusEnum        String?
   version           Int      @default(1)
   notes             String?
   createdAt         DateTime @default(now())
@@ -528,6 +529,7 @@ model SupplierQuote {
   validUntil   DateTime?
   notes        String?
   status       String    @default("pending")
+  statusEnum   String?
   isWinner     Boolean   @default(false)
   aiScore     Float?
   aiRecommendation String?
@@ -618,6 +620,7 @@ model Quotation {
   certificateFiles String?
   template        String   @default("STANDARD")
   status          String   @default("DRAFT")
+  statusEnum      String?
   version         Int      @default(1)
 
   // 审批与流程
@@ -691,6 +694,7 @@ model Order {
   totalAmount     Float
   totalAmountDecimal Decimal?
   status          String   @default("SO_CREATED")
+  statusEnum      String?
   version         Int      @default(1)
   createdAt       DateTime @default(now())
   deliveryDate    DateTime?

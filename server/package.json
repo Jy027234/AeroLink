@@ -17,6 +17,7 @@
     "db:check-active-admin": "node --import tsx src/scripts/checkActiveAdmin.ts",
     "db:check:inventory-reconciliation": "node --import tsx src/scripts/checkInventoryReconciliation.ts",
     "db:check:money-reconciliation": "node --import tsx src/scripts/checkMoneyReconciliation.ts",
+    "db:check:transaction-status-reconciliation": "node --import tsx src/scripts/checkTransactionStatusReconciliation.ts",
     "db:rotate-encryption-key": "node --import tsx src/scripts/rotateEncryptionKey.ts",
     "db:seed": "node --import tsx src/seed.ts",
     "db:bootstrap-admin": "node --import tsx src/scripts/bootstrapAdmin.ts",

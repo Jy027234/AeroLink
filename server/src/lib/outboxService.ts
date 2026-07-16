@@ -8,6 +8,7 @@ import prisma from './prisma.js';
 import { isQuotationTransitionAllowed } from './quotationStateMachine.js';
 import { emitToRoom } from './socketEvents.js';
 import { transitionQuotationStatus } from './transactionStateService.js';
+import { preferredQuotationStatus } from './transactionStatusShadows.js';
 import { queueWebhookEvent } from './webhookService.js';
 import { logger } from './logger.js';
 
@@ -262,7 +263,10 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
   if (!email.account || !email.account.isActive) {
     throw new Error('Outbound email account is unavailable');
   }
-  if (email.purpose === 'QUOTATION_SEND' && (!email.quotation || email.quotation.status === 'WITHDRAWN')) {
+  if (
+    email.purpose === 'QUOTATION_SEND'
+    && (!email.quotation || preferredQuotationStatus(email.quotation.statusEnum, email.quotation.status) === 'WITHDRAWN')
+  ) {
     throw new CancelledOutboxEventError('Quotation was withdrawn before email delivery');
   }
 
@@ -298,10 +302,13 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
     }
 
     const currentQuotation = await tx.quotation.findUnique({ where: { id: email.quotationId } });
-    if (!currentQuotation || currentQuotation.status === 'WITHDRAWN' || currentQuotation.status === 'SENT') {
+    const currentQuotationStatus = currentQuotation
+      ? preferredQuotationStatus(currentQuotation.statusEnum, currentQuotation.status)
+      : null;
+    if (!currentQuotation || currentQuotationStatus === 'WITHDRAWN' || currentQuotationStatus === 'SENT') {
       return;
     }
-    if (!isQuotationTransitionAllowed(currentQuotation.status, 'SENT')) {
+    if (!isQuotationTransitionAllowed(currentQuotationStatus, 'SENT')) {
       throw new Error(`Quotation ${currentQuotation.id} cannot transition to SENT after email delivery`);
     }
 
@@ -323,7 +330,7 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
       data: {
         quotationId: updatedQuotation.id,
         quoteNumber: updatedQuotation.quoteNumber,
-        status: updatedQuotation.status,
+        status: preferredQuotationStatus(updatedQuotation.statusEnum, updatedQuotation.status),
         sentAt: updatedQuotation.sentAt?.toISOString(),
         outboundEmailId: email.id,
         toEmail: email.toEmail,

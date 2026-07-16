@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { Prisma, type Quotation } from '@prisma/client';
+import { Prisma, type OrderStatusEnum, type Quotation, type QuotationStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
@@ -16,6 +16,7 @@ import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
 import { isOrderStatusTransitionAllowed, normalizeOrderStatus, toUiOrderStatus } from '../lib/orderStateMachine.js';
 import { isQuotationTransitionAllowed, normalizeQuotationStatus } from '../lib/quotationStateMachine.js';
 import { transitionOrderStatus, transitionQuotationStatus } from '../lib/transactionStateService.js';
+import { preferredOrderStatus, preferredQuotationStatus } from '../lib/transactionStatusShadows.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -37,6 +38,8 @@ type OrderMoneySource = {
   totalLandCostDecimal: Prisma.Decimal | null;
   exchangeCoreCharge: number | null;
   exchangeCoreChargeDecimal: Prisma.Decimal | null;
+  status: string;
+  statusEnum?: OrderStatusEnum | null;
 };
 
 type RelatedQuotationMoneySource = {
@@ -46,7 +49,17 @@ type RelatedQuotationMoneySource = {
   totalPriceDecimal: Prisma.Decimal | null;
   costPrice: number;
   costPriceDecimal: Prisma.Decimal | null;
+  status: string;
+  statusEnum?: QuotationStatusEnum | null;
 };
+
+function orderStatus(order: Pick<OrderMoneySource, 'status' | 'statusEnum'>) {
+  return preferredOrderStatus(order.statusEnum, order.status);
+}
+
+function quotationStatus(quotation: Pick<RelatedQuotationMoneySource, 'status' | 'statusEnum'>) {
+  return preferredQuotationStatus(quotation.statusEnum, quotation.status);
+}
 
 function orderTotalAmount(order: Pick<OrderMoneySource, 'totalAmount' | 'totalAmountDecimal'>) {
   return preferredMoneyValue(order.totalAmountDecimal, order.totalAmount) ?? 0;
@@ -64,11 +77,14 @@ function projectOrderMoney<T extends OrderMoneySource>(order: T) {
     vatAmount,
     totalLandCost,
     exchangeCoreCharge,
+    status,
+    statusEnum,
     ...rest
   } = order;
 
   return {
     ...rest,
+    status: orderStatus({ status, statusEnum }),
     totalAmount: preferredMoneyValue(totalAmountDecimal, totalAmount) ?? 0,
     importDuty: preferredMoneyValue(importDutyDecimal, importDuty),
     vatAmount: preferredMoneyValue(vatAmountDecimal, vatAmount),
@@ -89,11 +105,14 @@ function projectRelatedQuotationMoney<T extends RelatedQuotationMoneySource>(quo
     unitPrice,
     totalPrice,
     costPrice,
+    status,
+    statusEnum,
     ...rest
   } = quotation;
 
   return {
     ...rest,
+    status: quotationStatus({ status, statusEnum }),
     unitPrice: preferredMoneyValue(unitPriceDecimal, unitPrice) ?? 0,
     totalPrice: preferredMoneyValue(totalPriceDecimal, totalPrice) ?? 0,
     costPrice: preferredMoneyValue(costPriceDecimal, costPrice) ?? 0,
@@ -215,7 +234,7 @@ router.get(
         partNumber: o.partNumber,
         quantity: o.quantity,
         totalAmount: orderTotalAmount(o),
-        status: o.status.toLowerCase(),
+        status: orderStatus(o).toLowerCase(),
         version: o.version,
         createdAt: o.createdAt.toISOString(),
         deliveryDate: o.deliveryDate?.toISOString(),
@@ -315,7 +334,7 @@ router.get(
       success: true,
       data: {
         ...projectedOrder,
-        status: order.status.toLowerCase(),
+        status: orderStatus(order).toLowerCase(),
         contractDocumentId: order.generatedDocuments[0]?.id,
         contractDocumentTitle: order.generatedDocuments[0]?.title,
       },
@@ -371,11 +390,13 @@ router.post(
             order = existingOrder;
             updatedQuotation = quotation;
           } else {
-            const quotationStatus = normalizeQuotationStatus(quotation.status);
+            const quotationStatus = normalizeQuotationStatus(
+              preferredQuotationStatus(quotation.statusEnum, quotation.status),
+            );
             if (!quotationStatus || !['APPROVED', 'SENT', 'ACCEPTED'].includes(quotationStatus)) {
               throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
             }
-            if (quotationStatus !== 'ACCEPTED' && !isQuotationTransitionAllowed(quotation.status, 'ACCEPTED')) {
+            if (quotationStatus !== 'ACCEPTED' && !isQuotationTransitionAllowed(quotationStatus, 'ACCEPTED')) {
               throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
             }
 
@@ -450,7 +471,7 @@ router.post(
                 quotationId: order.quotationId,
                 customerId: order.customerId,
                 customerName: order.customer.name,
-                status: order.status,
+                status: orderStatus(order),
                 totalAmount: orderTotalAmount(order),
                 createdAt: order.createdAt.toISOString(),
               },
@@ -548,12 +569,12 @@ router.patch(
           throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
 
-        const currentStatus = normalizeOrderStatus(existing.status);
+        const currentStatus = normalizeOrderStatus(orderStatus(existing));
         if (!isOrderStatusTransitionAllowed(currentStatus, nextStatus)) {
           throw new AppError(`订单不允许从 ${toUiOrderStatus(currentStatus)} 变更为 ${toUiOrderStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
         }
 
-        const order = existing.status === nextStatus
+        const order = currentStatus === normalizeOrderStatus(nextStatus)
           ? existing
           : await transitionOrderStatus(tx, {
             id: existing.id,
@@ -566,7 +587,7 @@ router.patch(
             reason: req.body.reason,
           });
 
-        if (existing.status !== order.status) {
+        if (currentStatus !== orderStatus(order)) {
           await enqueueBusinessEvent(tx, {
             eventType: 'order.status.changed',
             aggregateType: 'ORDER',
@@ -574,8 +595,8 @@ router.patch(
             data: {
               orderId: order.id,
               orderNumber: order.orderNumber,
-              oldStatus: existing.status,
-              newStatus: order.status,
+              oldStatus: currentStatus,
+              newStatus: orderStatus(order),
               changedAt: new Date().toISOString(),
             },
             socket: {
@@ -589,7 +610,7 @@ router.patch(
         return {
           payload: {
             ...projectOrderMoney(order),
-            status: order.status.toLowerCase(),
+            status: orderStatus(order).toLowerCase(),
           },
           resourceType: 'ORDER',
           resourceId: order.id,
@@ -688,7 +709,7 @@ router.patch(
         return {
           payload: {
             ...projectOrderWithQuotation(order),
-            status: order.status.toLowerCase(),
+            status: orderStatus(order).toLowerCase(),
             contractDocumentId: order.generatedDocuments[0]?.id,
             contractDocumentTitle: order.generatedDocuments[0]?.title,
           },
@@ -743,7 +764,7 @@ router.get(
       partNumber: order.partNumber,
       quantity: order.quantity,
       totalAmount: orderTotalAmount(order),
-      status: order.status,
+      status: orderStatus(order),
       poNumber: order.poNumber || undefined,
       deliveryDate: order.deliveryDate?.toISOString().split('T')[0],
       trackingNumber: order.trackingNumber || undefined,

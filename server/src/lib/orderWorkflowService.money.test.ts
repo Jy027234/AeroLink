@@ -49,6 +49,8 @@ describe('order workflow monetary shadows', () => {
     });
 
     const createData = orderCreate.mock.calls[0][0].data;
+    expect(createData.status).toBe('SO_CREATED');
+    expect(createData.statusEnum).toBe('SO_CREATED');
     expect(createData.totalAmount).toBeCloseTo(37.0371, 10);
     expect(String(createData.totalAmountDecimal)).toBe('37.0371');
     expect(createData.importDuty).toBeCloseTo(12.3457, 10);

@@ -1,6 +1,7 @@
 import type { Customer, Order, Prisma, Quotation } from '@prisma/client';
 import { normalizeMoney, normalizeOptionalMoney, preferredMoneyValue } from './money.js';
 import { createInitialStatusHistory } from './transactionStateService.js';
+import { preferredOrderStatus, toOrderStatusEnum } from './transactionStatusShadows.js';
 
 export function buildSalesOrderNumber() {
   return `SO-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
@@ -65,6 +66,7 @@ export async function createOrderFromQuotation(args: {
       serialNumber: args.quotation.serialNumber,
       batchNumber: args.quotation.batchNumber,
       status: 'SO_CREATED',
+      statusEnum: toOrderStatusEnum('SO_CREATED')!,
       poNumber: args.poNumber,
       deliveryDate: args.deliveryDate ? new Date(args.deliveryDate) : null,
       // P2 新增字段
@@ -128,7 +130,7 @@ export function mapOrderResponse(order: Order & { customer: Customer }) {
     partNumber: order.partNumber,
     quantity: order.quantity,
     totalAmount: preferredMoneyValue(order.totalAmountDecimal, order.totalAmount) ?? 0,
-    status: order.status.toLowerCase(),
+    status: preferredOrderStatus(order.statusEnum, order.status).toLowerCase(),
     version: order.version,
     createdAt: order.createdAt.toISOString(),
     deliveryDate: order.deliveryDate?.toISOString(),

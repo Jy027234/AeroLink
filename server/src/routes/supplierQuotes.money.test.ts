@@ -30,6 +30,7 @@ describe('supplier quote monetary shadows', () => {
       create: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
     };
   };
 
@@ -40,6 +41,7 @@ describe('supplier quote monetary shadows', () => {
         create: vi.fn(),
         findUnique: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
       },
     };
     vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
@@ -73,6 +75,8 @@ describe('supplier quote monetary shadows', () => {
     expect(response.body.data).not.toHaveProperty('totalPriceDecimal');
 
     const createData = prismaMock.supplierQuote.create.mock.calls[0][0].data;
+    expect(createData.status).toBe('pending');
+    expect(createData.statusEnum).toBe('pending');
     expect(createData.unitPrice).toBeCloseTo(12.3457, 10);
     expect(String(createData.unitPriceDecimal)).toBe('12.3457');
     expect(createData.totalPrice).toBeCloseTo(37.0371, 10);
@@ -86,22 +90,47 @@ describe('supplier quote monetary shadows', () => {
       unitPriceDecimal: new Prisma.Decimal('10.1112'),
       totalPrice: 30.3336,
       totalPriceDecimal: new Prisma.Decimal('30.3336'),
+      status: 'accepted',
+      statusEnum: 'accepted',
     }));
 
     const response = await request(app)
       .put('/api/supplier-quotes/supplier-quote-001')
-      .send({ unitPrice: 10.11115 });
+      .send({ unitPrice: 10.11115, status: 'accepted' });
 
     expect(response.status).toBe(200);
     expect(response.body.data).toMatchObject({
       unitPrice: 10.1112,
       totalPrice: 30.3336,
+      status: 'accepted',
     });
 
     const updateData = prismaMock.supplierQuote.update.mock.calls[0][0].data;
+    expect(updateData.status).toBe('accepted');
+    expect(updateData.statusEnum).toBe('accepted');
     expect(updateData.unitPrice).toBeCloseTo(10.1112, 10);
     expect(String(updateData.unitPriceDecimal)).toBe('10.1112');
     expect(updateData.totalPrice).toBeCloseTo(30.3336, 10);
     expect(String(updateData.totalPriceDecimal)).toBe('30.3336');
+  });
+
+  it('dual-writes the accepted enum when selecting a winner', async () => {
+    prismaMock.supplierQuote.findUnique.mockResolvedValue(createSupplierQuote());
+    prismaMock.supplierQuote.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.supplierQuote.update.mockResolvedValue(createSupplierQuote({
+      status: 'accepted',
+      statusEnum: 'accepted',
+      isWinner: true,
+    }));
+
+    const response = await request(app)
+      .post('/api/supplier-quotes/supplier-quote-001/select-winner');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({ status: 'accepted', isWinner: true });
+    expect(response.body.data).not.toHaveProperty('statusEnum');
+    expect(prismaMock.supplierQuote.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: { isWinner: true, status: 'accepted', statusEnum: 'accepted' },
+    }));
   });
 });

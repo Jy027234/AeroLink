@@ -1,5 +1,10 @@
 import type { Prisma } from '@prisma/client';
 import { AppError } from '../middleware/errorHandler.js';
+import {
+  toOrderStatusEnum,
+  toQuotationStatusEnum,
+  toRfqStatusEnum,
+} from './transactionStatusShadows.js';
 
 export const TRANSACTION_STATUS_ENTITY_TYPES = ['RFQ', 'QUOTATION', 'ORDER'] as const;
 export type TransactionStatusEntityType = (typeof TRANSACTION_STATUS_ENTITY_TYPES)[number];
@@ -21,7 +26,7 @@ type RfqTransition = TransitionMetadata & {
   currentStatus: string;
   currentVersion: number;
   nextStatus: string;
-  data?: Omit<Prisma.RFQUpdateManyMutationInput, 'status' | 'version'>;
+  data?: Omit<Prisma.RFQUpdateManyMutationInput, 'status' | 'statusEnum' | 'version'>;
 };
 
 type QuotationTransition = TransitionMetadata & {
@@ -29,7 +34,7 @@ type QuotationTransition = TransitionMetadata & {
   currentStatus: string;
   currentVersion: number;
   nextStatus: string;
-  data?: Omit<Prisma.QuotationUncheckedUpdateManyInput, 'status' | 'version'>;
+  data?: Omit<Prisma.QuotationUncheckedUpdateManyInput, 'status' | 'statusEnum' | 'version'>;
 };
 
 type OrderTransition = TransitionMetadata & {
@@ -37,7 +42,7 @@ type OrderTransition = TransitionMetadata & {
   currentStatus: string;
   currentVersion: number;
   nextStatus: string;
-  data?: Omit<Prisma.OrderUpdateManyMutationInput, 'status' | 'version'>;
+  data?: Omit<Prisma.OrderUpdateManyMutationInput, 'status' | 'statusEnum' | 'version'>;
 };
 
 type InitialStatusHistory = {
@@ -89,6 +94,10 @@ export async function createInitialStatusHistory(
 
 export async function transitionRfqStatus(tx: StateTransactionClient, transition: RfqTransition) {
   assertExpectedVersion(transition.currentVersion, transition.expectedVersion);
+  const nextStatus = toRfqStatusEnum(transition.nextStatus);
+  if (!nextStatus) {
+    throw new AppError('RFQ状态无效', 400, 'INVALID_STATE_TRANSITION');
+  }
 
   const result = await tx.rFQ.updateMany({
     where: {
@@ -98,7 +107,8 @@ export async function transitionRfqStatus(tx: StateTransactionClient, transition
     },
     data: {
       ...transition.data,
-      status: transition.nextStatus,
+      status: nextStatus,
+      statusEnum: nextStatus,
       version: { increment: 1 },
     },
   });
@@ -116,7 +126,7 @@ export async function transitionRfqStatus(tx: StateTransactionClient, transition
     entityType: 'RFQ',
     entityId: updated.id,
     fromStatus: transition.currentStatus,
-    toStatus: transition.nextStatus,
+    toStatus: nextStatus,
     reasonCode: transition.reasonCode,
     reason: transition.reason,
     actorId: transition.actorId,
@@ -128,6 +138,10 @@ export async function transitionRfqStatus(tx: StateTransactionClient, transition
 
 export async function transitionQuotationStatus(tx: StateTransactionClient, transition: QuotationTransition) {
   assertExpectedVersion(transition.currentVersion, transition.expectedVersion);
+  const nextStatus = toQuotationStatusEnum(transition.nextStatus);
+  if (!nextStatus) {
+    throw new AppError('报价状态无效', 400, 'INVALID_STATE_TRANSITION');
+  }
 
   const result = await tx.quotation.updateMany({
     where: {
@@ -137,7 +151,8 @@ export async function transitionQuotationStatus(tx: StateTransactionClient, tran
     },
     data: {
       ...transition.data,
-      status: transition.nextStatus,
+      status: nextStatus,
+      statusEnum: nextStatus,
       version: { increment: 1 },
     },
   });
@@ -155,7 +170,7 @@ export async function transitionQuotationStatus(tx: StateTransactionClient, tran
     entityType: 'QUOTATION',
     entityId: updated.id,
     fromStatus: transition.currentStatus,
-    toStatus: transition.nextStatus,
+    toStatus: nextStatus,
     reasonCode: transition.reasonCode,
     reason: transition.reason,
     actorId: transition.actorId,
@@ -167,6 +182,10 @@ export async function transitionQuotationStatus(tx: StateTransactionClient, tran
 
 export async function transitionOrderStatus(tx: StateTransactionClient, transition: OrderTransition) {
   assertExpectedVersion(transition.currentVersion, transition.expectedVersion);
+  const nextStatus = toOrderStatusEnum(transition.nextStatus);
+  if (!nextStatus) {
+    throw new AppError('订单状态无效', 400, 'INVALID_STATE_TRANSITION');
+  }
 
   const result = await tx.order.updateMany({
     where: {
@@ -176,7 +195,8 @@ export async function transitionOrderStatus(tx: StateTransactionClient, transiti
     },
     data: {
       ...transition.data,
-      status: transition.nextStatus,
+      status: nextStatus,
+      statusEnum: nextStatus,
       version: { increment: 1 },
     },
   });
@@ -194,7 +214,7 @@ export async function transitionOrderStatus(tx: StateTransactionClient, transiti
     entityType: 'ORDER',
     entityId: updated.id,
     fromStatus: transition.currentStatus,
-    toStatus: transition.nextStatus,
+    toStatus: nextStatus,
     reasonCode: transition.reasonCode,
     reason: transition.reason,
     actorId: transition.actorId,

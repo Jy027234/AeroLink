@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, type OrderStatusEnum, type QuotationStatusEnum, type RfqStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
@@ -26,6 +26,12 @@ import {
   transitionQuotationStatus,
   transitionRfqStatus,
 } from '../lib/transactionStateService.js';
+import {
+  preferredOrderStatus,
+  preferredQuotationStatus,
+  preferredRfqStatus,
+  toQuotationStatusEnum,
+} from '../lib/transactionStatusShadows.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -76,6 +82,11 @@ type QuotationMoneySource = {
   costPriceDecimal: Prisma.Decimal | null;
 };
 
+type QuotationStatusShadow = {
+  status: string;
+  statusEnum?: QuotationStatusEnum | null;
+};
+
 type RelatedOrderMoneySource = {
   totalAmount: number;
   totalAmountDecimal: Prisma.Decimal | null;
@@ -87,9 +98,40 @@ type RelatedOrderMoneySource = {
   totalLandCostDecimal: Prisma.Decimal | null;
   exchangeCoreCharge: number | null;
   exchangeCoreChargeDecimal: Prisma.Decimal | null;
+  status: string;
+  statusEnum?: OrderStatusEnum | null;
 };
 
-function projectQuotationMoney<T extends QuotationMoneySource>(quotation: T) {
+type RfqStatusShadow = {
+  status: string;
+  statusEnum?: RfqStatusEnum | null;
+};
+
+function quotationStatus(quotation: QuotationStatusShadow) {
+  return preferredQuotationStatus(quotation.statusEnum, quotation.status);
+}
+
+function orderStatus(order: Pick<RelatedOrderMoneySource, 'status' | 'statusEnum'>) {
+  return preferredOrderStatus(order.statusEnum, order.status);
+}
+
+function rfqStatus(rfq: RfqStatusShadow) {
+  return preferredRfqStatus(rfq.statusEnum, rfq.status);
+}
+
+function projectRfqStatus<T extends RfqStatusShadow>(rfq: T | null) {
+  if (!rfq) {
+    return rfq;
+  }
+
+  const { status, statusEnum, ...rest } = rfq;
+  return {
+    ...rest,
+    status: rfqStatus({ status, statusEnum }),
+  };
+}
+
+function projectQuotationMoney<T extends QuotationMoneySource & QuotationStatusShadow>(quotation: T) {
   const {
     unitPriceDecimal,
     totalPriceDecimal,
@@ -97,11 +139,14 @@ function projectQuotationMoney<T extends QuotationMoneySource>(quotation: T) {
     unitPrice,
     totalPrice,
     costPrice,
+    status,
+    statusEnum,
     ...rest
   } = quotation;
 
   return {
     ...rest,
+    status: quotationStatus({ status, statusEnum }),
     unitPrice: preferredMoneyValue(unitPriceDecimal, unitPrice) ?? 0,
     totalPrice: preferredMoneyValue(totalPriceDecimal, totalPrice) ?? 0,
     costPrice: preferredMoneyValue(costPriceDecimal, costPrice) ?? 0,
@@ -124,11 +169,14 @@ function projectRelatedOrderMoney<T extends RelatedOrderMoneySource>(order: T) {
     vatAmount,
     totalLandCost,
     exchangeCoreCharge,
+    status,
+    statusEnum,
     ...rest
   } = order;
 
   return {
     ...rest,
+    status: orderStatus({ status, statusEnum }),
     totalAmount: preferredMoneyValue(totalAmountDecimal, totalAmount) ?? 0,
     importDuty: preferredMoneyValue(importDutyDecimal, importDuty),
     vatAmount: preferredMoneyValue(vatAmountDecimal, vatAmount),
@@ -261,7 +309,7 @@ router.get(
           ...(isAdminOrManager ? { costPrice: money.costPrice, margin: q.margin } : {}),
           certificateFiles: q.certificateFiles?.split(',').filter(Boolean) || [],
           template: q.template.toLowerCase(),
-          status: q.status.toLowerCase(),
+          status: quotationStatus(q).toLowerCase(),
           version: q.version,
           validityDays: q.validityDays,
           saleType: q.saleType,
@@ -382,7 +430,8 @@ router.get(
       success: true,
       data: {
         ...projectedQuotation,
-        status: quotation.status.toLowerCase(),
+        rfq: projectRfqStatus(quotation.rfq),
+        status: quotationStatus(quotation).toLowerCase(),
         template: quotation.template.toLowerCase(),
         acceptedAt: quotation.acceptedAt?.toISOString(),
         withdrawnAt: quotation.withdrawnAt?.toISOString(),
@@ -440,6 +489,8 @@ router.post(
         const expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + finalValidityDays);
 
+        const initialStatus = isAog ? 'PENDING_APPROVAL' : 'DRAFT';
+        const initialStatusEnum = toQuotationStatusEnum(initialStatus)!;
         const quotation = await tx.quotation.create({
           data: {
             quoteNumber,
@@ -456,7 +507,8 @@ router.post(
             margin,
             certificateFiles: Array.isArray(certificateFiles) ? certificateFiles.join(',') : certificateFiles,
             template: template?.toUpperCase() || 'STANDARD',
-            status: isAog ? 'PENDING_APPROVAL' : 'DRAFT',
+            status: initialStatus,
+            statusEnum: initialStatusEnum,
             validityDays: finalValidityDays,
             saleType: saleType || 'Sale',
             shipToId: shipToId || null,
@@ -491,14 +543,15 @@ router.post(
         await createInitialStatusHistory(tx, {
           entityType: 'QUOTATION',
           entityId: quotation.id,
-          toStatus: quotation.status,
+          toStatus: quotationStatus(quotation),
           reasonCode: isAog ? 'AOG_QUOTATION_CREATED' : 'QUOTATION_CREATED',
           actorId,
           version: quotation.version,
         });
 
-        if (isAog && relatedRfq && relatedRfq.status !== 'QUOTING') {
-          if (!normalizeRfqStatus(relatedRfq.status) || !isRfqStatusTransitionAllowed(relatedRfq.status, 'QUOTING')) {
+        const relatedRfqStatus = relatedRfq ? rfqStatus(relatedRfq) : null;
+        if (isAog && relatedRfq && relatedRfqStatus !== 'QUOTING') {
+          if (!normalizeRfqStatus(relatedRfqStatus) || !isRfqStatusTransitionAllowed(relatedRfqStatus, 'QUOTING')) {
             throw new AppError('AOG 报价不能将当前 RFQ 变更为报价中', 409, 'INVALID_STATE_TRANSITION');
           }
           const updatedRfq = await transitionRfqStatus(tx, {
@@ -517,8 +570,8 @@ router.post(
             data: {
               rfqId: updatedRfq.id,
               rfqNumber: updatedRfq.rfqNumber,
-              oldStatus: relatedRfq.status,
-              newStatus: updatedRfq.status,
+              oldStatus: relatedRfqStatus,
+              newStatus: rfqStatus(updatedRfq),
               changedBy: actorId,
               changedAt: new Date().toISOString(),
             },
@@ -555,7 +608,7 @@ router.post(
             customerId: quotation.customerId,
             customerName: quotation.customer.name,
             rfqId: quotation.rfqId,
-            status: quotation.status,
+            status: quotationStatus(quotation),
             totalPrice: quotationTotalPrice(quotation),
             margin: quotation.margin,
             createdBy: actorId,
@@ -569,7 +622,7 @@ router.post(
             id: quotation.id,
             quoteNumber: quotation.quoteNumber,
             customerName: quotation.customer.name,
-            status: quotation.status.toLowerCase(),
+            status: quotationStatus(quotation).toLowerCase(),
             version: quotation.version,
             totalPrice: quotationTotalPrice(quotation),
             margin: quotation.margin,
@@ -601,9 +654,10 @@ router.post(
         if (!currentQuotation) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
-        assertQuotationTransition(currentQuotation.status, 'PENDING_APPROVAL');
+        const currentQuotationStatus = quotationStatus(currentQuotation);
+        assertQuotationTransition(currentQuotationStatus, 'PENDING_APPROVAL');
 
-        const isNoop = currentQuotation.status === 'PENDING_APPROVAL';
+        const isNoop = currentQuotationStatus === 'PENDING_APPROVAL';
         const quotation = isNoop
           ? currentQuotation
           : await transitionQuotationStatus(tx, {
@@ -625,7 +679,7 @@ router.post(
             data: {
               quotationId: quotation.id,
               quoteNumber: quotation.quoteNumber,
-              status: quotation.status,
+              status: quotationStatus(quotation),
               submittedBy: actorId,
               submittedAt: new Date().toISOString(),
             },
@@ -635,7 +689,7 @@ router.post(
         }
 
         return {
-          payload: { ...projectQuotationMoney(quotation), status: quotation.status.toLowerCase() },
+          payload: { ...projectQuotationMoney(quotation), status: quotationStatus(quotation).toLowerCase() },
           resourceType: 'QUOTATION',
           resourceId: quotation.id,
         };
@@ -669,8 +723,9 @@ router.post(
 
         const isAog = quotationWithRfq.rfq?.urgency?.toUpperCase() === 'AOG';
         const targetStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
-        assertQuotationTransition(quotationWithRfq.status, targetStatus);
-        const isNoop = quotationWithRfq.status === targetStatus;
+        const quotationWithRfqStatus = quotationStatus(quotationWithRfq);
+        assertQuotationTransition(quotationWithRfqStatus, targetStatus);
+        const isNoop = quotationWithRfqStatus === targetStatus;
         const quotation = isNoop
           ? quotationWithRfq
           : await transitionQuotationStatus(tx, {
@@ -705,7 +760,7 @@ router.post(
             data: {
               quotationId: quotation.id,
               quoteNumber: quotation.quoteNumber,
-              status: quotation.status,
+              status: quotationStatus(quotation),
               totalPrice: quotationTotalPrice(quotation),
               comment,
               approvedBy: action === 'approve' ? userId : null,
@@ -721,7 +776,7 @@ router.post(
         }
 
         return {
-          payload: { ...projectQuotationMoney(quotation), status: quotation.status.toLowerCase() },
+          payload: { ...projectQuotationMoney(quotation), status: quotationStatus(quotation).toLowerCase() },
           resourceType: 'QUOTATION',
           resourceId: quotation.id,
         };
@@ -751,11 +806,12 @@ router.post(
         if (!quotation) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
-        if (quotation.status === 'WITHDRAWN') {
+        const currentQuotationStatus = quotationStatus(quotation);
+        if (currentQuotationStatus === 'WITHDRAWN') {
           throw new AppError('已撤回的报价不能再次发送，请复制或新建报价后重新发送', 400, 'BAD_REQUEST');
         }
-        assertQuotationTransition(quotation.status, 'SENT');
-        if (!['APPROVED', 'SENT'].includes(quotation.status)) {
+        assertQuotationTransition(currentQuotationStatus, 'SENT');
+        if (!['APPROVED', 'SENT'].includes(currentQuotationStatus)) {
           throw new AppError('只有已审批报价才能发送给客户', 400, 'BAD_REQUEST');
         }
         if (!quotation.customer.email) {
@@ -806,7 +862,7 @@ router.post(
           payload: {
             id: quotation.id,
             quoteNumber: quotation.quoteNumber,
-            status: quotation.status.toLowerCase(),
+            status: currentQuotationStatus.toLowerCase(),
             version: quotation.version,
             sentAt: quotation.sentAt?.toISOString(),
             outboundEmailId: pendingEmail.id,
@@ -849,13 +905,14 @@ router.post(
         if (!quotation) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
-        if (quotation.status === 'ACCEPTED') {
+        const currentQuotationStatus = quotationStatus(quotation);
+        if (currentQuotationStatus === 'ACCEPTED') {
           throw new AppError('客户已确认的报价不能直接撤回，请通过订单/变更流程处理', 400, 'BAD_REQUEST');
         }
-        if (quotation.status === 'WITHDRAWN') {
+        if (currentQuotationStatus === 'WITHDRAWN') {
           throw new AppError('该报价已撤回，无需重复操作', 400, 'BAD_REQUEST');
         }
-        assertQuotationTransition(quotation.status, 'WITHDRAWN');
+        assertQuotationTransition(currentQuotationStatus, 'WITHDRAWN');
 
         const latestSentEmail = quotation.outboundEmails[0];
         if (!latestSentEmail) {
@@ -1021,7 +1078,7 @@ router.post(
           payload: {
             id: updatedQuotation.id,
             quoteNumber: updatedQuotation.quoteNumber,
-            status: updatedQuotation.status.toLowerCase(),
+            status: quotationStatus(updatedQuotation).toLowerCase(),
             version: updatedQuotation.version,
             withdrawnAt: updatedQuotation.withdrawnAt?.toISOString(),
             withdrawalReason: updatedQuotation.withdrawalReason,
@@ -1060,15 +1117,16 @@ router.post(
         if (!quotation) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
-        if (quotation.status === 'WITHDRAWN') {
+        const currentQuotationStatus = quotationStatus(quotation);
+        if (currentQuotationStatus === 'WITHDRAWN') {
           throw new AppError('已撤回的报价不能登记客户确认', 400, 'BAD_REQUEST');
         }
-        assertQuotationTransition(quotation.status, 'ACCEPTED');
-        if (!['APPROVED', 'SENT', 'ACCEPTED'].includes(quotation.status)) {
+        assertQuotationTransition(currentQuotationStatus, 'ACCEPTED');
+        if (!['APPROVED', 'SENT', 'ACCEPTED'].includes(currentQuotationStatus)) {
           throw new AppError('当前报价状态不能登记客户确认', 400, 'BAD_REQUEST');
         }
 
-        const wasAlreadyAccepted = quotation.status === 'ACCEPTED';
+        const wasAlreadyAccepted = currentQuotationStatus === 'ACCEPTED';
         const updatedQuotation = wasAlreadyAccepted
           ? quotation
           : await transitionQuotationStatus(tx, {
@@ -1139,7 +1197,7 @@ router.post(
               quotationId: order.quotationId,
               customerId: order.customerId,
               customerName: order.customer.name,
-              status: order.status,
+              status: preferredOrderStatus(order.statusEnum, order.status),
               totalAmount: mapOrderResponse(order).totalAmount,
               createdAt: order.createdAt.toISOString(),
             },
@@ -1152,7 +1210,7 @@ router.post(
           payload: {
             id: updatedQuotation.id,
             quoteNumber: updatedQuotation.quoteNumber,
-            status: updatedQuotation.status.toLowerCase(),
+            status: quotationStatus(updatedQuotation).toLowerCase(),
             version: updatedQuotation.version,
             acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
             customerConfirmationNote: updatedQuotation.customerConfirmationNote,
