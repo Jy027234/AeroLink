@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { loadAvailableInventoryBalances } from '../lib/canonicalInventoryBalances.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -10,18 +11,6 @@ function getRecentMonthLabels(count: number): string[] {
     date.setMonth(date.getMonth() - (count - index - 1), 1);
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   });
-}
-
-async function getCurrentStock(partNumber: string) {
-  const inventory = await prisma.inventory.findMany({
-    where: { partNumber },
-    select: { quantity: true, unitCost: true },
-  });
-
-  return {
-    stock: inventory.reduce((sum, item) => sum + (item.quantity || 0), 0),
-    value: inventory.reduce((sum, item) => sum + (item.quantity || 0) * (item.unitCost || 0), 0),
-  };
 }
 
 router.get(
@@ -116,25 +105,25 @@ router.get(
         customer: { select: { name: true } },
       },
     });
+    const vmiPartNumbers = Array.from(new Set(agreements.map((agreement) => agreement.partNumber)));
+    const balances = await loadAvailableInventoryBalances(vmiPartNumbers);
 
-    const suggestions = await Promise.all(
-      agreements.map(async (agreement) => {
-        const { stock } = await getCurrentStock(agreement.partNumber);
-        if (stock > agreement.reorderPoint) {
-          return null;
-        }
+    const suggestions = agreements.map((agreement) => {
+      const stock = balances.get(agreement.partNumber)?.quantity ?? 0;
+      if (stock > agreement.reorderPoint) {
+        return null;
+      }
 
-        return {
-          id: agreement.id,
-          partNumber: agreement.partNumber,
-          customerName: agreement.customer.name,
-          currentStock: stock,
-          suggestedQty: Math.max(agreement.reorderQty, agreement.maxStock - stock),
-          reason: `当前库存低于补货点 ${agreement.reorderPoint} EA`,
-          expectedDeliveryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        };
-      })
-    );
+      return {
+        id: agreement.id,
+        partNumber: agreement.partNumber,
+        customerName: agreement.customer.name,
+        currentStock: stock,
+        suggestedQty: Math.max(agreement.reorderQty, agreement.maxStock - stock),
+        reason: `当前可用库存低于补货点 ${agreement.reorderPoint} EA`,
+        expectedDeliveryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+    });
 
     res.json({
       success: true,
@@ -161,15 +150,13 @@ router.get(
       prisma.vMIAgreement.findMany(),
     ]);
 
-    const restockSuggestions = await Promise.all(
-      agreements.map(async (agreement) => {
-        const { stock } = await getCurrentStock(agreement.partNumber);
-        return stock <= agreement.reorderPoint;
-      })
-    );
+    const vmiPartNumbers = Array.from(new Set(agreements.map((agreement) => agreement.partNumber)));
+    const balances = await loadAvailableInventoryBalances(vmiPartNumbers);
+    const restockSuggestions = agreements.map((agreement) => (
+      (balances.get(agreement.partNumber)?.quantity ?? 0) <= agreement.reorderPoint
+    ));
 
     const uniqueCustomers = new Set(agreements.map((agreement) => agreement.customerId));
-    const inventoryValues = await Promise.all(agreements.map((agreement) => getCurrentStock(agreement.partNumber)));
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
@@ -187,9 +174,12 @@ router.get(
           .filter((order) => order.createdAt >= monthStart && (order.status === 'DELIVERED' || order.status === 'COMPLETED'))
           .reduce((sum, order) => sum + (order.exchangeCoreCharge || Math.round(order.totalAmount * 0.2)), 0),
         vmiCustomers: uniqueCustomers.size,
-        vmiPartNumbers: agreements.length,
+        vmiPartNumbers: vmiPartNumbers.length,
         pendingRestock: restockSuggestions.filter(Boolean).length,
-        totalVmiInventoryValue: inventoryValues.reduce((sum, item) => sum + item.value, 0),
+        totalVmiInventoryValue: vmiPartNumbers.reduce(
+          (sum, partNumber) => sum + (balances.get(partNumber)?.value ?? 0),
+          0,
+        ),
       },
     });
   })

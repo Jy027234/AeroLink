@@ -69,42 +69,41 @@ router.get(
       },
       take: 10,
     });
+    const partNumbers = Array.from(new Set(trackings.map((tracking) => tracking.order.partNumber)));
+    const inventoryItems = await prisma.inventoryItem.findMany({
+      where: { partNumber: { in: partNumbers } },
+      select: { partNumber: true, hsCode: true },
+    });
+    const hsCodeByPartNumber = new Map(inventoryItems.map((item) => [item.partNumber, item.hsCode]));
 
-    const risks = await Promise.all(
-      trackings.map(async (tracking) => {
-        const inventory = await prisma.inventory.findFirst({
-          where: { partNumber: tracking.order.partNumber },
-          select: { hsCode: true },
-        });
+    const risks = trackings.map((tracking) => {
+      const statusUpper = tracking.status.toUpperCase();
+      const riskLevel =
+        statusUpper.includes('CUSTOMS')
+          ? 'high'
+          : !tracking.order.certificateType || tracking.order.certificateType === 'NONE'
+            ? 'medium'
+            : 'low';
 
-        const statusUpper = tracking.status.toUpperCase();
-        const riskLevel =
-          statusUpper.includes('CUSTOMS')
-            ? 'high'
-            : !tracking.order.certificateType || tracking.order.certificateType === 'NONE'
-              ? 'medium'
-              : 'low';
+      const inspectionRate = riskLevel === 'high' ? 28 : riskLevel === 'medium' ? 14 : 6;
+      const requiredDocs = ['Commercial Invoice', 'Packing List'];
+      if (riskLevel !== 'low') requiredDocs.push('Airworthiness Certificate');
+      if (riskLevel === 'high') requiredDocs.push('Import Permit');
 
-        const inspectionRate = riskLevel === 'high' ? 28 : riskLevel === 'medium' ? 14 : 6;
-        const requiredDocs = ['Commercial Invoice', 'Packing List'];
-        if (riskLevel !== 'low') requiredDocs.push('Airworthiness Certificate');
-        if (riskLevel === 'high') requiredDocs.push('Import Permit');
-
-        return {
-          partNumber: tracking.order.partNumber,
-          hsCode: inventory?.hsCode || '8803.30',
-          riskLevel,
-          inspectionRate,
-          requiredDocs,
-          recommendations:
-            riskLevel === 'high'
-              ? ['提前准备适航与溯源文件', '安排报关行预审资料', '预留额外清关时间']
-              : riskLevel === 'medium'
-                ? ['核对证书与HS编码一致性', '提前确认收货方清关要求']
-                : ['保持常规单证完整性'],
-        };
-      })
-    );
+      return {
+        partNumber: tracking.order.partNumber,
+        hsCode: hsCodeByPartNumber.get(tracking.order.partNumber) || '8803.30',
+        riskLevel,
+        inspectionRate,
+        requiredDocs,
+        recommendations:
+          riskLevel === 'high'
+            ? ['提前准备适航与溯源文件', '安排报关行预审资料', '预留额外清关时间']
+            : riskLevel === 'medium'
+              ? ['核对证书与HS编码一致性', '提前确认收货方清关要求']
+              : ['保持常规单证完整性'],
+      };
+    });
 
     res.json({
       success: true,

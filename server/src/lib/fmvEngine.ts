@@ -168,8 +168,8 @@ async function stage3ATAChapter(
   const cutoffDate = new Date();
   cutoffDate.setMonth(cutoffDate.getMonth() - 36);
 
-  // 从库存中获取同 ATA Chapter 的件号
-  const inventoryItems = await prisma.inventory.findMany({
+  // Use the canonical part master to find comparable ATA Chapter part numbers.
+  const inventoryItems = await prisma.inventoryItem.findMany({
     where: { ataChapter },
     select: { partNumber: true },
     take: 50,
@@ -273,10 +273,19 @@ export async function calculateFMV(
     throw new AppError('件号不能为空', 400, 'BAD_REQUEST');
   }
 
+  const canonicalPart = (!manufacturer || !ataChapter)
+    ? await prisma.inventoryItem.findUnique({
+      where: { partNumber },
+      select: { manufacturer: true, ataChapter: true },
+    })
+    : null;
+  const resolvedManufacturer = manufacturer || canonicalPart?.manufacturer || undefined;
+  const resolvedAtaChapter = ataChapter || canonicalPart?.ataChapter || undefined;
+
   const allFmvs: FMVResult['fmvs'] = [];
 
   // Stage 1: 精确匹配
-  const stage1 = await stage1ExactMatch(partNumber, conditionCode, manufacturer);
+  const stage1 = await stage1ExactMatch(partNumber, conditionCode, resolvedManufacturer);
   allFmvs.push(...stage1.fmvs);
 
   // Stage 2: 相似件号
@@ -287,7 +296,7 @@ export async function calculateFMV(
 
   // Stage 3: ATA Chapter
   if (allFmvs.length === 0 || allFmvs[0].confidence < 60) {
-    const stage3 = await stage3ATAChapter(ataChapter || '', conditionCode);
+    const stage3 = await stage3ATAChapter(resolvedAtaChapter || '', conditionCode);
     allFmvs.push(...stage3.fmvs);
   }
 
@@ -301,7 +310,7 @@ export async function calculateFMV(
 
   return {
     partNumber,
-    manufacturer,
+    manufacturer: resolvedManufacturer,
     conditionCode,
     fmvs: transformedFmvs,
     selectedFMV: best?.fmv || 0,

@@ -20,7 +20,7 @@ router.get(
       ordersThisMonth,
       ordersLastMonth,
       activeCustomers,
-      inventoryTotal,
+      inventoryDetails,
     ] = await Promise.all([
       prisma.rFQ.count({ where: { createdAt: { gte: monthStart } } }),
       prisma.rFQ.count({ where: { createdAt: { gte: lastMonthStart, lt: monthStart } } }),
@@ -29,7 +29,14 @@ router.get(
       prisma.order.count({ where: { createdAt: { gte: monthStart } } }),
       prisma.order.count({ where: { createdAt: { gte: lastMonthStart, lt: monthStart } } }),
       prisma.customer.count({ where: { status: 'ACTIVE' } }),
-      prisma.inventory.aggregate({ _sum: { unitCost: true } }),
+      prisma.inventoryDetail.findMany({
+        where: { status: { not: 'SCRAPPED' } },
+        select: {
+          quantity: true,
+          unitCost: true,
+          status: true,
+        },
+      }),
     ]);
 
     // Calculate order revenue this month
@@ -48,11 +55,11 @@ router.get(
     const trend = (current: number, previous: number) =>
       previous === 0 ? (current > 0 ? 100 : 0) : Math.round(((current - previous) / previous) * 100);
 
-    // Slow-moving inventory (quantity > 10 or no recent orders)
-    const allInventory = await prisma.inventory.findMany({ select: { unitCost: true, quantity: true } });
-    const slowMoving = allInventory.filter((i) => (i.quantity || 0) > 10);
+    // The detail layer is the valuation source. A reserved unit remains an
+    // owned asset; only SCRAPPED details are excluded from asset value.
+    const slowMoving = inventoryDetails.filter((detail) => detail.quantity > 10);
     const slowMovingValue = slowMoving.reduce((sum, i) => sum + (Number(i.unitCost) || 0) * (i.quantity || 0), 0);
-    const totalInvValue = allInventory.reduce((sum, i) => sum + (Number(i.unitCost) || 0) * (i.quantity || 0), 0);
+    const totalInvValue = inventoryDetails.reduce((sum, i) => sum + (Number(i.unitCost) || 0) * i.quantity, 0);
 
     res.json({
       rfqsThisMonth,
@@ -66,11 +73,11 @@ router.get(
       activeCustomers,
       customerRetention: 85,
       avgCustomerValue: activeCustomers > 0 ? Math.round(totalInvValue / activeCustomers) : 0,
-      totalInventoryValue: inventoryTotal._sum.unitCost || totalInvValue,
+      totalInventoryValue: totalInvValue,
       avgTurnoverDays: 45,
       slowMovingValue,
       slowMovingShare: totalInvValue > 0 ? Math.round((slowMovingValue / totalInvValue) * 100) : 0,
-      inventoryAlerts: allInventory.filter((i) => (i.quantity || 0) <= 2).length,
+      inventoryAlerts: inventoryDetails.filter((detail) => detail.status === 'AVAILABLE' && detail.quantity <= 2).length,
     });
   })
 );
@@ -158,26 +165,38 @@ router.get(
 router.get(
   '/inventory-turnover',
   asyncHandler(async (_req, res) => {
-    const categories = ['ROTATABLE', 'REPAIRABLE', 'CHEMICAL', 'STANDARD', 'RAW_MATERIAL', 'CONSUMABLE'];
+    const categories = ['ROTABLE', 'REPAIRABLE', 'CHEMICAL', 'STANDARD_PART', 'RAW_MATERIAL', 'CONSUMABLE'];
     const categoryNames: Record<string, string> = {
-      ROTATABLE: '周转件',
+      ROTABLE: '周转件',
       REPAIRABLE: '可修件',
       CHEMICAL: '化工品',
-      STANDARD: '标准件',
+      STANDARD_PART: '标准件',
       RAW_MATERIAL: '原材料',
       CONSUMABLE: '消耗件',
     };
 
-    const result = await Promise.all(
-      categories.map(async (cat) => {
-        const count = await prisma.inventory.count({ where: { partCategory: cat } });
-        return {
-          category: categoryNames[cat] || cat,
-          days: count > 0 ? Math.round(30 + Math.random() * 60) : 0,
-          target: 45,
-        };
-      })
-    );
+    const items = await prisma.inventoryItem.findMany({
+      select: {
+        partCategory: true,
+        details: {
+          where: { status: { not: 'SCRAPPED' } },
+          select: { id: true },
+        },
+      },
+    });
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      counts.set(item.partCategory, (counts.get(item.partCategory) ?? 0) + item.details.length);
+    }
+
+    const result = categories.map((category) => {
+      const count = counts.get(category) ?? 0;
+      return {
+        category: categoryNames[category] || category,
+        days: count > 0 ? Math.round(30 + Math.random() * 60) : 0,
+        target: 45,
+      };
+    });
 
     // Also add a generic entry
     result.unshift({ category: '全部', days: 45, target: 45 });

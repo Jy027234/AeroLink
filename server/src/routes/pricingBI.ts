@@ -37,13 +37,18 @@ router.get(
 router.get(
   '/market-intelligence',
   asyncHandler(async (_req, res) => {
-    const inventory = await prisma.inventory.findMany({
-      select: { partNumber: true, unitCost: true },
+    const inventory = await prisma.inventoryDetail.findMany({
+      where: { status: { not: 'SCRAPPED' } },
+      select: {
+        unitCost: true,
+        inventoryItem: { select: { partNumber: true } },
+      },
+      orderBy: { createdAt: 'desc' },
       take: 20,
     });
 
     const data = inventory.map((item) => ({
-      partNumber: item.partNumber,
+      partNumber: item.inventoryItem.partNumber,
       ourPrice: item.unitCost || 0,
       marketLow: Math.round((item.unitCost || 0) * 0.85),
       marketHigh: Math.round((item.unitCost || 0) * 1.15),
