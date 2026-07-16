@@ -237,7 +237,7 @@ export interface InventoryAggregate extends InventoryItem {
 }
 
 // ===== Phase 5: 库存事务（支持部分发货）=====
-export type InventoryTransactionType = 'INBOUND' | 'OUTBOUND' | 'ADJUSTMENT' | 'TRANSFER' | 'RETURN';
+export type InventoryTransactionType = 'INBOUND' | 'OUTBOUND' | 'ADJUSTMENT' | 'TRANSFER' | 'RETURN' | 'RESERVATION' | 'RESERVATION_RELEASE';
 
 export interface InventoryTransaction {
   id: string;

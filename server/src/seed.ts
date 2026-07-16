@@ -19,14 +19,23 @@ async function main() {
   await prisma.approval.deleteMany();
   await prisma.trackingEvent.deleteMany();
   await prisma.shipmentTracking.deleteMany();
+  await prisma.inventoryTransaction.deleteMany();
+  await prisma.certificate.deleteMany();
+  await prisma.generatedDocument.deleteMany();
+  await prisma.outboundEmail.deleteMany();
   await prisma.order.deleteMany();
   await prisma.quotation.deleteMany();
   await prisma.inquiryItem.deleteMany();
   await prisma.inquiry.deleteMany();
   await prisma.rFQ.deleteMany();
   await prisma.email.deleteMany();
+  await prisma.emailAccount.deleteMany();
   await prisma.vMIAgreement.deleteMany();
   await prisma.iPCData.deleteMany();
+  await prisma.outboxEvent.deleteMany();
+  await prisma.idempotencyRecord.deleteMany();
+  await prisma.certificateTemplate.deleteMany();
+  await prisma.documentTemplate.deleteMany();
 
   // ========== IPC Data ==========
   const ipcData = await prisma.iPCData.createMany({
@@ -222,6 +231,8 @@ async function main() {
   await prisma.aIModel.deleteMany();
   await prisma.aIAgent.deleteMany();
   await prisma.decisionMaker.deleteMany();
+  await prisma.inventoryDetail.deleteMany();
+  await prisma.inventoryItem.deleteMany();
   await prisma.inventory.deleteMany();
   await prisma.supplierPortalUser.deleteMany();
   await prisma.supplier.deleteMany();
@@ -704,6 +715,98 @@ async function main() {
     ],
   });
   console.log(`创建了 ${inventory.count} 条库存记录`);
+
+  // 保持旧库存表与明细库存层的演示数据一致。这样新部署后的 seed 也能
+  // 直接覆盖预留、部分出库和证书关联等核心交易链路。
+  const seededInventoryRecords = await prisma.inventory.findMany({
+    orderBy: { id: 'asc' },
+  });
+  const uniqueInventoryItems = new Map<string, (typeof seededInventoryRecords)[number]>();
+  for (const record of seededInventoryRecords) {
+    if (!uniqueInventoryItems.has(record.partNumber)) {
+      uniqueInventoryItems.set(record.partNumber, record);
+    }
+  }
+
+  const inventoryItemResult = await prisma.inventoryItem.createMany({
+    data: Array.from(uniqueInventoryItems.values()).map((record) => ({
+      partNumber: record.partNumber,
+      description: record.description,
+      partCategory: record.partCategory,
+      trackingType: record.trackingType,
+      manufacturer: record.manufacturer,
+      manufacturerCageCode: record.manufacturerCageCode,
+      ataChapter: record.ataChapter,
+      alternatePartNumbers: record.alternatePartNumbers,
+      unitOfMeasure: record.unitOfMeasure,
+      countryOfOrigin: record.countryOfOrigin,
+      hsCode: record.hsCode,
+    })),
+  });
+  const seededInventoryItems = await prisma.inventoryItem.findMany({
+    where: {
+      partNumber: {
+        in: Array.from(uniqueInventoryItems.keys()),
+      },
+    },
+  });
+  const inventoryItemIds = new Map(seededInventoryItems.map((item) => [item.partNumber, item.id]));
+
+  const inventoryDetailResult = await prisma.inventoryDetail.createMany({
+    data: seededInventoryRecords.map((record) => {
+      const inventoryItemId = inventoryItemIds.get(record.partNumber);
+      if (!inventoryItemId) {
+        throw new Error(`Missing inventory item for seeded part number ${record.partNumber}`);
+      }
+
+      return {
+        // Reuse legacy IDs so the compatibility layer and certificate references remain stable.
+        id: record.id,
+        inventoryItemId,
+        serialNumber: record.serialNumber,
+        batchNumber: record.batchNumber,
+        quantity: record.quantity,
+        conditionCode: record.conditionCode,
+        status: 'AVAILABLE',
+        warehouse: record.warehouse,
+        shelf: record.shelf,
+        location: record.location,
+        certificateType: record.certificateType,
+        certificateNumber: record.certificateNumber,
+        certificateFileUrl: record.certificateFileUrl,
+        lifeLimited: record.lifeLimited,
+        totalHours: record.totalHours,
+        remainingHours: record.remainingHours,
+        totalCycles: record.totalCycles,
+        remainingCycles: record.remainingCycles,
+        manufactureDate: record.manufactureDate,
+        shelfLifeDate: record.shelfLifeDate,
+        overhaulDate: record.overhaulDate,
+        nextOverhaulDue: record.nextOverhaulDue,
+        adStatus: record.adStatus,
+        sbStatus: record.sbStatus,
+        repairScheme: record.repairScheme,
+        previousOperator: record.previousOperator,
+        removalAircraftReg: record.removalAircraftReg,
+        removalDate: record.removalDate,
+        removalReason: record.removalReason,
+        nonIncidentStatement: record.nonIncidentStatement,
+        militarySource: record.militarySource,
+        traceabilityDocs: record.traceabilityDocs,
+        storageCondition: record.storageCondition,
+        ata300Packaging: record.ata300Packaging,
+        shelfLifeDays: record.shelfLifeDays,
+        storageTempMin: record.storageTempMin,
+        storageTempMax: record.storageTempMax,
+        hazardClass: record.hazardClass,
+        unitCost: record.unitCost,
+        supplierId: record.supplierId,
+        eta: record.eta,
+        type: record.type,
+      };
+    }),
+  });
+  console.log(`创建了 ${inventoryItemResult.count} 个库存件号和 ${inventoryDetailResult.count} 条库存明细`);
 
   const emails = await prisma.email.createMany({
     data: [

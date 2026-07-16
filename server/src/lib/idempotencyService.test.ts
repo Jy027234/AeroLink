@@ -21,12 +21,13 @@ function createPrismaMock() {
 describe('idempotencyService', () => {
   let prismaMock: ReturnType<typeof createPrismaMock>;
   let runIdempotentOperation: typeof import('./idempotencyService.js').runIdempotentOperation;
+  let buildIdempotencyContext: typeof import('./idempotencyService.js').buildIdempotencyContext;
 
   beforeEach(async () => {
     vi.resetModules();
     prismaMock = createPrismaMock();
     vi.doMock('./prisma.js', () => ({ default: prismaMock }));
-    ({ runIdempotentOperation } = await import('./idempotencyService.js'));
+    ({ runIdempotentOperation, buildIdempotencyContext } = await import('./idempotencyService.js'));
   });
 
   it('stores the first successful result in the same transaction as the business mutation', async () => {
@@ -146,5 +147,19 @@ describe('idempotencyService', () => {
 
     expect(result).toMatchObject({ payload: { id: 'order-1' }, statusCode: 200, replayed: false });
     expect(prismaMock.__tx.idempotencyRecord.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a control character in an Idempotency-Key', () => {
+    const request = {
+      get: vi.fn().mockReturnValue(`valid${String.fromCharCode(0)}key`),
+      path: '/rfqs',
+      params: {},
+      query: {},
+      body: {},
+    };
+
+    expect(() => buildIdempotencyContext(request as never, 'user-1', 'POST:/rfqs')).toThrow(
+      'Idempotency-Key 必须是 1 到 255 个可打印字符',
+    );
   });
 });

@@ -6,6 +6,8 @@ import type {
   AuctionBid,
   InventoryTransaction,
   CreateOutboundPayload,
+  CreateReservationPayload,
+  ReleaseReservationPayload,
   NotificationPreference,
   Inquiry,
   BlockchainVerificationResult,
@@ -776,6 +778,14 @@ export const useInventoryTransactionsByOrder = (orderId: string) => {
 
 export const useCreateOutbound = () => {
   return useMutation<InventoryTransaction, CreateOutboundPayload>((data) => inventoryTransactionApi.createOutbound(data));
+};
+
+export const useCreateInventoryReservation = () => {
+  return useMutation<InventoryTransaction, CreateReservationPayload>((data) => inventoryTransactionApi.createReservation(data));
+};
+
+export const useReleaseInventoryReservation = () => {
+  return useMutation<InventoryTransaction, ReleaseReservationPayload>((data) => inventoryTransactionApi.releaseReservation(data));
 };
 
 // ===== User Management Hooks =====

@@ -2,10 +2,15 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { requireRole } from '../middleware/rbac.js';
+import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
+import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import prisma from '../lib/prisma.js';
 import { storeCertificate } from '../lib/blockchain.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
+const requireCertificateMutationRole = requireRole('manager', 'admin');
 
 function generateCertificateNumber(): string {
   const year = new Date().getFullYear();
@@ -47,6 +52,14 @@ router.get(
         include: {
           template: { select: { id: true, name: true, code: true } },
           inventory: { select: { id: true, partNumber: true, description: true } },
+          inventoryDetail: {
+            select: {
+              id: true,
+              serialNumber: true,
+              batchNumber: true,
+              inventoryItem: { select: { partNumber: true } },
+            },
+          },
           order: { select: { id: true, orderNumber: true } },
           supplier: { select: { id: true, name: true } },
           quotation: { select: { id: true, quoteNumber: true } },
@@ -69,6 +82,8 @@ router.get(
         inventoryId: c.inventoryId,
         inventoryPartNumber: c.inventory?.partNumber,
         inventoryDescription: c.inventory?.description,
+        inventoryDetailId: c.inventoryDetailId,
+        inventoryDetailPartNumber: c.inventoryDetail?.inventoryItem.partNumber,
         orderId: c.orderId,
         orderNumber: c.order?.orderNumber,
         supplierId: c.supplierId,
@@ -121,6 +136,9 @@ router.get(
       include: {
         template: true,
         inventory: true,
+        inventoryDetail: {
+          include: { inventoryItem: true },
+        },
         order: true,
         supplier: true,
         quotation: true,
@@ -157,6 +175,17 @@ router.get(
               quantity: certificate.inventory.quantity,
               conditionCode: certificate.inventory.conditionCode,
               serialNumber: certificate.inventory.serialNumber,
+            }
+          : null,
+        inventoryDetailId: certificate.inventoryDetailId,
+        inventoryDetail: certificate.inventoryDetail
+          ? {
+              id: certificate.inventoryDetail.id,
+              partNumber: certificate.inventoryDetail.inventoryItem.partNumber,
+              serialNumber: certificate.inventoryDetail.serialNumber,
+              batchNumber: certificate.inventoryDetail.batchNumber,
+              quantity: certificate.inventoryDetail.quantity,
+              conditionCode: certificate.inventoryDetail.conditionCode,
             }
           : null,
         orderId: certificate.orderId,
@@ -216,10 +245,12 @@ router.get(
 
 router.post(
   '/issue',
+  requireCertificateMutationRole,
   asyncHandler(async (req, res) => {
     const {
       templateId,
       inventoryId,
+      inventoryDetailId,
       orderId,
       supplierId,
       quotationId,
@@ -246,86 +277,167 @@ router.post(
     }
 
     const user = (req as AuthRequest).user;
-    const certificateNumber = generateCertificateNumber();
+    const actorId = user!.id;
+    const execution = await runIdempotentOperation(
+      buildIdempotencyContext(req, actorId, 'POST:/certificates/issue'),
+      async (tx) => {
+        const [inventory, inventoryDetail, order, quotation] = await Promise.all([
+          inventoryId ? tx.inventory.findUnique({ where: { id: inventoryId } }) : null,
+          inventoryDetailId
+            ? tx.inventoryDetail.findUnique({
+              where: { id: inventoryDetailId },
+              include: { inventoryItem: true },
+            })
+            : null,
+          orderId ? tx.order.findUnique({ where: { id: orderId } }) : null,
+          quotationId ? tx.quotation.findUnique({ where: { id: quotationId } }) : null,
+        ]);
 
-    const traceEntry = {
-      action: 'ISSUE',
-      timestamp: new Date().toISOString(),
-      userId: user?.id,
-      userName: user?.name,
-    };
+        if (inventoryId && !inventory) {
+          throw new AppError('库存记录不存在', 404, 'RESOURCE_NOT_FOUND');
+        }
+        if (inventoryDetailId && !inventoryDetail) {
+          throw new AppError('库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
+        }
+        if (orderId && !order) {
+          throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
+        }
+        if (quotationId && !quotation) {
+          throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+        }
+        if (inventory && inventory.partNumber !== partNumber) {
+          throw new AppError('证书件号与库存记录不一致', 409, 'RESOURCE_CONFLICT');
+        }
+        if (inventoryDetail && inventoryDetail.inventoryItem.partNumber !== partNumber) {
+          throw new AppError('证书件号与库存明细不一致', 409, 'RESOURCE_CONFLICT');
+        }
+        if (order && order.partNumber !== partNumber) {
+          throw new AppError('证书件号与订单不一致', 409, 'RESOURCE_CONFLICT');
+        }
+        if (quotation && quotation.partNumber !== partNumber) {
+          throw new AppError('证书件号与报价不一致', 409, 'RESOURCE_CONFLICT');
+        }
+        if (order && quotation && order.quotationId !== quotation.id) {
+          throw new AppError('证书关联的订单与报价不一致', 409, 'RESOURCE_CONFLICT');
+        }
+        if (order && inventoryDetail && order.inventoryDetailId && order.inventoryDetailId !== inventoryDetail.id) {
+          throw new AppError('证书关联的订单与库存明细不一致', 409, 'RESOURCE_CONFLICT');
+        }
 
-    const certificate = await prisma.certificate.create({
-      data: {
-        certificateNumber,
-        templateId: templateId || null,
-        inventoryId: inventoryId || null,
-        orderId: orderId || null,
-        supplierId: supplierId || null,
-        quotationId: quotationId || null,
-        partNumber,
-        serialNumber: serialNumber || null,
-        description: description || null,
-        quantity: quantity ?? null,
-        conditionCode: conditionCode || null,
-        certificateType: certificateType?.toUpperCase() || 'AAC-038',
-        expiryDate: expiryDate ? new Date(expiryDate) : null,
-        issuedBy: issuedBy || user?.name || 'System',
-        issuedById: user?.id || '',
-        issuerCompany: issuerCompany || null,
-        issuerAddress: issuerAddress || null,
-        issuerCertNo: issuerCertNo || null,
-        status: 'ISSUED',
-        traceHistory: serializeTraceHistory([traceEntry]),
-        countryOfOrigin: countryOfOrigin || null,
-        manufactureDate: manufactureDate ? new Date(manufactureDate) : null,
-        batchNumber: batchNumber || null,
-        ataChapter: ataChapter || null,
-        aircraftModel: aircraftModel || null,
+        const traceEntry = {
+          action: 'ISSUE',
+          timestamp: new Date().toISOString(),
+          userId: user?.id,
+          userName: user?.name,
+        };
+        const certificate = await tx.certificate.create({
+          data: {
+            certificateNumber: generateCertificateNumber(),
+            templateId: templateId || null,
+            inventoryId: inventoryId || null,
+            inventoryDetailId: inventoryDetailId || null,
+            orderId: orderId || null,
+            supplierId: supplierId || null,
+            quotationId: quotationId || null,
+            partNumber,
+            serialNumber: serialNumber || inventoryDetail?.serialNumber || null,
+            description: description || inventory?.description || null,
+            quantity: quantity ?? null,
+            conditionCode: conditionCode || inventoryDetail?.conditionCode || inventory?.conditionCode || null,
+            certificateType: certificateType?.toUpperCase() || 'AAC-038',
+            expiryDate: expiryDate ? new Date(expiryDate) : null,
+            issuedBy: issuedBy || user?.name || 'System',
+            issuedById: user?.id || '',
+            issuerCompany: issuerCompany || null,
+            issuerAddress: issuerAddress || null,
+            issuerCertNo: issuerCertNo || null,
+            status: 'ISSUED',
+            traceHistory: serializeTraceHistory([traceEntry]),
+            countryOfOrigin: countryOfOrigin || null,
+            manufactureDate: manufactureDate ? new Date(manufactureDate) : null,
+            batchNumber: batchNumber || inventoryDetail?.batchNumber || null,
+            ataChapter: ataChapter || inventory?.ataChapter || null,
+            aircraftModel: aircraftModel || null,
+          },
+          include: {
+            template: { select: { id: true, name: true, code: true } },
+            inventory: { select: { id: true, partNumber: true, description: true } },
+            inventoryDetail: { select: { id: true } },
+            order: { select: { id: true, orderNumber: true } },
+            supplier: { select: { id: true, name: true } },
+            quotation: { select: { id: true, quoteNumber: true } },
+          },
+        });
+
+        await enqueueBusinessEvent(tx, {
+          eventType: 'certificate.issued',
+          aggregateType: 'CERTIFICATE',
+          aggregateId: certificate.id,
+          data: {
+            certificateId: certificate.id,
+            certificateNumber: certificate.certificateNumber,
+            partNumber: certificate.partNumber,
+            inventoryId: certificate.inventoryId,
+            inventoryDetailId: certificate.inventoryDetailId,
+            orderId: certificate.orderId,
+            quotationId: certificate.quotationId,
+            certificateType: certificate.certificateType,
+            issuedById: certificate.issuedById,
+          },
+          createdById: actorId,
+        });
+
+        return {
+          payload: {
+            id: certificate.id,
+            certificateNumber: certificate.certificateNumber,
+            templateId: certificate.templateId,
+            templateName: certificate.template?.name,
+            inventoryId: certificate.inventoryId,
+            inventoryDetailId: certificate.inventoryDetailId,
+            orderId: certificate.orderId,
+            supplierId: certificate.supplierId,
+            quotationId: certificate.quotationId,
+            partNumber: certificate.partNumber,
+            serialNumber: certificate.serialNumber,
+            description: certificate.description,
+            quantity: certificate.quantity,
+            conditionCode: certificate.conditionCode,
+            certificateType: certificate.certificateType,
+            issueDate: certificate.issueDate.toISOString(),
+            expiryDate: certificate.expiryDate?.toISOString(),
+            issuedBy: certificate.issuedBy,
+            issuedById: certificate.issuedById,
+            status: certificate.status,
+            traceHistory: parseTraceHistory(certificate.traceHistory),
+            createdAt: certificate.createdAt.toISOString(),
+            updatedAt: certificate.updatedAt.toISOString(),
+          },
+          statusCode: 201,
+          resourceType: 'CERTIFICATE',
+          resourceId: certificate.id,
+        };
       },
-      include: {
-        template: { select: { id: true, name: true, code: true } },
-        inventory: { select: { id: true, partNumber: true, description: true } },
-        order: { select: { id: true, orderNumber: true } },
-        supplier: { select: { id: true, name: true } },
-        quotation: { select: { id: true, quoteNumber: true } },
-      },
-    });
+    );
 
-    // 自动存证到区块链
+    // A replay also retries a prior best-effort blockchain failure. A stored
+    // certificate is checked first so normal idempotent replays remain quiet.
     try {
-      await storeCertificate(certificate);
+      const [certificate, existingBlock] = await Promise.all([
+        prisma.certificate.findUnique({ where: { id: execution.payload.id } }),
+        prisma.blockchainRecord.findUnique({ where: { certificateId: execution.payload.id } }),
+      ]);
+      if (certificate && !existingBlock) {
+        await storeCertificate(certificate);
+      }
     } catch (blockchainError) {
-      // 区块链存证失败不影响证书创建，记录日志即可
-      console.warn('Blockchain storage failed:', (blockchainError as Error).message);
+      logger.warn({ err: blockchainError, certificateId: execution.payload.id }, 'Blockchain certificate storage deferred for retry');
     }
 
-    res.status(201).json({
+    applyIdempotencyHeaders(res, execution);
+    res.status(execution.statusCode).json({
       success: true,
-      data: {
-        id: certificate.id,
-        certificateNumber: certificate.certificateNumber,
-        templateId: certificate.templateId,
-        templateName: certificate.template?.name,
-        inventoryId: certificate.inventoryId,
-        orderId: certificate.orderId,
-        supplierId: certificate.supplierId,
-        quotationId: certificate.quotationId,
-        partNumber: certificate.partNumber,
-        serialNumber: certificate.serialNumber,
-        description: certificate.description,
-        quantity: certificate.quantity,
-        conditionCode: certificate.conditionCode,
-        certificateType: certificate.certificateType,
-        issueDate: certificate.issueDate.toISOString(),
-        expiryDate: certificate.expiryDate?.toISOString(),
-        issuedBy: certificate.issuedBy,
-        issuedById: certificate.issuedById,
-        status: certificate.status,
-        traceHistory: parseTraceHistory(certificate.traceHistory),
-        createdAt: certificate.createdAt.toISOString(),
-        updatedAt: certificate.updatedAt.toISOString(),
-      },
+      data: execution.payload,
     });
   })
 );

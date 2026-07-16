@@ -15,6 +15,10 @@ export const SUPPORTED_WEBHOOK_EVENTS = [
   'quotation.withdrawn',
   'order.created',
   'order.status.changed',
+  'inventory.reserved',
+  'inventory.reservation.released',
+  'inventory.outbound',
+  'certificate.issued',
   'agent.task.completed',
   'agent.task.failed',
 ] as const;

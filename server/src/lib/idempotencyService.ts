@@ -69,7 +69,11 @@ function readIdempotencyKey(req: Request): string | undefined {
   }
 
   const key = rawKey.trim();
-  if (!key || key.length > 255 || /[\u0000-\u001f\u007f]/.test(key)) {
+  const hasControlCharacter = Array.from(key).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint < 0x20 || codePoint === 0x7f);
+  });
+  if (!key || key.length > 255 || hasControlCharacter) {
     throw new AppError('Idempotency-Key 必须是 1 到 255 个可打印字符', 400, 'BAD_REQUEST');
   }
 

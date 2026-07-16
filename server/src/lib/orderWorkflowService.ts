@@ -52,6 +52,9 @@ export async function createOrderFromQuotation(args: {
       partNumber: args.quotation.partNumber,
       quantity: args.quotation.quantity,
       totalAmount: args.quotation.totalPrice,
+      inventoryDetailId: args.quotation.inventoryDetailId,
+      serialNumber: args.quotation.serialNumber,
+      batchNumber: args.quotation.batchNumber,
       status: 'SO_CREATED',
       poNumber: args.poNumber,
       deliveryDate: args.deliveryDate ? new Date(args.deliveryDate) : null,
@@ -144,5 +147,10 @@ export function mapOrderResponse(order: Order & { customer: Customer }) {
     exchangeCoreDueDate: order.exchangeCoreDueDate?.toISOString(),
     eSignatureCustomer: order.eSignatureCustomer,
     eSignatureSupplier: order.eSignatureSupplier,
+    inventoryDetailId: order.inventoryDetailId || undefined,
+    serialNumber: order.serialNumber || undefined,
+    batchNumber: order.batchNumber || undefined,
+    outboundQuantity: order.outboundQuantity,
+    outboundStatus: order.outboundStatus,
   };
 }

@@ -783,6 +783,56 @@ router.post(
           throw new AppError('客户未配置邮箱，无法发送撤回通知', 400, 'BAD_REQUEST');
         }
 
+        let releasedReservation: {
+          inventoryDetailId: string;
+          partNumber: string;
+          quantity: number;
+          reservedQuantity: number;
+          transactionId: string;
+        } | undefined;
+        if (quotation.inventoryDetailId && quotation.reservedQuantity > 0) {
+          const detail = await tx.inventoryDetail.findUnique({
+            where: { id: quotation.inventoryDetailId },
+            include: { inventoryItem: true },
+          });
+          if (!detail || detail.status !== 'RESERVED') {
+            throw new AppError('报价预留库存状态异常，无法完成撤回', 409, 'STATE_CONFLICT');
+          }
+          if (detail.inventoryItem.partNumber !== quotation.partNumber) {
+            throw new AppError('报价预留库存件号不一致，无法完成撤回', 409, 'RESOURCE_CONFLICT');
+          }
+
+          const released = await tx.inventoryDetail.updateMany({
+            where: { id: detail.id, status: 'RESERVED' },
+            data: { status: 'AVAILABLE' },
+          });
+          if (released.count !== 1) {
+            throw new AppError('报价预留库存已被其他操作更新，请刷新后重试', 409, 'STATE_CONFLICT');
+          }
+
+          const releaseTransaction = await tx.inventoryTransaction.create({
+            data: {
+              inventoryDetailId: detail.id,
+              type: 'RESERVATION_RELEASE',
+              quantity: 0,
+              beforeQuantity: detail.quantity,
+              afterQuantity: detail.quantity,
+              quotationId: quotation.id,
+              referenceNo: quotation.quoteNumber,
+              referenceType: 'QUOTATION',
+              notes: `Quotation withdrawn: ${reason}`,
+              createdBy: actorId,
+            },
+          });
+          releasedReservation = {
+            inventoryDetailId: detail.id,
+            partNumber: detail.inventoryItem.partNumber,
+            quantity: detail.quantity,
+            reservedQuantity: quotation.reservedQuantity,
+            transactionId: releaseTransaction.id,
+          };
+        }
+
         const withdrawnAt = new Date();
         const updatedQuotation = await transitionQuotationStatus(tx, {
           id: quotation.id,
@@ -796,6 +846,7 @@ router.post(
           data: {
             withdrawnAt,
             withdrawalReason: reason,
+            ...(releasedReservation ? { reservedQuantity: 0 } : {}),
           },
         });
         await tx.outboundEmail.update({
@@ -845,6 +896,28 @@ router.post(
           noticeId = notice.id;
         }
 
+        if (releasedReservation) {
+          await enqueueBusinessEvent(tx, {
+            eventType: 'inventory.reservation.released',
+            aggregateType: 'INVENTORY_DETAIL',
+            aggregateId: releasedReservation.inventoryDetailId,
+            data: {
+              inventoryDetailId: releasedReservation.inventoryDetailId,
+              partNumber: releasedReservation.partNumber,
+              status: 'AVAILABLE',
+              quantity: releasedReservation.quantity,
+              releasedQuantity: releasedReservation.reservedQuantity,
+              quotationId: quotation.id,
+              quoteNumber: quotation.quoteNumber,
+              transactionId: releasedReservation.transactionId,
+              releasedBy: actorId,
+              reason,
+            },
+            socket: { room: SocketRooms.INVENTORY, event: SocketEvents.INVENTORY_UPDATED },
+            createdById: actorId,
+          });
+        }
+
         await enqueueBusinessEvent(tx, {
           eventType: 'quotation.withdrawn',
           aggregateType: 'QUOTATION',
@@ -855,6 +928,8 @@ router.post(
             withdrawnAt: updatedQuotation.withdrawnAt?.toISOString(),
             withdrawalReason: updatedQuotation.withdrawalReason,
             withdrawalNoticeId: noticeId,
+            reservationReleased: Boolean(releasedReservation),
+            releasedInventoryDetailId: releasedReservation?.inventoryDetailId,
           },
           socket: { room: SocketRooms.QUOTATIONS, event: SocketEvents.QUOTATION_UPDATED },
           createdById: actorId,
@@ -870,6 +945,8 @@ router.post(
             withdrawalReason: updatedQuotation.withdrawalReason,
             withdrawalNoticeId: noticeId,
             withdrawalNoticeDeliveryStatus: noticeId ? 'queued' : undefined,
+            reservationReleased: Boolean(releasedReservation),
+            releasedInventoryDetailId: releasedReservation?.inventoryDetailId,
           },
           resourceType: 'QUOTATION',
           resourceId: updatedQuotation.id,

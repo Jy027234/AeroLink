@@ -51,6 +51,8 @@ function createQuotation(status: 'APPROVED' | 'SENT' | 'ACCEPTED' | 'WITHDRAWN' 
     acceptedAt: status === 'ACCEPTED' ? new Date('2026-05-12T11:00:00.000Z') : null,
     withdrawnAt: null,
     withdrawalReason: null,
+    inventoryDetailId: null,
+    reservedQuantity: 0,
     customerConfirmationNote: status === 'ACCEPTED' ? '客户口头确认' : null,
     expiryDate: new Date('2026-05-26T00:00:00.000Z'),
     customer,
@@ -106,6 +108,8 @@ function createPrismaMock() {
     notification: { createMany: vi.fn() },
     documentTemplate: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
     generatedDocument: { findFirst: vi.fn(), create: vi.fn() },
+    inventoryDetail: { findUnique: vi.fn(), updateMany: vi.fn() },
+    inventoryTransaction: { create: vi.fn() },
   };
 
   return {
@@ -261,6 +265,75 @@ describe('Quotation workflow routes', () => {
     expect(enqueueBusinessEventMock).toHaveBeenCalledWith(
       prismaMock.__tx,
       expect.objectContaining({ eventType: 'quotation.withdrawn', aggregateId: quotation.id }),
+    );
+  });
+
+  it('releases a sent quotation reservation before withdrawing it', async () => {
+    const quotation = {
+      ...createQuotation('SENT'),
+      inventoryDetailId: 'inv001',
+      reservedQuantity: 2,
+      outboundEmails: [{ id: 'mail-send-001', purpose: 'QUOTATION_SEND', status: 'SENT' }],
+    };
+    const withdrawnQuotation = {
+      ...quotation,
+      status: 'WITHDRAWN',
+      version: 2,
+      reservedQuantity: 0,
+      withdrawnAt: new Date('2026-05-12T10:15:00.000Z'),
+      withdrawalReason: '客户要求重新报价',
+    };
+    prismaMock.__tx.quotation.findUnique.mockResolvedValue(quotation);
+    prismaMock.__tx.inventoryDetail.findUnique.mockResolvedValue({
+      id: 'inv001',
+      quantity: 4,
+      status: 'RESERVED',
+      inventoryItem: { partNumber: quotation.partNumber },
+    });
+    prismaMock.__tx.inventoryDetail.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.inventoryTransaction.create.mockResolvedValue({ id: 'reservation-release-001' });
+    transitionQuotationStatusMock.mockResolvedValue(withdrawnQuotation);
+
+    const response = await request(app)
+      .post('/api/quotations/q001/withdraw')
+      .send({ reason: '客户要求重新报价', sendWithdrawalNotice: false });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({
+      status: 'withdrawn',
+      reservationReleased: true,
+      releasedInventoryDetailId: 'inv001',
+    });
+    expect(prismaMock.__tx.inventoryDetail.updateMany).toHaveBeenCalledWith({
+      where: { id: 'inv001', status: 'RESERVED' },
+      data: { status: 'AVAILABLE' },
+    });
+    expect(prismaMock.__tx.inventoryTransaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        inventoryDetailId: 'inv001',
+        quotationId: quotation.id,
+        type: 'RESERVATION_RELEASE',
+      }),
+    });
+    expect(transitionQuotationStatusMock).toHaveBeenCalledWith(
+      prismaMock.__tx,
+      expect.objectContaining({ data: expect.objectContaining({ reservedQuantity: 0 }) }),
+    );
+    expect(enqueueBusinessEventMock).toHaveBeenCalledWith(
+      prismaMock.__tx,
+      expect.objectContaining({
+        eventType: 'inventory.reservation.released',
+        aggregateId: 'inv001',
+        data: expect.objectContaining({ quotationId: quotation.id, releasedQuantity: 2 }),
+      }),
+    );
+    expect(enqueueBusinessEventMock).toHaveBeenCalledWith(
+      prismaMock.__tx,
+      expect.objectContaining({
+        eventType: 'quotation.withdrawn',
+        aggregateId: quotation.id,
+        data: expect.objectContaining({ reservationReleased: true }),
+      }),
     );
   });
 

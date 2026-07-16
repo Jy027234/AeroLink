@@ -2605,7 +2605,7 @@ export const auctionApi = {
 export interface InventoryTransaction {
   id: string;
   inventoryDetailId: string;
-  type: 'INBOUND' | 'OUTBOUND' | 'ADJUSTMENT' | 'TRANSFER' | 'RETURN';
+  type: 'INBOUND' | 'OUTBOUND' | 'ADJUSTMENT' | 'TRANSFER' | 'RETURN' | 'RESERVATION' | 'RESERVATION_RELEASE';
   quantity: number;
   beforeQuantity: number;
   afterQuantity: number;
@@ -2625,6 +2625,18 @@ export interface CreateOutboundPayload {
   notes?: string;
 }
 
+export interface CreateReservationPayload {
+  inventoryDetailId: string;
+  quotationId: string;
+  quantity: number;
+  notes?: string;
+}
+
+export interface ReleaseReservationPayload {
+  quotationId: string;
+  notes?: string;
+}
+
 export const inventoryTransactionApi = {
   getByDetailId: async (detailId: string) => {
     return request<InventoryTransaction[]>(`/inventory-transactions/detail/${detailId}`);
@@ -2632,6 +2644,20 @@ export const inventoryTransactionApi = {
 
   getByOrderId: async (orderId: string) => {
     return request<InventoryTransaction[]>(`/inventory-transactions/order/${orderId}`);
+  },
+
+  createReservation: async (payload: CreateReservationPayload) => {
+    return request<InventoryTransaction>('/inventory-transactions/reserve', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  releaseReservation: async (payload: ReleaseReservationPayload) => {
+    return request<InventoryTransaction>('/inventory-transactions/release', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   createOutbound: async (payload: CreateOutboundPayload) => {

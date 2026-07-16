@@ -58,7 +58,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { useOrders, useUpdateOrder, useInventoryTransactionsByOrder, useCreateOutbound } from '@/hooks/useApi';
+import { useOrders, useUpdateOrder, useInventoryItemByPartNumber, useInventoryTransactionsByOrder, useCreateInventoryReservation, useCreateOutbound } from '@/hooks/useApi';
 import { documentApi, orderApi } from '@/api/client';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -370,6 +370,159 @@ function OutboundDialog({
   );
 }
 
+function ReserveInventoryDialog({
+  order,
+  isOpen,
+  onClose,
+  onSuccess,
+}: {
+  order: Order;
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { locale } = useTranslation();
+  const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
+  const { data: inventoryItem, loading: inventoryLoading, error: inventoryError } = useInventoryItemByPartNumber(order.partNumber);
+  const createReservation = useCreateInventoryReservation();
+  const [inventoryDetailId, setInventoryDetailId] = useState('');
+  const [quantity, setQuantity] = useState(String(order.quantity - (order.outboundQuantity || 0)));
+  const [notes, setNotes] = useState('');
+
+  const remainingOrderQuantity = order.quantity - (order.outboundQuantity || 0);
+  const availableDetails = (inventoryItem?.details || []).filter(
+    (detail) => detail.status === 'AVAILABLE' && detail.quantity > 0,
+  );
+  const selectedDetail = availableDetails.find((detail) => detail.id === inventoryDetailId);
+  const parsedQuantity = Number(quantity);
+  const isValid = Boolean(
+    selectedDetail
+      && Number.isInteger(parsedQuantity)
+      && parsedQuantity > 0
+      && parsedQuantity <= remainingOrderQuantity
+      && parsedQuantity <= selectedDetail.quantity,
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setInventoryDetailId('');
+    setQuantity(String(remainingOrderQuantity));
+    setNotes('');
+  }, [isOpen, order.id, remainingOrderQuantity]);
+
+  const handleSubmit = async () => {
+    if (!isValid || !selectedDetail) return;
+    const result = await createReservation.mutate({
+      inventoryDetailId: selectedDetail.id,
+      quotationId: order.quotationId,
+      quantity: parsedQuantity,
+      notes: notes.trim() || undefined,
+    });
+    if (!result) {
+      toast.error(createReservation.error || tx('库存预留失败', 'Inventory reservation failed'));
+      return;
+    }
+
+    toast.success(tx('库存预留成功', 'Inventory reserved'));
+    onSuccess();
+    onClose();
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Package className="w-5 h-5 text-blue-500" />
+            {tx('预留库存', 'Reserve Inventory')}
+          </DialogTitle>
+          <DialogDescription>
+            {tx('选择与订单件号匹配的可用库存明细，预留后才能出库。', 'Select an available inventory detail matching this order before outbound.')}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="rounded-lg bg-gray-50 p-3 text-sm space-y-1">
+            <div className="flex justify-between gap-3">
+              <span className="text-gray-500">{tx('件号', 'Part Number')}</span>
+              <span className="font-mono font-medium text-right">{order.partNumber}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">{tx('待出库数量', 'Remaining Quantity')}</span>
+              <span className="font-medium">{remainingOrderQuantity} EA</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>{tx('库存明细', 'Inventory Detail')} *</Label>
+            {inventoryLoading ? (
+              <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-gray-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {tx('加载可用库存...', 'Loading available inventory...')}
+              </div>
+            ) : availableDetails.length > 0 ? (
+              <Select value={inventoryDetailId} onValueChange={setInventoryDetailId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={tx('请选择库存明细', 'Select an inventory detail')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableDetails.map((detail) => (
+                    <SelectItem key={detail.id} value={detail.id}>
+                      {detail.quantity} EA · {detail.conditionCode}
+                      {detail.serialNumber ? ` · SN ${detail.serialNumber}` : ''}
+                      {detail.batchNumber ? ` · BN ${detail.batchNumber}` : ''}
+                      {detail.warehouse ? ` · ${detail.warehouse}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                {inventoryError
+                  ? tx('无法加载可用库存，请稍后重试。', 'Unable to load available inventory. Please retry.')
+                  : tx('没有可用于预留的匹配库存明细。', 'No matching inventory detail is available for reservation.')}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>{tx('预留数量', 'Reservation Quantity')} *</Label>
+            <Input
+              type="number"
+              min={1}
+              max={Math.min(remainingOrderQuantity, selectedDetail?.quantity || remainingOrderQuantity)}
+              value={quantity}
+              onChange={(event) => setQuantity(event.target.value)}
+            />
+            {selectedDetail && parsedQuantity > selectedDetail.quantity && (
+              <p className="text-xs text-red-600">
+                {tx('预留数量不能超过库存明细可用数量。', 'Reservation quantity cannot exceed the detail quantity.')}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>{tx('备注', 'Notes')}</Label>
+            <Input
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder={tx('可选', 'Optional')}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{tx('取消', 'Cancel')}</Button>
+          <Button onClick={handleSubmit} disabled={!isValid || createReservation.loading}>
+            {createReservation.loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {tx('确认预留', 'Confirm Reservation')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { order: Order | null; isOpen: boolean; onClose: () => void; onDownloadContract: (order: Order) => void }) {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
@@ -381,6 +534,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<Partial<Order>>({});
   const [customsOpen, setCustomsOpen] = useState(false);
+  const [reservationDialogOpen, setReservationDialogOpen] = useState(false);
   const [outboundDialogOpen, setOutboundDialogOpen] = useState(false);
   const { mutate: updateOrder, loading: updateLoading } = useUpdateOrder();
 
@@ -584,6 +738,24 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
           </div>
 
           {/* Inventory Binding - Phase 4 + Phase 5 Outbound Management */}
+          {activeOrder && !activeOrder.inventoryDetailId && ['so_created', 'po_created'].includes(activeOrder.status) && (
+            <div className="space-y-3 rounded-lg border border-dashed p-4">
+              <div>
+                <h4 className="flex items-center gap-2 font-medium">
+                  <Package className="h-4 w-4 text-blue-500" />
+                  {tx('库存预留', 'Inventory Reservation')}
+                </h4>
+                <p className="mt-1 text-sm text-gray-500">
+                  {tx('订单尚未绑定库存明细。完成预留后才能执行部分出库。', 'This order is not yet bound to inventory. Reserve stock before partial outbound.')}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" className="w-full" onClick={() => setReservationDialogOpen(true)}>
+                <Package className="mr-2 h-4 w-4" />
+                {tx('预留库存', 'Reserve Inventory')}
+              </Button>
+            </div>
+          )}
+
           {(activeOrder?.inventoryDetailId || activeOrder?.serialNumber || activeOrder?.batchNumber) && (
             <div className="p-4 border rounded-lg space-y-3">
               <div className="flex items-center justify-between">
@@ -1098,16 +1270,22 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
           )}
         </DialogFooter>
       </DialogContent>
-      {/* Phase 5: 出库对话?*/}
-      <OutboundDialog
-        order={order}
-        isOpen={outboundDialogOpen}
-        onClose={() => setOutboundDialogOpen(false)}
-        onSuccess={() => {
-          // 刷新订单详情
-          setDetailRequestVersion((v) => v + 1);
-        }}
-      />
+      {activeOrder && (
+        <>
+          <ReserveInventoryDialog
+            order={activeOrder}
+            isOpen={reservationDialogOpen}
+            onClose={() => setReservationDialogOpen(false)}
+            onSuccess={() => setDetailRequestVersion((v) => v + 1)}
+          />
+          <OutboundDialog
+            order={activeOrder}
+            isOpen={outboundDialogOpen}
+            onClose={() => setOutboundDialogOpen(false)}
+            onSuccess={() => setDetailRequestVersion((v) => v + 1)}
+          />
+        </>
+      )}
     </Dialog>
   );
 }
