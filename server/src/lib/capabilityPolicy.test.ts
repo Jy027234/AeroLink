@@ -21,6 +21,8 @@ describe('capability policy', () => {
     expect(hasCapability(actor, 'quotation', 'send', { ownerId: 'sales-1' })).toBe(true);
     expect(hasCapability(actor, 'quotation', 'read', { ownerId: 'sales-2', department: 'Sales' })).toBe(false);
     expect(hasCapability(actor, 'quotation', 'view_cost', { ownerId: 'sales-1' })).toBe(false);
+    expect(hasCapability(actor, 'session', 'manage', { ownerId: 'sales-1' })).toBe(true);
+    expect(hasCapability(actor, 'session', 'manage', { ownerId: 'sales-2' })).toBe(false);
   });
 
   it('allows managers to operate their department transactions but blocks cross-department access', () => {

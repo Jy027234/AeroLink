@@ -107,6 +107,8 @@ const baseReadCapabilities = [
   key('settings', 'read'),
 ];
 
+const selfServiceSessionCapabilities = keys('session', ['read', 'manage']);
+
 const rolePolicies: Record<NormalizedRole, RolePolicy> = {
   admin: 'all',
   gm: 'all',
@@ -135,6 +137,7 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('quotation', ['read', 'create', 'update', 'transition', 'approve', 'send', 'accept', 'withdraw', 'view_cost']),
       ...keys('order', ['read', 'create', 'update', 'transition', 'view_cost']),
     ]),
+    grant('own', selfServiceSessionCapabilities),
   ),
   finance: combine(
     grant('all', [
@@ -146,6 +149,7 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('supplier', ['read']),
       ...keys('fmv', ['read']),
     ]),
+    grant('own', selfServiceSessionCapabilities),
   ),
   sales: combine(
     grant('all', [
@@ -160,6 +164,7 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('rfq', ['read', 'create', 'update', 'transition']),
       ...keys('quotation', ['read', 'create', 'update', 'transition', 'send', 'accept', 'withdraw']),
       ...keys('order', ['read']),
+      ...selfServiceSessionCapabilities,
     ]),
   ),
   operator: combine(
@@ -169,6 +174,7 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('order', ['read']),
       ...keys('certificate', ['read']),
     ]),
+    grant('own', selfServiceSessionCapabilities),
   ),
   quality_manager: combine(
     grant('all', [
@@ -178,11 +184,15 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('certificate_template', ['manage']),
       ...keys('report', ['read']),
     ]),
+    grant('own', selfServiceSessionCapabilities),
   ),
-  viewer: grant('all', [
-    ...baseReadCapabilities,
-    ...keys('report', ['read']),
-  ]),
+  viewer: combine(
+    grant('all', [
+      ...baseReadCapabilities,
+      ...keys('report', ['read']),
+    ]),
+    grant('own', selfServiceSessionCapabilities),
+  ),
 };
 
 export function normalizeRole(role?: string | null): NormalizedRole {

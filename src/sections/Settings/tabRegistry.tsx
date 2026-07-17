@@ -109,6 +109,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     labelEn: 'Security',
     contentClassName: 'space-y-6',
     featureStage: 'stable',
+    requiredCapability: 'session.read',
     render: () => <SecuritySettings />,
   },
   {

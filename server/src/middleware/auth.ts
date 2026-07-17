@@ -19,37 +19,91 @@ export interface AuthRequest extends Request {
     department?: string | null;
     avatar?: string | null;
   };
+  sessionId?: string;
 }
 
-export const generateTokens = (user: { id: string; email: string; name: string; role: string; department?: string | null; avatar?: string | null; tokenVersion?: number }) => {
+export interface VerifiedTokenPayload {
+  id: string;
+  role?: string;
+  ver?: number;
+  sid?: string;
+  jti?: string;
+}
+
+export const generateTokens = (user: {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  department?: string | null;
+  avatar?: string | null;
+  tokenVersion?: number;
+  sessionId?: string;
+  refreshTokenId?: string;
+}) => {
   const tokenVersion = user.tokenVersion ?? 0;
-  const accessToken = jwt.sign({ id: user.id, role: user.role, ver: tokenVersion }, JWT_SECRET, { expiresIn: '15m' });
-  const refreshToken = jwt.sign({ id: user.id, ver: tokenVersion }, JWT_REFRESH_SECRET, { expiresIn: '7d' });
+  const accessToken = jwt.sign(
+    { id: user.id, role: user.role, ver: tokenVersion, sid: user.sessionId },
+    JWT_SECRET,
+    { expiresIn: '15m' },
+  );
+  const refreshToken = jwt.sign(
+    { id: user.id, ver: tokenVersion, sid: user.sessionId, jti: user.refreshTokenId },
+    JWT_REFRESH_SECRET,
+    { expiresIn: '7d' },
+  );
 
   return { accessToken, refreshToken };
 };
 
-export const verifyAccessToken = (token: string): NonNullable<AuthRequest['user']> & { ver?: number } => {
-  const decoded = jwt.verify(token, JWT_SECRET);
-  if (typeof decoded !== 'object' || !decoded || !('id' in decoded)) {
+function assertTokenClaims(decoded: object): asserts decoded is VerifiedTokenPayload {
+  if (!('id' in decoded) || typeof decoded.id !== 'string') {
     throw new AppError('无效的令牌格式', 401);
   }
-  return decoded as NonNullable<AuthRequest['user']>;
+  if ('ver' in decoded && decoded.ver !== undefined && typeof decoded.ver !== 'number') {
+    throw new AppError('无效的令牌版本', 401, 'AUTH_TOKEN_INVALID');
+  }
+  if ('sid' in decoded && decoded.sid !== undefined && typeof decoded.sid !== 'string') {
+    throw new AppError('无效的会话标识', 401, 'AUTH_TOKEN_INVALID');
+  }
+  if ('jti' in decoded && decoded.jti !== undefined && typeof decoded.jti !== 'string') {
+    throw new AppError('无效的刷新令牌标识', 401, 'AUTH_TOKEN_INVALID');
+  }
+}
+
+export const verifyAccessToken = (token: string): VerifiedTokenPayload => {
+  const decoded = jwt.verify(token, JWT_SECRET);
+  if (typeof decoded !== 'object' || !decoded) {
+    throw new AppError('无效的令牌格式', 401);
+  }
+  assertTokenClaims(decoded);
+  return decoded;
 };
 
-export const verifyRefreshToken = (token: string): { id: string; ver?: number } => {
+export const verifyRefreshToken = (token: string): VerifiedTokenPayload => {
   const decoded = jwt.verify(token, JWT_REFRESH_SECRET);
-  if (typeof decoded !== 'object' || !decoded || !('id' in decoded)) {
+  if (typeof decoded !== 'object' || !decoded) {
     throw new AppError('无效的刷新令牌格式', 401);
   }
-  if ('ver' in decoded && decoded.ver !== undefined && typeof decoded.ver !== 'number') {
-    throw new AppError('无效的刷新令牌版本', 401, 'AUTH_TOKEN_INVALID');
-  }
-  return decoded as { id: string; ver?: number };
+  assertTokenClaims(decoded);
+  return decoded;
 };
 
 export function isTokenVersionValid(tokenVersion: unknown, currentVersion: number): boolean {
   return tokenVersion === undefined || (typeof tokenVersion === 'number' && tokenVersion === currentVersion);
+}
+
+async function isSessionActive(sessionId: string, userId: string): Promise<boolean> {
+  const session = await prisma.userSession.findUnique({
+    where: { id: sessionId },
+    select: { userId: true, revokedAt: true, expiresAt: true },
+  });
+  return Boolean(
+    session
+      && session.userId === userId
+      && !session.revokedAt
+      && session.expiresAt.getTime() > Date.now(),
+  );
 }
 
 export const authenticate = async (req: AuthRequest, _res: Response, next: NextFunction) => {
@@ -88,6 +142,10 @@ export const authenticate = async (req: AuthRequest, _res: Response, next: NextF
       throw new AppError('登录会话已失效，请重新登录', 401, 'AUTH_TOKEN_INVALID');
     }
 
+    if (decoded.sid && !(await isSessionActive(decoded.sid, user.id))) {
+      throw new AppError('设备会话已撤销，请重新登录', 401, 'AUTH_TOKEN_INVALID');
+    }
+
     req.user = {
       id: user.id,
       email: user.email,
@@ -96,6 +154,7 @@ export const authenticate = async (req: AuthRequest, _res: Response, next: NextF
       department: user.department,
       avatar: user.avatar,
     };
+    req.sessionId = decoded.sid;
 
     next();
   } catch (error) {
@@ -133,7 +192,12 @@ export const optionalAuth = async (req: AuthRequest, _res: Response, next: NextF
       },
     });
 
-    if (user && user.isActive && isTokenVersionValid(decoded.ver, user.tokenVersion)) {
+    if (
+      user
+      && user.isActive
+      && isTokenVersionValid(decoded.ver, user.tokenVersion)
+      && (!decoded.sid || await isSessionActive(decoded.sid, user.id))
+    ) {
       req.user = {
         id: user.id,
         email: user.email,
@@ -142,6 +206,7 @@ export const optionalAuth = async (req: AuthRequest, _res: Response, next: NextF
         department: user.department,
         avatar: user.avatar,
       };
+      req.sessionId = decoded.sid;
     }
 
     next();

@@ -76,10 +76,56 @@ model User {
   channelBindings     UserChannelBinding[]
   pushSubscriptions   PushSubscription[]
   statusHistoryChanges TransactionStatusHistory[] @relation("TransactionStatusActor")
+  sessions              UserSession[]
+  securityEvents        SecurityEvent[]
 
   @@map("users")
 }
 
+model UserSession {
+  id               String    @id @default(uuid())
+  userId           String
+  refreshTokenHash String
+  deviceName       String
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  revokedReason    String?
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  securityEvents SecurityEvent[]
+
+  @@index([userId, revokedAt])
+  @@index([userId, lastSeenAt])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+model SecurityEvent {
+  id         String    @id @default(uuid())
+  userId     String
+  sessionId  String?
+  type       String
+  severity   String    @default("INFO")
+  message    String
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+  status     String    @default("RESOLVED")
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session UserSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, status, createdAt])
+  @@index([sessionId, createdAt])
+  @@map("security_events")
+}
 model NotificationPreference {
   id            String   @id @default(uuid())
   userId        String   @unique

@@ -44,6 +44,34 @@ export interface AuthSuccessResponse {
   user: User;
 }
 
+export interface ManagedSession {
+  id: string;
+  deviceName: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+  isCurrent: boolean;
+  isActive: boolean;
+}
+
+export interface SecurityEvent {
+  id: string;
+  sessionId: string | null;
+  type: string;
+  severity: string;
+  message: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  metadata: unknown;
+  status: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export interface ActivationInfo {
   email: string;
   name: string;
@@ -1052,6 +1080,39 @@ export const authApi = {
 
   getCapabilities: async () => {
     return request<CapabilitySnapshot>('/auth/capabilities');
+  },
+
+  getSessions: async () => {
+    return request<ManagedSession[]>('/auth/sessions');
+  },
+
+  revokeSession: async (sessionId: string) => {
+    return request<{ id: string; revoked: boolean }>(`/auth/sessions/${encodeURIComponent(sessionId)}/revoke`, {
+      method: 'POST',
+    });
+  },
+
+  revokeAllSessions: async () => {
+    return request<{ revokedSessions: number; tokenVersion: number }>('/auth/sessions/revoke-all', {
+      method: 'POST',
+    });
+  },
+
+  getSecurityEvents: async (limit = 30) => {
+    return request<{ data: SecurityEvent[]; pagination: { limit: number; total: number } }>(
+      `/auth/security-events?limit=${encodeURIComponent(String(limit))}`,
+      {},
+      undefined,
+      false,
+      true,
+    );
+  },
+
+  acknowledgeSecurityEvent: async (eventId: string) => {
+    return request<{ id: string; status: string; resolvedAt: string | null }>(
+      `/auth/security-events/${encodeURIComponent(eventId)}/acknowledge`,
+      { method: 'POST' },
+    );
   },
 
   updateMe: async (data: ApiPayload) => {
