@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Prisma, type OrderStatusEnum, type QuotationStatusEnum, type RfqStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { assertCapability, requireCapability } from '../middleware/capability.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
 import {
@@ -34,6 +35,7 @@ import {
   toQuotationStatusEnum,
 } from '../lib/transactionStatusShadows.js';
 import { getCapabilityScope, hasCapability } from '../lib/capabilityPolicy.js';
+import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -57,6 +59,47 @@ function buildQuotationReadScope(actor: NonNullable<AuthRequest['user']>): Prism
     return department ? { OR: [own, department] } : own;
   }
   return own;
+}
+
+type QuotationListSort = 'createdAt' | 'expiryDate' | 'validityDeadline' | 'totalPrice' | 'quoteNumber';
+
+function quotationListOrderBy(
+  sort: QuotationListSort,
+  direction: SortDirection,
+): Prisma.QuotationOrderByWithRelationInput[] {
+  switch (sort) {
+    case 'expiryDate':
+      return [{ expiryDate: direction }, { id: 'asc' }];
+    case 'validityDeadline':
+      return [{ validityDeadline: direction }, { id: 'asc' }];
+    case 'totalPrice':
+      return [{ totalPrice: direction }, { id: 'asc' }];
+    case 'quoteNumber':
+      return [{ quoteNumber: direction }, { id: 'asc' }];
+    default:
+      return [{ createdAt: direction }, { id: 'asc' }];
+  }
+}
+
+function buildQuotationListWhere(
+  query: Record<string, unknown>,
+  actor: NonNullable<AuthRequest['user']>,
+): Prisma.QuotationWhereInput {
+  const status = typeof query.status === 'string' ? query.status : '';
+  const search = typeof query.search === 'string' ? query.search : '';
+  const filters: Prisma.QuotationWhereInput[] = [buildQuotationReadScope(actor)];
+  if (status) filters.push({ status: status.toUpperCase() });
+  const searchValue = search.trim();
+  if (searchValue) {
+    filters.push({
+      OR: [
+        { quoteNumber: { contains: searchValue, mode: 'insensitive' } },
+        { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
+      ],
+    });
+  }
+  return filters.length === 1 ? filters[0] : { AND: filters };
 }
 
 function assertQuotationAccess(
@@ -258,26 +301,19 @@ router.get(
   '/',
   requireCapability('quotation', 'read'),
   asyncHandler(async (req, res) => {
-    const { status, search, page, limit } = req.query;
-    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
-    const skip = (pageNum - 1) * pageSize;
+    const query = req.query as Record<string, unknown>;
+    const { page: pageNum, limit: pageSize, skip, sort, direction } = parseListQuery<QuotationListSort>(
+      query,
+      {
+        allowedSorts: ['createdAt', 'expiryDate', 'validityDeadline', 'totalPrice', 'quoteNumber'],
+        defaultSort: 'createdAt',
+        defaultDirection: 'desc',
+      },
+    );
 
     const actor = (req as AuthRequest).user!;
     const scopedWhere = buildQuotationReadScope(actor);
-    const filters: Prisma.QuotationWhereInput[] = [scopedWhere];
-    if (status) filters.push({ status: status.toString().toUpperCase() });
-    const searchValue = typeof search === 'string' ? search.trim() : '';
-    if (searchValue) {
-      filters.push({
-        OR: [
-          { quoteNumber: { contains: searchValue, mode: 'insensitive' } },
-          { partNumber: { contains: searchValue, mode: 'insensitive' } },
-          { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
-        ],
-      });
-    }
-    const where: Prisma.QuotationWhereInput = filters.length === 1 ? filters[0] : { AND: filters };
+    const where = buildQuotationListWhere(query, actor);
 
     const [quotations, total, statusCounts, acceptedAggregate] = await Promise.all([
       prisma.quotation.findMany({
@@ -301,7 +337,7 @@ router.get(
             take: 5,
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: quotationListOrderBy(sort, direction),
         skip,
         take: pageSize,
       }),
@@ -400,9 +436,73 @@ router.get(
         };
       }),
       summary,
-      pagination: { page: pageNum, limit: pageSize, total, totalPages: Math.ceil(total / pageSize) },
+      pagination: {
+        page: pageNum,
+        limit: pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
+        sort,
+        direction,
+      },
     });
   })
+);
+
+router.get(
+  '/export.csv',
+  requireCapability('quotation', 'export'),
+  asyncHandler(async (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    const window = parseControlledExportWindow(query);
+    const { sort, direction } = parseListQuery<QuotationListSort>(query, {
+      allowedSorts: ['createdAt', 'expiryDate', 'validityDeadline', 'totalPrice', 'quoteNumber'],
+      defaultSort: 'createdAt',
+      defaultDirection: 'desc',
+    });
+    const quotations = await prisma.quotation.findMany({
+      where: buildQuotationListWhere(query, (req as AuthRequest).user!),
+      select: {
+        quoteNumber: true,
+        partNumber: true,
+        quantity: true,
+        unitPrice: true,
+        totalPrice: true,
+        status: true,
+        expiryDate: true,
+        validityDeadline: true,
+        createdAt: true,
+        customer: { select: { name: true } },
+      },
+      orderBy: quotationListOrderBy(sort, direction),
+      skip: window.skip,
+      take: window.take,
+    });
+
+    await createAuditLog({
+      req,
+      action: 'EXPORT',
+      resourceType: 'QUOTATION',
+      details: `Quotation CSV export (${window.scope}, ${quotations.length}/${window.rowLimit} rows)`,
+    });
+    sendCsv(
+      res,
+      `quotations-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { header: '报价编号', value: (quotation) => quotation.quoteNumber },
+        { header: '客户', value: (quotation) => quotation.customer.name },
+        { header: '件号', value: (quotation) => quotation.partNumber },
+        { header: '数量', value: (quotation) => quotation.quantity },
+        { header: '单价', value: (quotation) => quotation.unitPrice },
+        { header: '总价', value: (quotation) => quotation.totalPrice },
+        { header: '状态', value: (quotation) => quotation.status },
+        { header: '到期日期', value: (quotation) => quotation.expiryDate },
+        { header: '有效期截止', value: (quotation) => quotation.validityDeadline },
+        { header: '创建时间', value: (quotation) => quotation.createdAt },
+      ],
+      quotations,
+      window,
+    );
+  }),
 );
 
 router.get(

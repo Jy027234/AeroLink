@@ -136,6 +136,13 @@ export class BulkReplayService {
 			let failed = 0;
 
 			for (let i = 0; i < deliveryIds.length; i += concurrency) {
+				const batch = await prisma.webhookReplayBatch.findUnique({
+					where: { id: batchId },
+					select: { status: true },
+				});
+				if (!batch || batch.status !== 'IN_PROGRESS') {
+					return;
+				}
 				const group = deliveryIds.slice(i, i + concurrency);
 				const results = await Promise.allSettled(
 					group.map((id) => this.replayDelivery(id, overridePayload))
@@ -157,6 +164,14 @@ export class BulkReplayService {
 						pending: Math.max(deliveryIds.length - succeeded - failed, 0),
 					},
 				});
+			}
+
+			const batch = await prisma.webhookReplayBatch.findUnique({
+				where: { id: batchId },
+				select: { status: true },
+			});
+			if (!batch || batch.status !== 'IN_PROGRESS') {
+				return;
 			}
 
 			await prisma.webhookReplayBatch.update({

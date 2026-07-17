@@ -53,8 +53,11 @@ import { useQuotations, useApproveQuotation, quotationApi, useDocumentTemplates,
 import { documentApi } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { PriceRecommendationPanel } from '@/components/PriceRecommendationPanel';
+import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { downloadBlob } from '@/lib/downloadBlob';
+import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import type { DocumentTemplate, Quotation, QuoteStatus, SaleType, Incoterm } from '@/types';
 
 const statusConfig: Record<QuoteStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
@@ -1396,9 +1399,11 @@ export function Quotations() {
   const can = useCapabilityStore((state) => state.can);
   const canViewCost = can('quotation.view_cost');
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const [activeTab, setActiveTab] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [activeTab, setActiveTab] = useListUrlStringState('status', 'all');
+  const [searchQuery, setSearchQuery] = useListUrlStringState('search', '');
+  const [currentPage, setCurrentPage] = useListUrlNumberState('page', 1);
+  const [sort, setSort] = useListUrlStringState('sort', 'createdAt');
+  const [direction, setDirection] = useListUrlStringState('direction', 'desc');
   const pageSize = 10;
   const {
     data: quotations,
@@ -1412,6 +1417,8 @@ export function Quotations() {
     search: searchQuery,
     page: currentPage,
     limit: pageSize,
+    sort,
+    direction: direction === 'asc' ? 'asc' : 'desc',
   });
   const { data: contractTemplates } = useDocumentTemplates('ORDER_CONTRACT');
   const { approve: approveQuote } = useApproveQuotation();
@@ -1435,12 +1442,6 @@ export function Quotations() {
     }
     if (activeTab === 'all') return true;
     return quote.status === activeTab;
-  }).sort((a, b) => {
-    // AOG quotations pinned to top
-    const aAog = a.rfqUrgency === 'aog' ? 1 : 0;
-    const bAog = b.rfqUrgency === 'aog' ? 1 : 0;
-    if (aAog !== bAog) return bAog - aAog;
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 
   const totalPages = Math.max(1, quotationPagination?.totalPages ?? 1);
@@ -1553,6 +1554,20 @@ export function Quotations() {
     })();
   };
 
+  const handleExport = async (scope: 'page' | 'filtered') => {
+    const blob = await quotationApi.exportCsv({
+      status: activeTab === 'all' ? undefined : activeTab,
+      search: searchQuery,
+      page: currentPage,
+      limit: pageSize,
+      sort,
+      direction: direction === 'asc' ? 'asc' : 'desc',
+      scope,
+      ...(scope === 'filtered' ? { confirm: 'full' as const, maxRows: 5000 } : {}),
+    });
+    downloadBlob(blob, `quotations-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
   if (quotesLoading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -1644,12 +1659,34 @@ export function Quotations() {
               className="pl-10"
             />
           </div>
+          <Select value={sort} onValueChange={(value) => { setSort(value); setCurrentPage(1); }}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder={tx('排序字段', 'Sort')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="createdAt">{tx('创建时间', 'Created')}</SelectItem>
+              <SelectItem value="expiryDate">{tx('到期日期', 'Expiry')}</SelectItem>
+              <SelectItem value="validityDeadline">{tx('有效期截止', 'Validity deadline')}</SelectItem>
+              <SelectItem value="totalPrice">{tx('总价', 'Total price')}</SelectItem>
+              <SelectItem value="quoteNumber">{tx('报价单号', 'Quote number')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={direction} onValueChange={(value) => { setDirection(value); setCurrentPage(1); }}>
+            <SelectTrigger className="w-28">
+              <SelectValue placeholder={tx('顺序', 'Order')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="desc">{tx('降序', 'Desc')}</SelectItem>
+              <SelectItem value="asc">{tx('升序', 'Asc')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" disabled>
             <Filter className="w-4 h-4 mr-1" />
             {tx('筛选', 'Filters')}
           </Button>
+          {can('quotation.export') && <ControlledListExportButton locale={locale} onExport={handleExport} />}
           {can('quotation.create') && (
             <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => setIsCreateOpen(true)}>
               <Plus className="w-4 h-4 mr-1" />

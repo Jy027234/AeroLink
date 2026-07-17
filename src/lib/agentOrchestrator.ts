@@ -20,7 +20,7 @@ import {
   synthesizeSupplierQuotes,
   type SupplierCapabilityProfile,
 } from '@/lib/supplierCapability';
-import { useAuthStore, useCustomerStore, useRFQStore, useSupplierFollowUpStore, useSupplierStore } from '@/store';
+import { useAuthStore, useRFQStore, useSupplierFollowUpStore } from '@/store';
 
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误';
@@ -284,23 +284,39 @@ class AgentOrchestrator {
     };
   }
 
-  private getCurrentSuppliers(): Supplier[] {
-    const currentSuppliers = useSupplierStore.getState().suppliers;
-    return currentSuppliers.length > 0 ? currentSuppliers : mockSuppliers;
+  private async getAvailableSuppliers(search?: string): Promise<Supplier[]> {
+    try {
+      const suppliers = (await supplierApi.getAll({
+        search,
+        page: 1,
+        limit: 20,
+        sort: 'performanceScore',
+        direction: 'desc',
+      })).data;
+      if (suppliers.length > 0) {
+        return suppliers;
+      }
+    } catch {
+      // Keep the demo flow usable when supplier master data is unavailable.
+    }
+
+    return mockSuppliers;
   }
 
-  private resolveFollowUpSupplier(
+  private async resolveFollowUpSupplier(
     supplier: NonNullable<AgentData['followUpQueue']>[number],
     fallbackIndex: number
-  ): Supplier | undefined {
-    const currentSuppliers = this.getCurrentSuppliers();
+  ): Promise<Supplier | undefined> {
 
     if (supplier.id) {
-      const matchedById = currentSuppliers.find((candidate) => candidate.id === supplier.id);
-      if (matchedById) {
-        return matchedById;
+      try {
+        return await supplierApi.getById(supplier.id);
+      } catch {
+        // A deleted supplier can still be represented by the queued payload below.
       }
     }
+
+    const currentSuppliers = await this.getAvailableSuppliers(supplier.name);
 
     const normalizedName = normalizeText(supplier.name);
     const normalizedEmail = normalizeText(supplier.email);
@@ -337,30 +353,24 @@ class AgentOrchestrator {
     return currentSuppliers[fallbackIndex % currentSuppliers.length];
   }
 
-  private getSupplierProfiles(context: AgentData): SupplierCapabilityProfile[] {
-    const currentSuppliers = this.getCurrentSuppliers();
+  private async getSupplierProfiles(context: AgentData): Promise<SupplierCapabilityProfile[]> {
+    if (Array.isArray(context.selectedSupplierProfiles) && context.selectedSupplierProfiles.length > 0) {
+      return context.selectedSupplierProfiles as SupplierCapabilityProfile[];
+    }
+
+    const currentSuppliers = await this.getAvailableSuppliers();
 
     if (context.demoMode === true) {
       return selectSuppliersForSourcing(buildDemoSuppliers(currentSuppliers), context.parsedData?.urgency === 'aog' ? 3 : 3);
     }
 
-    if (Array.isArray(context.selectedSupplierProfiles) && context.selectedSupplierProfiles.length > 0) {
-      return context.selectedSupplierProfiles as SupplierCapabilityProfile[];
-    }
-
     return selectSuppliersForSourcing(currentSuppliers, context.parsedData?.urgency === 'aog' ? 3 : 3);
   }
 
-  private async getAvailableCustomers(): Promise<Customer[]> {
-    const existingCustomers = useCustomerStore.getState().customers;
-    if (existingCustomers.length > 0) {
-      return existingCustomers;
-    }
-
+  private async getAvailableCustomers(search?: string): Promise<Customer[]> {
     try {
-      const customers = (await customerApi.getAll()).data;
+      const customers = (await customerApi.getAll({ search, page: 1, limit: 20 })).data;
       if (customers.length > 0) {
-        useCustomerStore.getState().setCustomers(customers);
         return customers;
       }
     } catch {
@@ -371,7 +381,7 @@ class AgentOrchestrator {
   }
 
   private async resolveDemoCustomer(requestedName?: string): Promise<Customer> {
-    const customers = await this.getAvailableCustomers();
+    const customers = await this.getAvailableCustomers(requestedName);
     const normalizedRequestedName = normalizeText(requestedName);
 
     const matchedCustomer = normalizedRequestedName
@@ -967,7 +977,7 @@ class AgentOrchestrator {
     }
 
     if (action === 'selectSuppliers') {
-      const selectedProfiles = this.getSupplierProfiles(context);
+      const selectedProfiles = await this.getSupplierProfiles(context);
       if (selectedProfiles.length === 0) {
         return { success: false, error: '当前没有可用于询价的供应商，请先补充供应商主数据' };
       }
@@ -983,7 +993,7 @@ class AgentOrchestrator {
     }
 
     if (action === 'sendInquiry') {
-      const selectedProfiles = this.getSupplierProfiles(context);
+      const selectedProfiles = await this.getSupplierProfiles(context);
       const inquiryDispatch = buildInquiryDispatchSummary(selectedProfiles);
 
       return {
@@ -1006,7 +1016,7 @@ class AgentOrchestrator {
     await delay(800);
 
     if (action === 'collect') {
-      const selectedProfiles = this.getSupplierProfiles(context);
+      const selectedProfiles = await this.getSupplierProfiles(context);
       const quotes = synthesizeSupplierQuotes(selectedProfiles, context);
 
       if (quotes.length === 0) {
@@ -1287,8 +1297,8 @@ class AgentOrchestrator {
     const followUpQueue = Array.isArray(task.context.followUpQueue) ? task.context.followUpQueue : [];
     const followUpNotes = payload?.notes?.trim() || undefined;
     const followUpOutcome = payload?.outcome || 'contacted_waiting_quote';
-    const resolvedFollowUpQueue = followUpQueue.map((supplier, index) => {
-      const resolvedSupplier = this.resolveFollowUpSupplier(supplier, index);
+    const resolvedFollowUpQueue = await Promise.all(followUpQueue.map(async (supplier, index) => {
+      const resolvedSupplier = await this.resolveFollowUpSupplier(supplier, index);
 
       if (!resolvedSupplier) {
         return supplier;
@@ -1301,7 +1311,7 @@ class AgentOrchestrator {
         email: resolvedSupplier.email || supplier.email,
         phone: resolvedSupplier.phone || supplier.phone,
       };
-    });
+    }));
     const followUpDrafts = resolvedFollowUpQueue.map((supplier, index) => ({
       supplierId: supplier.id || `supplier_${index + 1}`,
       taskId,

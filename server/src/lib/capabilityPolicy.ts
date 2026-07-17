@@ -115,8 +115,8 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
   manager: combine(
     grant('all', [
       ...baseReadCapabilities,
-      ...keys('customer', ['read', 'create', 'update', 'delete']),
-      ...keys('supplier', ['read', 'create', 'update', 'delete']),
+      ...keys('customer', ['read', 'create', 'update', 'delete', 'export']),
+      ...keys('supplier', ['read', 'create', 'update', 'delete', 'export']),
       ...keys('supplier_quote', ['read', 'create', 'update', 'delete']),
       ...keys('inventory', ['read', 'create', 'update', 'delete', 'manage', 'reconcile', 'export']),
       ...keys('certificate', ['read', 'issue']),
@@ -133,17 +133,17 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('blockchain', ['read']),
     ]),
     grant('department_or_own', [
-      ...keys('rfq', ['read', 'create', 'update', 'transition']),
-      ...keys('quotation', ['read', 'create', 'update', 'transition', 'approve', 'send', 'accept', 'withdraw', 'view_cost']),
-      ...keys('order', ['read', 'create', 'update', 'transition', 'view_cost']),
+      ...keys('rfq', ['read', 'create', 'update', 'transition', 'export']),
+      ...keys('quotation', ['read', 'create', 'update', 'transition', 'approve', 'send', 'accept', 'withdraw', 'view_cost', 'export']),
+      ...keys('order', ['read', 'create', 'update', 'transition', 'view_cost', 'export']),
     ]),
     grant('own', selfServiceSessionCapabilities),
   ),
   finance: combine(
     grant('all', [
       ...baseReadCapabilities,
-      ...keys('quotation', ['read', 'view_cost']),
-      ...keys('order', ['read', 'view_cost']),
+      ...keys('quotation', ['read', 'view_cost', 'export']),
+      ...keys('order', ['read', 'view_cost', 'export']),
       ...keys('report', ['read', 'export']),
       ...keys('customer', ['read']),
       ...keys('supplier', ['read']),
@@ -161,9 +161,9 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('certificate', ['read']),
     ]),
     grant('own', [
-      ...keys('rfq', ['read', 'create', 'update', 'transition']),
-      ...keys('quotation', ['read', 'create', 'update', 'transition', 'send', 'accept', 'withdraw']),
-      ...keys('order', ['read']),
+      ...keys('rfq', ['read', 'create', 'update', 'transition', 'export']),
+      ...keys('quotation', ['read', 'create', 'update', 'transition', 'send', 'accept', 'withdraw', 'export']),
+      ...keys('order', ['read', 'export']),
       ...selfServiceSessionCapabilities,
     ]),
   ),

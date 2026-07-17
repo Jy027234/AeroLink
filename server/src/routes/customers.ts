@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireCapability } from '../middleware/capability.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 import { validateBody } from '../middleware/validate.js';
 import { customerCreateSchema, customerUpdateSchema } from '../lib/validation.js';
+import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -74,31 +76,57 @@ function serializeCustomer(c: any) {
   };
 }
 
+type CustomerListSort = 'name' | 'createdAt' | 'annualRevenue' | 'lastOrderAt';
+
+function customerListOrderBy(
+  sort: CustomerListSort,
+  direction: SortDirection,
+): Prisma.CustomerOrderByWithRelationInput[] {
+  switch (sort) {
+    case 'createdAt':
+      return [{ createdAt: direction }, { id: 'asc' }];
+    case 'annualRevenue':
+      return [{ annualRevenue: direction }, { id: 'asc' }];
+    case 'lastOrderAt':
+      return [{ lastOrderAt: direction }, { id: 'asc' }];
+    default:
+      return [{ name: direction }, { id: 'asc' }];
+  }
+}
+
+function buildCustomerListWhere(query: Record<string, unknown>): Prisma.CustomerWhereInput {
+  const status = typeof query.status === 'string' ? query.status : '';
+  const search = typeof query.search === 'string' ? query.search : '';
+  const where: Prisma.CustomerWhereInput = {};
+  if (status) where.status = status.toUpperCase();
+  const searchValue = search.trim();
+  if (searchValue) {
+    where.OR = [
+      { name: { contains: searchValue, mode: 'insensitive' } },
+      { contactName: { contains: searchValue, mode: 'insensitive' } },
+      { email: { contains: searchValue, mode: 'insensitive' } },
+    ];
+  }
+  return where;
+}
+
 router.get(
   '/',
   requireCapability('customer', 'read'),
   asyncHandler(async (req, res) => {
-    const { status, search, page, limit } = req.query;
-    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
-    const skip = (pageNum - 1) * pageSize;
-
-    const where: Prisma.CustomerWhereInput = {};
-    if (status) where.status = status.toString().toUpperCase();
-    const searchValue = typeof search === 'string' ? search.trim() : '';
-    if (searchValue) {
-      where.OR = [
-        { name: { contains: searchValue, mode: 'insensitive' } },
-        { contactName: { contains: searchValue, mode: 'insensitive' } },
-        { email: { contains: searchValue, mode: 'insensitive' } },
-      ];
-    }
+    const query = req.query as Record<string, unknown>;
+    const { page: pageNum, limit: pageSize, skip, sort, direction } = parseListQuery<CustomerListSort>(query, {
+      allowedSorts: ['name', 'createdAt', 'annualRevenue', 'lastOrderAt'],
+      defaultSort: 'name',
+      defaultDirection: 'asc',
+    });
+    const where = buildCustomerListWhere(query);
 
     const [customers, total, statusCounts, revenueAggregate] = await Promise.all([
       prisma.customer.findMany({
         where,
         include: customerInclude,
-        orderBy: { name: 'asc' },
+        orderBy: customerListOrderBy(sort, direction),
         skip,
         take: pageSize,
       }),
@@ -131,9 +159,66 @@ router.get(
         limit: pageSize,
         total,
         totalPages: Math.ceil(total / pageSize),
+        sort,
+        direction,
       },
     });
   })
+);
+
+router.get(
+  '/export.csv',
+  requireCapability('customer', 'export'),
+  asyncHandler(async (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    const window = parseControlledExportWindow(query);
+    const { sort, direction } = parseListQuery<CustomerListSort>(query, {
+      allowedSorts: ['name', 'createdAt', 'annualRevenue', 'lastOrderAt'],
+      defaultSort: 'name',
+      defaultDirection: 'asc',
+    });
+    const customers = await prisma.customer.findMany({
+      where: buildCustomerListWhere(query),
+      select: {
+        name: true,
+        buyerType: true,
+        contactName: true,
+        email: true,
+        phone: true,
+        status: true,
+        annualRevenue: true,
+        lastOrderAt: true,
+        createdAt: true,
+      },
+      orderBy: customerListOrderBy(sort, direction),
+      skip: window.skip,
+      take: window.take,
+    });
+
+    await createAuditLog({
+      req,
+      action: 'EXPORT',
+      resourceType: 'CUSTOMER',
+      details: `Customer CSV export (${window.scope}, ${customers.length}/${window.rowLimit} rows)`,
+    });
+    sendCsv(
+      res,
+      `customers-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { header: '客户名称', value: (customer) => customer.name },
+        { header: '买方类型', value: (customer) => customer.buyerType },
+        { header: '联系人', value: (customer) => customer.contactName },
+        { header: '邮箱', value: (customer) => customer.email },
+        { header: '电话', value: (customer) => customer.phone },
+        { header: '状态', value: (customer) => customer.status },
+        { header: '年营收', value: (customer) => customer.annualRevenue },
+        { header: '最近订单日期', value: (customer) => customer.lastOrderAt },
+        { header: '创建时间', value: (customer) => customer.createdAt },
+      ],
+      customers,
+      window,
+    );
+  }),
 );
 
 router.get(

@@ -666,7 +666,7 @@ async function requestBlob(
     headers.set('Authorization', `Bearer ${token}`);
   }
   if (!headers.has('Accept')) {
-    headers.set('Accept', 'application/pdf, application/octet-stream');
+    headers.set('Accept', 'application/pdf, text/csv, application/octet-stream');
   }
 
   const response = await fetch(url, {
@@ -694,6 +694,32 @@ async function requestBlob(
   }
 
   return response.blob();
+}
+
+export type ListSortDirection = 'asc' | 'desc';
+export type ListExportScope = 'page' | 'filtered';
+
+export interface ControlledListExportOptions {
+  scope?: ListExportScope;
+  /** Required by the API whenever scope is `filtered`. */
+  confirm?: 'full';
+  maxRows?: number;
+}
+
+type ExportQueryValue = string | number | undefined | null;
+
+function requestCsv(endpoint: string, params: object): Promise<Blob> {
+  const search = new URLSearchParams();
+  Object.entries(params as Record<string, ExportQueryValue>).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      search.set(key, String(value));
+    }
+  });
+  const query = search.toString();
+  return requestBlob(`${endpoint}${query ? `?${query}` : ''}`, {
+    method: 'GET',
+    headers: { Accept: 'text/csv, application/octet-stream' },
+  });
 }
 
 export interface InboundWebhookEndpoint {
@@ -788,6 +814,8 @@ export interface PaginatedList<T> {
     limit: number;
     total: number;
     totalPages: number;
+    sort?: string;
+    direction?: ListSortDirection;
   };
 }
 
@@ -1314,13 +1342,23 @@ export const ipcApi = {
 
 // ===== RFQ API =====
 export const rfqApi = {
-  getAll: async (filters?: { status?: string; urgency?: string; search?: string; page?: number; limit?: number }) => {
+  getAll: async (filters?: {
+    status?: string;
+    urgency?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.append('status', filters.status);
     if (filters?.urgency) params.append('urgency', filters.urgency);
     if (filters?.search?.trim()) params.append('search', filters.search.trim());
     params.append('page', String(filters?.page ?? 1));
-    params.append('limit', String(filters?.limit ?? 100));
+    params.append('limit', String(filters?.limit ?? 20));
+    if (filters?.sort) params.append('sort', filters.sort);
+    if (filters?.direction) params.append('direction', filters.direction);
     const query = params.toString();
     return requestEnvelope<PaginatedRFQs>(`/rfqs${query ? `?${query}` : ''}`);
   },
@@ -1349,16 +1387,35 @@ export const rfqApi = {
       body: JSON.stringify({ status, version }),
     });
   },
+
+  exportCsv: async (filters: {
+    status?: string;
+    urgency?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  } & ControlledListExportOptions = {}) => requestCsv('/rfqs/export.csv', filters),
 };
 
 // ===== Quotation API =====
 export const quotationApi = {
-  getAll: async (filters?: { status?: string; search?: string; page?: number; limit?: number }) => {
+  getAll: async (filters?: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.append('status', filters.status);
     if (filters?.search?.trim()) params.append('search', filters.search.trim());
     params.append('page', String(filters?.page ?? 1));
-    params.append('limit', String(filters?.limit ?? 100));
+    params.append('limit', String(filters?.limit ?? 20));
+    if (filters?.sort) params.append('sort', filters.sort);
+    if (filters?.direction) params.append('direction', filters.direction);
     const query = params.toString();
     return requestEnvelope<PaginatedQuotations>(`/quotations${query ? `?${query}` : ''}`);
   },
@@ -1414,16 +1471,34 @@ export const quotationApi = {
       method: 'GET',
     });
   },
+
+  exportCsv: async (filters: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  } & ControlledListExportOptions = {}) => requestCsv('/quotations/export.csv', filters),
 };
 
 // ===== Order API =====
 export const orderApi = {
-  getAll: async (filters?: { status?: string; search?: string; page?: number; limit?: number }) => {
+  getAll: async (filters?: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.append('status', filters.status);
     if (filters?.search?.trim()) params.append('search', filters.search.trim());
     params.append('page', String(filters?.page ?? 1));
-    params.append('limit', String(filters?.limit ?? 100));
+    params.append('limit', String(filters?.limit ?? 20));
+    if (filters?.sort) params.append('sort', filters.sort);
+    if (filters?.direction) params.append('direction', filters.direction);
     const query = params.toString();
     return requestEnvelope<PaginatedOrders>(`/orders${query ? `?${query}` : ''}`);
   },
@@ -1452,6 +1527,15 @@ export const orderApi = {
       body: JSON.stringify({ status, version }),
     });
   },
+
+  exportCsv: async (filters: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  } & ControlledListExportOptions = {}) => requestCsv('/orders/export.csv', filters),
 };
 
 export const documentTemplateApi = {
@@ -1511,6 +1595,8 @@ export const inventoryApi = {
     location?: string;
     page?: number;
     limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
   }) => {
     const search = new URLSearchParams();
     if (params?.search?.trim()) search.append('search', params.search.trim());
@@ -1520,7 +1606,9 @@ export const inventoryApi = {
     if (params?.partCategory) search.append('partCategory', params.partCategory);
     if (params?.location) search.append('location', params.location);
     search.append('page', String(params?.page ?? 1));
-    search.append('limit', String(params?.limit ?? 100));
+    search.append('limit', String(params?.limit ?? 20));
+    if (params?.sort) search.append('sort', params.sort);
+    if (params?.direction) search.append('direction', params.direction);
     return requestEnvelope<PaginatedInventory>(`/inventory?${search.toString()}`);
   },
 
@@ -1549,6 +1637,19 @@ export const inventoryApi = {
       body: JSON.stringify(data),
     });
   },
+
+  exportCsv: async (params: {
+    search?: string;
+    conditionCode?: string;
+    certificateType?: string;
+    type?: string;
+    partCategory?: string;
+    location?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  } & ControlledListExportOptions = {}) => requestCsv('/inventory/export.csv', params),
 };
 
 // ===== Phase 3: 库存明细层 API =====
@@ -1610,12 +1711,21 @@ export const inventoryDetailApi = {
 
 // ===== Customer API =====
 export const customerApi = {
-  getAll: async (params?: { status?: string; search?: string; page?: number; limit?: number }) => {
+  getAll: async (params?: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  }) => {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.append('status', params.status);
     if (params?.search?.trim()) searchParams.append('search', params.search.trim());
     searchParams.append('page', String(params?.page ?? 1));
-    searchParams.append('limit', String(params?.limit ?? 100));
+    searchParams.append('limit', String(params?.limit ?? 20));
+    if (params?.sort) searchParams.append('sort', params.sort);
+    if (params?.direction) searchParams.append('direction', params.direction);
     const query = searchParams.toString();
     return requestEnvelope<PaginatedCustomers>(`/customers${query ? `?${query}` : ''}`);
   },
@@ -1637,17 +1747,36 @@ export const customerApi = {
       body: JSON.stringify(data),
     });
   },
+
+  exportCsv: async (params: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  } & ControlledListExportOptions = {}) => requestCsv('/customers/export.csv', params),
 };
 
 // ===== Supplier API =====
 export const supplierApi = {
-  getAll: async (params?: { level?: string; search?: string; followUpFilter?: string; page?: number; limit?: number }) => {
+  getAll: async (params?: {
+    level?: string;
+    search?: string;
+    followUpFilter?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  }) => {
     const searchParams = new URLSearchParams();
     if (params?.level) searchParams.append('level', params.level);
     if (params?.search?.trim()) searchParams.append('search', params.search.trim());
     if (params?.followUpFilter && params.followUpFilter !== 'all') searchParams.append('followUpFilter', params.followUpFilter);
     searchParams.append('page', String(params?.page ?? 1));
-    searchParams.append('limit', String(params?.limit ?? 100));
+    searchParams.append('limit', String(params?.limit ?? 20));
+    if (params?.sort) searchParams.append('sort', params.sort);
+    if (params?.direction) searchParams.append('direction', params.direction);
     const query = searchParams.toString();
     return requestEnvelope<PaginatedSuppliers>(`/suppliers${query ? `?${query}` : ''}`);
   },
@@ -1663,6 +1792,16 @@ export const supplierApi = {
     const query = searchParams.toString();
     return request<SupplierFollowUpLog[]>(`/suppliers/follow-up-logs${query ? `?${query}` : ''}`);
   },
+
+  exportCsv: async (params: {
+    level?: string;
+    search?: string;
+    followUpFilter?: string;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    direction?: ListSortDirection;
+  } & ControlledListExportOptions = {}) => requestCsv('/suppliers/export.csv', params),
 
   createFollowUpLogs: async (data: { logs: SupplierFollowUpLogCreateInput[] }) => {
     return request<SupplierFollowUpLog[]>('/suppliers/follow-up-logs', {
@@ -2104,6 +2243,37 @@ export interface WebhookDLQStats {
   recoveryRate: number;
 }
 
+export type WebhookReplayDeliveryStatus = 'delivered' | 'failed' | 'pending' | 'quarantined';
+
+export interface WebhookReplayDelivery {
+  id: string;
+  eventType: string;
+  endpointId: string;
+  payload: string;
+  status: WebhookReplayDeliveryStatus | string;
+  deliveredAt: string | null;
+}
+
+export interface WebhookReplayEstimate {
+  totalDeliveries: number;
+  affectedEndpoints: string[];
+  estimatedDuration: number;
+  estimatedTimestamp: string;
+}
+
+export interface WebhookReplayBatch {
+  batchId: string;
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED';
+  totalDeliveries: number;
+  succeeded: number;
+  failed: number;
+  pending: number;
+  progress: number;
+  startedAt?: string;
+  completedAt?: string;
+  errorMessage?: string;
+}
+
 export const webhooksPhase2Api = {
   getDlqStats: async () => {
     return request<WebhookDLQStats>('/webhooks/phase2/dlq/stats');
@@ -2158,6 +2328,52 @@ export const webhooksPhase2Api = {
       body: JSON.stringify({ reason }),
     });
   },
+
+  queryReplay: async (params: {
+    startDate?: string;
+    endDate?: string;
+    eventTypes?: string[];
+    endpointIds?: string[];
+    status?: WebhookReplayDeliveryStatus;
+    limit?: number;
+  }) => request<{ count: number; deliveries: WebhookReplayDelivery[] }>('/webhooks/phase2/replay/query', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  }),
+
+  estimateReplay: async (deliveryIds: string[]) => request<WebhookReplayEstimate>('/webhooks/phase2/replay/estimate', {
+    method: 'POST',
+    body: JSON.stringify({ deliveryIds }),
+  }),
+
+  executeReplay: async (params: {
+    deliveryIds: string[];
+    concurrency?: number;
+    overridePayload?: Record<string, unknown>;
+  }) => request<{ message: string; batchId: string }>('/webhooks/phase2/replay/execute', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  }),
+
+  getReplayBatch: async (batchId: string) => request<WebhookReplayBatch>(
+    `/webhooks/phase2/replay/${encodeURIComponent(batchId)}`,
+  ),
+
+  listReplayBatches: async (params?: { limit?: number; offset?: number; status?: WebhookReplayBatch['status'] }) => {
+    const search = new URLSearchParams();
+    if (params?.limit) search.set('limit', String(params.limit));
+    if (params?.offset) search.set('offset', String(params.offset));
+    if (params?.status) search.set('status', params.status);
+    const query = search.toString();
+    return request<{ data: WebhookReplayBatch[]; pagination: { limit: number; offset: number; total: number } }>(
+      `/webhooks/phase2/replay${query ? `?${query}` : ''}`,
+    );
+  },
+
+  cancelReplayBatch: async (batchId: string) => request<{ message: string }>(
+    `/webhooks/phase2/replay/${encodeURIComponent(batchId)}/cancel`,
+    { method: 'POST' },
+  ),
 };
 
 // ===== Certificate API =====

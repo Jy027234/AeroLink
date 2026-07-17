@@ -3,7 +3,6 @@ import {
   Search,
   Package,
   MapPin,
-  Download,
   Upload,
   ShoppingCart,
   Loader2,
@@ -55,8 +54,11 @@ import { useCapabilityStore, useInquiryStore, useUIStore } from '@/store';
 import { useInventory } from '@/hooks/useApi';
 import { inventoryApi, type InventoryReconciliationResult } from '@/api/client';
 import { ipcApi } from '@/api/client';
+import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { downloadBlob } from '@/lib/downloadBlob';
+import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import { toast } from 'sonner';
 import type { Inventory, ConditionCode, CertificateType } from '@/types';
 
@@ -1401,16 +1403,18 @@ export function InventoryCenter() {
   };
 
   // Filter state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [certFilter, setCertFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  const [locationFilter, setLocationFilter] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useListUrlStringState('search', '');
+  const [statusFilter, setStatusFilter] = useListUrlStringState('conditionCode', 'all');
+  const [certFilter, setCertFilter] = useListUrlStringState('certificateType', 'all');
+  const [typeFilter, setTypeFilter] = useListUrlStringState('type', 'all');
+  const [categoryFilter, setCategoryFilter] = useListUrlStringState('partCategory', 'all');
+  const [locationFilter, setLocationFilter] = useListUrlStringState('location', '');
 
   // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [currentPage, setCurrentPage] = useListUrlNumberState('page', 1);
+  const [pageSize, setPageSize] = useListUrlNumberState('limit', 50);
+  const [sort, setSort] = useListUrlStringState('sort', 'partNumber');
+  const [direction, setDirection] = useListUrlStringState('direction', 'asc');
 
   // Selected items
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
@@ -1446,6 +1450,8 @@ export function InventoryCenter() {
     location: activeLocationFilter || undefined,
     page: activeCurrentPage,
     limit: pageSize,
+    sort,
+    direction: direction === 'desc' ? 'desc' : 'asc',
   });
 
   const consumeSearchPreset = () => {
@@ -1611,6 +1617,24 @@ export function InventoryCenter() {
     setCategoryFilter('all');
     setLocationFilter('');
     setCurrentPage(1);
+  };
+
+  const handleExport = async (scope: 'page' | 'filtered') => {
+    const blob = await inventoryApi.exportCsv({
+      search: activeSearchQuery,
+      conditionCode: activeStatusFilter === 'all' ? undefined : activeStatusFilter,
+      certificateType: activeCertFilter === 'all' ? undefined : activeCertFilter,
+      type: activeTypeFilter === 'all' ? undefined : activeTypeFilter,
+      partCategory: activeCategoryFilter === 'all' ? undefined : activeCategoryFilter,
+      location: activeLocationFilter || undefined,
+      page: activeCurrentPage,
+      limit: pageSize,
+      sort,
+      direction: direction === 'desc' ? 'desc' : 'asc',
+      scope,
+      ...(scope === 'filtered' ? { confirm: 'full' as const, maxRows: 5000 } : {}),
+    });
+    downloadBlob(blob, `inventory-${new Date().toISOString().slice(0, 10)}.csv`);
   };
 
   // Clear selection
@@ -1826,6 +1850,27 @@ export function InventoryCenter() {
             </Select>
           )}
 
+          <Select value={sort} onValueChange={(v) => { consumeSearchPreset(); setSort(v); setCurrentPage(1); }}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder={tx('排序字段', 'Sort')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="partNumber">{tx('件号', 'Part number')}</SelectItem>
+              <SelectItem value="createdAt">{tx('创建时间', 'Created')}</SelectItem>
+              <SelectItem value="quantity">{tx('数量', 'Quantity')}</SelectItem>
+              <SelectItem value="unitCost">{tx('单位成本', 'Unit cost')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={direction} onValueChange={(v) => { consumeSearchPreset(); setDirection(v); setCurrentPage(1); }}>
+            <SelectTrigger className="w-28">
+              <SelectValue placeholder={tx('顺序', 'Order')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="asc">{tx('升序', 'Asc')}</SelectItem>
+              <SelectItem value="desc">{tx('降序', 'Desc')}</SelectItem>
+            </SelectContent>
+          </Select>
+
           {/* Clear filters */}
           {hasFilters && (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
@@ -1846,10 +1891,7 @@ export function InventoryCenter() {
               <Upload className="w-4 h-4 mr-1" />
               {tx('导入', 'Import')}
             </Button>
-            <Button variant="outline" size="sm">
-              <Download className="w-4 h-4 mr-1" />
-              {tx('导出', 'Export')}
-            </Button>
+            {can('inventory.export') && <ControlledListExportButton locale={locale} onExport={handleExport} />}
             {canReconcileInventory && (
               <Button variant="outline" size="sm" onClick={() => void runReconciliation()} disabled={reconciliationLoading}>
                 <RefreshCw className={cn('w-4 h-4 mr-1', reconciliationLoading && 'animate-spin')} />
@@ -1938,7 +1980,6 @@ export function InventoryCenter() {
                 <SelectItem value="20">20</SelectItem>
                 <SelectItem value="50">50</SelectItem>
                 <SelectItem value="100">100</SelectItem>
-                <SelectItem value="200">200</SelectItem>
               </SelectContent>
             </Select>
             <span className="text-sm text-gray-500">{tx('条', 'records')}</span>

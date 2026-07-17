@@ -20,6 +20,35 @@ import * as z from 'zod';
 
 const router = Router();
 
+const replayStatusSchema = z.enum(['delivered', 'failed', 'pending', 'quarantined']);
+const replayDeliveryIdsSchema = z.array(z.string().uuid()).min(1).max(5000).superRefine((ids, context) => {
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'deliveryIds must not contain duplicates' });
+  }
+});
+const replayQuerySchema = z.object({
+  startDate: z.string().datetime({ offset: true }).optional(),
+  endDate: z.string().datetime({ offset: true }).optional(),
+  eventTypes: z.array(z.string().trim().min(1).max(128)).max(50).optional(),
+  endpointIds: z.array(z.string().uuid()).max(100).optional(),
+  status: replayStatusSchema.optional(),
+  limit: z.number().int().min(1).max(5000).optional(),
+}).superRefine((value, context) => {
+  if (value.startDate && value.endDate && new Date(value.startDate) > new Date(value.endDate)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endDate'],
+      message: 'endDate must not be earlier than startDate',
+    });
+  }
+});
+const replayEstimateSchema = z.object({ deliveryIds: replayDeliveryIdsSchema });
+const replayExecuteSchema = z.object({
+  deliveryIds: replayDeliveryIdsSchema,
+  concurrency: z.number().int().min(1).max(10).optional(),
+  overridePayload: z.record(z.string(), z.unknown()).optional(),
+});
+
 function getErrorMessage(error: unknown): string | undefined {
   return error instanceof Error ? error.message : undefined;
 }
@@ -217,9 +246,10 @@ router.post(
   '/replay/query',
   authenticate,
   requireCapability('webhook', 'read'),
+  validateBody(replayQuerySchema),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { startDate, endDate, eventTypes, endpointIds, status, limit } = req.body;
+      const { startDate, endDate, eventTypes, endpointIds, status, limit } = req.body as z.infer<typeof replayQuerySchema>;
 
       const deliveries = await bulkReplayService.query({
         startDate: startDate ? new Date(startDate) : undefined,
@@ -227,7 +257,7 @@ router.post(
         eventTypes,
         endpointIds,
         status: status || 'delivered',
-        limit: Math.min(limit || 1000, 5000)
+        limit: limit || 1000,
       });
 
       res.json({
@@ -249,13 +279,10 @@ router.post(
   '/replay/estimate',
   authenticate,
   requireCapability('webhook', 'read'),
+  validateBody(replayEstimateSchema),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { deliveryIds } = req.body;
-
-      if (!Array.isArray(deliveryIds) || deliveryIds.length === 0) {
-        return res.status(400).json({ error: 'deliveryIds must be a non-empty array' });
-      }
+      const { deliveryIds } = req.body as z.infer<typeof replayEstimateSchema>;
 
       const estimate = await bulkReplayService.estimate(deliveryIds);
       res.json(estimate);
@@ -275,23 +302,13 @@ router.post(
   authenticate,
   requireCapability('webhook', 'manage'),
   webhookAudit('REPLAY', 'delivery', () => 'bulk'),
+  validateBody(replayExecuteSchema),
   async (req: AuthRequest, res: Response) => {
     try {
-      const { deliveryIds, concurrency, overridePayload } = req.body;
-
-      if (!Array.isArray(deliveryIds) || deliveryIds.length === 0) {
-        return res.status(400).json({ error: 'deliveryIds must be a non-empty array' });
-      }
-
-      if (deliveryIds.length > 10000) {
-        return res.status(400).json({
-          error: 'Too many deliveries (max 10000)',
-          count: deliveryIds.length
-        });
-      }
+      const { deliveryIds, concurrency, overridePayload } = req.body as z.infer<typeof replayExecuteSchema>;
 
       const result = await bulkReplayService.replay(deliveryIds, {
-        concurrency: Math.min(concurrency || 3, 10),
+        concurrency: concurrency || 3,
         overridePayload,
         triggeredBy: req.user?.id || 'unknown'
       });

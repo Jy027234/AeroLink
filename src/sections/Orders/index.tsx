@@ -63,6 +63,9 @@ import { documentApi, orderApi } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { downloadBlob } from '@/lib/downloadBlob';
+import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
+import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { toast } from 'sonner';
 import type { Order, OrderStatus } from '@/types';
 
@@ -1300,9 +1303,11 @@ export function Orders() {
   const can = useCapabilityStore((state) => state.can);
   const canViewCost = can('order.view_cost');
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useListUrlStringState('search', '');
+  const [activeTab, setActiveTab] = useListUrlStringState('status', 'all');
+  const [currentPage, setCurrentPage] = useListUrlNumberState('page', 1);
+  const [sort, setSort] = useListUrlStringState('sort', 'createdAt');
+  const [direction, setDirection] = useListUrlStringState('direction', 'desc');
   const pageSize = 10;
   const {
     data: orders,
@@ -1314,6 +1319,8 @@ export function Orders() {
     search: searchQuery,
     page: currentPage,
     limit: pageSize,
+    sort,
+    direction: direction === 'asc' ? 'asc' : 'desc',
   });
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -1377,6 +1384,20 @@ export function Orders() {
     }
   };
 
+  const handleExport = async (scope: 'page' | 'filtered') => {
+    const blob = await orderApi.exportCsv({
+      status: activeTab === 'all' ? undefined : activeTab,
+      search: searchQuery,
+      page: currentPage,
+      limit: pageSize,
+      sort,
+      direction: direction === 'asc' ? 'asc' : 'desc',
+      scope,
+      ...(scope === 'filtered' ? { confirm: 'full' as const, maxRows: 5000 } : {}),
+    });
+    downloadBlob(blob, `orders-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
   if (ordersLoading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -1436,7 +1457,28 @@ export function Orders() {
               className="pl-10"
             />
           </div>
+          <Select value={sort} onValueChange={(value) => { setSort(value); setCurrentPage(1); }}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder={tx('排序字段', 'Sort')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="createdAt">{tx('创建时间', 'Created')}</SelectItem>
+              <SelectItem value="deliveryDate">{tx('交付日期', 'Delivery date')}</SelectItem>
+              <SelectItem value="totalAmount">{tx('订单金额', 'Order amount')}</SelectItem>
+              <SelectItem value="orderNumber">{tx('订单号', 'Order number')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={direction} onValueChange={(value) => { setDirection(value); setCurrentPage(1); }}>
+            <SelectTrigger className="w-28">
+              <SelectValue placeholder={tx('顺序', 'Order')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="desc">{tx('降序', 'Desc')}</SelectItem>
+              <SelectItem value="asc">{tx('升序', 'Asc')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
+        {can('order.export') && <ControlledListExportButton locale={locale} onExport={handleExport} />}
         <Button variant="outline" size="sm">
           <Filter className="w-4 h-4 mr-1" />
           {tx('筛选', 'Filter')}

@@ -8,6 +8,10 @@ import {
   type WebhookDLQItem,
   type WebhookDLQStats,
   type WebhookFailureReason,
+  type WebhookReplayBatch,
+  type WebhookReplayDelivery,
+  type WebhookReplayDeliveryStatus,
+  type WebhookReplayEstimate,
 } from '@/api/client';
 import { useTranslation } from '@/i18n';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +21,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -48,8 +53,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Loader2, MoreHorizontal, RefreshCw } from 'lucide-react';
+import { Loader2, MoreHorizontal, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import { useCapabilityStore } from '@/store';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,8 +115,15 @@ const toIsoDateFilter = (value: string) => {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 };
 
+const toReplayEndOfDay = (value: string) => {
+  if (!value) return undefined;
+  const date = new Date(`${value}T23:59:59.999`);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+};
+
 export function WebhookManagementPanel() {
   const { locale } = useTranslation();
+  const can = useCapabilityStore((state) => state.can);
   const tx = useCallback((zh: string, en: string) => (locale === 'zh-CN' ? zh : en), [locale]);
 
   const [loading, setLoading] = useState(false);
@@ -142,6 +155,17 @@ export function WebhookManagementPanel() {
   const [dlqLimit] = useState(20);
   const [dlqOffset, setDlqOffset] = useState(0);
   const [dlqTotal, setDlqTotal] = useState(0);
+  const [replayStartDate, setReplayStartDate] = useState('');
+  const [replayEndDate, setReplayEndDate] = useState('');
+  const [replayStatus, setReplayStatus] = useState<WebhookReplayDeliveryStatus>('delivered');
+  const [replayEndpointId, setReplayEndpointId] = useState('all');
+  const [replayEventTypes, setReplayEventTypes] = useState('');
+  const [replayDeliveries, setReplayDeliveries] = useState<WebhookReplayDelivery[]>([]);
+  const [selectedReplayDeliveryIds, setSelectedReplayDeliveryIds] = useState<Set<string>>(new Set());
+  const [replayEstimate, setReplayEstimate] = useState<WebhookReplayEstimate | null>(null);
+  const [replayBatches, setReplayBatches] = useState<WebhookReplayBatch[]>([]);
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [replayExecuting, setReplayExecuting] = useState(false);
 
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [testTarget, setTestTarget] = useState<InboundWebhookEndpoint | null>(null);
@@ -267,6 +291,27 @@ export function WebhookManagementPanel() {
       setAuditOffset(Math.max(0, Math.floor((auditTotal - 1) / auditLimit) * auditLimit));
     }
   }, [auditLimit, auditOffset, auditTotal]);
+
+  const loadReplayBatches = useCallback(async () => {
+    try {
+      const result = await webhooksPhase2Api.listReplayBatches({ limit: 20, offset: 0 });
+      setReplayBatches(result.data);
+    } catch (error) {
+      console.error('Failed to load replay batches:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadReplayBatches();
+  }, [loadReplayBatches]);
+
+  useEffect(() => {
+    if (!replayBatches.some((batch) => batch.status === 'IN_PROGRESS' || batch.status === 'PENDING')) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => { void loadReplayBatches(); }, 2000);
+    return () => window.clearInterval(timer);
+  }, [loadReplayBatches, replayBatches]);
 
   const onSubmit = async () => {
     if (!form.name || !form.sourceSystem || !form.urlPath) {
@@ -495,6 +540,97 @@ export function WebhookManagementPanel() {
     }
   };
 
+  const selectedReplayIds = useMemo(() => Array.from(selectedReplayDeliveryIds), [selectedReplayDeliveryIds]);
+
+  const onQueryReplay = async () => {
+    setReplayLoading(true);
+    try {
+      const eventTypes = replayEventTypes.split(',').map((value) => value.trim()).filter(Boolean);
+      const result = await webhooksPhase2Api.queryReplay({
+        startDate: toIsoDateFilter(replayStartDate),
+        endDate: toReplayEndOfDay(replayEndDate),
+        eventTypes: eventTypes.length > 0 ? eventTypes : undefined,
+        endpointIds: replayEndpointId === 'all' ? undefined : [replayEndpointId],
+        status: replayStatus,
+        limit: 1000,
+      });
+      setReplayDeliveries(result.deliveries);
+      setSelectedReplayDeliveryIds(new Set(result.deliveries.map((delivery) => delivery.id)));
+      setReplayEstimate(null);
+      toast.success(tx(`已找到 ${result.count} 条可重放投递`, `Found ${result.count} replayable deliveries`));
+    } catch (error) {
+      console.error('Failed to query replay deliveries:', error);
+      toast.error(tx('查询可重放投递失败', 'Failed to query replayable deliveries'));
+    } finally {
+      setReplayLoading(false);
+    }
+  };
+
+  const onEstimateReplay = async () => {
+    if (selectedReplayIds.length === 0) {
+      toast.warning(tx('请先选择至少一条投递记录', 'Select at least one delivery first'));
+      return;
+    }
+    setReplayLoading(true);
+    try {
+      const estimate = await webhooksPhase2Api.estimateReplay(selectedReplayIds);
+      setReplayEstimate(estimate);
+    } catch (error) {
+      console.error('Failed to estimate replay:', error);
+      toast.error(tx('回放影响预估失败', 'Replay impact estimation failed'));
+    } finally {
+      setReplayLoading(false);
+    }
+  };
+
+  const toggleReplayDelivery = (deliveryId: string, selected: boolean) => {
+    setSelectedReplayDeliveryIds((current) => {
+      const next = new Set(current);
+      if (selected) next.add(deliveryId);
+      else next.delete(deliveryId);
+      return next;
+    });
+    setReplayEstimate(null);
+  };
+
+  const onExecuteReplay = async () => {
+    if (!replayEstimate || replayEstimate.totalDeliveries !== selectedReplayIds.length) {
+      toast.warning(tx('请在执行前重新预估当前选择的影响范围', 'Estimate the currently selected deliveries before executing'));
+      return;
+    }
+    const confirmed = window.confirm(
+      tx(
+        `确认重放 ${selectedReplayIds.length} 条投递吗？该操作会重新触发相应 Webhook。`,
+        `Replay ${selectedReplayIds.length} deliveries? This will trigger the corresponding webhooks again.`,
+      ),
+    );
+    if (!confirmed) return;
+
+    setReplayExecuting(true);
+    try {
+      const result = await webhooksPhase2Api.executeReplay({ deliveryIds: selectedReplayIds, concurrency: 3 });
+      toast.success(tx(`回放批次已创建：${result.batchId.slice(0, 8)}`, `Replay batch created: ${result.batchId.slice(0, 8)}`));
+      setReplayEstimate(null);
+      await loadReplayBatches();
+    } catch (error) {
+      console.error('Failed to execute replay:', error);
+      toast.error(tx('执行回放失败', 'Failed to execute replay'));
+    } finally {
+      setReplayExecuting(false);
+    }
+  };
+
+  const onCancelReplayBatch = async (batchId: string) => {
+    try {
+      await webhooksPhase2Api.cancelReplayBatch(batchId);
+      toast.success(tx('回放批次已取消', 'Replay batch cancelled'));
+      await loadReplayBatches();
+    } catch (error) {
+      console.error('Failed to cancel replay batch:', error);
+      toast.error(tx('取消回放批次失败', 'Failed to cancel replay batch'));
+    }
+  };
+
   const endpointMap = useMemo(() => {
     const map = new Map<string, InboundWebhookEndpoint>();
     endpoints.forEach((item) => map.set(item.id, item));
@@ -650,11 +786,12 @@ export function WebhookManagementPanel() {
       </Card>
 
       <Tabs defaultValue="endpoints" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="endpoints">{tx('入站端点', 'Inbound Endpoints')}</TabsTrigger>
           <TabsTrigger value="deliveries">{tx('投递记录', 'Deliveries')}</TabsTrigger>
           <TabsTrigger value="audit">{tx('审计日志', 'Audit')}</TabsTrigger>
           <TabsTrigger value="dlq">Phase2 DLQ</TabsTrigger>
+          <TabsTrigger value="replay">{tx('批量回放', 'Bulk Replay')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="endpoints" className="space-y-3">
@@ -1051,6 +1188,178 @@ export function WebhookManagementPanel() {
                   </Button>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="replay" className="space-y-3">
+          <Card>
+            <CardHeader>
+              <CardTitle>{tx('批量回放查询', 'Bulk Replay Query')}</CardTitle>
+              <CardDescription>
+                {tx('先查询并预估影响范围，再显式确认执行。单次查询和执行最多处理 1,000 条当前匹配投递。', 'Query and estimate impact before explicitly executing. Each UI batch is limited to 1,000 matching deliveries.')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <Label>{tx('开始日期', 'Start date')}</Label>
+                <Input type="date" value={replayStartDate} onChange={(event) => setReplayStartDate(event.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>{tx('结束日期', 'End date')}</Label>
+                <Input type="date" value={replayEndDate} onChange={(event) => setReplayEndDate(event.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>{tx('投递状态', 'Delivery status')}</Label>
+                <Select value={replayStatus} onValueChange={(value) => setReplayStatus(value as WebhookReplayDeliveryStatus)}>
+                  <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="delivered">delivered</SelectItem>
+                    <SelectItem value="failed">failed</SelectItem>
+                    <SelectItem value="pending">pending</SelectItem>
+                    <SelectItem value="quarantined">quarantined</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>{tx('端点', 'Endpoint')}</Label>
+                <Select value={replayEndpointId} onValueChange={setReplayEndpointId}>
+                  <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{tx('全部端点', 'All endpoints')}</SelectItem>
+                    {endpoints.map((endpoint) => <SelectItem key={endpoint.id} value={endpoint.id}>{endpoint.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-[220px] flex-1 space-y-1">
+                <Label>{tx('事件类型（逗号分隔）', 'Event types (comma separated)')}</Label>
+                <Input value={replayEventTypes} onChange={(event) => setReplayEventTypes(event.target.value)} placeholder="rfq.created, order.updated" />
+              </div>
+              <Button disabled={replayLoading || !can('webhook.read')} onClick={() => void onQueryReplay()}>
+                {replayLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+                {tx('查询投递', 'Query deliveries')}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+                <span>{tx('待回放投递', 'Replay Candidates')}</span>
+                <span className="text-sm font-normal text-muted-foreground">
+                  {tx('已选', 'Selected')}: {selectedReplayIds.length} / {replayDeliveries.length}
+                </span>
+              </CardTitle>
+              <CardDescription>
+                {replayDeliveries.length > 100
+                  ? tx('表格仅展示前 100 条；选择数量包含全部查询结果。', 'Only the first 100 are shown; the selection count covers all query results.')
+                  : tx('更改选择后需要重新预估，执行会再次要求确认。', 'Changing the selection requires a new estimate; execution asks for confirmation again.')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Checkbox
+                  id="replay-select-all"
+                  checked={replayDeliveries.length > 0 && selectedReplayIds.length === replayDeliveries.length}
+                  onCheckedChange={(checked) => {
+                    setSelectedReplayDeliveryIds(checked === true ? new Set(replayDeliveries.map((delivery) => delivery.id)) : new Set());
+                    setReplayEstimate(null);
+                  }}
+                />
+                <Label htmlFor="replay-select-all">{tx('选择当前查询的全部投递', 'Select all queried deliveries')}</Label>
+                <Button variant="outline" size="sm" disabled={replayLoading || selectedReplayIds.length === 0} onClick={() => void onEstimateReplay()}>
+                  {tx('预估影响', 'Estimate impact')}
+                </Button>
+                {can('webhook.manage') && (
+                  <Button size="sm" disabled={replayExecuting || !replayEstimate || selectedReplayIds.length === 0} onClick={() => void onExecuteReplay()}>
+                    {replayExecuting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {tx('确认并执行回放', 'Confirm and execute replay')}
+                  </Button>
+                )}
+              </div>
+
+              {replayEstimate && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                  <span>{tx('预估投递数', 'Estimated deliveries')}: {replayEstimate.totalDeliveries}</span>
+                  <span className="mx-2">·</span>
+                  <span>{tx('受影响端点', 'Affected endpoints')}: {replayEstimate.affectedEndpoints.length}</span>
+                  <span className="mx-2">·</span>
+                  <span>{tx('预计时长', 'Estimated duration')}: {replayEstimate.estimatedDuration}s</span>
+                </div>
+              )}
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10" />
+                    <TableHead>{tx('事件', 'Event')}</TableHead>
+                    <TableHead>{tx('端点', 'Endpoint')}</TableHead>
+                    <TableHead>{tx('状态', 'Status')}</TableHead>
+                    <TableHead>{tx('原投递时间', 'Original delivery time')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {replayDeliveries.slice(0, 100).map((delivery) => (
+                    <TableRow key={delivery.id}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedReplayDeliveryIds.has(delivery.id)}
+                          onCheckedChange={(checked) => toggleReplayDelivery(delivery.id, checked === true)}
+                          aria-label={tx(`选择投递 ${delivery.id}`, `Select delivery ${delivery.id}`)}
+                        />
+                      </TableCell>
+                      <TableCell>{delivery.eventType}</TableCell>
+                      <TableCell>{endpointMap.get(delivery.endpointId)?.name ?? delivery.endpointId.slice(0, 8)}</TableCell>
+                      <TableCell><Badge variant="outline">{delivery.status}</Badge></TableCell>
+                      <TableCell>{delivery.deliveredAt ? new Date(delivery.deliveredAt).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US') : '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                  {replayDeliveries.length === 0 && (
+                    <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">{tx('尚未查询到可回放投递', 'No replay candidates queried yet')}</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{tx('回放批次进度', 'Replay Batch Progress')}</CardTitle>
+              <CardDescription>{tx('进行中的批次会每两秒自动刷新。', 'In-progress batches refresh automatically every two seconds.')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{tx('批次', 'Batch')}</TableHead>
+                    <TableHead>{tx('状态', 'Status')}</TableHead>
+                    <TableHead>{tx('进度', 'Progress')}</TableHead>
+                    <TableHead>{tx('成功/失败/待处理', 'Success / Failed / Pending')}</TableHead>
+                    <TableHead>{tx('开始时间', 'Started')}</TableHead>
+                    <TableHead>{tx('操作', 'Actions')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {replayBatches.map((batch) => (
+                    <TableRow key={batch.batchId}>
+                      <TableCell className="font-mono text-xs">{batch.batchId.slice(0, 8)}</TableCell>
+                      <TableCell><Badge variant={batch.status === 'COMPLETED' ? 'default' : batch.status === 'FAILED' ? 'destructive' : 'secondary'}>{batch.status}</Badge></TableCell>
+                      <TableCell>{batch.progress}% ({batch.totalDeliveries})</TableCell>
+                      <TableCell>{batch.succeeded} / {batch.failed} / {batch.pending}</TableCell>
+                      <TableCell>{batch.startedAt ? new Date(batch.startedAt).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US') : '-'}</TableCell>
+                      <TableCell>
+                        {can('webhook.manage') && batch.status === 'IN_PROGRESS' && (
+                          <Button size="sm" variant="destructive" onClick={() => void onCancelReplayBatch(batch.batchId)}>{tx('取消', 'Cancel')}</Button>
+                        )}
+                        {batch.errorMessage && <span className="ml-2 text-xs text-destructive" title={batch.errorMessage}>{tx('失败详情', 'Failure details')}</span>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {replayBatches.length === 0 && (
+                    <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">{tx('暂无回放批次', 'No replay batches')}</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>

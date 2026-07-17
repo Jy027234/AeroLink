@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireCapability } from '../middleware/capability.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 import { validateBody } from '../middleware/validate.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { supplierCreateSchema, supplierUpdateSchema, supplierFollowUpLogBatchCreateSchema, supplierInviteSchema } from '../lib/validation.js';
@@ -9,6 +10,7 @@ import prisma from '../lib/prisma.js';
 import { cache, CACHE_TTL, CACHE_KEY } from '../lib/cache.js';
 import { generateAuthToken, getActivationExpiryDate } from '../lib/authFlow.js';
 import { sendSupplierInviteEmail } from '../lib/authEmailService.js';
+import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 
 function parseJsonArrayField(value: unknown): string | undefined {
   if (Array.isArray(value)) return JSON.stringify(value);
@@ -76,6 +78,48 @@ function mapSupplierResponse(s: Prisma.SupplierGetPayload<Record<string, never>>
   };
 }
 
+type SupplierListSort = 'name' | 'createdAt' | 'performanceScore' | 'leadTime';
+
+function supplierListOrderBy(
+  sort: SupplierListSort,
+  direction: SortDirection,
+): Prisma.SupplierOrderByWithRelationInput[] {
+  switch (sort) {
+    case 'createdAt':
+      return [{ createdAt: direction }, { id: 'asc' }];
+    case 'performanceScore':
+      return [{ performanceScore: direction }, { id: 'asc' }];
+    case 'leadTime':
+      return [{ leadTime: direction }, { id: 'asc' }];
+    default:
+      return [{ name: direction }, { id: 'asc' }];
+  }
+}
+
+function buildSupplierListWhere(query: Record<string, unknown>): Prisma.SupplierWhereInput {
+  const level = typeof query.level === 'string' ? query.level : '';
+  const search = typeof query.search === 'string' ? query.search : '';
+  const followUpFilter = typeof query.followUpFilter === 'string' ? query.followUpFilter : 'all';
+  const where: Prisma.SupplierWhereInput = {};
+  if (level) where.level = level.toUpperCase();
+  const searchValue = search.trim();
+  if (searchValue) {
+    where.OR = [
+      { name: { contains: searchValue, mode: 'insensitive' } },
+      { contactName: { contains: searchValue, mode: 'insensitive' } },
+      { email: { contains: searchValue, mode: 'insensitive' } },
+    ];
+  }
+  if (followUpFilter === 'with-follow-up') {
+    where.followUpLogs = { some: {} };
+  } else if (followUpFilter === 'waiting_quote') {
+    where.followUpLogs = { some: { outcome: 'contacted_waiting_quote' } };
+  } else if (followUpFilter === 'quote_promised') {
+    where.followUpLogs = { some: { outcome: 'quote_promised' } };
+  }
+  return where;
+}
+
 const router = Router();
 const SUPPLIER_FOLLOW_UP_CACHE_KEY = 'suppliers:follow-up-logs';
 
@@ -117,39 +161,35 @@ router.get(
   '/',
   requireCapability('supplier', 'read'),
   asyncHandler(async (req, res) => {
-    const { level, search, followUpFilter, page, limit } = req.query;
-    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
-    const skip = (pageNum - 1) * pageSize;
-
-    const searchValue = typeof search === 'string' ? search.trim() : '';
-    const followUpFilterValue = typeof followUpFilter === 'string' ? followUpFilter : 'all';
-    const cacheKey = [CACHE_KEY.SUPPLIER_LIST, level || 'all', searchValue || 'all', followUpFilterValue, pageNum, pageSize].join(':');
+    const query = req.query as Record<string, unknown>;
+    const { page: pageNum, limit: pageSize, skip, sort, direction } = parseListQuery<SupplierListSort>(query, {
+      allowedSorts: ['name', 'createdAt', 'performanceScore', 'leadTime'],
+      defaultSort: 'name',
+      defaultDirection: 'asc',
+    });
+    const level = typeof query.level === 'string' ? query.level : 'all';
+    const searchValue = typeof query.search === 'string' ? query.search.trim() : '';
+    const followUpFilterValue = typeof query.followUpFilter === 'string' ? query.followUpFilter : 'all';
+    const cacheKey = [
+      CACHE_KEY.SUPPLIER_LIST,
+      level || 'all',
+      searchValue || 'all',
+      followUpFilterValue,
+      sort,
+      direction,
+      pageNum,
+      pageSize,
+    ].join(':');
 
     const result = await cache.getOrSet(
       cacheKey,
       async () => {
-        const where: Prisma.SupplierWhereInput = {};
-        if (level) where.level = level.toString().toUpperCase();
-        if (searchValue) {
-          where.OR = [
-            { name: { contains: searchValue, mode: 'insensitive' } },
-            { contactName: { contains: searchValue, mode: 'insensitive' } },
-            { email: { contains: searchValue, mode: 'insensitive' } },
-          ];
-        }
-        if (followUpFilterValue === 'with-follow-up') {
-          where.followUpLogs = { some: {} };
-        } else if (followUpFilterValue === 'waiting_quote') {
-          where.followUpLogs = { some: { outcome: 'contacted_waiting_quote' } };
-        } else if (followUpFilterValue === 'quote_promised') {
-          where.followUpLogs = { some: { outcome: 'quote_promised' } };
-        }
+        const where = buildSupplierListWhere(query);
 
         const [suppliers, total, levelCounts, performanceAggregate] = await Promise.all([
           prisma.supplier.findMany({
             where,
-            orderBy: { name: 'asc' },
+            orderBy: supplierListOrderBy(sort, direction),
             skip,
             take: pageSize,
           }),
@@ -178,6 +218,8 @@ router.get(
             limit: pageSize,
             total,
             totalPages: Math.ceil(total / pageSize),
+            sort,
+            direction,
           },
         };
       },
@@ -189,6 +231,63 @@ router.get(
       ...result,
     });
   })
+);
+
+router.get(
+  '/export.csv',
+  requireCapability('supplier', 'export'),
+  asyncHandler(async (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    const window = parseControlledExportWindow(query);
+    const { sort, direction } = parseListQuery<SupplierListSort>(query, {
+      allowedSorts: ['name', 'createdAt', 'performanceScore', 'leadTime'],
+      defaultSort: 'name',
+      defaultDirection: 'asc',
+    });
+    const suppliers = await prisma.supplier.findMany({
+      where: buildSupplierListWhere(query),
+      select: {
+        name: true,
+        level: true,
+        status: true,
+        contactName: true,
+        email: true,
+        phone: true,
+        performanceScore: true,
+        leadTime: true,
+        lastOrderAt: true,
+        createdAt: true,
+      },
+      orderBy: supplierListOrderBy(sort, direction),
+      skip: window.skip,
+      take: window.take,
+    });
+
+    await createAuditLog({
+      req,
+      action: 'EXPORT',
+      resourceType: 'SUPPLIER',
+      details: `Supplier CSV export (${window.scope}, ${suppliers.length}/${window.rowLimit} rows)`,
+    });
+    sendCsv(
+      res,
+      `suppliers-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { header: '供应商名称', value: (supplier) => supplier.name },
+        { header: '等级', value: (supplier) => supplier.level },
+        { header: '状态', value: (supplier) => supplier.status },
+        { header: '联系人', value: (supplier) => supplier.contactName },
+        { header: '邮箱', value: (supplier) => supplier.email },
+        { header: '电话', value: (supplier) => supplier.phone },
+        { header: '绩效评分', value: (supplier) => supplier.performanceScore },
+        { header: '交期（天）', value: (supplier) => supplier.leadTime },
+        { header: '最近订单日期', value: (supplier) => supplier.lastOrderAt },
+        { header: '创建时间', value: (supplier) => supplier.createdAt },
+      ],
+      suppliers,
+      window,
+    );
+  }),
 );
 
 router.get(

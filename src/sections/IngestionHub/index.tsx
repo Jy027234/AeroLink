@@ -48,8 +48,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useEmailStore, useCustomerStore } from '@/store';
-import { useRFQs, useCreateRFQ } from '@/hooks/useApi';
+import { useEmailStore } from '@/store';
+import { useRFQs, useCreateRFQ, useCustomers } from '@/hooks/useApi';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { Email, RFQ, EmailType } from '@/types';
@@ -107,7 +107,11 @@ export function IngestionHub() {
   const { emails, selectedEmail, selectEmail, filter, setFilter, markAsRead, classifyEmail } = useEmailStore();
   const { loading: rfqsLoading, refetch: refetchRFQs } = useRFQs();
   const { mutate: createRFQ } = useCreateRFQ();
-  const { customers } = useCustomerStore();
+  const { data: customerMatches } = useCustomers({
+    search: selectedEmail?.fromName,
+    page: 1,
+    limit: 20,
+  });
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [extractedData, setExtractedData] = useState<Partial<RFQ>>({});
   const [isEditing, setIsEditing] = useState(false);
@@ -152,7 +156,10 @@ export function IngestionHub() {
   const handleCreateRFQ = async () => {
     if (!selectedEmail || !extractedData.partNumber) return;
 
-    const customerId = customers.find((c) => c.name.includes(selectedEmail.fromName))?.id || 'unknown';
+    const customerId = customerMatches?.find((customer) => (
+      customer.name.includes(selectedEmail.fromName)
+      || selectedEmail.fromName.includes(customer.name)
+    ))?.id || 'unknown';
     
     const rfqData = {
       emailId: selectedEmail.id,

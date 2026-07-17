@@ -61,10 +61,13 @@ import {
 } from '@/components/ui/collapsible';
 import { useSuppliers } from '@/hooks/useApi';
 import { supplierApi } from '@/api/client';
+import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { useTranslation } from '@/i18n';
 import { getSupplierCapabilityProfile } from '@/lib/supplierCapability';
 import { useCapabilityStore, useSupplierFollowUpStore } from '@/store';
 import { cn } from '@/lib/utils';
+import { downloadBlob } from '@/lib/downloadBlob';
+import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import { toast } from 'sonner';
 import type { Supplier, SupplierFollowUpLog, SupplierFollowUpOutcome, SupplierType } from '@/types';
 
@@ -730,9 +733,9 @@ export function Suppliers() {
     'Net 60': '月结60天',
   };
   const allSupplierFollowUpLogs = useSupplierFollowUpStore((state) => state.logs);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
-  const [followUpFilter, setFollowUpFilter] = useState<'all' | 'with-follow-up' | 'waiting_quote' | 'quote_promised'>('all');
+  const [searchQuery, setSearchQuery] = useListUrlStringState('search', '');
+  const [activeTab, setActiveTab] = useListUrlStringState('level', 'all');
+  const [followUpFilter, setFollowUpFilter] = useListUrlStringState('followUpFilter', 'all');
   const [showMoreStats, setShowMoreStats] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -741,7 +744,9 @@ export function Suppliers() {
   const [formLoading, setFormLoading] = useState(false);
   const [formTab, setFormTab] = useState('basic');
   const [createForm, setCreateForm] = useState({ ...emptyForm });
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useListUrlNumberState('page', 1);
+  const [sort, setSort] = useListUrlStringState('sort', 'name');
+  const [direction, setDirection] = useListUrlStringState('direction', 'asc');
   const pageSize = 10;
   const {
     data: suppliers,
@@ -755,6 +760,8 @@ export function Suppliers() {
     followUpFilter,
     page: currentPage,
     limit: pageSize,
+    sort,
+    direction: direction === 'desc' ? 'desc' : 'asc',
   });
 
   const suppliersList = suppliers || [];
@@ -766,56 +773,24 @@ export function Suppliers() {
     }
     return accumulator;
   }, {});
-  const latestFollowUpLogs = Object.values(latestFollowUpBySupplierId);
-  const followUpSummaryCounts = {
-    followed: latestFollowUpLogs.length,
-    waitingQuote: latestFollowUpLogs.filter((log) => log.outcome === 'contacted_waiting_quote').length,
-    quotePromised: latestFollowUpLogs.filter((log) => log.outcome === 'quote_promised').length,
-  };
   const toggleFollowUpFilter = (nextFilter: 'with-follow-up' | 'waiting_quote' | 'quote_promised') => {
     setFollowUpFilter((current) => (current === nextFilter ? 'all' : nextFilter));
+    setCurrentPage(1);
   };
 
   // Filter suppliers
   const filteredSuppliers = suppliersList.filter((supplier) => {
-    const latestFollowUpLog = latestFollowUpBySupplierId[supplier.id];
     if (searchQuery && !supplier.name.toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false;
-    }
-    if (followUpFilter === 'with-follow-up' && !latestFollowUpLog) {
-      return false;
-    }
-    if (followUpFilter === 'waiting_quote' && latestFollowUpLog?.outcome !== 'contacted_waiting_quote') {
-      return false;
-    }
-    if (followUpFilter === 'quote_promised' && latestFollowUpLog?.outcome !== 'quote_promised') {
       return false;
     }
     if (activeTab === 'all') return true;
     return supplier.level === activeTab;
-  }).sort((left, right) => {
-    if (followUpFilter === 'all') {
-      return 0;
-    }
-
-    const leftTime = latestFollowUpBySupplierId[left.id]
-      ? new Date(latestFollowUpBySupplierId[left.id].createdAt).getTime()
-      : 0;
-    const rightTime = latestFollowUpBySupplierId[right.id]
-      ? new Date(latestFollowUpBySupplierId[right.id].createdAt).getTime()
-      : 0;
-
-    return rightTime - leftTime;
   });
 
   const totalRecords = suppliersPagination?.total ?? filteredSuppliers.length;
   const totalPages = Math.max(1, suppliersPagination?.totalPages ?? Math.ceil(totalRecords / pageSize));
   const safePage = Math.min(currentPage, totalPages);
   const paginatedSuppliers = filteredSuppliers;
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, activeTab, followUpFilter]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -881,6 +856,21 @@ export function Suppliers() {
     } finally {
       setFormLoading(false);
     }
+  };
+
+  const handleExport = async (scope: 'page' | 'filtered') => {
+    const blob = await supplierApi.exportCsv({
+      level: activeTab === 'all' ? undefined : activeTab,
+      search: searchQuery,
+      followUpFilter,
+      page: currentPage,
+      limit: pageSize,
+      sort,
+      direction: direction === 'desc' ? 'desc' : 'asc',
+      scope,
+      ...(scope === 'filtered' ? { confirm: 'full' as const, maxRows: 5000 } : {}),
+    });
+    downloadBlob(blob, `suppliers-${new Date().toISOString().slice(0, 10)}.csv`);
   };
 
   const updateForm = (field: keyof typeof createForm, value: string | boolean) => {
@@ -1004,10 +994,30 @@ export function Suppliers() {
             <Input
               placeholder={tx('搜索供应商名称...', 'Search supplier name...')}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="pl-10"
             />
           </div>
+          <Select value={sort} onValueChange={(value) => { setSort(value); setCurrentPage(1); }}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder={tx('排序字段', 'Sort')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name">{tx('供应商名称', 'Supplier name')}</SelectItem>
+              <SelectItem value="createdAt">{tx('创建时间', 'Created')}</SelectItem>
+              <SelectItem value="performanceScore">{tx('绩效评分', 'Performance score')}</SelectItem>
+              <SelectItem value="leadTime">{tx('交期', 'Lead time')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={direction} onValueChange={(value) => { setDirection(value); setCurrentPage(1); }}>
+            <SelectTrigger className="w-28">
+              <SelectValue placeholder={tx('顺序', 'Order')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="asc">{tx('升序', 'Asc')}</SelectItem>
+              <SelectItem value="desc">{tx('降序', 'Desc')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -1018,7 +1028,7 @@ export function Suppliers() {
             )}
             onClick={() => toggleFollowUpFilter('with-follow-up')}
           >
-            {tx(`仅看最近有跟进 (${followUpSummaryCounts.followed})`, `Followed suppliers only (${followUpSummaryCounts.followed})`)}
+            {tx('仅看最近有跟进', 'Followed suppliers only')}
           </Button>
           <Button
             variant="outline"
@@ -1028,7 +1038,7 @@ export function Suppliers() {
             )}
             onClick={() => toggleFollowUpFilter('waiting_quote')}
           >
-            {tx(`待报价中 (${followUpSummaryCounts.waitingQuote})`, `Waiting for quote (${followUpSummaryCounts.waitingQuote})`)}
+            {tx('待报价中', 'Waiting for quote')}
           </Button>
           <Button
             variant="outline"
@@ -1038,9 +1048,10 @@ export function Suppliers() {
             )}
             onClick={() => toggleFollowUpFilter('quote_promised')}
           >
-            {tx(`已承诺报价 (${followUpSummaryCounts.quotePromised})`, `Quote promised (${followUpSummaryCounts.quotePromised})`)}
+            {tx('已承诺报价', 'Quote promised')}
           </Button>
         </div>
+        {can('supplier.export') && <ControlledListExportButton locale={locale} onExport={handleExport} />}
         {can('supplier.create') && (
           <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => handleOpenCreate()}>
             <Plus className="w-4 h-4 mr-1" />
@@ -1050,7 +1061,7 @@ export function Suppliers() {
       </div>
 
       {/* 供应商列表 */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(value) => { setActiveTab(value); setCurrentPage(1); }}>
         <TabsList>
           <TabsTrigger value="all">{tx('全部', 'All')}</TabsTrigger>
           <TabsTrigger value="S">{tx('战略', 'Strategic')}</TabsTrigger>

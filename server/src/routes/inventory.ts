@@ -4,17 +4,20 @@ import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { requireCapability } from '../middleware/capability.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 import { inventoryUpdateSchema, inventoryCreateSchema } from '../lib/validation.js';
 import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
 import { loadInventoryReconciliation } from '../lib/inventoryReconciliation.js';
 import { serializeInventoryDetail } from '../lib/inventoryProjection.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { enqueueBusinessEvent } from '../lib/outboxService.js';
+import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
 const requireInventoryMutationRole = requireCapability('inventory', 'manage');
 const requireInventoryReconciliationCapability = requireCapability('inventory', 'reconcile');
+const requireInventoryExportCapability = requireCapability('inventory', 'export');
 
 const inventoryDetailInclude = {
   inventoryItem: true,
@@ -132,6 +135,24 @@ function buildInventoryDetailWhere(query: Record<string, unknown>): Prisma.Inven
   return where;
 }
 
+type InventoryListSort = 'partNumber' | 'createdAt' | 'quantity' | 'unitCost';
+
+function inventoryListOrderBy(
+  sort: InventoryListSort,
+  direction: SortDirection,
+): Prisma.InventoryDetailOrderByWithRelationInput[] {
+  switch (sort) {
+    case 'createdAt':
+      return [{ createdAt: direction }, { id: 'asc' }];
+    case 'quantity':
+      return [{ quantity: direction }, { id: 'asc' }];
+    case 'unitCost':
+      return [{ unitCost: direction }, { id: 'asc' }];
+    default:
+      return [{ inventoryItem: { partNumber: direction } }, { id: 'asc' }];
+  }
+}
+
 function serializeInventoryEvent(
   action: string,
   inventory: ReturnType<typeof serializeInventoryDetail>,
@@ -152,21 +173,27 @@ function serializeInventoryEvent(
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const pageNum = Math.max(1, parseInt(queryText(req.query.page), 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(queryText(req.query.limit), 10) || 20));
-    const skip = (pageNum - 1) * pageSize;
+    const { page: pageNum, limit: pageSize, skip, sort, direction } = parseListQuery<InventoryListSort>(
+      req.query as Record<string, unknown>,
+      {
+        allowedSorts: ['partNumber', 'createdAt', 'quantity', 'unitCost'],
+        defaultSort: 'partNumber',
+        defaultDirection: 'asc',
+      },
+    );
     const where = buildInventoryDetailWhere(req.query as Record<string, unknown>);
 
     const [details, total, summaryRows] = await Promise.all([
       prisma.inventoryDetail.findMany({
         where,
         include: inventoryDetailInclude,
-        orderBy: [{ inventoryItem: { partNumber: 'asc' } }, { createdAt: 'asc' }],
+        orderBy: inventoryListOrderBy(sort, direction),
         skip,
         take: pageSize,
       }),
       prisma.inventoryDetail.count({ where }),
       prisma.inventoryDetail.findMany({
+        where,
         select: {
           quantity: true,
           unitCost: true,
@@ -200,8 +227,60 @@ router.get(
         limit: pageSize,
         total,
         totalPages: Math.ceil(total / pageSize),
+        sort,
+        direction,
       },
     });
+  }),
+);
+
+router.get(
+  '/export.csv',
+  requireInventoryExportCapability,
+  asyncHandler(async (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    const window = parseControlledExportWindow(query);
+    const { sort, direction } = parseListQuery<InventoryListSort>(query, {
+      allowedSorts: ['partNumber', 'createdAt', 'quantity', 'unitCost'],
+      defaultSort: 'partNumber',
+      defaultDirection: 'asc',
+    });
+    const details = await prisma.inventoryDetail.findMany({
+      where: buildInventoryDetailWhere(query),
+      include: inventoryDetailInclude,
+      orderBy: inventoryListOrderBy(sort, direction),
+      skip: window.skip,
+      take: window.take,
+    });
+
+    await createAuditLog({
+      req,
+      action: 'EXPORT',
+      resourceType: 'INVENTORY',
+      details: `Inventory CSV export (${window.scope}, ${details.length}/${window.rowLimit} rows)`,
+    });
+    sendCsv(
+      res,
+      `inventory-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { header: '件号', value: (detail) => detail.inventoryItem.partNumber },
+        { header: '描述', value: (detail) => detail.inventoryItem.description },
+        { header: '序列号', value: (detail) => detail.serialNumber },
+        { header: '批次号', value: (detail) => detail.batchNumber },
+        { header: '数量', value: (detail) => detail.quantity },
+        { header: '状态', value: (detail) => detail.status },
+        { header: '条件', value: (detail) => detail.conditionCode },
+        { header: '证书类型', value: (detail) => detail.certificateType },
+        { header: '位置', value: (detail) => detail.location },
+        { header: '库存类型', value: (detail) => detail.type },
+        { header: '类别', value: (detail) => detail.inventoryItem.partCategory },
+        { header: '单位成本', value: (detail) => detail.unitCost },
+        { header: '供应商', value: (detail) => detail.supplier?.name },
+        { header: '创建时间', value: (detail) => detail.createdAt },
+      ],
+      details,
+      window,
+    );
   }),
 );
 

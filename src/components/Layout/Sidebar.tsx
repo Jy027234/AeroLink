@@ -38,7 +38,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
-import { useCapabilityStore, useUIStore, useRFQStore, useQuotationStore } from '@/store';
+import { useCapabilityStore, useUIStore } from '@/store';
+import { useQuotations, useRFQs } from '@/hooks/useApi';
 import { getPageCapability, hasCapability } from '@/lib/capabilities';
 import { preloadPage } from '@/lib/pagePreload';
 import { beginPageNavigation } from '@/lib/performanceMetrics';
@@ -310,8 +311,17 @@ function GroupButton({
 // ============================================
 function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
   const { currentPage, setCurrentPage } = useUIStore();
-  const rfqs = useRFQStore((state) => state.rfqs);
-  const quotations = useQuotationStore((state) => state.quotations);
+  const { pagination: rfqBadgePagination } = useRFQs({
+    status: 'pending',
+    urgency: 'aog',
+    page: 1,
+    limit: 1,
+  });
+  const { pagination: quotationBadgePagination } = useQuotations({
+    status: 'pending_approval',
+    page: 1,
+    limit: 1,
+  });
   const capabilityGrants = useCapabilityStore((state) => state.grants);
   const capabilitiesLoaded = useCapabilityStore((state) => state.loaded);
   const { t } = useTranslation();
@@ -338,9 +348,9 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
   const getBadgeCount = (itemId: string): number => {
     switch (itemId) {
       case 'ingestion':
-        return rfqs.filter((r) => r.status === 'pending' && r.urgency === 'aog').length;
+        return rfqBadgePagination?.total ?? 0;
       case 'quotations':
-        return quotations.filter((q) => q.status === 'pending_approval').length;
+        return quotationBadgePagination?.total ?? 0;
       default:
         return 0;
     }

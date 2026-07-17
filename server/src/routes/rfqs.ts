@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { assertCapability, requireCapability } from '../middleware/capability.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 import { validateBody } from '../middleware/validate.js';
 import { rfqCreateSchema, rfqStatusUpdateSchema } from '../lib/validation.js';
 import { AuthRequest } from '../middleware/auth.js';
@@ -16,6 +17,7 @@ import {
   toRfqStatusEnum,
 } from '../lib/transactionStatusShadows.js';
 import { getCapabilityScope } from '../lib/capabilityPolicy.js';
+import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -39,6 +41,46 @@ function buildRfqReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.RFQW
     return department ? { OR: [own, department] } : own;
   }
   return own;
+}
+
+type RfqListSort = 'createdAt' | 'requiredDate' | 'responseDeadline' | 'rfqNumber';
+
+function rfqListOrderBy(sort: RfqListSort, direction: SortDirection): Prisma.RFQOrderByWithRelationInput[] {
+  switch (sort) {
+    case 'requiredDate':
+      return [{ requiredDate: direction }, { id: 'asc' }];
+    case 'responseDeadline':
+      return [{ responseDeadline: direction }, { id: 'asc' }];
+    case 'rfqNumber':
+      return [{ rfqNumber: direction }, { id: 'asc' }];
+    default:
+      return [{ createdAt: direction }, { id: 'asc' }];
+  }
+}
+
+function buildRfqListWhere(
+  query: Record<string, unknown>,
+  actor: NonNullable<AuthRequest['user']>,
+): Prisma.RFQWhereInput {
+  const status = typeof query.status === 'string' ? query.status : '';
+  const urgency = typeof query.urgency === 'string' ? query.urgency : '';
+  const search = typeof query.search === 'string' ? query.search : '';
+  const filters: Prisma.RFQWhereInput[] = [buildRfqReadScope(actor)];
+  if (status) {
+    filters.push({ status: normalizeRfqStatus(status) || status.toUpperCase() });
+  }
+  if (urgency) filters.push({ urgency: urgency.toUpperCase() });
+  const searchValue = search.trim();
+  if (searchValue) {
+    filters.push({
+      OR: [
+        { rfqNumber: { contains: searchValue, mode: 'insensitive' } },
+        { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
+      ],
+    });
+  }
+  return filters.length === 1 ? filters[0] : { AND: filters };
 }
 
 function assertRfqAccess(
@@ -129,29 +171,17 @@ router.get(
   '/',
   requireCapability('rfq', 'read'),
   asyncHandler(async (req, res) => {
-    const { status, urgency, search, page, limit } = req.query;
-    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
-    const skip = (pageNum - 1) * pageSize;
+    const query = req.query as Record<string, unknown>;
+    const { page: pageNum, limit: pageSize, skip, sort, direction } = parseListQuery<RfqListSort>(
+      query,
+      {
+        allowedSorts: ['createdAt', 'requiredDate', 'responseDeadline', 'rfqNumber'],
+        defaultSort: 'createdAt',
+        defaultDirection: 'desc',
+      },
+    );
 
-    const scopedWhere = buildRfqReadScope((req as AuthRequest).user!);
-    const filters: Prisma.RFQWhereInput[] = [scopedWhere];
-    if (status) {
-      const statusValue = status.toString();
-      filters.push({ status: normalizeRfqStatus(statusValue) || statusValue.toUpperCase() });
-    }
-    if (urgency) filters.push({ urgency: urgency.toString().toUpperCase() });
-    const searchValue = typeof search === 'string' ? search.trim() : '';
-    if (searchValue) {
-      filters.push({
-        OR: [
-          { rfqNumber: { contains: searchValue, mode: 'insensitive' } },
-          { partNumber: { contains: searchValue, mode: 'insensitive' } },
-          { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
-        ],
-      });
-    }
-    const where: Prisma.RFQWhereInput = filters.length === 1 ? filters[0] : { AND: filters };
+    const where = buildRfqListWhere(query, (req as AuthRequest).user!);
 
     const [rfqs, total, statusCounts] = await Promise.all([
       prisma.rFQ.findMany({
@@ -162,7 +192,7 @@ router.get(
             select: { id: true, name: true },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: rfqListOrderBy(sort, direction),
         skip,
         take: pageSize,
       }),
@@ -194,9 +224,70 @@ router.get(
         limit: pageSize,
         total,
         totalPages: Math.ceil(total / pageSize),
+        sort,
+        direction,
       },
     });
   })
+);
+
+router.get(
+  '/export.csv',
+  requireCapability('rfq', 'export'),
+  asyncHandler(async (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    const window = parseControlledExportWindow(query);
+    const { sort, direction } = parseListQuery<RfqListSort>(query, {
+      allowedSorts: ['createdAt', 'requiredDate', 'responseDeadline', 'rfqNumber'],
+      defaultSort: 'createdAt',
+      defaultDirection: 'desc',
+    });
+    const rfqs = await prisma.rFQ.findMany({
+      where: buildRfqListWhere(query, (req as AuthRequest).user!),
+      select: {
+        rfqNumber: true,
+        partNumber: true,
+        quantity: true,
+        uom: true,
+        conditionCode: true,
+        urgency: true,
+        status: true,
+        requiredDate: true,
+        responseDeadline: true,
+        createdAt: true,
+        customer: { select: { name: true } },
+      },
+      orderBy: rfqListOrderBy(sort, direction),
+      skip: window.skip,
+      take: window.take,
+    });
+
+    await createAuditLog({
+      req,
+      action: 'EXPORT',
+      resourceType: 'RFQ',
+      details: `RFQ CSV export (${window.scope}, ${rfqs.length}/${window.rowLimit} rows)`,
+    });
+    sendCsv(
+      res,
+      `rfqs-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { header: 'RFQ 编号', value: (rfq) => rfq.rfqNumber },
+        { header: '客户', value: (rfq) => rfq.customer.name },
+        { header: '件号', value: (rfq) => rfq.partNumber },
+        { header: '数量', value: (rfq) => rfq.quantity },
+        { header: '单位', value: (rfq) => rfq.uom },
+        { header: '条件', value: (rfq) => rfq.conditionCode },
+        { header: '紧急度', value: (rfq) => rfq.urgency },
+        { header: '状态', value: (rfq) => rfq.status },
+        { header: '需求日期', value: (rfq) => rfq.requiredDate },
+        { header: '响应截止日期', value: (rfq) => rfq.responseDeadline },
+        { header: '创建时间', value: (rfq) => rfq.createdAt },
+      ],
+      rfqs,
+      window,
+    );
+  }),
 );
 
 router.get(

@@ -60,8 +60,11 @@ import {
 import { useCapabilityStore, useRFQStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { downloadBlob } from '@/lib/downloadBlob';
+import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
+import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { useCustomers, useCreateRFQ, useRFQs, useUpdateRFQ, useUpdateRFQStatus, useSuppliers, useDispatchNotification } from '@/hooks/useApi';
-import { ipcApi } from '@/api/client';
+import { ipcApi, rfqApi } from '@/api/client';
 import type { RFQ, RFQStatus, UrgencyLevel, ConditionCode, CertificateType } from '@/types';
 
 const statusConfig: Record<RFQStatus, { label: string; color: string; bgColor: string }> = {
@@ -876,10 +879,12 @@ export function RFQManagement() {
   const { mutate: updateRFQApi } = useUpdateRFQ();
   const { updateStatus: updateRFQStatus, loading: statusUpdating } = useUpdateRFQStatus();
   const { mutate: dispatchNotification } = useDispatchNotification();
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [urgencyFilter, setUrgencyFilter] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useListUrlStringState('status', 'all');
+  const [urgencyFilter, setUrgencyFilter] = useListUrlStringState('urgency', 'all');
+  const [searchQuery, setSearchQuery] = useListUrlStringState('search', '');
+  const [currentPage, setCurrentPage] = useListUrlNumberState('page', 1);
+  const [sort, setSort] = useListUrlStringState('sort', 'createdAt');
+  const [direction, setDirection] = useListUrlStringState('direction', 'desc');
   const [selectedRFQ, setSelectedRFQ] = useState<RFQ | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -896,6 +901,8 @@ export function RFQManagement() {
     search: searchQuery,
     page: currentPage,
     limit: pageSize,
+    sort,
+    direction: direction === 'asc' ? 'asc' : 'desc',
   });
 
   const sourceRFQs = serverRFQs ?? rfqs;
@@ -1010,6 +1017,21 @@ export function RFQManagement() {
     }
   };
 
+  const handleExport = async (scope: 'page' | 'filtered') => {
+    const blob = await rfqApi.exportCsv({
+      status: statusFilter === 'all' ? undefined : statusFilter,
+      urgency: urgencyFilter === 'all' ? undefined : urgencyFilter,
+      search: searchQuery,
+      page: currentPage,
+      limit: pageSize,
+      sort,
+      direction: direction === 'asc' ? 'asc' : 'desc',
+      scope,
+      ...(scope === 'filtered' ? { confirm: 'full' as const, maxRows: 5000 } : {}),
+    });
+    downloadBlob(blob, `rfqs-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
@@ -1087,6 +1109,26 @@ export function RFQManagement() {
                   <SelectItem value="standard">{tx('标准', 'Standard')}</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={sort} onValueChange={(v) => { setSort(v); setCurrentPage(1); }}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder={tx('排序字段', 'Sort')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="createdAt">{tx('创建时间', 'Created')}</SelectItem>
+                  <SelectItem value="requiredDate">{tx('需求日期', 'Required date')}</SelectItem>
+                  <SelectItem value="responseDeadline">{tx('响应截止', 'Response deadline')}</SelectItem>
+                  <SelectItem value="rfqNumber">{tx('需求单号', 'RFQ number')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={direction} onValueChange={(v) => { setDirection(v); setCurrentPage(1); }}>
+                <SelectTrigger className="w-28">
+                  <SelectValue placeholder={tx('顺序', 'Order')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="desc">{tx('降序', 'Desc')}</SelectItem>
+                  <SelectItem value="asc">{tx('升序', 'Asc')}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-center gap-2">
               {(statusFilter !== 'all' || urgencyFilter !== 'all') && (
@@ -1094,6 +1136,7 @@ export function RFQManagement() {
                   {tx('清空筛选', 'Clear Filters')}
                 </Button>
               )}
+              {can('rfq.export') && <ControlledListExportButton locale={locale} onExport={handleExport} />}
               {can('rfq.create') && (
                 <Button onClick={handleCreate}>
                   <Plus className="w-4 h-4 mr-1" />

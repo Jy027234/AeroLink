@@ -55,8 +55,11 @@ import {
 } from '@/components/ui/select';
 import { useCustomers, useQuotations, customerApi } from '@/hooks/useApi';
 import { useCapabilityStore } from '@/store';
+import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { downloadBlob } from '@/lib/downloadBlob';
+import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import { toast } from 'sonner';
 import type { Customer, CustomerContact, CompetitorListing, BuyerType } from '@/types';
 
@@ -1000,9 +1003,11 @@ function CustomerFormDialog({
 
 export function Customers() {
   const can = useCapabilityStore((state) => state.can);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useListUrlStringState('search', '');
+  const [activeTab, setActiveTab] = useListUrlStringState('status', 'all');
+  const [currentPage, setCurrentPage] = useListUrlNumberState('page', 1);
+  const [sort, setSort] = useListUrlStringState('sort', 'name');
+  const [direction, setDirection] = useListUrlStringState('direction', 'asc');
   const pageSize = 10;
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -1022,6 +1027,8 @@ export function Customers() {
     search: searchQuery,
     page: currentPage,
     limit: pageSize,
+    sort,
+    direction: direction === 'desc' ? 'desc' : 'asc',
   });
   const customersList = customers || [];
 
@@ -1038,10 +1045,6 @@ export function Customers() {
   const totalPages = Math.max(1, customersPagination?.totalPages ?? Math.ceil(totalRecords / pageSize));
   const safePage = Math.min(currentPage, totalPages);
   const paginatedCustomers = filteredCustomers;
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, activeTab]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -1070,6 +1073,20 @@ export function Customers() {
   const handleAddNew = () => {
     setSelectedCustomer(null);
     setIsEditOpen(true);
+  };
+
+  const handleExport = async (scope: 'page' | 'filtered') => {
+    const blob = await customerApi.exportCsv({
+      status: activeTab === 'all' ? undefined : activeTab,
+      search: searchQuery,
+      page: currentPage,
+      limit: pageSize,
+      sort,
+      direction: direction === 'desc' ? 'desc' : 'asc',
+      scope,
+      ...(scope === 'filtered' ? { confirm: 'full' as const, maxRows: 5000 } : {}),
+    });
+    downloadBlob(blob, `customers-${new Date().toISOString().slice(0, 10)}.csv`);
   };
 
   if (customersLoading) {
@@ -1138,11 +1155,32 @@ export function Customers() {
             <Input
               placeholder={t('customers.searchPlaceholder')}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="pl-10"
             />
           </div>
+          <Select value={sort} onValueChange={(value) => { setSort(value); setCurrentPage(1); }}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder={tx('排序字段', 'Sort')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name">{tx('客户名称', 'Customer name')}</SelectItem>
+              <SelectItem value="createdAt">{tx('创建时间', 'Created')}</SelectItem>
+              <SelectItem value="annualRevenue">{tx('年营收', 'Annual revenue')}</SelectItem>
+              <SelectItem value="lastOrderAt">{tx('最近订单', 'Last order')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={direction} onValueChange={(value) => { setDirection(value); setCurrentPage(1); }}>
+            <SelectTrigger className="w-28">
+              <SelectValue placeholder={tx('顺序', 'Order')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="asc">{tx('升序', 'Asc')}</SelectItem>
+              <SelectItem value="desc">{tx('降序', 'Desc')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
+        {can('customer.export') && <ControlledListExportButton locale={locale} onExport={handleExport} />}
         {can('customer.create') && (
           <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={handleAddNew}>
             <Plus className="w-4 h-4 mr-1" />
@@ -1151,7 +1189,7 @@ export function Customers() {
         )}
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(value) => { setActiveTab(value); setCurrentPage(1); }}>
         <TabsList>
           <TabsTrigger value="all">{t('customers.all')}</TabsTrigger>
           <TabsTrigger value="active">{t('customers.active')}</TabsTrigger>

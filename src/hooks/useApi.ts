@@ -137,8 +137,24 @@ export const useRecentActivities = () => {
 };
 
 // ===== RFQ Hooks =====
-export const useRFQs = (filters?: { status?: string; urgency?: string; search?: string; page?: number; limit?: number }) => {
-  const query = useQuery(() => rfqApi.getAll(filters), [filters?.status, filters?.urgency, filters?.search, filters?.page, filters?.limit]);
+export const useRFQs = (filters?: {
+  status?: string;
+  urgency?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sort?: string;
+  direction?: 'asc' | 'desc';
+}) => {
+  const query = useQuery(() => rfqApi.getAll(filters), [
+    filters?.status,
+    filters?.urgency,
+    filters?.search,
+    filters?.page,
+    filters?.limit,
+    filters?.sort,
+    filters?.direction,
+  ]);
   return {
     ...query,
     data: query.data?.data ?? null,
@@ -175,8 +191,22 @@ export const useUpdateRFQStatus = () => {
 };
 
 // ===== Quotation Hooks =====
-export const useQuotations = (filters?: { status?: string; search?: string; page?: number; limit?: number }) => {
-  const query = useQuery(() => quotationApi.getAll(filters), [filters?.status, filters?.search, filters?.page, filters?.limit]);
+export const useQuotations = (filters?: {
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sort?: string;
+  direction?: 'asc' | 'desc';
+}) => {
+  const query = useQuery(() => quotationApi.getAll(filters), [
+    filters?.status,
+    filters?.search,
+    filters?.page,
+    filters?.limit,
+    filters?.sort,
+    filters?.direction,
+  ]);
   return {
     ...query,
     data: query.data?.data ?? null,
@@ -224,8 +254,22 @@ export const useApproveQuotation = () => {
 };
 
 // ===== Order Hooks =====
-export const useOrders = (filters?: { status?: string; search?: string; page?: number; limit?: number }) => {
-  const query = useQuery(() => orderApi.getAll(filters), [filters?.status, filters?.search, filters?.page, filters?.limit]);
+export const useOrders = (filters?: {
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sort?: string;
+  direction?: 'asc' | 'desc';
+}) => {
+  const query = useQuery(() => orderApi.getAll(filters), [
+    filters?.status,
+    filters?.search,
+    filters?.page,
+    filters?.limit,
+    filters?.sort,
+    filters?.direction,
+  ]);
   return {
     ...query,
     data: query.data?.data ?? null,
@@ -273,6 +317,8 @@ export const useInventory = (filters?: {
   location?: string;
   page?: number;
   limit?: number;
+  sort?: string;
+  direction?: 'asc' | 'desc';
 }) => {
   const query = useQuery(() => inventoryApi.getAll(filters), [
     filters?.search,
@@ -283,6 +329,8 @@ export const useInventory = (filters?: {
     filters?.location,
     filters?.page,
     filters?.limit,
+    filters?.sort,
+    filters?.direction,
   ]);
   return {
     ...query,
@@ -326,8 +374,22 @@ export const useInventoryDetailById = (id: string) => {
 };
 
 // ===== Customer Hooks =====
-export const useCustomers = (params?: { status?: string; search?: string; page?: number; limit?: number }) => {
-  const query = useQuery(() => customerApi.getAll(params), [params?.status, params?.search, params?.page, params?.limit]);
+export const useCustomers = (params?: {
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sort?: string;
+  direction?: 'asc' | 'desc';
+}) => {
+  const query = useQuery(() => customerApi.getAll(params), [
+    params?.status,
+    params?.search,
+    params?.page,
+    params?.limit,
+    params?.sort,
+    params?.direction,
+  ]);
   return {
     ...query,
     data: query.data?.data ?? null,
@@ -341,8 +403,24 @@ export const useCustomer = (id: string) => {
 };
 
 // ===== Supplier Hooks =====
-export const useSuppliers = (params?: { level?: string; search?: string; followUpFilter?: string; page?: number; limit?: number }) => {
-  const query = useQuery(() => supplierApi.getAll(params), [params?.level, params?.search, params?.followUpFilter, params?.page, params?.limit]);
+export const useSuppliers = (params?: {
+  level?: string;
+  search?: string;
+  followUpFilter?: string;
+  page?: number;
+  limit?: number;
+  sort?: string;
+  direction?: 'asc' | 'desc';
+}) => {
+  const query = useQuery(() => supplierApi.getAll(params), [
+    params?.level,
+    params?.search,
+    params?.followUpFilter,
+    params?.page,
+    params?.limit,
+    params?.sort,
+    params?.direction,
+  ]);
   return {
     ...query,
     data: query.data?.data ?? null,

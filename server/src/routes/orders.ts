@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Prisma, type OrderStatusEnum, type Quotation, type QuotationStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { assertCapability, requireCapability } from '../middleware/capability.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
 import { orderCreateSchema, orderStatusUpdateSchema, orderUpdateSchema } from '../lib/validation.js';
@@ -19,6 +20,7 @@ import { isQuotationTransitionAllowed, normalizeQuotationStatus } from '../lib/q
 import { transitionOrderStatus, transitionQuotationStatus } from '../lib/transactionStateService.js';
 import { preferredOrderStatus, preferredQuotationStatus } from '../lib/transactionStatusShadows.js';
 import { getCapabilityScope, hasCapability } from '../lib/capabilityPolicy.js';
+import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -44,6 +46,49 @@ function buildOrderReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.Or
     return department ? { OR: [own, department] } : own;
   }
   return own;
+}
+
+type OrderListSort = 'createdAt' | 'deliveryDate' | 'totalAmount' | 'orderNumber';
+
+function orderListOrderBy(sort: OrderListSort, direction: SortDirection): Prisma.OrderOrderByWithRelationInput[] {
+  switch (sort) {
+    case 'deliveryDate':
+      return [{ deliveryDate: direction }, { id: 'asc' }];
+    case 'totalAmount':
+      return [{ totalAmount: direction }, { id: 'asc' }];
+    case 'orderNumber':
+      return [{ orderNumber: direction }, { id: 'asc' }];
+    default:
+      return [{ createdAt: direction }, { id: 'asc' }];
+  }
+}
+
+function buildOrderListWhere(
+  query: Record<string, unknown>,
+  actor: NonNullable<AuthRequest['user']>,
+): Prisma.OrderWhereInput {
+  const status = typeof query.status === 'string' ? query.status : '';
+  const search = typeof query.search === 'string' ? query.search : '';
+  const filters: Prisma.OrderWhereInput[] = [buildOrderReadScope(actor)];
+  const statusValue = status.toLowerCase();
+  if (statusValue === 'in_progress') {
+    filters.push({ status: { notIn: ['COMPLETED', 'DELIVERED'] } });
+  } else if (statusValue === 'completed') {
+    filters.push({ status: { in: ['COMPLETED', 'DELIVERED'] } });
+  } else if (statusValue) {
+    filters.push({ status: statusValue.toUpperCase().replace('-', '_') });
+  }
+  const searchValue = search.trim();
+  if (searchValue) {
+    filters.push({
+      OR: [
+        { orderNumber: { contains: searchValue, mode: 'insensitive' } },
+        { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
+      ],
+    });
+  }
+  return filters.length === 1 ? filters[0] : { AND: filters };
 }
 
 function assertOrderAccess(
@@ -202,33 +247,18 @@ router.get(
   '/',
   requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
-    const { status, search, page, limit } = req.query;
-    const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
-    const skip = (pageNum - 1) * pageSize;
+    const query = req.query as Record<string, unknown>;
+    const { page: pageNum, limit: pageSize, skip, sort, direction } = parseListQuery<OrderListSort>(
+      query,
+      {
+        allowedSorts: ['createdAt', 'deliveryDate', 'totalAmount', 'orderNumber'],
+        defaultSort: 'createdAt',
+        defaultDirection: 'desc',
+      },
+    );
 
     const actor = (req as AuthRequest).user!;
-    const scopedWhere = buildOrderReadScope(actor);
-    const filters: Prisma.OrderWhereInput[] = [scopedWhere];
-    const statusValue = typeof status === 'string' ? status.toLowerCase() : '';
-    if (statusValue === 'in_progress') {
-      filters.push({ status: { notIn: ['COMPLETED', 'DELIVERED'] } });
-    } else if (statusValue === 'completed') {
-      filters.push({ status: { in: ['COMPLETED', 'DELIVERED'] } });
-    } else if (statusValue) {
-      filters.push({ status: statusValue.toUpperCase().replace('-', '_') });
-    }
-    const searchValue = typeof search === 'string' ? search.trim() : '';
-    if (searchValue) {
-      filters.push({
-        OR: [
-          { orderNumber: { contains: searchValue, mode: 'insensitive' } },
-          { partNumber: { contains: searchValue, mode: 'insensitive' } },
-          { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
-        ],
-      });
-    }
-    const where: Prisma.OrderWhereInput = filters.length === 1 ? filters[0] : { AND: filters };
+    const where = buildOrderListWhere(query, actor);
 
     const [orders, total, statusCounts, amountAggregate] = await Promise.all([
       prisma.order.findMany({
@@ -249,7 +279,7 @@ router.get(
             take: 1,
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: orderListOrderBy(sort, direction),
         skip,
         take: pageSize,
       }),
@@ -339,9 +369,68 @@ router.get(
         limit: pageSize,
         total,
         totalPages: Math.ceil(total / pageSize),
+        sort,
+        direction,
       },
     });
   })
+);
+
+router.get(
+  '/export.csv',
+  requireCapability('order', 'export'),
+  asyncHandler(async (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    const window = parseControlledExportWindow(query);
+    const { sort, direction } = parseListQuery<OrderListSort>(query, {
+      allowedSorts: ['createdAt', 'deliveryDate', 'totalAmount', 'orderNumber'],
+      defaultSort: 'createdAt',
+      defaultDirection: 'desc',
+    });
+    const orders = await prisma.order.findMany({
+      where: buildOrderListWhere(query, (req as AuthRequest).user!),
+      select: {
+        orderNumber: true,
+        soNumber: true,
+        poNumber: true,
+        partNumber: true,
+        quantity: true,
+        totalAmount: true,
+        status: true,
+        deliveryDate: true,
+        createdAt: true,
+        customer: { select: { name: true } },
+      },
+      orderBy: orderListOrderBy(sort, direction),
+      skip: window.skip,
+      take: window.take,
+    });
+
+    await createAuditLog({
+      req,
+      action: 'EXPORT',
+      resourceType: 'ORDER',
+      details: `Order CSV export (${window.scope}, ${orders.length}/${window.rowLimit} rows)`,
+    });
+    sendCsv(
+      res,
+      `orders-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        { header: '订单编号', value: (order) => order.orderNumber },
+        { header: '销售订单号', value: (order) => order.soNumber },
+        { header: '客户采购单号', value: (order) => order.poNumber },
+        { header: '客户', value: (order) => order.customer.name },
+        { header: '件号', value: (order) => order.partNumber },
+        { header: '数量', value: (order) => order.quantity },
+        { header: '金额', value: (order) => order.totalAmount },
+        { header: '状态', value: (order) => order.status },
+        { header: '交付日期', value: (order) => order.deliveryDate },
+        { header: '创建时间', value: (order) => order.createdAt },
+      ],
+      orders,
+      window,
+    );
+  }),
 );
 
 router.get(
