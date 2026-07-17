@@ -30,6 +30,10 @@ describe('Customer server-side pagination', () => {
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const app = express();
     app.use(express.json());
+    app.use((req, _res, next) => {
+      Object.assign(req, { user: { id: 'admin-1', role: 'admin' } });
+      next();
+    });
     app.use('/api/customers', customersRouter);
     app.use(errorHandler);
     return app;

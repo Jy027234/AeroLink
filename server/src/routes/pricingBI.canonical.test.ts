@@ -21,6 +21,10 @@ describe('pricing BI canonical inventory reads', () => {
     const router = (await import('./pricingBI.js')).default;
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const app = express();
+    app.use((req, _res, next) => {
+      Object.assign(req, { user: { id: 'admin-1', role: 'admin' } });
+      next();
+    });
     app.use('/api/pricing-bi', router);
     app.use(errorHandler);
     return app;

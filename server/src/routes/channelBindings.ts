@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -40,6 +41,7 @@ function serializeBinding(binding: {
 
 router.get(
   '/mine',
+  requireCapability('integration', 'read'),
   asyncHandler(async (req: AuthRequest, res) => {
     const bindings = await prisma.userChannelBinding.findMany({
       where: { userId: req.user!.id },
@@ -55,6 +57,7 @@ router.get(
 
 router.post(
   '/',
+  requireCapability('integration', 'manage'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { channel, config } = req.body as {
       channel?: string;
@@ -94,6 +97,7 @@ router.post(
 
 router.put(
   '/:id',
+  requireCapability('integration', 'manage'),
   asyncHandler(async (req: AuthRequest, res) => {
     const existing = await prisma.userChannelBinding.findUnique({
       where: { id: req.params.id },
@@ -125,6 +129,7 @@ router.put(
 
 router.delete(
   '/:id',
+  requireCapability('integration', 'manage'),
   asyncHandler(async (req: AuthRequest, res) => {
     const existing = await prisma.userChannelBinding.findUnique({
       where: { id: req.params.id },

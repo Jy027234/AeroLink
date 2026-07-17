@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
 import { agentCreateSchema, agentRuntimeTaskSyncSchema, agentUpdateSchema } from '../lib/validation.js';
 import { classifyRFQEmail, generateQuoteAnalysis, generateCompletion, logAgentAction } from '../lib/aiService.js';
@@ -10,7 +10,8 @@ import { emitWebhookEvent } from '../lib/webhookService.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
-const requireAgentManagementRole = requireRole('manager', 'admin');
+const requireAgentManagementRole = requireCapability('agent', 'manage');
+const requireAgentRunCapability = requireCapability('agent', 'run');
 
 type RuntimePrismaClient = Prisma.TransactionClient | typeof prisma;
 
@@ -574,7 +575,7 @@ router.post(
 
 router.post(
   '/:id/run',
-  requireRole('manager', 'admin', 'sales'),
+  requireAgentRunCapability,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { task, input } = req.body;

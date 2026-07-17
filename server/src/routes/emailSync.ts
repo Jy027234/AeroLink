@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { authenticate } from '../middleware/auth.js';
 import { syncEmails, saveSyncedEmails, autoClassifyEmail } from '../lib/emailService.js';
 import { decrypt } from '../lib/crypto.js';
@@ -15,7 +15,7 @@ router.use(authenticate);
 
 router.post(
   '/sync/:accountId',
-  requireRole('admin'),
+  requireCapability('email_account', 'manage'),
   asyncHandler(async (req, res) => {
     const { accountId } = req.params;
 
@@ -73,7 +73,7 @@ router.post(
 
 router.get(
   '/list/:accountId',
-  requireRole('admin', 'manager'),
+  requireCapability('email_account', 'manage'),
   asyncHandler(async (req, res) => {
     const { accountId } = req.params;
     const { type, isRead } = req.query;
@@ -106,7 +106,7 @@ router.get(
 
 router.post(
   '/classify/:emailId',
-  requireRole('admin', 'manager'),
+  requireCapability('email_account', 'manage'),
   asyncHandler(async (req, res) => {
     const { emailId } = req.params;
 

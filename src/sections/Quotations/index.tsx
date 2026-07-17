@@ -51,6 +51,7 @@ import {
 } from '@/components/ui/select';
 import { useQuotations, useApproveQuotation, quotationApi, useDocumentTemplates, useRFQs, useDispatchNotification } from '@/hooks/useApi';
 import { documentApi } from '@/api/client';
+import { useCapabilityStore } from '@/store';
 import { PriceRecommendationPanel } from '@/components/PriceRecommendationPanel';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -105,6 +106,7 @@ function QuoteDetailDialog({
   onDownloadContract: (quote: Quotation) => void;
 }) {
   const { locale } = useTranslation();
+  const can = useCapabilityStore((state) => state.can);
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [detailQuote, setDetailQuote] = useState<Quotation | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -159,8 +161,9 @@ function QuoteDetailDialog({
     }
   };
 
-  const canConfirmCustomer = activeQuote.status === 'sent' || activeQuote.status === 'approved';
-  const canWithdraw = activeQuote.status === 'sent';
+  const canViewCost = can('quotation.view_cost');
+  const canConfirmCustomer = (activeQuote.status === 'sent' || activeQuote.status === 'approved') && can('quotation.accept');
+  const canWithdraw = activeQuote.status === 'sent' && can('quotation.withdraw');
   const canDownloadContract = activeQuote.status === 'accepted' && !!activeQuote.contractDocumentId;
 
   return (
@@ -226,19 +229,23 @@ function QuoteDetailDialog({
           </div>
 
           <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">{tx('成本价', 'Cost Price')}</span>
-              <span className="font-mono">${(activeQuote.costPrice * activeQuote.quantity).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-gray-500">{tx('利润率', 'Margin')}</span>
-              <span className={cn(
-                'font-semibold',
-                activeQuote.margin >= 20 ? 'text-green-600' : activeQuote.margin >= 15 ? 'text-yellow-600' : 'text-red-600'
-              )}>
-                {activeQuote.margin.toFixed(1)}%
-              </span>
-            </div>
+            {canViewCost && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-500">{tx('成本价', 'Cost Price')}</span>
+                  <span className="font-mono">${((activeQuote.costPrice || 0) * activeQuote.quantity).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-500">{tx('利润率', 'Margin')}</span>
+                  <span className={cn(
+                    'font-semibold',
+                    (activeQuote.margin || 0) >= 20 ? 'text-green-600' : (activeQuote.margin || 0) >= 15 ? 'text-yellow-600' : 'text-red-600'
+                  )}>
+                    {(activeQuote.margin || 0).toFixed(1)}%
+                  </span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between">
               <span className="text-sm text-gray-500">{tx('销售类型', 'Sale Type')}</span>
               <span>{activeQuote.saleType || tx('销售', 'Sale')}</span>
@@ -1386,6 +1393,8 @@ function WithdrawQuoteDialog({
 
 export function Quotations() {
   const { locale } = useTranslation();
+  const can = useCapabilityStore((state) => state.can);
+  const canViewCost = can('quotation.view_cost');
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1641,10 +1650,12 @@ export function Quotations() {
             <Filter className="w-4 h-4 mr-1" />
             {tx('筛选', 'Filters')}
           </Button>
-          <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => setIsCreateOpen(true)}>
-            <Plus className="w-4 h-4 mr-1" />
-            {tx('创建报价', 'Create Quote')}
-          </Button>
+          {can('quotation.create') && (
+            <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => setIsCreateOpen(true)}>
+              <Plus className="w-4 h-4 mr-1" />
+              {tx('创建报价', 'Create Quote')}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1676,7 +1687,7 @@ export function Quotations() {
                     <TableHead>{tx('原产国', 'Origin')}</TableHead>
                     <TableHead>{tx('数量', 'Quantity')}</TableHead>
                     <TableHead>{tx('总价', 'Total Price')}</TableHead>
-                    <TableHead>{tx('毛利率', 'Margin')}</TableHead>
+                    {canViewCost && <TableHead>{tx('毛利率', 'Margin')}</TableHead>}
                     <TableHead>{tx('状态', 'Status')}</TableHead>
                     <TableHead>{tx('有效期', 'Validity')}</TableHead>
                     <TableHead>{tx('操作', 'Actions')}</TableHead>
@@ -1714,20 +1725,19 @@ export function Quotations() {
                           <TableCell className="font-semibold">
                             ${quote.totalPrice.toLocaleString()}
                           </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Progress
-                                value={quote.margin}
-                                className="w-16 h-2"
-                              />
-                              <span className={cn(
-                                'text-sm',
-                                quote.margin >= 20 ? 'text-green-600' : quote.margin >= 15 ? 'text-yellow-600' : 'text-red-600'
-                              )}>
-                                {quote.margin.toFixed(1)}%
-                              </span>
-                            </div>
-                          </TableCell>
+                          {canViewCost && (
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Progress value={quote.margin || 0} className="w-16 h-2" />
+                                <span className={cn(
+                                  'text-sm',
+                                  (quote.margin || 0) >= 20 ? 'text-green-600' : (quote.margin || 0) >= 15 ? 'text-yellow-600' : 'text-red-600'
+                                )}>
+                                  {(quote.margin || 0).toFixed(1)}%
+                                </span>
+                              </div>
+                            </TableCell>
+                          )}
                           <TableCell>
                             <div className="flex items-center gap-1">
                               <QuoteStatusBadge status={quote.status} />
@@ -1751,7 +1761,7 @@ export function Quotations() {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              {quote.status === 'pending_approval' && (
+                              {quote.status === 'pending_approval' && can('quotation.approve') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -1764,7 +1774,7 @@ export function Quotations() {
                                   <CheckCircle className="w-4 h-4 text-green-600" />
                                 </Button>
                               )}
-                              {quote.status === 'approved' && (
+                              {quote.status === 'approved' && can('quotation.send') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -1774,7 +1784,7 @@ export function Quotations() {
                                   <Send className="w-4 h-4 text-blue-600" />
                                 </Button>
                               )}
-                              {(quote.status === 'sent' || quote.status === 'approved') && (
+                              {(quote.status === 'sent' || quote.status === 'approved') && can('quotation.accept') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -1784,7 +1794,7 @@ export function Quotations() {
                                   <CheckCircle className="w-4 h-4 text-green-600" />
                                 </Button>
                               )}
-                              {quote.status === 'sent' && (
+                              {quote.status === 'sent' && can('quotation.withdraw') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"

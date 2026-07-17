@@ -7,6 +7,7 @@ import { sendActivationEmailToUser, sendPasswordResetEmailToUser } from '../lib/
 import { generateAuthToken, getActivationExpiryDate, getPasswordResetExpiryDate } from '../lib/authFlow.js';
 import { forgotPasswordSchema, loginSchema, tokenPasswordSchema, validatePasswordStrength } from '../lib/validation.js';
 import { isLocked, recordFailedAttempt, clearAttempts } from '../lib/loginAttempt.js';
+import { getCapabilitiesForActor, normalizeRole } from '../lib/capabilityPolicy.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -187,6 +188,21 @@ router.get(
     res.json({
       success: true,
       data: req.user,
+    });
+  })
+);
+
+router.get(
+  '/capabilities',
+  authenticate,
+  asyncHandler(async (req: AuthRequest, res) => {
+    const actor = req.user!;
+    res.json({
+      success: true,
+      data: {
+        role: normalizeRole(actor.role),
+        grants: getCapabilitiesForActor(actor),
+      },
     });
   })
 );

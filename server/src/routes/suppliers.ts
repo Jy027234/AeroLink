@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { supplierCreateSchema, supplierUpdateSchema, supplierFollowUpLogBatchCreateSchema, supplierInviteSchema } from '../lib/validation.js';
@@ -115,6 +115,7 @@ function mapSupplierFollowUpLog(log: SupplierFollowUpLogWithRelations) {
 
 router.get(
   '/',
+  requireCapability('supplier', 'read'),
   asyncHandler(async (req, res) => {
     const { level, search, followUpFilter, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -192,6 +193,7 @@ router.get(
 
 router.get(
   '/follow-up-logs',
+  requireCapability('supplier', 'read'),
   asyncHandler(async (req, res) => {
     const supplierId = typeof req.query.supplierId === 'string' ? req.query.supplierId : undefined;
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string, 10) || 200));
@@ -233,7 +235,7 @@ router.get(
 
 router.post(
   '/follow-up-logs',
-  requireRole('sales'),
+  requireCapability('supplier_quote', 'create'),
   validateBody(supplierFollowUpLogBatchCreateSchema),
   asyncHandler(async (req, res) => {
     const authReq = req as AuthRequest;
@@ -308,6 +310,7 @@ router.post(
 
 router.get(
   '/:id',
+  requireCapability('supplier', 'read'),
   asyncHandler(async (req, res) => {
     const cacheKey = CACHE_KEY.SUPPLIER_DETAIL(req.params.id);
 
@@ -341,7 +344,7 @@ router.get(
 
 router.post(
   '/',
-  requireRole('manager', 'admin'),
+  requireCapability('supplier', 'create'),
   validateBody(supplierCreateSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -411,7 +414,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireRole('manager', 'admin'),
+  requireCapability('supplier', 'update'),
   validateBody(supplierUpdateSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -487,7 +490,7 @@ router.patch(
 
 router.post(
   '/invite',
-  requireRole('manager', 'admin'),
+  requireCapability('supplier', 'create'),
   validateBody(supplierInviteSchema),
   asyncHandler(async (req, res) => {
     const { email, message } = req.body;
@@ -544,7 +547,7 @@ router.post(
 
 router.delete(
   '/:id',
-  requireRole('manager', 'admin'),
+  requireCapability('supplier', 'delete'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.supplier.findUnique({ where: { id: req.params.id } });
     if (!existing) {

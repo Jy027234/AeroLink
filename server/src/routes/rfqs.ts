@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { assertCapability, requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
 import { rfqCreateSchema, rfqStatusUpdateSchema } from '../lib/validation.js';
 import { AuthRequest } from '../middleware/auth.js';
@@ -14,9 +15,42 @@ import {
   preferredRfqStatus,
   toRfqStatusEnum,
 } from '../lib/transactionStatusShadows.js';
+import { getCapabilityScope } from '../lib/capabilityPolicy.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+type ScopedRfq = {
+  createdBy: string;
+  creator?: { department?: string | null } | null;
+};
+
+function buildRfqReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.RFQWhereInput {
+  const scope = getCapabilityScope(actor, 'rfq.read');
+  if (scope === 'all') return {};
+
+  const own: Prisma.RFQWhereInput = { createdBy: actor.id };
+  const department = actor.department
+    ? { creator: { is: { department: actor.department } } } satisfies Prisma.RFQWhereInput
+    : undefined;
+
+  if (scope === 'department') return department ?? own;
+  if (scope === 'department_or_own') {
+    return department ? { OR: [own, department] } : own;
+  }
+  return own;
+}
+
+function assertRfqAccess(
+  actor: NonNullable<AuthRequest['user']>,
+  action: 'read' | 'update' | 'transition',
+  rfq: ScopedRfq,
+) {
+  assertCapability(actor, 'rfq', action, {
+    ownerId: rfq.createdBy,
+    department: rfq.creator?.department,
+  });
+}
 
 function parseAlternatePartNumbers(value: string | null): string[] | undefined {
   if (!value) return undefined;
@@ -93,26 +127,31 @@ function mapStatusHistoryEntry(history: {
 
 router.get(
   '/',
+  requireCapability('rfq', 'read'),
   asyncHandler(async (req, res) => {
     const { status, urgency, search, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * pageSize;
 
-    const where: Prisma.RFQWhereInput = {};
+    const scopedWhere = buildRfqReadScope((req as AuthRequest).user!);
+    const filters: Prisma.RFQWhereInput[] = [scopedWhere];
     if (status) {
       const statusValue = status.toString();
-      where.status = normalizeRfqStatus(statusValue) || statusValue.toUpperCase();
+      filters.push({ status: normalizeRfqStatus(statusValue) || statusValue.toUpperCase() });
     }
-    if (urgency) where.urgency = urgency.toString().toUpperCase();
+    if (urgency) filters.push({ urgency: urgency.toString().toUpperCase() });
     const searchValue = typeof search === 'string' ? search.trim() : '';
     if (searchValue) {
-      where.OR = [
-        { rfqNumber: { contains: searchValue, mode: 'insensitive' } },
-        { partNumber: { contains: searchValue, mode: 'insensitive' } },
-        { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
-      ];
+      filters.push({
+        OR: [
+          { rfqNumber: { contains: searchValue, mode: 'insensitive' } },
+          { partNumber: { contains: searchValue, mode: 'insensitive' } },
+          { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
+        ],
+      });
     }
+    const where: Prisma.RFQWhereInput = filters.length === 1 ? filters[0] : { AND: filters };
 
     const [rfqs, total, statusCounts] = await Promise.all([
       prisma.rFQ.findMany({
@@ -129,6 +168,7 @@ router.get(
       }),
       prisma.rFQ.count({ where }),
       prisma.rFQ.groupBy({
+        where,
         by: ['status'],
         _count: { _all: true },
       }),
@@ -161,15 +201,21 @@ router.get(
 
 router.get(
   '/:id/status-history',
+  requireCapability('rfq', 'read'),
   asyncHandler(async (req, res) => {
     const rfq = await prisma.rFQ.findUnique({
       where: { id: req.params.id },
-      select: { id: true },
+      select: {
+        id: true,
+        createdBy: true,
+        creator: { select: { department: true } },
+      },
     });
 
     if (!rfq) {
       throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
     }
+    assertRfqAccess((req as AuthRequest).user!, 'read', rfq);
 
     const history = await prisma.transactionStatusHistory.findMany({
       where: { entityType: 'RFQ', entityId: rfq.id },
@@ -190,13 +236,14 @@ router.get(
 
 router.get(
   '/:id',
+  requireCapability('rfq', 'read'),
   asyncHandler(async (req, res) => {
     const rfq = await prisma.rFQ.findUnique({
       where: { id: req.params.id },
       include: {
         customer: true,
         creator: {
-          select: { id: true, name: true },
+          select: { id: true, name: true, department: true },
         },
         quotations: true,
       },
@@ -205,6 +252,7 @@ router.get(
     if (!rfq) {
       throw new AppError('RFQ不存在', 404);
     }
+    assertRfqAccess((req as AuthRequest).user!, 'read', rfq);
 
     res.json({
       success: true,
@@ -222,6 +270,7 @@ router.get(
 
 router.post(
   '/',
+  requireCapability('rfq', 'create'),
   validateBody(rfqCreateSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -341,6 +390,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requireCapability('rfq', 'update'),
   validateBody(rfqCreateSchema.partial()),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -389,10 +439,14 @@ router.patch(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, userId, 'PATCH:/rfqs/:id'),
       async (tx) => {
-        const existing = await tx.rFQ.findUnique({ where: { id } });
+        const existing = await tx.rFQ.findUnique({
+          where: { id },
+          include: { creator: { select: { department: true } } },
+        });
         if (!existing) {
           throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
         }
+        assertRfqAccess((req as AuthRequest).user!, 'update', existing);
 
         const rfq = await tx.rFQ.update({
           where: { id },
@@ -423,6 +477,7 @@ router.patch(
 
 router.patch(
   '/:id/status',
+  requireCapability('rfq', 'transition'),
   validateBody(rfqStatusUpdateSchema),
   asyncHandler(async (req, res) => {
     const nextStatus = String(req.body.status);
@@ -430,10 +485,14 @@ router.patch(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, userId, 'PATCH:/rfqs/:id/status'),
       async (tx) => {
-        const current = await tx.rFQ.findUnique({ where: { id: req.params.id } });
+        const current = await tx.rFQ.findUnique({
+          where: { id: req.params.id },
+          include: { creator: { select: { department: true } } },
+        });
         if (!current) {
           throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
         }
+        assertRfqAccess((req as AuthRequest).user!, 'transition', current);
 
         const effectiveCurrentStatus = preferredRfqStatus(current.statusEnum, current.status);
         const currentStatus = normalizeRfqStatus(effectiveCurrentStatus);

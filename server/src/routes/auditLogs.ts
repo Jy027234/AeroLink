@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { requireCapability } from '../middleware/capability.js';
 import { AuthRequest } from '../middleware/auth.js';
 import prisma from '../lib/prisma.js';
 
@@ -8,6 +9,7 @@ const router = Router();
 
 router.get(
   '/',
+  requireCapability('audit_log', 'read'),
   asyncHandler(async (req, res) => {
     const {
       page,
@@ -75,6 +77,7 @@ router.get(
 
 router.get(
   '/stats',
+  requireCapability('audit_log', 'read'),
   asyncHandler(async (_req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -158,6 +161,7 @@ router.get(
 
 router.get(
   '/:id',
+  requireCapability('audit_log', 'read'),
   asyncHandler(async (req, res) => {
     const log = await prisma.auditLog.findUnique({
       where: { id: req.params.id },
@@ -179,6 +183,7 @@ router.get(
 
 router.get(
   '/resource/:type/:id',
+  requireCapability('audit_log', 'read'),
   asyncHandler(async (req, res) => {
     const { type, id } = req.params;
     const { page, limit } = req.query;
@@ -222,6 +227,7 @@ router.get(
 
 router.get(
   '/user/:id',
+  requireCapability('audit_log', 'read'),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { page, limit } = req.query;
@@ -259,6 +265,7 @@ router.get(
 
 router.post(
   '/',
+  requireCapability('audit_log', 'manage'),
   asyncHandler(async (req, res) => {
     const user = (req as AuthRequest).user;
     const {

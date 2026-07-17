@@ -5,8 +5,9 @@ import { Layout } from '@/components/Layout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Toaster } from '@/components/ui/sonner';
 import { DataInitializer } from '@/components/DataInitializer';
-import { useAuthStore, useUIStore } from '@/store';
+import { useAuthStore, useCapabilityStore, useUIStore } from '@/store';
 import { isKnownPagePath, resolvePageFromPathname } from '@/lib/pageRoutes';
+import { getPageCapability, hasCapability } from '@/lib/capabilities';
 import { preloadPages } from '@/lib/pagePreload';
 import { useTranslation } from '@/i18n';
 import { authApi, getAccessToken } from '@/api/client';
@@ -125,9 +126,13 @@ function withPageReady(pageId: string, element: React.ReactNode) {
 }
 
 function App() {
-  const { isAuthenticated, login: storeLogin, logout } = useAuthStore();
+  const { isAuthenticated, user, login: storeLogin, logout } = useAuthStore();
   const { currentPage } = useUIStore();
   const setCurrentPage = useUIStore((state) => state.setCurrentPage);
+  const capabilityGrants = useCapabilityStore((state) => state.grants);
+  const capabilitiesLoaded = useCapabilityStore((state) => state.loaded);
+  const loadCapabilities = useCapabilityStore((state) => state.load);
+  const clearCapabilities = useCapabilityStore((state) => state.clear);
   const bootNavigationMarkedRef = useRef(false);
   const [sessionRestoring, setSessionRestoring] = useState(false);
 
@@ -186,6 +191,27 @@ function App() {
       cancelled = true;
     };
   }, [isAuthenticated, logout, storeLogin]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) {
+      clearCapabilities();
+      return;
+    }
+
+    clearCapabilities();
+    void loadCapabilities();
+  }, [clearCapabilities, isAuthenticated, loadCapabilities, user?.id]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !capabilitiesLoaded) {
+      return;
+    }
+
+    const requiredCapability = getPageCapability(currentPage);
+    if (requiredCapability && !hasCapability(capabilityGrants, requiredCapability)) {
+      setCurrentPage('dashboard', { replaceHistory: true });
+    }
+  }, [capabilitiesLoaded, capabilityGrants, currentPage, isAuthenticated, setCurrentPage]);
 
   useEffect(() => {
     if (!isAuthenticated || bootNavigationMarkedRef.current) {

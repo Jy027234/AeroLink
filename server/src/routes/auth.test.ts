@@ -168,6 +168,34 @@ describe('Auth routes integration', () => {
     expect(cookies.some((value) => /Max-Age=0|Expires=Thu, 01 Jan 1970/.test(value))).toBe(true);
   });
 
+  it('should expose normalized capability grants for the authenticated user', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      email: 'sales.user@example.com',
+      name: 'Sales User',
+      role: 'SALES',
+      department: 'Sales',
+      avatar: null,
+      isActive: true,
+      tokenVersion: 0,
+    });
+    const accessToken = jwt.sign({ id: 'u1', role: 'SALES', ver: 0 }, 'test-jwt-secret', { expiresIn: '15m' });
+
+    const res = await request(app)
+      .get('/api/auth/capabilities')
+      .set('Authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.role).toBe('sales');
+    expect(res.body.data.grants).toEqual(expect.arrayContaining([
+      { capability: 'rfq.read', scope: 'own' },
+      { capability: 'quotation.send', scope: 'own' },
+    ]));
+    expect(res.body.data.grants).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ capability: 'email_account.manage' }),
+    ]));
+  });
+
   it('should reject activation with a short password', async () => {
     const res = await request(app)
       .post('/api/auth/activate')

@@ -29,6 +29,10 @@ describe('RFQ server-side pagination', () => {
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const app = express();
     app.use(express.json());
+    app.use((req, _res, next) => {
+      Object.assign(req, { user: { id: 'admin-1', role: 'admin' } });
+      next();
+    });
     app.use('/api/rfqs', rfqsRouter);
     app.use(errorHandler);
     return app;
@@ -86,11 +90,18 @@ describe('RFQ server-side pagination', () => {
 
     const findManyArgs = prismaMock.rFQ.findMany.mock.calls[0]?.[0];
     expect(findManyArgs).toEqual(expect.objectContaining({ skip: 10, take: 10 }));
-    expect(findManyArgs.where.OR).toEqual(expect.arrayContaining([
-      { rfqNumber: { contains: 'pn-100', mode: 'insensitive' } },
-      { partNumber: { contains: 'pn-100', mode: 'insensitive' } },
-      { customer: { is: { name: { contains: 'pn-100', mode: 'insensitive' } } } },
-    ]));
+    expect(findManyArgs.where).toEqual(expect.objectContaining({
+      AND: expect.arrayContaining([
+        {},
+        {
+          OR: expect.arrayContaining([
+            { rfqNumber: { contains: 'pn-100', mode: 'insensitive' } },
+            { partNumber: { contains: 'pn-100', mode: 'insensitive' } },
+            { customer: { is: { name: { contains: 'pn-100', mode: 'insensitive' } } } },
+          ]),
+        },
+      ]),
+    }));
     expect(prismaMock.rFQ.count).toHaveBeenCalledWith({ where: findManyArgs.where });
   });
 });

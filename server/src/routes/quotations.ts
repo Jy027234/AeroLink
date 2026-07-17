@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Prisma, type OrderStatusEnum, type QuotationStatusEnum, type RfqStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { assertCapability, requireCapability } from '../middleware/capability.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
 import {
@@ -32,9 +33,49 @@ import {
   preferredRfqStatus,
   toQuotationStatusEnum,
 } from '../lib/transactionStatusShadows.js';
+import { getCapabilityScope, hasCapability } from '../lib/capabilityPolicy.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+type ScopedQuotation = {
+  createdBy: string;
+  creator?: { department?: string | null } | null;
+};
+
+function buildQuotationReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.QuotationWhereInput {
+  const scope = getCapabilityScope(actor, 'quotation.read');
+  if (scope === 'all') return {};
+
+  const own: Prisma.QuotationWhereInput = { createdBy: actor.id };
+  const department = actor.department
+    ? { creator: { is: { department: actor.department } } } satisfies Prisma.QuotationWhereInput
+    : undefined;
+
+  if (scope === 'department') return department ?? own;
+  if (scope === 'department_or_own') {
+    return department ? { OR: [own, department] } : own;
+  }
+  return own;
+}
+
+function assertQuotationAccess(
+  actor: NonNullable<AuthRequest['user']>,
+  action: 'read' | 'update' | 'transition' | 'approve' | 'send' | 'accept' | 'withdraw',
+  quotation: ScopedQuotation,
+) {
+  assertCapability(actor, 'quotation', action, {
+    ownerId: quotation.createdBy,
+    department: quotation.creator?.department,
+  });
+}
+
+function canViewQuotationCost(actor: NonNullable<AuthRequest['user']>, quotation: ScopedQuotation) {
+  return hasCapability(actor, 'quotation', 'view_cost', {
+    ownerId: quotation.createdBy,
+    department: quotation.creator?.department,
+  });
+}
 
 type OutboundAccountClient = Pick<Prisma.TransactionClient, 'emailAccount'>;
 
@@ -215,29 +256,35 @@ function mapQuotationStatusHistoryEntry(history: {
 
 router.get(
   '/',
+  requireCapability('quotation', 'read'),
   asyncHandler(async (req, res) => {
     const { status, search, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * pageSize;
 
-    const where: Prisma.QuotationWhereInput = {};
-    if (status) where.status = status.toString().toUpperCase();
+    const actor = (req as AuthRequest).user!;
+    const scopedWhere = buildQuotationReadScope(actor);
+    const filters: Prisma.QuotationWhereInput[] = [scopedWhere];
+    if (status) filters.push({ status: status.toString().toUpperCase() });
     const searchValue = typeof search === 'string' ? search.trim() : '';
     if (searchValue) {
-      where.OR = [
-        { quoteNumber: { contains: searchValue, mode: 'insensitive' } },
-        { partNumber: { contains: searchValue, mode: 'insensitive' } },
-        { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
-      ];
+      filters.push({
+        OR: [
+          { quoteNumber: { contains: searchValue, mode: 'insensitive' } },
+          { partNumber: { contains: searchValue, mode: 'insensitive' } },
+          { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
+        ],
+      });
     }
+    const where: Prisma.QuotationWhereInput = filters.length === 1 ? filters[0] : { AND: filters };
 
     const [quotations, total, statusCounts, acceptedAggregate] = await Promise.all([
       prisma.quotation.findMany({
         where,
         include: {
           customer: true,
-          creator: { select: { id: true, name: true } },
+          creator: { select: { id: true, name: true, department: true } },
           approver: { select: { id: true, name: true } },
           rfq: { select: { id: true, rfqNumber: true, urgency: true } },
           orders: {
@@ -260,11 +307,12 @@ router.get(
       }),
       prisma.quotation.count({ where }),
       prisma.quotation.groupBy({
+        where,
         by: ['status'],
         _count: { _all: true },
       }),
       prisma.quotation.aggregate({
-        where: { status: 'ACCEPTED' },
+        where: { AND: [scopedWhere, { status: 'ACCEPTED' }] },
         _sum: { totalPrice: true, totalPriceDecimal: true },
       }),
     ]);
@@ -284,12 +332,11 @@ router.get(
       ) ?? 0,
     };
 
-    const userRole = (req as AuthRequest).user?.role;
-    const isAdminOrManager = userRole === 'admin' || userRole === 'manager';
     res.json({
       success: true,
       data: quotations.map((q) => {
         const money = projectQuotationMoney(q);
+        const showCost = canViewQuotationCost(actor, q);
         const latestContract = q.generatedDocuments.find((doc) => doc.documentType === ORDER_CONTRACT_DOCUMENT_TYPE);
         const latestEmail = q.outboundEmails.find((email) => email.purpose === 'QUOTATION_SEND');
         const latestOrder = q.orders[0];
@@ -306,7 +353,7 @@ router.get(
           quantity: q.quantity,
           unitPrice: money.unitPrice,
           totalPrice: money.totalPrice,
-          ...(isAdminOrManager ? { costPrice: money.costPrice, margin: q.margin } : {}),
+          ...(showCost ? { costPrice: money.costPrice, margin: q.margin } : {}),
           certificateFiles: q.certificateFiles?.split(',').filter(Boolean) || [],
           template: q.template.toLowerCase(),
           status: quotationStatus(q).toLowerCase(),
@@ -360,15 +407,21 @@ router.get(
 
 router.get(
   '/:id/status-history',
+  requireCapability('quotation', 'read'),
   asyncHandler(async (req, res) => {
     const quotation = await prisma.quotation.findUnique({
       where: { id: req.params.id },
-      select: { id: true },
+      select: {
+        id: true,
+        createdBy: true,
+        creator: { select: { department: true } },
+      },
     });
 
     if (!quotation) {
       throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
     }
+    assertQuotationAccess((req as AuthRequest).user!, 'read', quotation);
 
     const history = await prisma.transactionStatusHistory.findMany({
       where: { entityType: 'QUOTATION', entityId: quotation.id },
@@ -389,12 +442,13 @@ router.get(
 
 router.get(
   '/:id',
+  requireCapability('quotation', 'read'),
   asyncHandler(async (req, res) => {
     const quotation = await prisma.quotation.findUnique({
       where: { id: req.params.id },
       include: {
         customer: true,
-        creator: { select: { id: true, name: true } },
+        creator: { select: { id: true, name: true, department: true } },
         approver: { select: { id: true, name: true } },
         rfq: true,
         approvals: { include: { approver: true } },
@@ -422,14 +476,20 @@ router.get(
       throw new AppError('报价单不存在', 404);
     }
 
+    const actor = (req as AuthRequest).user!;
+    assertQuotationAccess(actor, 'read', quotation);
     const projectedQuotation = {
       ...projectQuotationMoney(quotation),
       orders: quotation.orders.map(projectRelatedOrderMoney),
     };
+    const { costPrice: _costPrice, margin: _margin, ...quotationWithoutCost } = projectedQuotation;
+    const quotationForActor = canViewQuotationCost(actor, quotation)
+      ? projectedQuotation
+      : quotationWithoutCost;
     res.json({
       success: true,
       data: {
-        ...projectedQuotation,
+        ...quotationForActor,
         rfq: projectRfqStatus(quotation.rfq),
         status: quotationStatus(quotation).toLowerCase(),
         template: quotation.template.toLowerCase(),
@@ -466,6 +526,7 @@ router.get(
 
 router.post(
   '/',
+  requireCapability('quotation', 'create'),
   validateBody(quotationCreateSchema),
   asyncHandler(async (req, res) => {
     const { rfqId, customerId, partNumber, quantity, unitPrice, costPrice, certificateFiles, template, validityDays,
@@ -474,11 +535,23 @@ router.post(
       packagingRequirement, shippingMethod, ccRecipients, commonNote,
       eSignature, eSignatureStatus, countryOfOrigin, hsCode, eccn, dualUse,
     } = req.body;
-    const actorId = (req as AuthRequest).user!.id;
+    const actor = (req as AuthRequest).user!;
+    const actorId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations'),
       async (tx) => {
-        const relatedRfq = rfqId ? await tx.rFQ.findUnique({ where: { id: rfqId } }) : null;
+        const relatedRfq = rfqId
+          ? await tx.rFQ.findUnique({
+            where: { id: rfqId },
+            include: { creator: { select: { department: true } } },
+          })
+          : null;
+        if (relatedRfq) {
+          assertCapability(actor, 'rfq', 'read', {
+            ownerId: relatedRfq.createdBy,
+            department: relatedRfq.creator?.department,
+          });
+        }
         const isAog = relatedRfq?.urgency.toUpperCase() === 'AOG';
         const finalValidityDays = isAog ? 1 : (validityDays || 7);
         const unitPriceDecimal = normalizeMoney(unitPrice);
@@ -625,7 +698,7 @@ router.post(
             status: quotationStatus(quotation).toLowerCase(),
             version: quotation.version,
             totalPrice: quotationTotalPrice(quotation),
-            margin: quotation.margin,
+            ...(canViewQuotationCost(actor, { createdBy: actorId }) ? { margin: quotation.margin } : {}),
           },
           statusCode: 201,
           resourceType: 'QUOTATION',
@@ -644,16 +717,22 @@ router.post(
 
 router.post(
   '/:id/submit',
+  requireCapability('quotation', 'transition'),
   validateBody(quotationSubmitSchema),
   asyncHandler(async (req, res) => {
-    const actorId = (req as AuthRequest).user!.id;
+    const actor = (req as AuthRequest).user!;
+    const actorId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/submit'),
       async (tx) => {
-        const currentQuotation = await tx.quotation.findUnique({ where: { id: req.params.id } });
+        const currentQuotation = await tx.quotation.findUnique({
+          where: { id: req.params.id },
+          include: { creator: { select: { department: true } } },
+        });
         if (!currentQuotation) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
+        assertQuotationAccess(actor, 'transition', currentQuotation);
         const currentQuotationStatus = quotationStatus(currentQuotation);
         assertQuotationTransition(currentQuotationStatus, 'PENDING_APPROVAL');
 
@@ -706,20 +785,26 @@ router.post(
 
 router.post(
   '/:id/approve',
+  requireCapability('quotation', 'approve'),
   validateBody(quotationApproveSchema),
   asyncHandler(async (req, res) => {
     const { action, comment, reasonCode, version } = req.body;
-    const userId = (req as AuthRequest).user!.id;
+    const actor = (req as AuthRequest).user!;
+    const userId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, userId, 'POST:/quotations/:id/approve'),
       async (tx) => {
         const quotationWithRfq = await tx.quotation.findUnique({
           where: { id: req.params.id },
-          include: { rfq: true },
+          include: {
+            rfq: true,
+            creator: { select: { department: true } },
+          },
         });
         if (!quotationWithRfq) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
+        assertQuotationAccess(actor, 'approve', quotationWithRfq);
 
         const isAog = quotationWithRfq.rfq?.urgency?.toUpperCase() === 'AOG';
         const targetStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
@@ -793,19 +878,25 @@ router.post(
 
 router.post(
   '/:id/send',
+  requireCapability('quotation', 'send'),
   validateBody(quotationSendSchema),
   asyncHandler(async (req, res) => {
-    const actorId = (req as AuthRequest).user!.id;
+    const actor = (req as AuthRequest).user!;
+    const actorId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/send'),
       async (tx) => {
         const quotation = await tx.quotation.findUnique({
           where: { id: req.params.id },
-          include: { customer: true },
+          include: {
+            customer: true,
+            creator: { select: { department: true } },
+          },
         });
         if (!quotation) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
+        assertQuotationAccess(actor, 'send', quotation);
         const currentQuotationStatus = quotationStatus(quotation);
         if (currentQuotationStatus === 'WITHDRAWN') {
           throw new AppError('已撤回的报价不能再次发送，请复制或新建报价后重新发送', 400, 'BAD_REQUEST');
@@ -883,11 +974,13 @@ router.post(
 
 router.post(
   '/:id/withdraw',
+  requireCapability('quotation', 'withdraw'),
   validateBody(quotationWithdrawSchema),
   asyncHandler(async (req, res) => {
     const reason = req.body.reason;
     const sendWithdrawalNotice = req.body.sendWithdrawalNotice ?? true;
-    const actorId = (req as AuthRequest).user!.id;
+    const actor = (req as AuthRequest).user!;
+    const actorId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/withdraw'),
       async (tx) => {
@@ -895,6 +988,7 @@ router.post(
           where: { id: req.params.id },
           include: {
             customer: true,
+            creator: { select: { department: true } },
             outboundEmails: {
               where: { purpose: 'QUOTATION_SEND', status: 'SENT' },
               orderBy: { sentAt: 'desc' },
@@ -905,6 +999,7 @@ router.post(
         if (!quotation) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
+        assertQuotationAccess(actor, 'withdraw', quotation);
         const currentQuotationStatus = quotationStatus(quotation);
         if (currentQuotationStatus === 'ACCEPTED') {
           throw new AppError('客户已确认的报价不能直接撤回，请通过订单/变更流程处理', 400, 'BAD_REQUEST');
@@ -1103,20 +1198,26 @@ router.post(
 
 router.post(
   '/:id/accept',
+  requireCapability('quotation', 'accept'),
   validateBody(quotationAcceptSchema),
   asyncHandler(async (req, res) => {
     const { poNumber, deliveryDate, templateId, confirmationNote, reasonCode, reason, version } = req.body;
-    const actorId = (req as AuthRequest).user!.id;
+    const actor = (req as AuthRequest).user!;
+    const actorId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/accept'),
       async (tx) => {
         const quotation = await tx.quotation.findUnique({
           where: { id: req.params.id },
-          include: { customer: true },
+          include: {
+            customer: true,
+            creator: { select: { department: true } },
+          },
         });
         if (!quotation) {
           throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
+        assertQuotationAccess(actor, 'accept', quotation);
         const currentQuotationStatus = quotationStatus(quotation);
         if (currentQuotationStatus === 'WITHDRAWN') {
           throw new AppError('已撤回的报价不能登记客户确认', 400, 'BAD_REQUEST');
@@ -1234,15 +1335,21 @@ router.post(
 
 router.get(
   '/:id/pdf',
+  requireCapability('quotation', 'read'),
   asyncHandler(async (req, res) => {
     const quotation = await prisma.quotation.findUnique({
       where: { id: req.params.id },
-      include: { customer: true },
+      include: {
+        customer: true,
+        creator: { select: { department: true } },
+      },
     });
 
     if (!quotation) {
       throw new AppError('报价单不存在', 404);
     }
+    const actor = (req as AuthRequest).user!;
+    assertQuotationAccess(actor, 'read', quotation);
 
     const pdfBuffer = await generateQuotationPDF({
       quoteNumber: quotation.quoteNumber,
@@ -1273,6 +1380,7 @@ router.get(
       createdAt: quotation.createdAt.toISOString(),
       expiryDate: quotation.expiryDate.toISOString().split('T')[0],
       createdBy: quotation.createdBy,
+      includeInternalInfo: canViewQuotationCost(actor, quotation),
     });
 
     res.setHeader('Content-Type', 'application/pdf');

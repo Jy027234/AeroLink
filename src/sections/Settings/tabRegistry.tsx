@@ -17,6 +17,7 @@ export type SettingsFeatureStage = 'stable' | 'beta';
 
 export interface SettingsTabContext {
   user: CurrentUserProfile | null;
+  can: (capability: string) => boolean;
 }
 
 export interface SettingsTabDefinition {
@@ -27,7 +28,7 @@ export interface SettingsTabDefinition {
   triggerClassName?: string;
   contentClassName?: string;
   featureStage: SettingsFeatureStage;
-  requiredRoles?: string[];
+  requiredCapability?: string;
   isVisible?: (context: SettingsTabContext) => boolean;
   render: (context: SettingsTabContext) => ReactNode;
 }
@@ -51,6 +52,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     triggerClassName: 'gap-1',
     contentClassName: 'mt-4',
     featureStage: 'stable',
+    requiredCapability: 'workflow.read',
     render: () => <ApprovalWorkflowSettings />,
   },
   {
@@ -61,7 +63,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     triggerClassName: 'gap-1',
     contentClassName: 'mt-4',
     featureStage: 'stable',
-    requiredRoles: ['admin', 'administrator', 'gm'],
+    requiredCapability: 'user.manage',
     render: () => <UserManagement />,
   },
   {
@@ -80,6 +82,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     triggerClassName: 'gap-1',
     contentClassName: 'mt-4',
     featureStage: 'stable',
+    requiredCapability: 'integration.read',
     render: () => <ChannelBindingSettings />,
   },
   {
@@ -88,7 +91,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     labelEn: 'Email',
     contentClassName: 'space-y-6',
     featureStage: 'stable',
-    requiredRoles: ['admin', 'administrator', 'gm'],
+    requiredCapability: 'email_account.manage',
     render: () => <EmailSettings />,
   },
   {
@@ -97,6 +100,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     labelEn: 'Contracts',
     contentClassName: 'space-y-6',
     featureStage: 'stable',
+    requiredCapability: 'certificate_template.manage',
     render: () => <ContractTemplateManagement />,
   },
   {
@@ -115,7 +119,7 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     triggerClassName: 'gap-1',
     contentClassName: 'mt-4',
     featureStage: 'stable',
-    requiredRoles: ['admin', 'administrator', 'gm', 'manager'],
+    requiredCapability: 'agent.manage',
     render: () => <AgentManagement />,
   },
   {
@@ -126,17 +130,15 @@ export const settingsTabRegistry: SettingsTabDefinition[] = [
     triggerClassName: 'gap-1',
     contentClassName: 'mt-4',
     featureStage: 'stable',
+    requiredCapability: 'webhook.manage',
     render: () => <WebhookManagementPanel />,
   },
 ];
 
 export function resolveVisibleSettingsTabs(context: SettingsTabContext): SettingsTabDefinition[] {
   return settingsTabRegistry.filter((tab) => {
-    if (tab.requiredRoles && tab.requiredRoles.length > 0) {
-      const currentRole = context.user?.role;
-      if (!currentRole || !tab.requiredRoles.includes(currentRole)) {
-        return false;
-      }
+    if (tab.requiredCapability && !context.can(tab.requiredCapability)) {
+      return false;
     }
 
     if (tab.isVisible) {

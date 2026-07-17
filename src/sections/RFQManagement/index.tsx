@@ -57,7 +57,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useRFQStore } from '@/store';
+import { useCapabilityStore, useRFQStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useCustomers, useCreateRFQ, useRFQs, useUpdateRFQ, useUpdateRFQStatus, useSuppliers, useDispatchNotification } from '@/hooks/useApi';
@@ -868,6 +868,7 @@ function RFQFormDialog({
 
 export function RFQManagement() {
   const { locale } = useTranslation();
+  const can = useCapabilityStore((state) => state.can);
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const { rfqs, addRFQ, updateRFQ } = useRFQStore();
   const pageSize = 10;
@@ -1093,10 +1094,12 @@ export function RFQManagement() {
                   {tx('清空筛选', 'Clear Filters')}
                 </Button>
               )}
-              <Button onClick={handleCreate}>
-                <Plus className="w-4 h-4 mr-1" />
-                {tx('新建需求单', 'Create RFQ')}
-              </Button>
+              {can('rfq.create') && (
+                <Button onClick={handleCreate}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  {tx('新建需求单', 'Create RFQ')}
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -1156,9 +1159,12 @@ export function RFQManagement() {
                         <Button variant="ghost" size="icon" onClick={() => handleViewDetail(rfq)}>
                           <Eye className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(rfq)}>
-                          <Pencil className="w-4 h-4" />
-                        </Button>
+                        {can('rfq.update') && (
+                          <Button variant="ghost" size="icon" onClick={() => handleEdit(rfq)}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {(can('rfq.update') || can('rfq.transition') || can('quotation.create')) && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon">
@@ -1166,23 +1172,25 @@ export function RFQManagement() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEdit(rfq)}>
-                              <Pencil className="w-4 h-4 mr-2" />
-                              {tx('编辑', 'Edit')}
-                            </DropdownMenuItem>
-                            {rfq.status === 'pending' && (
+                            {can('rfq.update') && (
+                              <DropdownMenuItem onClick={() => handleEdit(rfq)}>
+                                <Pencil className="w-4 h-4 mr-2" />
+                                {tx('编辑', 'Edit')}
+                              </DropdownMenuItem>
+                            )}
+                            {rfq.status === 'pending' && can('rfq.transition') && (
                               <DropdownMenuItem disabled={statusUpdating} onClick={() => { void handleStatusChange(rfq.id, 'sourcing'); }}>
                                 <ChevronRight className="w-4 h-4 mr-2" />
                                 {tx('开始寻源', 'Start Sourcing')}
                               </DropdownMenuItem>
                             )}
-                            {(rfq.status === 'pending' || rfq.status === 'sourcing') && (
+                            {(rfq.status === 'pending' || rfq.status === 'sourcing') && can('quotation.create') && (
                                <DropdownMenuItem disabled={statusUpdating} onClick={() => { void handleConvertToQuote(rfq); }}>
                                 <Send className="w-4 h-4 mr-2" />
                                 Create Quotation
                               </DropdownMenuItem>
                             )}
-                            {rfq.status === 'quoting' && (
+                            {rfq.status === 'quoting' && can('rfq.transition') && (
                               <>
                                 <DropdownMenuItem disabled={statusUpdating} onClick={() => { void handleStatusChange(rfq.id, 'won'); }}>
                                   <CheckCircle className="w-4 h-4 mr-2 text-green-500" />
@@ -1196,6 +1204,7 @@ export function RFQManagement() {
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

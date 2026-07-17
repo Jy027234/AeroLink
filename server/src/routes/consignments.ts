@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -16,6 +17,7 @@ function generateAgreementNumber(): string {
  */
 router.get(
   '/',
+  requireCapability('consignment', 'read'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { status, supplierId, partNumber, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -50,6 +52,7 @@ router.get(
  */
 router.post(
   '/',
+  requireCapability('consignment', 'create'),
   asyncHandler(async (req: AuthRequest, res) => {
     const data = req.body;
     const agreementNumber = generateAgreementNumber();
@@ -73,6 +76,7 @@ router.post(
  */
 router.get(
   '/:id',
+  requireCapability('consignment', 'read'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { id } = req.params;
     const consignment = await prisma.consignment.findUnique({ where: { id } });
@@ -86,6 +90,7 @@ router.get(
  */
 router.put(
   '/:id',
+  requireCapability('consignment', 'update'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { id } = req.params;
     const data = req.body;
@@ -107,6 +112,7 @@ router.put(
  */
 router.post(
   '/:id/consume',
+  requireCapability('consignment', 'update'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { id } = req.params;
     const { quantity } = req.body;
@@ -142,6 +148,7 @@ router.post(
  */
 router.post(
   '/:id/terminate',
+  requireCapability('consignment', 'update'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { id } = req.params;
     const consignment = await prisma.consignment.findUnique({ where: { id } });
@@ -164,6 +171,7 @@ router.post(
  */
 router.get(
   '/alerts',
+  requireCapability('consignment', 'read'),
   asyncHandler(async (_req: AuthRequest, res) => {
     const now = new Date();
     const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);

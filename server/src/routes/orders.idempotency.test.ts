@@ -52,7 +52,7 @@ describe('Order idempotency and concurrent creation recovery', () => {
     const app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
-      Object.assign(req, { user: { id: 'u001', role: 'manager' } });
+      Object.assign(req, { user: { id: 'u001', role: 'admin' } });
       next();
     });
     app.use('/api/orders', ordersRouter);

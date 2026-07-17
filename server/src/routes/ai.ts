@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { requireCapability } from '../middleware/capability.js';
 import {
   classifyRFQEmail,
   generateQuoteAnalysis,
@@ -8,6 +9,8 @@ import {
 } from '../lib/aiService.js';
 
 const router = Router();
+
+router.use(requireCapability('agent', 'run'));
 
 router.post(
   '/parse-email',

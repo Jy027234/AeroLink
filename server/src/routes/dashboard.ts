@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 import { cache, CACHE_TTL, CACHE_KEY } from '../lib/cache.js';
 
@@ -7,6 +8,7 @@ const router = Router();
 
 router.get(
   '/stats',
+  requireCapability('dashboard', 'read'),
   asyncHandler(async (_req, res) => {
     const data = await cache.getOrSet(
       CACHE_KEY.DASHBOARD_STATS,
@@ -82,6 +84,7 @@ router.get(
 
 router.get(
   '/funnel',
+  requireCapability('dashboard', 'read'),
   asyncHandler(async (_req, res) => {
     const data = await cache.getOrSet(
       CACHE_KEY.DASHBOARD_FUNNEL,
@@ -127,6 +130,7 @@ router.get(
 
 router.get(
   '/activities',
+  requireCapability('dashboard', 'read'),
   asyncHandler(async (_req, res) => {
     const data = await cache.getOrSet(
       CACHE_KEY.DASHBOARD_ACTIVITIES,

@@ -232,6 +232,7 @@ async function buildQuotationAttachment(quotation: NonNullable<Awaited<ReturnTyp
     createdAt: quotation.createdAt.toISOString(),
     expiryDate: quotation.expiryDate.toISOString().split('T')[0],
     createdBy: quotation.createdBy,
+    includeInternalInfo: false,
   });
 
   return {

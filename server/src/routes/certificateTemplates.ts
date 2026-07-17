@@ -1,17 +1,13 @@
-import { Router, type NextFunction, type Response } from 'express';
+import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import type { AuthRequest } from '../middleware/auth.js';
-import { requirePrivilegedRole } from '../lib/accessControl.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 import { requireSanitizedTemplateHtml, sanitizeTemplateHtml } from '../lib/templateSanitizer.js';
 
 const router = Router();
-
-const requireTemplateAdmin = (req: AuthRequest, _res: Response, next: NextFunction) => {
-  requirePrivilegedRole(req, '无权操作，仅管理员或总经理可管理证书模板');
-  next();
-};
+router.use(requireCapability('certificate_template', 'manage'));
 
 function serializeTemplate(template: {
   id: string;
@@ -102,7 +98,6 @@ router.get(
 
 router.post(
   '/',
-  requireTemplateAdmin,
   asyncHandler(async (req, res) => {
     const {
       name,
@@ -161,7 +156,6 @@ router.post(
 
 router.put(
   '/:id',
-  requireTemplateAdmin,
   asyncHandler(async (req, res) => {
     const existing = await prisma.certificateTemplate.findUnique({
       where: { id: req.params.id },
@@ -231,7 +225,6 @@ router.put(
 
 router.delete(
   '/:id',
-  requireTemplateAdmin,
   asyncHandler(async (req, res) => {
     const existing = await prisma.certificateTemplate.findUnique({
       where: { id: req.params.id },
@@ -258,7 +251,6 @@ router.delete(
 
 router.post(
   '/:id/duplicate',
-  requireTemplateAdmin,
   asyncHandler(async (req, res) => {
     const existing = await prisma.certificateTemplate.findUnique({
       where: { id: req.params.id },

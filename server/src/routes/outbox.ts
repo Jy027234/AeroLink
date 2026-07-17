@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import type { AuthRequest } from '../middleware/auth.js';
-import { requirePrivilegedRole } from '../lib/accessControl.js';
+import { requireCapability } from '../middleware/capability.js';
 import {
   cancelOutboxEvent,
   getOutboxStats,
@@ -14,9 +13,7 @@ import prisma from '../lib/prisma.js';
 const router = Router();
 const outboxStatuses = new Set<string>(Object.values(OutboxStatus));
 
-function requireOperationsAccess(req: AuthRequest) {
-  requirePrivilegedRole(req, '无权查看或处置 Outbox，仅管理员或总经理可执行此操作');
-}
+router.use(requireCapability('outbox', 'manage'));
 
 function parsePage(value: unknown, fallback: number) {
   const parsed = typeof value === 'string' ? Number.parseInt(value, 10) : Number.NaN;
@@ -26,8 +23,6 @@ function parsePage(value: unknown, fallback: number) {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    requireOperationsAccess(req as AuthRequest);
-
     const page = parsePage(req.query.page, 1);
     const limit = Math.min(100, parsePage(req.query.limit, 20));
     const status = typeof req.query.status === 'string' ? req.query.status.trim().toUpperCase() : undefined;
@@ -80,7 +75,6 @@ router.get(
 router.get(
   '/stats',
   asyncHandler(async (req, res) => {
-    requireOperationsAccess(req as AuthRequest);
     res.json({ success: true, data: await getOutboxStats() });
   }),
 );
@@ -88,7 +82,6 @@ router.get(
 router.post(
   '/:id/retry',
   asyncHandler(async (req, res) => {
-    requireOperationsAccess(req as AuthRequest);
     const event = await retryOutboxEvent(req.params.id);
     res.json({ success: true, data: event });
   }),
@@ -97,7 +90,6 @@ router.post(
 router.post(
   '/:id/cancel',
   asyncHandler(async (req, res) => {
-    requireOperationsAccess(req as AuthRequest);
     const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
     await cancelOutboxEvent(req.params.id, reason);
     res.json({ success: true, data: { id: req.params.id, status: OutboxStatus.CANCELLED } });

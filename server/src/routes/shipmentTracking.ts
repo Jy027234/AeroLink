@@ -1,8 +1,30 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { AuthRequest } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/capability.js';
+import { getCapabilityScope } from '../lib/capabilityPolicy.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+function buildShipmentTrackingReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.ShipmentTrackingWhereInput {
+  const scope = getCapabilityScope(actor, 'order.read');
+  if (scope === 'all') return {};
+
+  const own: Prisma.ShipmentTrackingWhereInput = {
+    order: { is: { quotation: { is: { createdBy: actor.id } } } },
+  };
+  const department = actor.department
+    ? { order: { is: { quotation: { is: { creator: { is: { department: actor.department } } } } } } }
+    : undefined;
+
+  if (scope === 'department') return department ?? own;
+  if (scope === 'department_or_own') {
+    return department ? { OR: [own, department] } : own;
+  }
+  return own;
+}
 
 function serializeTracking(tracking: {
   id: string;
@@ -40,8 +62,10 @@ function serializeTracking(tracking: {
 
 router.get(
   '/',
-  asyncHandler(async (_req, res) => {
+  requireCapability('order', 'read'),
+  asyncHandler(async (req: AuthRequest, res) => {
     const trackings = await prisma.shipmentTracking.findMany({
+      where: buildShipmentTrackingReadScope(req.user!),
       include: {
         events: { orderBy: { timestamp: 'asc' } },
       },
@@ -57,8 +81,10 @@ router.get(
 
 router.get(
   '/customs-risks',
-  asyncHandler(async (_req, res) => {
+  requireCapability('order', 'read'),
+  asyncHandler(async (req: AuthRequest, res) => {
     const trackings = await prisma.shipmentTracking.findMany({
+      where: buildShipmentTrackingReadScope(req.user!),
       include: {
         order: {
           select: {
@@ -114,9 +140,11 @@ router.get(
 
 router.get(
   '/alerts',
-  asyncHandler(async (_req, res) => {
+  requireCapability('order', 'read'),
+  asyncHandler(async (req: AuthRequest, res) => {
     const now = new Date();
     const trackings = await prisma.shipmentTracking.findMany({
+      where: buildShipmentTrackingReadScope(req.user!),
       include: {
         events: { orderBy: { timestamp: 'desc' }, take: 1 },
         order: { select: { partNumber: true, status: true } },
@@ -189,9 +217,15 @@ router.get(
 
 router.get(
   '/order/:orderId',
-  asyncHandler(async (req, res) => {
-    const tracking = await prisma.shipmentTracking.findUnique({
-      where: { orderId: req.params.orderId },
+  requireCapability('order', 'read'),
+  asyncHandler(async (req: AuthRequest, res) => {
+    const tracking = await prisma.shipmentTracking.findFirst({
+      where: {
+        AND: [
+          buildShipmentTrackingReadScope(req.user!),
+          { orderId: req.params.orderId },
+        ],
+      },
       include: {
         events: { orderBy: { timestamp: 'asc' } },
       },
@@ -206,9 +240,15 @@ router.get(
 
 router.get(
   '/:trackingNumber',
-  asyncHandler(async (req, res) => {
+  requireCapability('order', 'read'),
+  asyncHandler(async (req: AuthRequest, res) => {
     const tracking = await prisma.shipmentTracking.findFirst({
-      where: { trackingNumber: req.params.trackingNumber },
+      where: {
+        AND: [
+          buildShipmentTrackingReadScope(req.user!),
+          { trackingNumber: req.params.trackingNumber },
+        ],
+      },
       include: {
         events: { orderBy: { timestamp: 'asc' } },
       },

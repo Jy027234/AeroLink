@@ -63,7 +63,7 @@ import { useSuppliers } from '@/hooks/useApi';
 import { supplierApi } from '@/api/client';
 import { useTranslation } from '@/i18n';
 import { getSupplierCapabilityProfile } from '@/lib/supplierCapability';
-import { useSupplierFollowUpStore } from '@/store';
+import { useCapabilityStore, useSupplierFollowUpStore } from '@/store';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Supplier, SupplierFollowUpLog, SupplierFollowUpOutcome, SupplierType } from '@/types';
@@ -722,6 +722,7 @@ function formToPayload(form: typeof emptyForm): Record<string, unknown> {
 
 export function Suppliers() {
   const { locale } = useTranslation();
+  const can = useCapabilityStore((state) => state.can);
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const paymentTermsMap: Record<string, string> = {
     'Net 30': '月结30天',
@@ -1040,10 +1041,12 @@ export function Suppliers() {
             {tx(`已承诺报价 (${followUpSummaryCounts.quotePromised})`, `Quote promised (${followUpSummaryCounts.quotePromised})`)}
           </Button>
         </div>
-        <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => handleOpenCreate()}>
-          <Plus className="w-4 h-4 mr-1" />
-          {tx('新增供应商', 'Add Supplier')}
-        </Button>
+        {can('supplier.create') && (
+          <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={() => handleOpenCreate()}>
+            <Plus className="w-4 h-4 mr-1" />
+            {tx('新增供应商', 'Add Supplier')}
+          </Button>
+        )}
       </div>
 
       {/* 供应商列表 */}
@@ -1208,14 +1211,16 @@ export function Suppliers() {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => handleOpenEdit(supplier)}
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </Button>
+                              {can('supplier.update') && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleOpenEdit(supplier)}
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>

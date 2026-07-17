@@ -39,6 +39,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { supplierQuoteApi } from '@/api/client';
+import { useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 
@@ -99,6 +100,7 @@ interface ComparedQuote {
 
 export function SupplierQuotes() {
   const { locale } = useTranslation();
+  const can = useCapabilityStore((state) => state.can);
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [quotes, setQuotes] = useState<SupplierQuote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -257,14 +259,16 @@ export function SupplierQuotes() {
                 </SelectContent>
               </Select>
             </div>
-            <Button
-              className="bg-purple-600 hover:bg-purple-700"
-              onClick={() => handleCompare()}
-              disabled={isComparing || quotes.length === 0}
-            >
-              {isComparing ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Brain className="w-4 h-4 mr-1" />}
-              {tx('AI 比价', 'AI Comparison')}
-            </Button>
+            {can('supplier_quote.update') && (
+              <Button
+                className="bg-purple-600 hover:bg-purple-700"
+                onClick={() => handleCompare()}
+                disabled={isComparing || quotes.length === 0}
+              >
+                {isComparing ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Brain className="w-4 h-4 mr-1" />}
+                {tx('AI 比价', 'AI Comparison')}
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -469,7 +473,7 @@ export function SupplierQuotes() {
                             <p className="text-2xl font-bold text-purple-600">{quote.aiScore}</p>
                             <p className="text-xs text-gray-500">{tx('AI综合评分', 'AI Composite Score')}</p>
                           </div>
-                          {!quote.isWinner && (
+                          {!quote.isWinner && can('supplier_quote.update') && (
                             <Button
                               size="sm"
                               className="bg-green-600 hover:bg-green-700"

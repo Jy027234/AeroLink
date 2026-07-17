@@ -8,10 +8,11 @@ import { encrypt, decrypt } from '../lib/crypto.js';
 import { logger } from '../lib/logger.js';
 import { MISSING_OUTBOUND_ACCOUNT_MESSAGE } from '../lib/authEmailService.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { requirePrivilegedRole } from '../lib/accessControl.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+router.use(requireCapability('email_account', 'manage'));
 const AUTH_EMAIL_PURPOSES = ['USER_ACTIVATION', 'PASSWORD_RESET'] as const;
 
 // 辅助函数：序列化账户响应（排除 authCode）
@@ -63,16 +64,9 @@ function resolveAuthDeliveryStatus(email: { status: string; errorMessage?: strin
   return 'failed' as const;
 }
 
-// 辅助函数：RBAC 检查 - 仅管理员
-function requireAdmin(req: AuthRequest) {
-  requirePrivilegedRole(req, '无权操作，仅管理员或总经理可管理邮箱账户');
-}
-
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    requireAdmin(req as AuthRequest);
-
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 100);
     const skip = (page - 1) * limit;
@@ -102,8 +96,6 @@ router.get(
 router.get(
   '/auth-deliveries',
   asyncHandler(async (req, res) => {
-    requireAdmin(req as AuthRequest);
-
     const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 10, 1), 50);
 
     const deliveries = await prisma.outboundEmail.findMany({
@@ -163,8 +155,6 @@ router.get(
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {
-    requireAdmin(req as AuthRequest);
-
     const account = await prisma.emailAccount.findUnique({
       where: { id: req.params.id },
     });
@@ -184,7 +174,6 @@ router.post(
   '/',
   validateBody(emailAccountCreateSchema),
   asyncHandler(async (req, res) => {
-    requireAdmin(req as AuthRequest);
     const { email, displayName, imapServer, imapPort, smtpServer, smtpPort, authCode, accountType, isDefault, syncInterval } = req.body;
 
     // 检查邮箱是否已存在
@@ -226,8 +215,6 @@ router.put(
   '/:id',
   validateBody(emailAccountUpdateSchema),
   asyncHandler(async (req, res) => {
-    requireAdmin(req as AuthRequest);
-
     const existing = await prisma.emailAccount.findUnique({
       where: { id: req.params.id },
     });
@@ -280,8 +267,6 @@ router.put(
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
-    requireAdmin(req as AuthRequest);
-
     const account = await prisma.emailAccount.findUnique({
       where: { id: req.params.id },
       include: { _count: { select: { emails: true } } },
@@ -315,8 +300,6 @@ router.delete(
 router.post(
   '/:id/test',
   asyncHandler(async (req, res) => {
-    requireAdmin(req as AuthRequest);
-
     const account = await prisma.emailAccount.findUnique({
       where: { id: req.params.id },
     });
@@ -355,8 +338,6 @@ router.post(
 router.post(
   '/:id/sync',
   asyncHandler(async (req, res) => {
-    requireAdmin(req as AuthRequest);
-
     const account = await prisma.emailAccount.findUnique({
       where: { id: req.params.id },
     });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useAuthStore } from '@/store';
+import { useAuthStore, useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { resolveVisibleSettingsTabs } from './tabRegistry';
 import { getSettingsTabFromUrl, setSettingsTabInUrl, subscribeToSettingsTabUrlChange } from './tabUrlState';
@@ -10,7 +10,8 @@ export function SettingsPage() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const { user } = useAuthStore();
-  const visibleTabs = useMemo(() => resolveVisibleSettingsTabs({ user }), [user]);
+  const can = useCapabilityStore((state) => state.can);
+  const visibleTabs = useMemo(() => resolveVisibleSettingsTabs({ user, can }), [can, user]);
   const defaultTab = visibleTabs[0]?.key ?? 'profile';
   const [activeTab, setActiveTab] = useState(() => getSettingsTabFromUrl() || defaultTab);
   const resolvedActiveTab = visibleTabs.some((tab) => tab.key === activeTab)
@@ -67,7 +68,7 @@ export function SettingsPage() {
 
         {visibleTabs.map((tab) => (
           <TabsContent key={tab.key} value={tab.key} className={tab.contentClassName}>
-            {tab.render({ user })}
+            {tab.render({ user, can })}
           </TabsContent>
         ))}
       </Tabs>

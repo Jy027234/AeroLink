@@ -38,7 +38,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
-import { useUIStore, useRFQStore, useQuotationStore } from '@/store';
+import { useCapabilityStore, useUIStore, useRFQStore, useQuotationStore } from '@/store';
+import { getPageCapability, hasCapability } from '@/lib/capabilities';
 import { preloadPage } from '@/lib/pagePreload';
 import { beginPageNavigation } from '@/lib/performanceMetrics';
 import { Badge } from '@/components/ui/badge';
@@ -311,7 +312,17 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
   const { currentPage, setCurrentPage } = useUIStore();
   const rfqs = useRFQStore((state) => state.rfqs);
   const quotations = useQuotationStore((state) => state.quotations);
+  const capabilityGrants = useCapabilityStore((state) => state.grants);
+  const capabilitiesLoaded = useCapabilityStore((state) => state.loaded);
   const { t } = useTranslation();
+
+  const isItemVisible = (item: NavItem) => capabilitiesLoaded
+    && hasCapability(capabilityGrants, getPageCapability(item.id));
+  const visibleTopItems = fixedTopItems.filter(isItemVisible);
+  const visibleGroups = navGroups
+    .map((group) => ({ ...group, items: group.items.filter(isItemVisible) }))
+    .filter((group) => group.items.length > 0);
+  const visibleBottomItems = fixedBottomItems.filter(isItemVisible);
 
   // Track which groups are open
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -385,7 +396,7 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
       {/* Navigation */}
       <nav className="p-3 space-y-1 overflow-y-auto h-[calc(100vh-140px)]">
         {/* Fixed top items */}
-        {fixedTopItems.map((item) => (
+        {visibleTopItems.map((item) => (
           <NavButton
             key={item.id}
             item={item}
@@ -402,7 +413,7 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
         {/* Collapsible groups */}
         {!collapsed ? (
           // Expanded sidebar: show collapsible groups
-          navGroups.map((group) => {
+          visibleGroups.map((group) => {
             const isOpen = openGroups.has(group.id);
             return (
               <Collapsible
@@ -435,7 +446,7 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
           })
         ) : (
           // Collapsed sidebar: show group icons with tooltip
-          navGroups.map((group) => {
+          visibleGroups.map((group) => {
             const Icon = group.icon;
             const isOpen = openGroups.has(group.id);
             const hasActivePage = group.items.some((item) => item.id === currentPage);
@@ -498,7 +509,7 @@ function SidebarContent({ collapsed = false, onNavigate }: { collapsed?: boolean
         <div className="my-2 border-t border-white/10" />
 
         {/* Fixed bottom items */}
-        {fixedBottomItems.map((item) => (
+        {visibleBottomItems.map((item) => (
           <NavButton
             key={item.id}
             item={item}

@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { requireCapability } from '../middleware/capability.js';
 import { loadAvailableInventoryBalances } from '../lib/canonicalInventoryBalances.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+router.use(requireCapability('inventory', 'read'));
 
 function getRecentMonthLabels(count: number): string[] {
   return Array.from({ length: count }, (_, index) => {

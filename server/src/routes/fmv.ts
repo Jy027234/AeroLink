@@ -1,8 +1,11 @@
 import { Router } from 'express';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 import { calculateFMV } from '../lib/fmvEngine.js';
 
 const router = Router();
+
+router.use(requireCapability('fmv', 'read'));
 
 /**
  * GET /api/fmv/:partNumber

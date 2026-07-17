@@ -32,6 +32,7 @@ import type {
   WorkflowInstance,
   WorkflowInstanceStep,
 } from '@/types';
+import type { CapabilitySnapshot } from '@/lib/capabilities';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000/api';
 
@@ -1047,6 +1048,10 @@ export const authApi = {
 
   getMe: async () => {
     return request<User>('/auth/me');
+  },
+
+  getCapabilities: async () => {
+    return request<CapabilitySnapshot>('/auth/capabilities');
   },
 
   updateMe: async (data: ApiPayload) => {

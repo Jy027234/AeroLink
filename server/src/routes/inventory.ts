@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { inventoryUpdateSchema, inventoryCreateSchema } from '../lib/validation.js';
 import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
 import { loadInventoryReconciliation } from '../lib/inventoryReconciliation.js';
@@ -13,7 +13,8 @@ import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
-const requireInventoryMutationRole = requireRole('manager', 'admin');
+const requireInventoryMutationRole = requireCapability('inventory', 'manage');
+const requireInventoryReconciliationCapability = requireCapability('inventory', 'reconcile');
 
 const inventoryDetailInclude = {
   inventoryItem: true,
@@ -206,7 +207,7 @@ router.get(
 
 router.get(
   '/reconciliation',
-  requireRole('manager', 'admin'),
+  requireInventoryReconciliationCapability,
   asyncHandler(async (_req, res) => {
     try {
       const result = await loadInventoryReconciliation();

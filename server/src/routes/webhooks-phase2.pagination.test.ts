@@ -31,8 +31,8 @@ describe('Webhook Phase2 DLQ pagination and filters', () => {
     vi.doMock('../middleware/auth.js', () => ({
       authenticate: (_req: unknown, _res: unknown, next: () => void) => next(),
     }));
-    vi.doMock('../middleware/rbac.js', () => ({
-      requireRole: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+    vi.doMock('../middleware/capability.js', () => ({
+      requireCapability: () => (_req: unknown, _res: unknown, next: () => void) => next(),
     }));
     vi.doMock('../middleware/webhookAudit.js', () => ({
       webhookAudit: () => (_req: unknown, _res: unknown, next: () => void) => next(),

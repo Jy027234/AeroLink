@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -44,6 +45,7 @@ function serializeInquiry(inquiry: {
 
 router.get(
   '/',
+  requireCapability('supplier_quote', 'read'),
   asyncHandler(async (_req, res) => {
     const inquiries = await prisma.inquiry.findMany({
       include: {
@@ -62,6 +64,7 @@ router.get(
 
 router.get(
   '/:id',
+  requireCapability('supplier_quote', 'read'),
   asyncHandler(async (req, res) => {
     const inquiry = await prisma.inquiry.findUnique({
       where: { id: req.params.id },
@@ -84,6 +87,7 @@ router.get(
 
 router.post(
   '/',
+  requireCapability('supplier_quote', 'create'),
   asyncHandler(async (req, res) => {
     const { rfqId, supplierIds, isAOG } = req.body as {
       rfqId?: string;
@@ -149,6 +153,7 @@ router.post(
 
 router.post(
   '/:id/send',
+  requireCapability('supplier_quote', 'create'),
   asyncHandler(async (req, res) => {
     const inquiry = await prisma.inquiry.findUnique({
       where: { id: req.params.id },

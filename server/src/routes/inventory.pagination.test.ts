@@ -106,6 +106,10 @@ describe('Inventory server-side pagination', () => {
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const app = express();
     app.use(express.json());
+    app.use((req, _res, next) => {
+      Object.assign(req, { user: { id: 'manager-1', role: 'manager' } });
+      next();
+    });
     app.use('/api/inventory', inventoryRouter);
     app.use(errorHandler);
     return app;
@@ -178,7 +182,7 @@ describe('Inventory server-side pagination', () => {
     expect(prismaMock.inventory.findMany).not.toHaveBeenCalled();
   });
 
-  it('exposes a read-only reconciliation result for authorized operators', async () => {
+  it('exposes a read-only reconciliation result for authorized managers', async () => {
     reconciliationMock.mockResolvedValue({
       checkedPartNumbers: 2,
       legacyTotal: 8,

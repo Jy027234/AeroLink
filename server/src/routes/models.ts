@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
 import { modelCreateSchema, modelUpdateSchema } from '../lib/validation.js';
 import { generateCompletion } from '../lib/aiService.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
-const requireModelManagementRole = requireRole('manager', 'admin');
+const requireModelManagementRole = requireCapability('model', 'manage');
 
 const SUPPORTED_PROVIDERS = ['openai', 'anthropic', 'azure', 'ollama', 'deepseek', 'custom'];
 

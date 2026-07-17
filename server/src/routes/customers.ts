@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
 import { customerCreateSchema, customerUpdateSchema } from '../lib/validation.js';
 import prisma from '../lib/prisma.js';
@@ -75,6 +76,7 @@ function serializeCustomer(c: any) {
 
 router.get(
   '/',
+  requireCapability('customer', 'read'),
   asyncHandler(async (req, res) => {
     const { status, search, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -136,6 +138,7 @@ router.get(
 
 router.get(
   '/:id',
+  requireCapability('customer', 'read'),
   asyncHandler(async (req, res) => {
     const customer = await prisma.customer.findUnique({
       where: { id: req.params.id },
@@ -159,6 +162,7 @@ router.get(
 
 router.post(
   '/',
+  requireCapability('customer', 'create'),
   validateBody(customerCreateSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -251,6 +255,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requireCapability('customer', 'update'),
   validateBody(customerUpdateSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -368,6 +373,7 @@ router.patch(
 
 router.delete(
   '/:id',
+  requireCapability('customer', 'delete'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.customer.findUnique({ where: { id: req.params.id } });
     if (!existing) {

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import prisma from '../lib/prisma.js';
@@ -10,7 +10,7 @@ import { storeCertificate } from '../lib/blockchain.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();
-const requireCertificateMutationRole = requireRole('manager', 'admin');
+const requireCertificateMutationRole = requireCapability('certificate', 'issue');
 
 function generateCertificateNumber(): string {
   const year = new Date().getFullYear();

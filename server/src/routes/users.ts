@@ -3,17 +3,14 @@ import { randomBytes } from 'crypto';
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { requirePrivilegedRole } from '../lib/accessControl.js';
+import { requireCapability } from '../middleware/capability.js';
 import { sendActivationEmailToUser, type AuthEmailDeliveryResult } from '../lib/authEmailService.js';
 import { generateAuthToken, getActivationExpiryDate } from '../lib/authFlow.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
 
-router.use((req, _res, next) => {
-  requirePrivilegedRole(req as AuthRequest, '无权操作，仅管理员或总经理可管理用户');
-  next();
-});
+router.use(requireCapability('user', 'manage'));
 
 function serializeUser(user: {
   id: string;

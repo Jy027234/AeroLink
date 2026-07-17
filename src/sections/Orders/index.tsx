@@ -60,6 +60,7 @@ import {
 } from '@/components/ui/collapsible';
 import { useOrders, useUpdateOrder, useInventoryItemByPartNumber, useInventoryTransactionsByOrder, useCreateInventoryReservation, useCreateOutbound } from '@/hooks/useApi';
 import { documentApi, orderApi } from '@/api/client';
+import { useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -525,6 +526,8 @@ function ReserveInventoryDialog({
 
 function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { order: Order | null; isOpen: boolean; onClose: () => void; onDownloadContract: (order: Order) => void }) {
   const { locale } = useTranslation();
+  const can = useCapabilityStore((state) => state.can);
+  const canViewCost = can('order.view_cost');
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [detailOrder, setDetailOrder] = useState<Order | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -738,7 +741,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
           </div>
 
           {/* Inventory Binding - Phase 4 + Phase 5 Outbound Management */}
-          {activeOrder && !activeOrder.inventoryDetailId && ['so_created', 'po_created'].includes(activeOrder.status) && (
+          {activeOrder && can('inventory.manage') && !activeOrder.inventoryDetailId && ['so_created', 'po_created'].includes(activeOrder.status) && (
             <div className="space-y-3 rounded-lg border border-dashed p-4">
               <div>
                 <h4 className="flex items-center gap-2 font-medium">
@@ -825,7 +828,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
               </div>
 
               {/* 出库操作按钮 */}
-              {activeOrder && (activeOrder.outboundQuantity || 0) < activeOrder.quantity && (
+              {activeOrder && can('inventory.manage') && (activeOrder.outboundQuantity || 0) < activeOrder.quantity && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1162,19 +1165,19 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
                           <span className="font-mono">{activeOrder.customsDeclarationNo}</span>
                         </div>
                       )}
-                      {activeOrder?.importDuty !== undefined && activeOrder?.importDuty !== null && (
+                      {canViewCost && activeOrder?.importDuty !== undefined && activeOrder?.importDuty !== null && (
                         <div className="flex justify-between">
                           <span className="text-gray-500">{tx('进口关税', 'Import Duty')}</span>
                           <span>${activeOrder.importDuty.toLocaleString()}</span>
                         </div>
                       )}
-                      {activeOrder?.vatAmount !== undefined && activeOrder?.vatAmount !== null && (
+                      {canViewCost && activeOrder?.vatAmount !== undefined && activeOrder?.vatAmount !== null && (
                         <div className="flex justify-between">
                           <span className="text-gray-500">VAT</span>
                           <span>${activeOrder.vatAmount.toLocaleString()}</span>
                         </div>
                       )}
-                      {activeOrder?.totalLandCost !== undefined && activeOrder?.totalLandCost !== null && (
+                      {canViewCost && activeOrder?.totalLandCost !== undefined && activeOrder?.totalLandCost !== null && (
                         <div className="flex justify-between col-span-2">
                           <span className="text-gray-500 font-semibold">{tx('到岸总成本', 'Total Land Cost')}</span>
                           <span className="font-semibold text-blue-600">${activeOrder.totalLandCost.toLocaleString()}</span>
@@ -1186,7 +1189,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
               </Collapsible>
 
               {/* Exchange - conditional */}
-              {activeOrder?.saleType === 'Exchange' && (
+              {canViewCost && activeOrder?.saleType === 'Exchange' && (
                 <div className="p-4 border rounded-lg space-y-3">
                   <h4 className="font-medium flex items-center gap-2">
                     <Package className="w-4 h-4" />
@@ -1256,10 +1259,12 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
           ) : (
             <>
               <Button variant="outline" onClick={onClose}>{tx('关闭', 'Close')}</Button>
-              <Button variant="outline" onClick={() => setIsEditing(true)}>
-                <PenLine className="w-4 h-4 mr-2" />
-                {tx('编辑', 'Edit')}
-              </Button>
+              {can('order.update') && (
+                <Button variant="outline" onClick={() => setIsEditing(true)}>
+                  <PenLine className="w-4 h-4 mr-2" />
+                  {tx('编辑', 'Edit')}
+                </Button>
+              )}
               {activeOrder?.contractDocumentId && (
                 <Button onClick={() => onDownloadContract(resolvedOrder)}>
                   <Download className="w-4 h-4 mr-2" />
@@ -1292,6 +1297,8 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 
 export function Orders() {
   const { locale } = useTranslation();
+  const can = useCapabilityStore((state) => state.can);
+  const canViewCost = can('order.view_cost');
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
@@ -1456,7 +1463,7 @@ export function Orders() {
                     <TableHead>{tx('销售类型', 'Sale Type')}</TableHead>
                     <TableHead>{tx('数量', 'Quantity')}</TableHead>
                     <TableHead>{tx('金额', 'Amount')}</TableHead>
-                    <TableHead>{tx('到岸成本', 'Land Cost')}</TableHead>
+                    {canViewCost && <TableHead>{tx('到岸成本', 'Land Cost')}</TableHead>}
                     <TableHead>{tx('状态', 'Status')}</TableHead>
                     <TableHead>{tx('预计交付', 'Estimated Delivery')}</TableHead>
                     <TableHead>{tx('操作', 'Actions')}</TableHead>
@@ -1483,13 +1490,15 @@ export function Orders() {
                         <TableCell className="font-semibold">
                           ${order.totalAmount.toLocaleString()}
                         </TableCell>
-                        <TableCell>
-                          {order.totalLandCost !== undefined && order.totalLandCost !== null ? (
-                            <span className="font-semibold text-blue-600">${order.totalLandCost.toLocaleString()}</span>
-                          ) : (
-                            '-'
-                          )}
-                        </TableCell>
+                        {canViewCost && (
+                          <TableCell>
+                            {order.totalLandCost !== undefined && order.totalLandCost !== null ? (
+                              <span className="font-semibold text-blue-600">${order.totalLandCost.toLocaleString()}</span>
+                            ) : (
+                              '-'
+                            )}
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="flex items-center gap-1">
                             <OrderStatusBadge status={order.status} />

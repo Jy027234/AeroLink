@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireCapability } from '../middleware/capability.js';
 import {
   storeCertificate,
   verifyCertificate,
@@ -14,7 +15,7 @@ const router = Router();
  * POST /api/blockchain/store/:certificateId
  * Store a certificate in the blockchain
  */
-router.post('/store/:certificateId', async (req, res, next) => {
+router.post('/store/:certificateId', requireCapability('certificate', 'issue'), async (req, res, next) => {
   try {
     const { certificateId } = req.params;
 
@@ -44,7 +45,7 @@ router.post('/store/:certificateId', async (req, res, next) => {
  * GET /api/blockchain/verify/:certificateId
  * Verify a certificate's blockchain record
  */
-router.get('/verify/:certificateId', async (req, res, next) => {
+router.get('/verify/:certificateId', requireCapability('blockchain', 'read'), async (req, res, next) => {
   try {
     const { certificateId } = req.params;
 
@@ -63,7 +64,7 @@ router.get('/verify/:certificateId', async (req, res, next) => {
  * GET /api/blockchain/chain/verify
  * Verify the entire blockchain integrity
  */
-router.get('/chain/verify', async (req, res, next) => {
+router.get('/chain/verify', requireCapability('blockchain', 'read'), async (req, res, next) => {
   try {
     const result = await verifyChain();
 
@@ -80,7 +81,7 @@ router.get('/chain/verify', async (req, res, next) => {
  * GET /api/blockchain/stats
  * Get blockchain statistics
  */
-router.get('/stats', async (req, res, next) => {
+router.get('/stats', requireCapability('blockchain', 'read'), async (req, res, next) => {
   try {
     const stats = await getBlockchainStats();
 
@@ -97,7 +98,7 @@ router.get('/stats', async (req, res, next) => {
  * GET /api/blockchain/records
  * List all blockchain records
  */
-router.get('/records', async (req, res, next) => {
+router.get('/records', requireCapability('blockchain', 'read'), async (req, res, next) => {
   try {
     const { page = '1', limit = '20' } = req.query;
     const pageNum = parseInt(page as string, 10);
@@ -132,7 +133,7 @@ router.get('/records', async (req, res, next) => {
  * GET /api/blockchain/hash/:certificateId
  * Get the hash of a certificate
  */
-router.get('/hash/:certificateId', async (req, res, next) => {
+router.get('/hash/:certificateId', requireCapability('blockchain', 'read'), async (req, res, next) => {
   try {
     const { certificateId } = req.params;
 

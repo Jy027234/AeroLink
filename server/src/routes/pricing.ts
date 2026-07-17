@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/capability.js';
 import {
   generatePriceRecommendation,
   generateBatchPriceRecommendations,
@@ -15,6 +16,7 @@ const router = Router();
  */
 router.get(
   '/recommendation',
+  requireCapability('quotation', 'create'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { partNumber, quantity, customerId, proposedPrice } = req.query;
 
@@ -49,6 +51,7 @@ router.get(
  */
 router.post(
   '/recommendations/batch',
+  requireCapability('quotation', 'create'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { items } = req.body;
 
@@ -81,6 +84,7 @@ router.post(
  */
 router.get(
   '/history/:partNumber',
+  requireCapability('quotation', 'read'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { partNumber } = req.params;
 
@@ -103,6 +107,7 @@ router.get(
  */
 router.get(
   '/dashboard',
+  requireCapability('report', 'read'),
   asyncHandler(async (_req: AuthRequest, res) => {
     // 获取整体价格统计
     const [quotationStats, orderStats] = await Promise.all([

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Prisma, type OrderStatusEnum, type Quotation, type QuotationStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { assertCapability, requireCapability } from '../middleware/capability.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
 import { orderCreateSchema, orderStatusUpdateSchema, orderUpdateSchema } from '../lib/validation.js';
@@ -17,9 +18,53 @@ import { isOrderStatusTransitionAllowed, normalizeOrderStatus, toUiOrderStatus }
 import { isQuotationTransitionAllowed, normalizeQuotationStatus } from '../lib/quotationStateMachine.js';
 import { transitionOrderStatus, transitionQuotationStatus } from '../lib/transactionStateService.js';
 import { preferredOrderStatus, preferredQuotationStatus } from '../lib/transactionStatusShadows.js';
+import { getCapabilityScope, hasCapability } from '../lib/capabilityPolicy.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+type ScopedOrder = {
+  quotation?: {
+    createdBy: string;
+    creator?: { department?: string | null } | null;
+  } | null;
+};
+
+function buildOrderReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.OrderWhereInput {
+  const scope = getCapabilityScope(actor, 'order.read');
+  if (scope === 'all') return {};
+
+  const own: Prisma.OrderWhereInput = { quotation: { is: { createdBy: actor.id } } };
+  const department = actor.department
+    ? { quotation: { is: { creator: { is: { department: actor.department } } } } } satisfies Prisma.OrderWhereInput
+    : undefined;
+
+  if (scope === 'department') return department ?? own;
+  if (scope === 'department_or_own') {
+    return department ? { OR: [own, department] } : own;
+  }
+  return own;
+}
+
+function assertOrderAccess(
+  actor: NonNullable<AuthRequest['user']>,
+  action: 'read' | 'create' | 'update' | 'transition',
+  order: ScopedOrder,
+) {
+  const quotation = order.quotation;
+  assertCapability(actor, 'order', action, {
+    ownerId: quotation?.createdBy,
+    department: quotation?.creator?.department,
+  });
+}
+
+function canViewOrderCost(actor: NonNullable<AuthRequest['user']>, order: ScopedOrder) {
+  const quotation = order.quotation;
+  return hasCapability(actor, 'order', 'view_cost', {
+    ownerId: quotation?.createdBy,
+    department: quotation?.creator?.department,
+  });
+}
 
 type OrderWithCustomer = Prisma.OrderGetPayload<{ include: { customer: true } }>;
 type OrderCreateResponse = ReturnType<typeof mapOrderResponse> & {
@@ -155,36 +200,48 @@ function mapOrderStatusHistoryEntry(history: {
 }
 router.get(
   '/',
+  requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
     const { status, search, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * pageSize;
 
-    const where: Prisma.OrderWhereInput = {};
+    const actor = (req as AuthRequest).user!;
+    const scopedWhere = buildOrderReadScope(actor);
+    const filters: Prisma.OrderWhereInput[] = [scopedWhere];
     const statusValue = typeof status === 'string' ? status.toLowerCase() : '';
     if (statusValue === 'in_progress') {
-      where.status = { notIn: ['COMPLETED', 'DELIVERED'] };
+      filters.push({ status: { notIn: ['COMPLETED', 'DELIVERED'] } });
     } else if (statusValue === 'completed') {
-      where.status = { in: ['COMPLETED', 'DELIVERED'] };
+      filters.push({ status: { in: ['COMPLETED', 'DELIVERED'] } });
     } else if (statusValue) {
-      where.status = statusValue.toUpperCase().replace('-', '_');
+      filters.push({ status: statusValue.toUpperCase().replace('-', '_') });
     }
     const searchValue = typeof search === 'string' ? search.trim() : '';
     if (searchValue) {
-      where.OR = [
-        { orderNumber: { contains: searchValue, mode: 'insensitive' } },
-        { partNumber: { contains: searchValue, mode: 'insensitive' } },
-        { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
-      ];
+      filters.push({
+        OR: [
+          { orderNumber: { contains: searchValue, mode: 'insensitive' } },
+          { partNumber: { contains: searchValue, mode: 'insensitive' } },
+          { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
+        ],
+      });
     }
+    const where: Prisma.OrderWhereInput = filters.length === 1 ? filters[0] : { AND: filters };
 
     const [orders, total, statusCounts, amountAggregate] = await Promise.all([
       prisma.order.findMany({
         where,
         include: {
           customer: true,
-          quotation: { select: { quoteNumber: true } },
+          quotation: {
+            select: {
+              quoteNumber: true,
+              createdBy: true,
+              creator: { select: { department: true } },
+            },
+          },
           tracking: true,
           generatedDocuments: {
             where: { documentType: ORDER_CONTRACT_DOCUMENT_TYPE },
@@ -198,10 +255,12 @@ router.get(
       }),
       prisma.order.count({ where }),
       prisma.order.groupBy({
+        where,
         by: ['status'],
         _count: { _all: true },
       }),
       prisma.order.aggregate({
+        where,
         _sum: { totalAmount: true, totalAmountDecimal: true },
       }),
     ]);
@@ -223,52 +282,57 @@ router.get(
 
     res.json({
       success: true,
-      data: orders.map((o) => ({
-        id: o.id,
-        orderNumber: o.orderNumber,
-        soNumber: o.soNumber,
-        poNumber: o.poNumber,
-        quotationId: o.quotationId,
-        customerId: o.customerId,
-        customerName: o.customer.name,
-        partNumber: o.partNumber,
-        quantity: o.quantity,
-        totalAmount: orderTotalAmount(o),
-        status: orderStatus(o).toLowerCase(),
-        version: o.version,
-        createdAt: o.createdAt.toISOString(),
-        deliveryDate: o.deliveryDate?.toISOString(),
-        trackingNumber: o.trackingNumber,
-        carrier: o.carrier,
-        contractDocumentId: o.generatedDocuments[0]?.id,
-        contractDocumentTitle: o.generatedDocuments[0]?.title,
-        // P2 新增字段
-        saleType: o.saleType,
-        incoterm: o.incoterm,
-        incotermLocation: o.incotermLocation,
-        shipToId: o.shipToId,
-        shipForId: o.shipForId,
-        warrantyDays: o.warrantyDays,
-        warrantyStartDate: o.warrantyStartDate?.toISOString(),
-        certificateRequired: o.certificateRequired,
-        certificateType: o.certificateType,
-        certificateDelivered: o.certificateDelivered,
-        packagingStandard: o.packagingStandard,
-        shippingMethod: o.shippingMethod,
-        carrierAccount: o.carrierAccount,
-        inspectionRequired: o.inspectionRequired,
-        inspectionPassed: o.inspectionPassed,
-        inspectionDate: o.inspectionDate?.toISOString(),
-        customsClearanceRequired: o.customsClearanceRequired,
-        customsDeclarationNo: o.customsDeclarationNo,
-        importDuty: preferredMoneyValue(o.importDutyDecimal, o.importDuty),
-        vatAmount: preferredMoneyValue(o.vatAmountDecimal, o.vatAmount),
-        totalLandCost: preferredMoneyValue(o.totalLandCostDecimal, o.totalLandCost),
-        exchangeCoreCharge: preferredMoneyValue(o.exchangeCoreChargeDecimal, o.exchangeCoreCharge),
-        exchangeCoreDueDate: o.exchangeCoreDueDate?.toISOString(),
-        eSignatureCustomer: o.eSignatureCustomer,
-        eSignatureSupplier: o.eSignatureSupplier,
-      })),
+      data: orders.map((o) => {
+        const showCost = canViewOrderCost(actor, o);
+        return {
+          id: o.id,
+          orderNumber: o.orderNumber,
+          soNumber: o.soNumber,
+          poNumber: o.poNumber,
+          quotationId: o.quotationId,
+          customerId: o.customerId,
+          customerName: o.customer.name,
+          partNumber: o.partNumber,
+          quantity: o.quantity,
+          totalAmount: orderTotalAmount(o),
+          status: orderStatus(o).toLowerCase(),
+          version: o.version,
+          createdAt: o.createdAt.toISOString(),
+          deliveryDate: o.deliveryDate?.toISOString(),
+          trackingNumber: o.trackingNumber,
+          carrier: o.carrier,
+          contractDocumentId: o.generatedDocuments[0]?.id,
+          contractDocumentTitle: o.generatedDocuments[0]?.title,
+          // P2 新增字段
+          saleType: o.saleType,
+          incoterm: o.incoterm,
+          incotermLocation: o.incotermLocation,
+          shipToId: o.shipToId,
+          shipForId: o.shipForId,
+          warrantyDays: o.warrantyDays,
+          warrantyStartDate: o.warrantyStartDate?.toISOString(),
+          certificateRequired: o.certificateRequired,
+          certificateType: o.certificateType,
+          certificateDelivered: o.certificateDelivered,
+          packagingStandard: o.packagingStandard,
+          shippingMethod: o.shippingMethod,
+          carrierAccount: o.carrierAccount,
+          inspectionRequired: o.inspectionRequired,
+          inspectionPassed: o.inspectionPassed,
+          inspectionDate: o.inspectionDate?.toISOString(),
+          customsClearanceRequired: o.customsClearanceRequired,
+          customsDeclarationNo: o.customsDeclarationNo,
+          ...(showCost ? {
+            importDuty: preferredMoneyValue(o.importDutyDecimal, o.importDuty),
+            vatAmount: preferredMoneyValue(o.vatAmountDecimal, o.vatAmount),
+            totalLandCost: preferredMoneyValue(o.totalLandCostDecimal, o.totalLandCost),
+            exchangeCoreCharge: preferredMoneyValue(o.exchangeCoreChargeDecimal, o.exchangeCoreCharge),
+            exchangeCoreDueDate: o.exchangeCoreDueDate?.toISOString(),
+          } : {}),
+          eSignatureCustomer: o.eSignatureCustomer,
+          eSignatureSupplier: o.eSignatureSupplier,
+        };
+      }),
       summary,
       pagination: {
         page: pageNum,
@@ -282,15 +346,25 @@ router.get(
 
 router.get(
   '/:id/status-history',
+  requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
     const order = await prisma.order.findUnique({
       where: { id: req.params.id },
-      select: { id: true },
+      select: {
+        id: true,
+        quotation: {
+          select: {
+            createdBy: true,
+            creator: { select: { department: true } },
+          },
+        },
+      },
     });
 
     if (!order) {
       throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
     }
+    assertOrderAccess((req as AuthRequest).user!, 'read', order);
 
     const history = await prisma.transactionStatusHistory.findMany({
       where: { entityType: 'ORDER', entityId: order.id },
@@ -311,12 +385,13 @@ router.get(
 
 router.get(
   '/:id',
+  requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
     const order = await prisma.order.findUnique({
       where: { id: req.params.id },
       include: {
         customer: true,
-        quotation: true,
+        quotation: { include: { creator: { select: { department: true } } } },
         tracking: { include: { events: true } },
         generatedDocuments: {
           where: { documentType: ORDER_CONTRACT_DOCUMENT_TYPE },
@@ -328,12 +403,23 @@ router.get(
     if (!order) {
       throw new AppError('订单不存在', 404);
     }
+    const actor = (req as AuthRequest).user!;
+    assertOrderAccess(actor, 'read', order);
 
     const projectedOrder = projectOrderWithQuotation(order);
+    const {
+      importDuty: _importDuty,
+      vatAmount: _vatAmount,
+      totalLandCost: _totalLandCost,
+      exchangeCoreCharge: _exchangeCoreCharge,
+      exchangeCoreDueDate: _exchangeCoreDueDate,
+      ...orderWithoutCost
+    } = projectedOrder;
+    const orderForActor = canViewOrderCost(actor, order) ? projectedOrder : orderWithoutCost;
     res.json({
       success: true,
       data: {
-        ...projectedOrder,
+        ...orderForActor,
         status: orderStatus(order).toLowerCase(),
         contractDocumentId: order.generatedDocuments[0]?.id,
         contractDocumentTitle: order.generatedDocuments[0]?.title,
@@ -344,6 +430,7 @@ router.get(
 
 router.post(
   '/',
+  requireCapability('order', 'create'),
   validateBody(orderCreateSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -358,7 +445,8 @@ router.post(
       eSignatureCustomer, eSignatureSupplier,
     } = req.body;
 
-    const actorId = (req as AuthRequest).user!.id;
+    const actor = (req as AuthRequest).user!;
+    const actorId = actor.id;
     const idempotencyContext = buildIdempotencyContext(req, actorId, 'POST:/orders');
     let execution: IdempotentExecution<OrderCreateResponse>;
 
@@ -368,11 +456,20 @@ router.post(
         async (tx) => {
           const quotation = await tx.quotation.findUnique({
             where: { id: quotationId },
-            include: { customer: true },
+            include: {
+              customer: true,
+              creator: { select: { department: true } },
+            },
           });
           if (!quotation) {
             throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
           }
+          const quotationAccessContext = {
+            ownerId: quotation.createdBy,
+            department: quotation.creator?.department,
+          };
+          assertCapability(actor, 'order', 'create', quotationAccessContext);
+          assertCapability(actor, 'quotation', 'accept', quotationAccessContext);
           if (quotation.customerId !== customerId) {
             throw new AppError('订单客户与报价客户不一致', 400, 'BAD_REQUEST');
           }
@@ -522,11 +619,23 @@ router.post(
       // of reporting a false conflict to a retrying caller.
       const [concurrentOrder, currentQuotation] = await Promise.all([
         prisma.order.findUnique({ where: { quotationId }, include: { customer: true } }),
-        prisma.quotation.findUnique({ where: { id: quotationId }, include: { customer: true } }),
+        prisma.quotation.findUnique({
+          where: { id: quotationId },
+          include: {
+            customer: true,
+            creator: { select: { department: true } },
+          },
+        }),
       ]);
       if (!concurrentOrder || !currentQuotation || currentQuotation.customerId !== customerId) {
         throw error;
       }
+      const quotationAccessContext = {
+        ownerId: currentQuotation.createdBy,
+        department: currentQuotation.creator?.department,
+      };
+      assertCapability(actor, 'order', 'create', quotationAccessContext);
+      assertCapability(actor, 'quotation', 'accept', quotationAccessContext);
 
       const generatedDocument = await ensureOrderContractDocument({
         quotation: currentQuotation,
@@ -557,17 +666,30 @@ router.post(
 
 router.patch(
   '/:id/status',
+  requireCapability('order', 'transition'),
   validateBody(orderStatusUpdateSchema),
   asyncHandler(async (req, res) => {
     const nextStatus = String(req.body.status);
-    const actorId = (req as AuthRequest).user!.id;
+    const actor = (req as AuthRequest).user!;
+    const actorId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'PATCH:/orders/:id/status'),
       async (tx) => {
-        const existing = await tx.order.findUnique({ where: { id: req.params.id } });
+        const existing = await tx.order.findUnique({
+          where: { id: req.params.id },
+          include: {
+            quotation: {
+              select: {
+                createdBy: true,
+                creator: { select: { department: true } },
+              },
+            },
+          },
+        });
         if (!existing) {
           throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
+        assertOrderAccess(actor, 'transition', existing);
 
         const currentStatus = normalizeOrderStatus(orderStatus(existing));
         if (!isOrderStatusTransitionAllowed(currentStatus, nextStatus)) {
@@ -628,6 +750,7 @@ router.patch(
 
 router.patch(
   '/:id',
+  requireCapability('order', 'update'),
   validateBody(orderUpdateSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -683,14 +806,26 @@ router.patch(
       carrier: carrier ?? undefined,
     };
 
-    const actorId = (req as AuthRequest).user!.id;
+    const actor = (req as AuthRequest).user!;
+    const actorId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'PATCH:/orders/:id'),
       async (tx) => {
-        const existing = await tx.order.findUnique({ where: { id: req.params.id } });
+        const existing = await tx.order.findUnique({
+          where: { id: req.params.id },
+          include: {
+            quotation: {
+              select: {
+                createdBy: true,
+                creator: { select: { department: true } },
+              },
+            },
+          },
+        });
         if (!existing) {
           throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
         }
+        assertOrderAccess(actor, 'update', existing);
 
         const order = await tx.order.update({
           where: { id: req.params.id },
@@ -729,7 +864,25 @@ router.patch(
 
 router.get(
   '/:id/tracking',
+  requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true,
+        quotation: {
+          select: {
+            createdBy: true,
+            creator: { select: { department: true } },
+          },
+        },
+      },
+    });
+    if (!order) {
+      throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
+    }
+    assertOrderAccess((req as AuthRequest).user!, 'read', order);
+
     const tracking = await prisma.shipmentTracking.findUnique({
       where: { orderId: req.params.id },
       include: { events: true },
@@ -748,15 +901,25 @@ router.get(
 
 router.get(
   '/:id/pdf',
+  requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
     const order = await prisma.order.findUnique({
       where: { id: req.params.id },
-      include: { customer: true },
+      include: {
+        customer: true,
+        quotation: {
+          select: {
+            createdBy: true,
+            creator: { select: { department: true } },
+          },
+        },
+      },
     });
 
     if (!order) {
       throw new AppError('订单不存在', 404);
     }
+    assertOrderAccess((req as AuthRequest).user!, 'read', order);
 
     const pdfBuffer = await generateOrderPDF({
       orderNumber: order.orderNumber,

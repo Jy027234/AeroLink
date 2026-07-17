@@ -51,7 +51,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useAuthStore, useInquiryStore, useUIStore } from '@/store';
+import { useCapabilityStore, useInquiryStore, useUIStore } from '@/store';
 import { useInventory } from '@/hooks/useApi';
 import { inventoryApi, type InventoryReconciliationResult } from '@/api/client';
 import { ipcApi } from '@/api/client';
@@ -1384,12 +1384,12 @@ function InventoryFormDialog({
 
 export function InventoryCenter() {
   const { addInquiry } = useInquiryStore();
-  const currentUserRole = useAuthStore((state) => state.user?.role);
+  const can = useCapabilityStore((state) => state.can);
   const inventorySearchPreset = useUIStore((state) => state.inventorySearchPreset);
   const clearInventorySearchPreset = useUIStore((state) => state.clearInventorySearchPreset);
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const canReconcileInventory = ['manager', 'gm', 'admin', 'administrator'].includes(currentUserRole ?? '');
+  const canReconcileInventory = can('inventory.reconcile');
   const descriptionMap: Record<string, string> = {
     'Fuel Pump Assembly': '燃油泵总成',
     'Fuel Pump Assembly (Overhauled)': '燃油泵总成（大修）',

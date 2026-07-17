@@ -26,11 +26,15 @@ describe('Quotation server-side pagination', () => {
     vi.doMock('../lib/webhookService.js', () => ({ emitWebhookEvent: vi.fn() }));
   });
 
-  async function buildApp() {
+  async function buildApp(user: { id: string; role: string; department?: string } = { id: 'admin-1', role: 'admin' }) {
     const quotationsRouter = (await import('./quotations.js')).default;
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const app = express();
     app.use(express.json());
+    app.use((req, _res, next) => {
+      Object.assign(req, { user });
+      next();
+    });
     app.use('/api/quotations', quotationsRouter);
     app.use(errorHandler);
     return app;
@@ -113,13 +117,54 @@ describe('Quotation server-side pagination', () => {
     const findManyArgs = prismaMock.quotation.findMany.mock.calls[0]?.[0];
     expect(findManyArgs).toEqual(expect.objectContaining({ skip: 20, take: 10 }));
     expect(findManyArgs.where).toEqual(expect.objectContaining({
-      status: 'APPROVED',
-      OR: expect.arrayContaining([
-        { quoteNumber: { contains: 'pn-100', mode: 'insensitive' } },
-        { partNumber: { contains: 'pn-100', mode: 'insensitive' } },
-        { customer: { is: { name: { contains: 'pn-100', mode: 'insensitive' } } } },
+      AND: expect.arrayContaining([
+        {},
+        { status: 'APPROVED' },
+        {
+          OR: expect.arrayContaining([
+            { quoteNumber: { contains: 'pn-100', mode: 'insensitive' } },
+            { partNumber: { contains: 'pn-100', mode: 'insensitive' } },
+            { customer: { is: { name: { contains: 'pn-100', mode: 'insensitive' } } } },
+          ]),
+        },
       ]),
     }));
     expect(prismaMock.quotation.count).toHaveBeenCalledWith({ where: findManyArgs.where });
+  });
+
+  it('pushes the sales owner scope into collection queries', async () => {
+    prismaMock.quotation.findMany.mockResolvedValue([]);
+    prismaMock.quotation.count.mockResolvedValue(0);
+    prismaMock.quotation.groupBy.mockResolvedValue([]);
+    prismaMock.quotation.aggregate.mockResolvedValue({ _sum: { totalPrice: null } });
+
+    const app = await buildApp({ id: 'sales-1', role: 'sales', department: 'Sales' });
+    const response = await request(app).get('/api/quotations');
+
+    expect(response.status).toBe(200);
+    expect(prismaMock.quotation.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { createdBy: 'sales-1' },
+    }));
+    expect(prismaMock.quotation.count).toHaveBeenCalledWith({ where: { createdBy: 'sales-1' } });
+  });
+
+  it('combines manager ownership and department scope in collection queries', async () => {
+    prismaMock.quotation.findMany.mockResolvedValue([]);
+    prismaMock.quotation.count.mockResolvedValue(0);
+    prismaMock.quotation.groupBy.mockResolvedValue([]);
+    prismaMock.quotation.aggregate.mockResolvedValue({ _sum: { totalPrice: null } });
+
+    const app = await buildApp({ id: 'manager-1', role: 'manager', department: 'Sales' });
+    const response = await request(app).get('/api/quotations');
+
+    const expectedScope = {
+      OR: [
+        { createdBy: 'manager-1' },
+        { creator: { is: { department: 'Sales' } } },
+      ],
+    };
+    expect(response.status).toBe(200);
+    expect(prismaMock.quotation.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expectedScope }));
+    expect(prismaMock.quotation.count).toHaveBeenCalledWith({ where: expectedScope });
   });
 });

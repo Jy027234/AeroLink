@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { Prisma, type RfqStatusEnum, type SupplierQuoteStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
 import { calculateMoneyTotal, normalizeMoney, preferredMoneyValue } from '../lib/money.js';
 import {
@@ -66,6 +67,7 @@ function projectSupplierQuoteMoney<T extends SupplierQuoteMoneySource & Supplier
 
 router.get(
   '/',
+  requireCapability('supplier_quote', 'read'),
   asyncHandler(async (req, res) => {
     const { rfqId, inquiryId, status, partNumber } = req.query;
     const page = parseInt(req.query.page as string, 10) || 1;
@@ -144,6 +146,7 @@ router.get(
 
 router.get(
   '/:id',
+  requireCapability('supplier_quote', 'read'),
   asyncHandler(async (req, res) => {
     const quote = await prisma.supplierQuote.findUnique({
       where: { id: req.params.id },
@@ -170,6 +173,7 @@ router.get(
 
 router.post(
   '/',
+  requireCapability('supplier_quote', 'create'),
   validateBody(supplierQuoteCreateSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -216,6 +220,7 @@ router.post(
 
 router.put(
   '/:id',
+  requireCapability('supplier_quote', 'update'),
   validateBody(supplierQuoteUpdateSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -274,6 +279,7 @@ router.put(
 
 router.delete(
   '/:id',
+  requireCapability('supplier_quote', 'delete'),
   asyncHandler(async (req, res) => {
     const quote = await prisma.supplierQuote.findUnique({
       where: { id: req.params.id },
@@ -296,6 +302,7 @@ router.delete(
 
 router.post(
   '/compare',
+  requireCapability('supplier_quote', 'update'),
   asyncHandler(async (req, res) => {
     const { rfqId, inquiryId } = req.body;
 
@@ -417,6 +424,7 @@ router.post(
 
 router.post(
   '/:id/select-winner',
+  requireCapability('supplier_quote', 'update'),
   asyncHandler(async (req, res) => {
     const quoteId = req.params.id;
 

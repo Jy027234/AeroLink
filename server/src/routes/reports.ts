@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -7,6 +8,7 @@ const router = Router();
 // GET /summary - 报表汇总
 router.get(
   '/summary',
+  requireCapability('report', 'read'),
   asyncHandler(async (_req, res) => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -85,6 +87,7 @@ router.get(
 // GET /sales-trend - 销售趋势
 router.get(
   '/sales-trend',
+  requireCapability('report', 'read'),
   asyncHandler(async (req, res) => {
     const months = Math.min(12, Math.max(1, parseInt(req.query.months as string, 10) || 6));
     const result: Array<{ month: string; rfqs: number; quotes: number; orders: number; revenue: number }> = [];
@@ -114,6 +117,7 @@ router.get(
 // GET /conversion - 转化分析
 router.get(
   '/conversion',
+  requireCapability('report', 'read'),
   asyncHandler(async (_req, res) => {
     const [totalRfqs, totalOrders, allOrders] = await Promise.all([
       prisma.rFQ.count(),
@@ -144,6 +148,7 @@ router.get(
 // GET /customer-contribution - 客户贡献分析
 router.get(
   '/customer-contribution',
+  requireCapability('report', 'read'),
   asyncHandler(async (_req, res) => {
     const customers = await prisma.customer.findMany({
       where: { status: 'ACTIVE' },
@@ -164,6 +169,7 @@ router.get(
 // GET /inventory-turnover - 库存周转分析
 router.get(
   '/inventory-turnover',
+  requireCapability('report', 'read'),
   asyncHandler(async (_req, res) => {
     const categories = ['ROTABLE', 'REPAIRABLE', 'CHEMICAL', 'STANDARD_PART', 'RAW_MATERIAL', 'CONSUMABLE'];
     const categoryNames: Record<string, string> = {

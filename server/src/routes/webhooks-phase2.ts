@@ -14,7 +14,7 @@ import { bulkReplayService } from '../lib/bulkReplayService.js';
 import prisma from '../lib/prisma.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { webhookAudit } from '../middleware/webhookAudit.js';
 import * as z from 'zod';
 
@@ -35,6 +35,7 @@ function getErrorMessage(error: unknown): string | undefined {
 router.get(
   '/dlq',
   authenticate,
+  requireCapability('webhook', 'read'),
   async (req: AuthRequest, res: Response) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
@@ -71,6 +72,7 @@ router.get(
 router.get(
   '/dlq/stats',
   authenticate,
+  requireCapability('webhook', 'read'),
   async (req: AuthRequest, res: Response) => {
     try {
       const stats = await dlqService.getStats();
@@ -89,7 +91,7 @@ router.get(
 router.post(
   '/dlq/:id/review',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   webhookAudit('REVIEW', 'dlq_message'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -110,7 +112,7 @@ router.post(
 router.post(
   '/dlq/:id/retry',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   webhookAudit('RETRY', 'dlq_message'),
   validateBody(
     z.object({
@@ -146,7 +148,7 @@ router.post(
 router.post(
   '/dlq/:id/abandon',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   webhookAudit('ABANDON', 'dlq_message'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -173,6 +175,7 @@ router.post(
 router.post(
   '/subscriptions/test-filter',
   authenticate,
+  requireCapability('webhook', 'read'),
   async (req: AuthRequest, res: Response) => {
     try {
       const { filter, payload } = req.body;
@@ -213,6 +216,7 @@ router.post(
 router.post(
   '/replay/query',
   authenticate,
+  requireCapability('webhook', 'read'),
   async (req: AuthRequest, res: Response) => {
     try {
       const { startDate, endDate, eventTypes, endpointIds, status, limit } = req.body;
@@ -244,6 +248,7 @@ router.post(
 router.post(
   '/replay/estimate',
   authenticate,
+  requireCapability('webhook', 'read'),
   async (req: AuthRequest, res: Response) => {
     try {
       const { deliveryIds } = req.body;
@@ -268,7 +273,7 @@ router.post(
 router.post(
   '/replay/execute',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   webhookAudit('REPLAY', 'delivery', () => 'bulk'),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -309,6 +314,7 @@ router.post(
 router.get(
   '/replay/:batchId',
   authenticate,
+  requireCapability('webhook', 'read'),
   async (req: AuthRequest, res: Response) => {
     try {
       const { batchId } = req.params;
@@ -332,6 +338,7 @@ router.get(
 router.get(
   '/replay',
   authenticate,
+  requireCapability('webhook', 'read'),
   async (req: AuthRequest, res: Response) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
@@ -366,7 +373,7 @@ router.get(
 router.post(
   '/replay/:batchId/cancel',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   webhookAudit('CANCEL_REPLAY', 'delivery', (req) => req.params.batchId),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -387,7 +394,7 @@ router.post(
 router.get(
   '/audit',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   async (req: AuthRequest, res: Response) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);

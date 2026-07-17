@@ -191,6 +191,8 @@ export function generateQuotationHTML(data: {
   createdAt: string;
   expiryDate: string;
   createdBy?: string;
+  /** Internal route only. Customer-facing quotation attachments must not expose cost or margin. */
+  includeInternalInfo?: boolean;
 }): string {
   const totalCost = (data.costPrice || 0) * data.quantity;
   const marginPercent = data.margin ? data.margin.toFixed(2) : '0.00';
@@ -254,15 +256,16 @@ export function generateQuotationHTML(data: {
   </table>
 </div>
 
-<div class="section">
-  <div class="section-title">内部信息 Internal Info</div>
-  <table>
-    <tr><td style="width:30%"><strong>成本价 Cost Price</strong></td><td>$${data.costPrice?.toLocaleString() || '0'} x ${data.quantity} = $${totalCost.toLocaleString()}</td></tr>
-    <tr><td><strong>利润率 Margin</strong></td><td>${marginPercent}%</td></tr>
-    <tr><td><strong>报价人 Created By</strong></td><td>${data.createdBy || 'N/A'}</td></tr>
-    <tr><td><strong>创建时间 Created At</strong></td><td>${data.createdAt}</td></tr>
-  </table>
-</div>
+  ${data.includeInternalInfo ? `
+  <div class="section">
+   <div class="section-title">内部信息 Internal Info</div>
+   <table>
+     <tr><td style="width:30%"><strong>成本价 Cost Price</strong></td><td>$${data.costPrice?.toLocaleString() || '0'} x ${data.quantity} = $${totalCost.toLocaleString()}</td></tr>
+     <tr><td><strong>利润率 Margin</strong></td><td>${marginPercent}%</td></tr>
+     <tr><td><strong>报价人 Created By</strong></td><td>${data.createdBy || 'N/A'}</td></tr>
+     <tr><td><strong>创建时间 Created At</strong></td><td>${data.createdAt}</td></tr>
+   </table>
+ </div>` : ''}
 `;
 }
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/capability.js';
 import {
   getConsumptionTrend,
   calculateSafetyStockRecommendations,
@@ -9,6 +10,8 @@ import {
 } from '../lib/inventoryAnalytics.js';
 
 const router = Router();
+
+router.use(requireCapability('inventory', 'read'));
 
 /**
  * GET /api/inventory-analytics/consumption-trend?partNumber=xxx&months=12

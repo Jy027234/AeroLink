@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+router.use(requireCapability('report', 'read'));
 
 router.get(
   '/summary',

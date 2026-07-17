@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { authenticate } from '../middleware/auth.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { webhookAudit } from '../middleware/webhookAudit.js';
 
 const router = Router();
@@ -44,7 +44,7 @@ const verifyInboundSignature = (secret: string, payload: string, signature?: str
 router.get(
   '/endpoints',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   asyncHandler(async (_req, res) => {
     const endpoints = await prisma.inboundWebhookEndpoint.findMany({
       orderBy: { createdAt: 'desc' },
@@ -57,7 +57,7 @@ router.get(
 router.post(
   '/endpoints',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   webhookAudit('CREATE', 'inbound_endpoint', (req) => req.body?.urlPath || 'new'),
   asyncHandler(async (req, res) => {
     const { name, sourceSystem, urlPath, authMethod = 'HMAC', secret, isActive = true } = req.body || {};
@@ -84,7 +84,7 @@ router.post(
 router.get(
   '/endpoints/:id',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const endpoint = await prisma.inboundWebhookEndpoint.findUnique({
@@ -102,7 +102,7 @@ router.get(
 router.patch(
   '/endpoints/:id',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   webhookAudit('UPDATE', 'inbound_endpoint', (req) => req.params?.id || 'unknown'),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -133,7 +133,7 @@ router.patch(
 router.post(
   '/endpoints/:id/disable',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   webhookAudit('DISABLE_ENDPOINT', 'inbound_endpoint', (req) => req.params?.id || 'unknown'),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -158,7 +158,7 @@ router.post(
 router.post(
   '/endpoints/:id/enable',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   webhookAudit('ENABLE_ENDPOINT', 'inbound_endpoint', (req) => req.params?.id || 'unknown'),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -183,7 +183,7 @@ router.post(
 router.delete(
   '/endpoints/:id',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'delete'),
   webhookAudit('DELETE_ENDPOINT', 'inbound_endpoint', (req) => req.params?.id || 'unknown'),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -207,7 +207,7 @@ router.delete(
 router.get(
   '/deliveries',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   asyncHandler(async (req, res) => {
     const limit = Math.min(Number(req.query.limit ?? 20), 100);
     const offset = Number(req.query.offset ?? 0);
@@ -236,7 +236,7 @@ router.get(
 router.get(
   '/audit',
   authenticate,
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   asyncHandler(async (req, res) => {
     const limit = Math.min(Number(req.query.limit ?? 20), 100);
     const offset = Number(req.query.offset ?? 0);

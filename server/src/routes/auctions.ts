@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -29,6 +30,7 @@ function shouldAutoExtend(auction: { endAt: Date; autoExtend: boolean }): boolea
 
 router.get(
   '/',
+  requireCapability('auction', 'read'),
   asyncHandler(async (req, res) => {
     const { status, type, partNumber, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -112,6 +114,7 @@ router.get(
 
 router.post(
   '/',
+  requireCapability('auction', 'create'),
   asyncHandler(async (req, res) => {
     const {
       title,
@@ -197,6 +200,7 @@ router.post(
 
 router.get(
   '/:id',
+  requireCapability('auction', 'read'),
   asyncHandler(async (req, res) => {
     const auction = await prisma.auction.findUnique({
       where: { id: req.params.id },
@@ -276,6 +280,7 @@ router.get(
 
 router.put(
   '/:id',
+  requireCapability('auction', 'update'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.auction.findUnique({
       where: { id: req.params.id },
@@ -370,6 +375,7 @@ router.put(
 
 router.post(
   '/:id/activate',
+  requireCapability('auction', 'update'),
   asyncHandler(async (req, res) => {
     const auction = await prisma.auction.findUnique({
       where: { id: req.params.id },
@@ -414,6 +420,7 @@ router.post(
 
 router.post(
   '/:id/cancel',
+  requireCapability('auction', 'update'),
   asyncHandler(async (req, res) => {
     const auction = await prisma.auction.findUnique({
       where: { id: req.params.id },
@@ -455,6 +462,7 @@ router.post(
 
 router.post(
   '/:id/close',
+  requireCapability('auction', 'update'),
   asyncHandler(async (req, res) => {
     const auction = await prisma.auction.findUnique({
       where: { id: req.params.id },
@@ -544,6 +552,7 @@ router.post(
 
 router.post(
   '/:id/bid',
+  requireCapability('auction', 'update'),
   asyncHandler(async (req, res) => {
     const { amount, quantity, isAutoBid, maxAutoBid, notes } = req.body;
     const user = (req as AuthRequest).user!;
@@ -659,6 +668,7 @@ router.post(
 
 router.get(
   '/:id/bids',
+  requireCapability('auction', 'read'),
   asyncHandler(async (req, res) => {
     const auction = await prisma.auction.findUnique({
       where: { id: req.params.id },
@@ -701,6 +711,7 @@ router.get(
 
 router.get(
   '/active',
+  requireCapability('auction', 'read'),
   asyncHandler(async (req, res) => {
     const { partNumber, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -779,6 +790,7 @@ router.get(
 
 router.get(
   '/my-bids',
+  requireCapability('auction', 'read'),
   asyncHandler(async (req, res) => {
     const user = (req as AuthRequest).user!;
     const { status, page, limit } = req.query;

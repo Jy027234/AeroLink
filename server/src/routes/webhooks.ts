@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
 import {
   webhookEndpointCreateSchema,
@@ -26,7 +26,7 @@ const router = Router();
 
 router.get(
   '/events',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   asyncHandler(async (_req, res) => {
     res.json({
       success: true,
@@ -37,7 +37,7 @@ router.get(
 
 router.get(
   '/endpoints',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   asyncHandler(async (_req, res) => {
     const data = await listWebhookEndpoints();
     res.json({
@@ -49,7 +49,7 @@ router.get(
 
 router.post(
   '/endpoints',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   validateBody(webhookEndpointCreateSchema),
   asyncHandler(async (req, res) => {
     const endpoint = await createWebhookEndpoint(req.body);
@@ -62,7 +62,7 @@ router.post(
 
 router.get(
   '/endpoints/:id',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   asyncHandler(async (req, res) => {
     const endpoint = await getWebhookEndpointById(req.params.id);
     if (!endpoint) {
@@ -74,7 +74,7 @@ router.get(
 
 router.patch(
   '/endpoints/:id',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   validateBody(webhookEndpointUpdateSchema),
   asyncHandler(async (req, res) => {
     const existing = await prisma.webhookEndpoint.findUnique({ where: { id: req.params.id } });
@@ -89,7 +89,7 @@ router.patch(
 
 router.delete(
   '/endpoints/:id',
-  requireRole('admin'),
+  requireCapability('webhook', 'delete'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.webhookEndpoint.findUnique({ where: { id: req.params.id } });
     if (!existing) {
@@ -106,7 +106,7 @@ router.delete(
 
 router.get(
   '/endpoints/:id/subscriptions',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.webhookEndpoint.findUnique({ where: { id: req.params.id } });
     if (!existing) {
@@ -124,7 +124,7 @@ router.get(
 
 router.put(
   '/endpoints/:id/subscriptions',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   validateBody(webhookSubscriptionReplaceSchema),
   asyncHandler(async (req, res) => {
     const existing = await prisma.webhookEndpoint.findUnique({ where: { id: req.params.id } });
@@ -139,7 +139,7 @@ router.put(
 
 router.post(
   '/endpoints/:id/test',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   asyncHandler(async (req, res) => {
     const deliveryId = await sendWebhookPing(req.params.id);
     if (!deliveryId) {
@@ -152,7 +152,7 @@ router.post(
 
 router.get(
   '/endpoints/:id/deliveries',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'read'),
   asyncHandler(async (req, res) => {
     const existing = await prisma.webhookEndpoint.findUnique({ where: { id: req.params.id } });
     if (!existing) {
@@ -169,7 +169,7 @@ router.get(
 
 router.post(
   '/deliveries/:id/retry',
-  requireRole('manager', 'admin'),
+  requireCapability('webhook', 'manage'),
   asyncHandler(async (req, res) => {
     const deliveryId = await retryWebhookDelivery(req.params.id);
     if (!deliveryId) {

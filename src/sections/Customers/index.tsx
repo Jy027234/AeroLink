@@ -54,6 +54,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useCustomers, useQuotations, customerApi } from '@/hooks/useApi';
+import { useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -998,6 +999,7 @@ function CustomerFormDialog({
 }
 
 export function Customers() {
+  const can = useCapabilityStore((state) => state.can);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -1141,10 +1143,12 @@ export function Customers() {
             />
           </div>
         </div>
-        <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={handleAddNew}>
-          <Plus className="w-4 h-4 mr-1" />
-          {t('customers.addCustomer')}
-        </Button>
+        {can('customer.create') && (
+          <Button className="bg-brand-primary hover:bg-brand-primary-hover" onClick={handleAddNew}>
+            <Plus className="w-4 h-4 mr-1" />
+            {t('customers.addCustomer')}
+          </Button>
+        )}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1218,14 +1222,16 @@ export function Customers() {
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => handleEdit(customer)}
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </Button>
+                            {can('customer.update') && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => handleEdit(customer)}
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

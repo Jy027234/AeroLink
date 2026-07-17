@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
@@ -9,7 +9,6 @@ import { StateTransitionConflictError, transitionOrderStatus } from '../lib/tran
 import prisma from '../lib/prisma.js';
 
 const router = Router();
-const requireInventoryMutationRole = requireRole('manager', 'admin');
 
 const RESERVABLE_QUOTATION_STATUSES = new Set(['APPROVED', 'SENT', 'ACCEPTED']);
 const OUTBOUND_ORDER_STATUSES = new Set(['SO_CREATED', 'PO_CREATED']);
@@ -58,6 +57,7 @@ function assertPartNumberMatches(inventoryPartNumber: string, documentPartNumber
 
 router.get(
   '/detail/:detailId',
+  requireCapability('inventory', 'read'),
   asyncHandler(async (req, res) => {
     const transactions = await prisma.inventoryTransaction.findMany({
       where: { inventoryDetailId: req.params.detailId },
@@ -73,6 +73,7 @@ router.get(
 
 router.get(
   '/order/:orderId',
+  requireCapability('inventory', 'read'),
   asyncHandler(async (req, res) => {
     const transactions = await prisma.inventoryTransaction.findMany({
       where: { orderId: req.params.orderId },
@@ -93,7 +94,7 @@ router.get(
  */
 router.post(
   '/reserve',
-  requireInventoryMutationRole,
+  requireCapability('inventory', 'manage'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { inventoryDetailId, quotationId, quantity, notes } = req.body as {
       inventoryDetailId?: string;
@@ -276,7 +277,7 @@ router.post(
 
 router.post(
   '/release',
-  requireInventoryMutationRole,
+  requireCapability('inventory', 'manage'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { quotationId, notes } = req.body as {
       quotationId?: string;
@@ -405,7 +406,7 @@ router.post(
 
 router.post(
   '/outbound',
-  requireInventoryMutationRole,
+  requireCapability('inventory', 'manage'),
   asyncHandler(async (req: AuthRequest, res) => {
     const { inventoryDetailId, orderId, quantity, notes } = req.body as {
       inventoryDetailId?: string;

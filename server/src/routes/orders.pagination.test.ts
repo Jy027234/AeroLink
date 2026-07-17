@@ -31,6 +31,10 @@ describe('Order server-side pagination', () => {
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const app = express();
     app.use(express.json());
+    app.use((req, _res, next) => {
+      Object.assign(req, { user: { id: 'admin-1', role: 'admin' } });
+      next();
+    });
     app.use('/api/orders', ordersRouter);
     app.use(errorHandler);
     return app;
@@ -103,11 +107,16 @@ describe('Order server-side pagination', () => {
     const findManyArgs = prismaMock.order.findMany.mock.calls[0]?.[0];
     expect(findManyArgs).toEqual(expect.objectContaining({ skip: 10, take: 10 }));
     expect(findManyArgs.where).toEqual(expect.objectContaining({
-      status: { notIn: ['COMPLETED', 'DELIVERED'] },
-      OR: expect.arrayContaining([
-        { orderNumber: { contains: 'pn-100', mode: 'insensitive' } },
-        { partNumber: { contains: 'pn-100', mode: 'insensitive' } },
-        { customer: { is: { name: { contains: 'pn-100', mode: 'insensitive' } } } },
+      AND: expect.arrayContaining([
+        {},
+        { status: { notIn: ['COMPLETED', 'DELIVERED'] } },
+        {
+          OR: expect.arrayContaining([
+            { orderNumber: { contains: 'pn-100', mode: 'insensitive' } },
+            { partNumber: { contains: 'pn-100', mode: 'insensitive' } },
+            { customer: { is: { name: { contains: 'pn-100', mode: 'insensitive' } } } },
+          ]),
+        },
       ]),
     }));
     expect(prismaMock.order.count).toHaveBeenCalledWith({ where: findManyArgs.where });

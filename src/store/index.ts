@@ -1,6 +1,7 @@
 export * from './approvalStore';
 export * from './authStore';
 export * from './certificateStore';
+export * from './capabilityStore';
 export * from './customerStore';
 export * from './dashboardStore';
 export * from './emailStore';

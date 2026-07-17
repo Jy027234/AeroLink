@@ -50,6 +50,10 @@ describe('supplier quote monetary shadows', () => {
     const { errorHandler } = await import('../middleware/errorHandler.js');
     app = express();
     app.use(express.json());
+    app.use((req, _res, next) => {
+      Object.assign(req, { user: { id: 'admin-1', role: 'admin' } });
+      next();
+    });
     app.use('/api/supplier-quotes', supplierQuotesRouter);
     app.use(errorHandler);
   });

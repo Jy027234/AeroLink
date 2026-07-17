@@ -9,21 +9,15 @@ import {
   ORDER_CONTRACT_TEMPLATE_VARIABLES,
 } from '../lib/documentTemplateService.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
-
-function requireTemplateManager(req: AuthRequest) {
-  const role = req.user?.role;
-  if (!role || !['admin', 'manager'].includes(role)) {
-    throw new AppError('仅管理员或销售经理可管理合同模板', 403, 'AUTH_FORBIDDEN');
-  }
-}
+router.use(requireCapability('certificate_template', 'manage'));
 
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    requireTemplateManager(req as AuthRequest);
     const documentType = req.query.documentType?.toString() || ORDER_CONTRACT_DOCUMENT_TYPE;
 
     if (documentType === ORDER_CONTRACT_DOCUMENT_TYPE) {
@@ -48,8 +42,6 @@ router.get(
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {
-    requireTemplateManager(req as AuthRequest);
-
     const template = await prisma.documentTemplate.findUnique({
       where: { id: req.params.id },
     });
@@ -72,7 +64,6 @@ router.post(
   '/',
   validateBody(documentTemplateCreateSchema),
   asyncHandler(async (req, res) => {
-    requireTemplateManager(req as AuthRequest);
     const { isDefault = false, documentType = ORDER_CONTRACT_DOCUMENT_TYPE, ...rest } = req.body;
 
     if (isDefault) {
@@ -102,8 +93,6 @@ router.put(
   '/:id',
   validateBody(documentTemplateUpdateSchema),
   asyncHandler(async (req, res) => {
-    requireTemplateManager(req as AuthRequest);
-
     const existing = await prisma.documentTemplate.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       throw new AppError('合同模板不存在', 404, 'RESOURCE_NOT_FOUND');

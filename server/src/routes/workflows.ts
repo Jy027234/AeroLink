@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { validateBody } from '../middleware/validate.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
-import { requireRole } from '../middleware/rbac.js';
+import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 import {
   startWorkflow,
@@ -14,7 +14,7 @@ import {
 } from '../lib/workflowEngine.js';
 
 const router = Router();
-const requireWorkflowManagementRole = requireRole('manager', 'admin');
+const requireWorkflowManagementRole = requireCapability('workflow', 'manage');
 
 function projectWorkflowJsonShadows<T>(value: T): T {
   if (Array.isArray(value)) {
