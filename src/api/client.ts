@@ -1081,13 +1081,14 @@ export const authApi = {
   },
 
   refresh: async () => {
-    const response = await request<{ accessToken: string }>('/auth/refresh', {
-      method: 'POST',
-    });
-    setAccessToken(response.accessToken);
+    const refreshed = await refreshAccessToken();
+    const refreshedAccessToken = getAccessToken();
+    if (!refreshed || !refreshedAccessToken) {
+      throw new ApiException('登录已过期，请重新登录', 401);
+    }
     localStorage.removeItem('aerolink_token');
     localStorage.removeItem('aerolink_refresh_token');
-    return response;
+    return { accessToken: refreshedAccessToken };
   },
 
   logout: async () => {

@@ -240,6 +240,7 @@ async function main() {
   await prisma.inventoryDetail.deleteMany();
   await prisma.inventoryItem.deleteMany();
   await prisma.inventory.deleteMany();
+  await prisma.supplierQuote.deleteMany();
   await prisma.supplierPortalUser.deleteMany();
   await prisma.supplier.deleteMany();
   await prisma.customer.deleteMany();

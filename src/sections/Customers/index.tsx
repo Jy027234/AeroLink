@@ -1050,7 +1050,7 @@ export function Customers() {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, setCurrentPage, totalPages]);
 
   const stats = {
     total: customersSummary?.total ?? customersList.length,

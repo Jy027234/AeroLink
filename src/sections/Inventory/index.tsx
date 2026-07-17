@@ -1552,7 +1552,7 @@ export function InventoryCenter() {
     if (!hasSearchPreset && currentPage > maxPage) {
       setCurrentPage(maxPage);
     }
-  }, [currentPage, hasSearchPreset, totalPages]);
+  }, [currentPage, hasSearchPreset, setCurrentPage, totalPages]);
 
   // Stats by category
   const categoryStats = {

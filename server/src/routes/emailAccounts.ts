@@ -7,7 +7,6 @@ import { testImapConnection, testSmtpConnection, syncEmails, saveSyncedEmails } 
 import { encrypt, decrypt } from '../lib/crypto.js';
 import { logger } from '../lib/logger.js';
 import { MISSING_OUTBOUND_ACCOUNT_MESSAGE } from '../lib/authEmailService.js';
-import { AuthRequest } from '../middleware/auth.js';
 import { requireCapability } from '../middleware/capability.js';
 import prisma from '../lib/prisma.js';
 

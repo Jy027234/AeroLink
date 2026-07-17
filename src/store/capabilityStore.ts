@@ -30,8 +30,7 @@ export const useCapabilityStore = create<CapabilityState>((set, get) => ({
     if (!pendingLoad) {
       const generation = capabilityGeneration;
       set({ loading: true, error: null });
-      let loadPromise: Promise<void>;
-      loadPromise = authApi.getCapabilities()
+      const loadPromise = authApi.getCapabilities()
         .then((snapshot: CapabilitySnapshot) => {
           if (generation !== capabilityGeneration) return;
           set({

@@ -19,14 +19,11 @@ async function login(page: Page) {
 }
 
 async function navigateToAgentWorkbench(page: Page) {
-  const agentWorkbenchButton = page.getByRole('button', { name: /AGENT工作台/ });
-
-  if (await agentWorkbenchButton.isVisible().catch(() => false)) {
-    await agentWorkbenchButton.click();
-  } else {
-    await page.getByRole('banner').getByRole('button').first().click();
-    await page.getByRole('button', { name: /AGENT工作台/ }).click();
-  }
+  // Navigation is rendered only after the server-issued capability snapshot is
+  // loaded. Wait for that state rather than toggling the unrelated locale menu.
+  const agentWorkbenchButton = page.getByRole('button', { name: /AGENT工作台|AI Agent Workbench/ });
+  await expect(agentWorkbenchButton).toBeVisible();
+  await agentWorkbenchButton.click();
 
   await expect(page.getByRole('heading', { name: /AGENT工作台|智能航材销售AGENT|AI Agent Workbench/ })).toBeVisible();
 }

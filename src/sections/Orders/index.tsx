@@ -1352,7 +1352,7 @@ export function Orders() {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, setCurrentPage, totalPages]);
 
   // Stats
   const stats = orderSummary ?? {

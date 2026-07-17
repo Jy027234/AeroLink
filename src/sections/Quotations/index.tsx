@@ -1451,7 +1451,7 @@ export function Quotations() {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, setCurrentPage, totalPages]);
 
   const stats = quotationSummary ?? {
     total: quotesList.length,

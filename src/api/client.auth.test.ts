@@ -59,6 +59,19 @@ describe('auth token storage', () => {
     expect(window.localStorage.getItem('aerolink_token')).toBeNull();
   });
 
+  it('deduplicates concurrent manual refreshes so a rotated cookie is not reused', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      success: true,
+      data: { accessToken: 'access-refresh-once' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await Promise.all([authApi.refresh(), authApi.refresh()]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getAccessToken()).toBe('access-refresh-once');
+  });
+
   it('clears the in-memory token after logout', async () => {
     setAccessToken('access-before-logout');
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, data: { success: true } }));

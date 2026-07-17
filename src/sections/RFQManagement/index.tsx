@@ -934,7 +934,7 @@ export function RFQManagement() {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, setCurrentPage, totalPages]);
 
   const stats = serverSummary ?? {
     total: rfqs.length,
