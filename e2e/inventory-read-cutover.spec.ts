@@ -30,7 +30,7 @@ function mutationHeaders(token: string, idempotencyKey: string) {
   };
 }
 
-test('serves protected inventory-dependent reads from canonical item/detail data', async () => {
+test('serves operational inventory reads from canonical item/detail data while pricing BI stays disabled by default', async () => {
   const unauthenticatedReads = await Promise.all([
     fetch(`${backendBaseUrl}/reports/summary`),
     fetch(`${backendBaseUrl}/pricing-bi/market-intelligence`),
@@ -77,13 +77,16 @@ test('serves protected inventory-dependent reads from canonical item/detail data
   expect(report.totalInventoryValue).toBeGreaterThanOrEqual(3600);
 
   expect(pricingResponse.ok).toBeTruthy();
-  const pricing = await pricingResponse.json() as ApiEnvelope<Array<{
-    partNumber: string;
-    ourPrice: number;
-  }>>;
-  expect(pricing.data).toEqual(expect.arrayContaining([
-    expect.objectContaining({ partNumber, ourPrice: 1200 }),
-  ]));
+  const pricing = await pricingResponse.json() as ApiEnvelope<{
+    feature: { key: string; enabled: boolean };
+    items: unknown[];
+    metadata: { status: string; source: string; sampleSize: number };
+  }>;
+  expect(pricing.data).toMatchObject({
+    feature: { key: 'pricingBi', enabled: false },
+    items: [],
+    metadata: { status: 'disabled', source: 'not queried', sampleSize: 0 },
+  });
 
   expect(fmvResponse.ok).toBeTruthy();
   const fmv = await fmvResponse.json() as ApiEnvelope<{ manufacturer?: string }>;

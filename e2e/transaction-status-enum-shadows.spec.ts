@@ -149,6 +149,7 @@ test('dual-writes canonical enum status shadows while preserving string API cont
       partNumber,
       quantity: 2,
       unitPrice: 1800,
+      leadTimeDays: 7,
     }),
   });
   expect(supplierQuoteResponse.status).toBe(201);

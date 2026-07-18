@@ -147,6 +147,7 @@ test('keeps precise quote-to-order and supplier amounts compatible through Decim
       partNumber,
       quantity: 3,
       unitPrice: 10.11115,
+      leadTimeDays: 7,
     }),
   });
   expect(supplierQuoteResponse.status).toBe(201);

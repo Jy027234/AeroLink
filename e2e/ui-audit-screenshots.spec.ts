@@ -20,7 +20,7 @@ const pages = [
   { id: 'customers', name: '客户管理', selector: 'button:has-text("客户管理")' },
   { id: 'suppliers', name: '供应商', selector: 'button:has-text("供应商")' },
   { id: 'supplier-quotes', name: '供应商报价', selector: 'button:has-text("供应商报价")' },
-  { id: 'supplier-portal', name: '供应商门户', selector: 'button:has-text("供应商门户")' },
+  { id: 'supplier-portal', name: '供应商信息管理', selector: 'button:has-text("供应商信息管理")' },
   { id: 'certificates', name: '证书管理', selector: 'button:has-text("证书管理")' },
   { id: 'certificate-templates', name: '证书模板', selector: 'button:has-text("证书模板")' },
   { id: 'workflows', name: '工作流', selector: 'button:has-text("工作流")' },

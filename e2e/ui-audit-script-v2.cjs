@@ -24,7 +24,7 @@ const pages = [
   { id: 'customers', name: '客户管理', keywords: ['customer', '客户'] },
   { id: 'suppliers', name: '供应商', keywords: ['supplier', '供应商'] },
   { id: 'supplier-quotes', name: '供应商报价', keywords: ['supplier quote', '供应商报价'] },
-  { id: 'supplier-portal', name: '供应商门户', keywords: ['portal', '门户'] },
+  { id: 'supplier-portal', name: '供应商信息管理', keywords: ['供应商', '信息管理'] },
   { id: 'certificates', name: '证书管理', keywords: ['certificate', '证书'] },
   { id: 'certificate-templates', name: '证书模板', keywords: ['template', '模板'] },
   { id: 'workflows', name: '工作流', keywords: ['workflow', '工作流'] },
