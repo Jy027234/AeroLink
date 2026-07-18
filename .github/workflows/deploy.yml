@@ -73,6 +73,24 @@ jobs:
         working-directory: ./server
         run: npm sbom --package-lock-only --sbom-format spdx > ../backend.sbom.spdx.json
 
+      - name: Generate release provenance manifest
+        shell: bash
+        run: |
+          printf 'SOURCE_REF=%s\nRELEASE_TAG=%s\nCI_RUN_URL=%s\n' \
+            "$GITHUB_SHA" "$GITHUB_SHA" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            > release-manifest.env
+
+      - name: Validate release script syntax
+        shell: bash
+        run: |
+          for script in deploy/cloud-release.sh deploy/cloud-rollback.sh deploy/cloud-verify.sh; do
+            bash -n "$script"
+          done
+
+      - name: Test release script contracts
+        run: bash deploy/test-cloud-release-contract.sh
+
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -80,4 +98,5 @@ jobs:
           path: |
             frontend.sbom.spdx.json
             backend.sbom.spdx.json
+            release-manifest.env
           if-no-files-found: error
