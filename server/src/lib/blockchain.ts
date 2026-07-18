@@ -12,6 +12,27 @@ export interface BlockRecord {
   nonce: number;
 }
 
+export interface IntegrityCheckMetadata {
+  method: 'sha256_linked_records';
+  storageScope: 'internal_database';
+  externalTrustAnchor: false;
+  decisionBoundary: string;
+}
+
+/**
+ * This system keeps linked SHA-256 records in the same business database.
+ * It can help detect ordinary data inconsistencies, but it is not an
+ * independent ledger, third-party timestamp, or airworthiness evidence.
+ */
+export function getIntegrityCheckMetadata(): IntegrityCheckMetadata {
+  return {
+    method: 'sha256_linked_records',
+    storageScope: 'internal_database',
+    externalTrustAnchor: false,
+    decisionBoundary: '用于业务库内的证书数据完整性核验；不构成第三方存证、独立不可篡改证明或最终适航依据。',
+  };
+}
+
 /**
  * 计算证书内容的 SHA-256 哈希
  */
@@ -40,7 +61,7 @@ export function hashCertificateContent(certificate: {
 }
 
 /**
- * 计算区块哈希（简化版 PoW）
+ * 计算关联记录哈希（历史兼容的简化 PoW 格式）
  */
 function calculateBlockHash(
   index: number,
@@ -54,8 +75,8 @@ function calculateBlockHash(
 }
 
 /**
- * 挖矿：找到满足难度要求的 nonce
- * 难度：哈希前导 4 个零（简化版）
+ * 生成满足历史格式的 nonce。
+ * 这不是外部共识、挖矿或可信时间戳机制。
  */
 function mineBlock(
   index: number,
@@ -82,7 +103,7 @@ function mineBlock(
 }
 
 /**
- * 获取最后一个区块
+ * 获取最后一条完整性记录
  */
 async function getLastBlock(): Promise<BlockRecord | null> {
   const lastBlock = await prisma.blockchainRecord.findFirst({
@@ -103,7 +124,7 @@ async function getLastBlock(): Promise<BlockRecord | null> {
 }
 
 /**
- * 创建创世区块（第一个区块）
+ * 创建初始完整性记录
  */
 export async function createGenesisBlock(): Promise<BlockRecord> {
   const existing = await getLastBlock();
@@ -129,7 +150,7 @@ export async function createGenesisBlock(): Promise<BlockRecord> {
     },
   });
 
-  logger.info({ blockIndex: 0, hash }, 'Genesis block created');
+  logger.info({ blockIndex: 0, hash }, 'Integrity-chain anchor record created');
 
   return {
     index: block.index,
@@ -143,7 +164,7 @@ export async function createGenesisBlock(): Promise<BlockRecord> {
 }
 
 /**
- * 将证书存入区块链
+ * 写入证书完整性关联记录
  */
 export async function storeCertificate(
   certificate: {
@@ -163,7 +184,7 @@ export async function storeCertificate(
   });
 
   if (existing) {
-    throw new Error(`Certificate ${certificate.id} already stored in blockchain`);
+    throw new Error(`Certificate ${certificate.id} already has an integrity record`);
   }
 
   // 获取上一个区块
@@ -177,7 +198,7 @@ export async function storeCertificate(
   const certificateHash = hashCertificateContent(certificate);
   const previousHash = lastBlock.hash;
 
-  // 挖矿
+  // 生成历史兼容的关联哈希
   const { hash, nonce } = mineBlock(index, timestamp, certificateHash, previousHash);
 
   // 保存区块
@@ -198,7 +219,7 @@ export async function storeCertificate(
     certificateId: certificate.id,
     hash,
     previousHash,
-  }, 'Certificate stored in blockchain');
+  }, 'Certificate integrity record created');
 
   return {
     index: block.index,
@@ -212,7 +233,7 @@ export async function storeCertificate(
 }
 
 /**
- * 验证区块链完整性
+ * 验证完整性关联记录链
  */
 export async function verifyChain(): Promise<{
   valid: boolean;
@@ -264,7 +285,7 @@ export async function verifyChain(): Promise<{
 }
 
 /**
- * 验证单个证书存证
+ * 验证单个证书完整性关联记录
  */
 export async function verifyCertificate(
   certificateId: string
@@ -279,7 +300,7 @@ export async function verifyCertificate(
   });
 
   if (!block) {
-    return { verified: false, reason: 'Certificate not found in blockchain' };
+    return { verified: false, reason: 'Certificate integrity record not found' };
   }
 
   // 获取证书数据
@@ -352,7 +373,7 @@ export async function verifyCertificate(
 }
 
 /**
- * 获取区块链统计
+ * 获取完整性关联记录统计
  */
 export async function getBlockchainStats(): Promise<{
   totalBlocks: number;

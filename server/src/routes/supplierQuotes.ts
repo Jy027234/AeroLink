@@ -26,6 +26,11 @@ type SupplierQuoteStatusShadow = {
   statusEnum?: SupplierQuoteStatusEnum | null;
 };
 
+type SupplierQuoteLegacyComparison = {
+  aiScore?: number | null;
+  aiRecommendation?: string | null;
+};
+
 type RfqStatusShadow = {
   status: string;
   statusEnum?: RfqStatusEnum | null;
@@ -55,13 +60,28 @@ function supplierQuoteTotalPrice(quote: Pick<SupplierQuoteMoneySource, 'totalPri
   return preferredMoneyValue(quote.totalPriceDecimal, quote.totalPrice) ?? 0;
 }
 
-function projectSupplierQuoteMoney<T extends SupplierQuoteMoneySource & SupplierQuoteStatusShadow>(quote: T) {
-  const { unitPriceDecimal, totalPriceDecimal, unitPrice, totalPrice, status, statusEnum, ...rest } = quote;
+function projectSupplierQuoteMoney<
+  T extends SupplierQuoteMoneySource & SupplierQuoteStatusShadow & SupplierQuoteLegacyComparison,
+>(quote: T) {
+  const {
+    unitPriceDecimal,
+    totalPriceDecimal,
+    unitPrice,
+    totalPrice,
+    status,
+    statusEnum,
+    aiScore: _legacyAiScore,
+    aiRecommendation: _legacyAiRecommendation,
+    ...rest
+  } = quote;
   return {
     ...rest,
     status: supplierQuoteStatus({ status, statusEnum }),
     unitPrice: preferredMoneyValue(unitPriceDecimal, unitPrice) ?? 0,
     totalPrice: preferredMoneyValue(totalPriceDecimal, totalPrice) ?? 0,
+    // Legacy aiScore/aiRecommendation values did not retain the inputs or
+    // version needed to audit them. Do not project them as current analysis.
+    ruleScore: null,
   };
 }
 
@@ -97,8 +117,8 @@ router.get(
         },
         orderBy: [
           { isWinner: 'desc' },
-          { aiScore: 'desc' },
-          { unitPrice: 'asc' },
+          { createdAt: 'desc' },
+          { id: 'asc' },
         ],
         skip,
         take: limit,
@@ -122,8 +142,7 @@ router.get(
         notes: q.notes,
         status: supplierQuoteStatus(q),
         isWinner: q.isWinner,
-        aiScore: q.aiScore,
-        aiRecommendation: q.aiRecommendation,
+        ruleScore: null,
         createdAt: q.createdAt.toISOString(),
         supplier: {
           id: q.supplier.id,
@@ -203,7 +222,7 @@ router.post(
         unitPriceDecimal,
         totalPrice: totalPriceDecimal.toNumber(),
         totalPriceDecimal,
-        leadTimeDays: leadTimeDays || 0,
+        leadTimeDays,
         validUntil: validUntil ? new Date(validUntil) : null,
         notes,
         status: 'pending',
@@ -306,6 +325,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const { rfqId, inquiryId } = req.body;
 
+    if (!rfqId && !inquiryId) {
+      throw new AppError('必须提供 RFQ 或询价单标识，不能跨业务单据比较供应商报价', 400, 'BAD_REQUEST');
+    }
+
     const where: Prisma.SupplierQuoteWhereInput = {};
     if (rfqId) where.rfqId = rfqId;
     if (inquiryId) where.inquiryId = inquiryId;
@@ -326,41 +349,55 @@ router.post(
     });
 
     if (quotes.length === 0) {
-      throw new AppError('没有找到供应商报价', 404);
+      res.json({
+        success: true,
+        data: {
+          quotes: [],
+          topRanked: null,
+          summary: {
+            totalQuotes: 0,
+            lowestPrice: null,
+            highestPrice: null,
+            averagePrice: null,
+          },
+          metadata: {
+            status: 'unavailable',
+            source: 'AeroLink supplier quote and supplier master records',
+            algorithmVersion: 'supplier-quote-rule-v2',
+            sampleSize: 0,
+            asOf: new Date().toISOString(),
+            reason: '尚无该 RFQ 或询价单的供应商报价，无法进行规则排序。',
+            decisionBoundary: '不会根据其他 RFQ、估算价格或默认供应商表现生成比较结果。',
+          },
+        },
+      });
+      return;
     }
 
     const minPrice = Math.min(...quotes.map(supplierQuoteUnitPrice));
     const maxPrice = Math.max(...quotes.map(supplierQuoteUnitPrice));
     const avgPrice = quotes.reduce((sum, q) => sum + supplierQuoteUnitPrice(q), 0) / quotes.length;
+    const missingPerformanceCount = quotes.filter((quote) => typeof quote.supplier.performanceScore !== 'number').length;
+    const comparisonAvailable = quotes.length >= 2 && missingPerformanceCount === 0;
 
     const comparedQuotes = quotes.map((quote) => {
       const unitPrice = supplierQuoteUnitPrice(quote);
       const totalPrice = supplierQuoteTotalPrice(quote);
-      const priceScore = maxPrice === minPrice ? 100 : ((maxPrice - unitPrice) / (maxPrice - minPrice)) * 100;
-      const leadTimeScore = quote.leadTimeDays <= 7 ? 100 : Math.max(0, 100 - (quote.leadTimeDays - 7) * 5);
-      const supplierScore = quote.supplier.performanceScore || 50;
-      const qualityScore = (quote.supplier.performanceScore || 50) * 0.8 + 10;
-      const responseScore = quote.supplier.leadTime ? Math.max(0, 100 - quote.supplier.leadTime / 6) : 50;
-
-      const aiScore =
-        priceScore * 0.35 +
-        leadTimeScore * 0.2 +
-        supplierScore * 0.2 +
-        qualityScore * 0.15 +
-        responseScore * 0.1;
-
-      let recommendation = '';
-      if (aiScore >= 80) {
-        recommendation = '强烈推荐 - 综合表现优异';
-      } else if (aiScore >= 60) {
-        recommendation = '推荐 - 可作为首选供应商';
-      } else if (aiScore >= 40) {
-        recommendation = '考虑 - 性价比一般';
-      } else {
-        recommendation = '不推荐 - 存在明显劣势';
-      }
-
-      const priceDiff = ((unitPrice - minPrice) / minPrice * 100).toFixed(1);
+      const priceScore = comparisonAvailable
+        ? (maxPrice === minPrice ? 100 : ((maxPrice - unitPrice) / (maxPrice - minPrice)) * 100)
+        : null;
+      const leadTimeScore = comparisonAvailable
+        ? (quote.leadTimeDays <= 7 ? 100 : Math.max(0, 100 - (quote.leadTimeDays - 7) * 5))
+        : null;
+      const supplierPerformanceScore = comparisonAvailable
+        ? Math.min(100, Math.max(0, quote.supplier.performanceScore!))
+        : null;
+      const ruleScore = comparisonAvailable
+        ? Math.round((priceScore! * 0.5 + leadTimeScore! * 0.3 + supplierPerformanceScore! * 0.2) * 10) / 10
+        : null;
+      const priceDiff = minPrice > 0
+        ? Math.round(((unitPrice - minPrice) / minPrice) * 1000) / 10
+        : null;
 
       return {
         id: quote.id,
@@ -376,47 +413,47 @@ router.post(
         leadTimeDays: quote.leadTimeDays,
         priceDiff,
         isLowestPrice: unitPrice === minPrice,
-        scores: {
-          price: Math.round(priceScore),
-          leadTime: Math.round(leadTimeScore),
-          supplier: Math.round(supplierScore),
-          quality: Math.round(qualityScore),
-          response: Math.round(responseScore),
+        scoreComponents: {
+          price: priceScore === null ? null : Math.round(priceScore),
+          leadTime: leadTimeScore === null ? null : Math.round(leadTimeScore),
+          supplierPerformance: supplierPerformanceScore === null ? null : Math.round(supplierPerformanceScore),
         },
-        aiScore: Math.round(aiScore * 100) / 100,
-        aiRecommendation: recommendation,
+        ruleScore,
         status: supplierQuoteStatus(quote),
         isWinner: quote.isWinner,
       };
     });
 
-    comparedQuotes.sort((a, b) => b.aiScore - a.aiScore);
+    if (comparisonAvailable) {
+      comparedQuotes.sort((left, right) => (right.ruleScore ?? 0) - (left.ruleScore ?? 0));
+    }
 
-    const bestMatch = comparedQuotes[0];
-
-    await Promise.all(
-      comparedQuotes.map((q) =>
-        prisma.supplierQuote.update({
-          where: { id: q.id },
-          data: {
-            aiScore: q.aiScore,
-            aiRecommendation: q.aiRecommendation,
-          },
-        })
-      )
-    );
+    const metadata = {
+      status: comparisonAvailable ? 'available' : 'insufficient_data',
+      source: 'AeroLink supplier quote and supplier master records',
+      algorithmVersion: 'supplier-quote-rule-v2',
+      sampleSize: quotes.length,
+      asOf: new Date().toISOString(),
+      reason: comparisonAvailable
+        ? '规则仅对已录入的单价、交期和供应商绩效进行相对排序。'
+        : quotes.length < 2
+          ? '仅有 1 份报价，无法进行相对规则排序。'
+          : `${missingPerformanceCount} 家供应商缺少绩效记录，无法生成完整规则排序。`,
+      decisionBoundary: '不推测质量、响应速度、适航资质、可供货量、外部市场价格或客户偏好；规则排序仅供人工复核，不构成中选建议。',
+    };
 
     res.json({
       success: true,
       data: {
         quotes: comparedQuotes,
-        bestMatch,
+        topRanked: comparisonAvailable ? comparedQuotes[0] : null,
         summary: {
           totalQuotes: quotes.length,
           lowestPrice: minPrice,
           highestPrice: maxPrice,
           averagePrice: Math.round(avgPrice * 100) / 100,
         },
+        metadata,
       },
     });
   })
@@ -455,7 +492,7 @@ router.post(
 
     res.json({
       success: true,
-      message: '已选择最优供应商',
+      message: '供应商已标记为中选',
       data: projectSupplierQuoteMoney(updated),
     });
   })

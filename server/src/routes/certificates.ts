@@ -427,7 +427,7 @@ router.post(
       },
     );
 
-    // A replay also retries a prior best-effort blockchain failure. A stored
+    // A replay also retries a prior best-effort integrity-record failure. A stored
     // certificate is checked first so normal idempotent replays remain quiet.
     try {
       const [certificate, existingBlock] = await Promise.all([
@@ -438,7 +438,7 @@ router.post(
         await storeCertificate(certificate);
       }
     } catch (blockchainError) {
-      logger.warn({ err: blockchainError, certificateId: execution.payload.id }, 'Blockchain certificate storage deferred for retry');
+      logger.warn({ err: blockchainError, certificateId: execution.payload.id }, 'Certificate integrity record storage deferred for retry');
     }
 
     applyIdempotencyHeaders(res, execution);

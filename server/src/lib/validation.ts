@@ -600,7 +600,7 @@ export const supplierQuoteCreateSchema = z.object({
   description: z.string().optional(),
   quantity: z.number().int().min(1, '数量必须大于0'),
   unitPrice: z.number().min(0, '单价必须大于0'),
-  leadTimeDays: z.number().int().optional(),
+  leadTimeDays: z.number().int().min(0, '交期不能小于0'),
   validUntil: z.string().optional(),
   notes: z.string().optional(),
 });

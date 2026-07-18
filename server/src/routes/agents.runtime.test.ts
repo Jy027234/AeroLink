@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 
@@ -142,6 +142,10 @@ describe('Agent runtime routes integration', () => {
     app.use(express.json());
     app.use('/api/agents', router);
     app.use(errorHandler);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('should sync a runtime task with bilingual confirmation metadata', async () => {
@@ -433,6 +437,28 @@ describe('Agent runtime routes integration', () => {
 
     expect(res.status).toBe(200);
     expect(prismaMock.agentLog.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects controlled demo task persistence unless the server feature flag is enabled', async () => {
+    vi.stubEnv('FEATURE_AGENT_DEMO', 'false');
+
+    const res = await request(app)
+      .put('/api/agents/runtime/tasks/task_demo_disabled')
+      .send({
+        id: 'task_demo_disabled',
+        trigger: { type: 'manual' },
+        type: 'email_received',
+        status: 'pending',
+        currentStepIndex: 0,
+        steps: [],
+        context: { demoMode: true },
+        createdAt: '2026-05-12T09:00:00.000Z',
+        updatedAt: '2026-05-12T09:00:00.000Z',
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ success: false, code: 'FEATURE_DISABLED' });
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 
   it('should list runtime tasks', async () => {

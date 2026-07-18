@@ -41,7 +41,7 @@ export const zhCN: LocaleDict = {
     auditLogs: '审计日志',
     apiPlatform: 'API开放平台',
     fmvPlatform: 'FMV公正价值',
-    blockchainVerification: '区块链存证',
+    blockchainVerification: '证书完整性校验',
     reports: '数据报表',
     settings: '系统设置',
     // 分组标题
@@ -70,7 +70,7 @@ export const zhCN: LocaleDict = {
     'order-tracking': '全链路订单追踪',
     'api-platform': 'API开放平台',
     'fmv-platform': 'FMV公正市场价值',
-    'blockchain-verification': '区块链证书存证',
+    'blockchain-verification': '证书完整性校验',
     reports: '数据报表',
     settings: '系统设置',
   },

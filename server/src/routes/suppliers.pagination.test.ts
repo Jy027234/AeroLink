@@ -113,4 +113,22 @@ describe('Supplier server-side pagination', () => {
     }));
     expect(prismaMock.supplier.count).toHaveBeenCalledWith({ where: findManyArgs.where });
   });
+
+  it('keeps the average performance unset when no supplier score is recorded', async () => {
+    prismaMock.supplier.findMany.mockResolvedValue([]);
+    prismaMock.supplier.count.mockResolvedValue(0);
+    prismaMock.supplier.groupBy.mockResolvedValue([]);
+    prismaMock.supplier.aggregate.mockResolvedValue({ _avg: { performanceScore: null } });
+
+    const app = await buildApp();
+    const response = await request(app)
+      .get('/api/suppliers')
+      .query({ page: '1', limit: '10' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.summary).toMatchObject({
+      total: 0,
+      avgScore: null,
+    });
+  });
 });

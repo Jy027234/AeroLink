@@ -211,7 +211,9 @@ router.get(
             a: levelCounts.find((entry) => entry.level === 'A')?._count._all || 0,
             b: levelCounts.find((entry) => entry.level === 'B')?._count._all || 0,
             c: levelCounts.find((entry) => entry.level === 'C')?._count._all || 0,
-            avgScore: Math.round(performanceAggregate._avg.performanceScore || 0),
+            avgScore: performanceAggregate._avg.performanceScore === null
+              ? null
+              : Math.round(performanceAggregate._avg.performanceScore),
           },
           pagination: {
             page: pageNum,

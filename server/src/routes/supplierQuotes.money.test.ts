@@ -68,6 +68,7 @@ describe('supplier quote monetary shadows', () => {
         partNumber: 'BAC31GK0020',
         quantity: 3,
         unitPrice: 12.34565,
+        leadTimeDays: 7,
       });
 
     expect(response.status).toBe(201);

@@ -5,6 +5,7 @@ import {
   verifyCertificate,
   verifyChain,
   getBlockchainStats,
+  getIntegrityCheckMetadata,
   hashCertificateContent,
 } from '../lib/blockchain.js';
 import prisma from '../lib/prisma.js';
@@ -13,7 +14,7 @@ const router = Router();
 
 /**
  * POST /api/blockchain/store/:certificateId
- * Store a certificate in the blockchain
+ * Store a certificate integrity record
  */
 router.post('/store/:certificateId', requireCapability('certificate', 'issue'), async (req, res, next) => {
   try {
@@ -43,7 +44,7 @@ router.post('/store/:certificateId', requireCapability('certificate', 'issue'), 
 
 /**
  * GET /api/blockchain/verify/:certificateId
- * Verify a certificate's blockchain record
+ * Verify a certificate integrity record
  */
 router.get('/verify/:certificateId', requireCapability('blockchain', 'read'), async (req, res, next) => {
   try {
@@ -53,7 +54,10 @@ router.get('/verify/:certificateId', requireCapability('blockchain', 'read'), as
 
     res.json({
       success: true,
-      data: result,
+      data: {
+        ...result,
+        integrity: getIntegrityCheckMetadata(),
+      },
     });
   } catch (err) {
     next(err);
@@ -62,7 +66,7 @@ router.get('/verify/:certificateId', requireCapability('blockchain', 'read'), as
 
 /**
  * GET /api/blockchain/chain/verify
- * Verify the entire blockchain integrity
+ * Verify the complete integrity record chain
  */
 router.get('/chain/verify', requireCapability('blockchain', 'read'), async (req, res, next) => {
   try {
@@ -70,7 +74,10 @@ router.get('/chain/verify', requireCapability('blockchain', 'read'), async (req,
 
     res.json({
       success: true,
-      data: result,
+      data: {
+        ...result,
+        integrity: getIntegrityCheckMetadata(),
+      },
     });
   } catch (err) {
     next(err);
@@ -79,7 +86,7 @@ router.get('/chain/verify', requireCapability('blockchain', 'read'), async (req,
 
 /**
  * GET /api/blockchain/stats
- * Get blockchain statistics
+ * Get integrity record statistics
  */
 router.get('/stats', requireCapability('blockchain', 'read'), async (req, res, next) => {
   try {
@@ -87,7 +94,10 @@ router.get('/stats', requireCapability('blockchain', 'read'), async (req, res, n
 
     res.json({
       success: true,
-      data: stats,
+      data: {
+        ...stats,
+        integrity: getIntegrityCheckMetadata(),
+      },
     });
   } catch (err) {
     next(err);
@@ -96,7 +106,7 @@ router.get('/stats', requireCapability('blockchain', 'read'), async (req, res, n
 
 /**
  * GET /api/blockchain/records
- * List all blockchain records
+ * List all integrity records
  */
 router.get('/records', requireCapability('blockchain', 'read'), async (req, res, next) => {
   try {

@@ -3,7 +3,7 @@ import {
   Search,
   CheckCircle,
   Trophy,
-  Brain,
+  Scale,
   Loader2,
   TrendingUp,
   ChevronLeft,
@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/select";
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
-import { supplierQuoteApi } from '@/api/client';
+import { supplierQuoteApi, type AnalyticsDataAvailability } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
@@ -57,14 +57,13 @@ interface SupplierQuote {
   notes: string | null;
   status: string;
   isWinner: boolean;
-  aiScore: number | null;
-  aiRecommendation: string | null;
+  ruleScore: number | null;
   createdAt: string;
   supplier: {
     id: string;
     name: string;
     level: string;
-    performanceScore: number;
+    performanceScore: number | null;
     contactName: string | null;
     contactEmail: string | null;
   };
@@ -77,23 +76,20 @@ interface ComparedQuote {
     id: string;
     name: string;
     level: string;
-    performanceScore: number;
+    performanceScore: number | null;
   };
   unitPrice: number;
   totalPrice: number;
   quantity: number;
   leadTimeDays: number;
-  priceDiff: string;
+  priceDiff: number | null;
   isLowestPrice: boolean;
-  scores: {
-    price: number;
-    leadTime: number;
-    supplier: number;
-    quality: number;
-    response: number;
+  scoreComponents: {
+    price: number | null;
+    leadTime: number | null;
+    supplierPerformance: number | null;
   };
-  aiScore: number;
-  aiRecommendation: string;
+  ruleScore: number | null;
   status: string;
   isWinner: boolean;
 }
@@ -109,13 +105,14 @@ export function SupplierQuotes() {
   const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [compareData, setCompareData] = useState<{
     quotes: ComparedQuote[];
-    bestMatch: ComparedQuote;
+    topRanked: ComparedQuote | null;
     summary: {
       totalQuotes: number;
-      lowestPrice: number;
-      highestPrice: number;
-      averagePrice: number;
+      lowestPrice: number | null;
+      highestPrice: number | null;
+      averagePrice: number | null;
     };
+    metadata: AnalyticsDataAvailability;
   } | null>(null);
   const [isComparing, setIsComparing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -141,9 +138,13 @@ export function SupplierQuotes() {
   };
 
   const handleCompare = async (rfqId?: string) => {
+    if (!rfqId) {
+      toast.error(tx('请先选择一个 RFQ，再进行同单据报价比对。', 'Select an RFQ before comparing quotes for the same record.'));
+      return;
+    }
     setIsComparing(true);
     try {
-      const data = await supplierQuoteApi.compare({ rfqId: rfqId || undefined });
+      const data = await supplierQuoteApi.compare({ rfqId });
       setCompareData(data);
       setIsCompareOpen(true);
     } catch (error) {
@@ -157,7 +158,7 @@ export function SupplierQuotes() {
   const handleSelectWinner = async (quoteId: string) => {
     try {
       await supplierQuoteApi.selectWinner(quoteId);
-      toast.success(tx('已选择最优供应商。', 'Best supplier selected.'));
+      toast.success(tx('已将该供应商标记为中选。', 'Supplier marked as selected.'));
       loadQuotes();
       setIsCompareOpen(false);
     } catch (error) {
@@ -184,7 +185,6 @@ export function SupplierQuotes() {
   const stats = {
     total: quotes.length,
     pending: quotes.filter((q) => q.status === 'pending').length,
-    compared: quotes.filter((q) => q.aiScore !== null).length,
     winners: quotes.filter((q) => q.isWinner).length,
   };
 
@@ -199,7 +199,7 @@ export function SupplierQuotes() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Card className="hover:shadow-sm transition-shadow">
           <CardContent className="p-3 flex items-center justify-between">
             <div>
@@ -213,14 +213,6 @@ export function SupplierQuotes() {
             <div>
               <p className="text-xs text-gray-500">{tx('待处理报价', 'Pending Quotes')}</p>
               <p className="text-xl font-bold text-yellow-600">{stats.pending}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="hover:shadow-sm transition-shadow">
-          <CardContent className="p-3 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-500">{tx('已比价', 'Compared')}</p>
-              <p className="text-xl font-bold text-blue-600">{stats.compared}</p>
             </div>
           </CardContent>
         </Card>
@@ -262,11 +254,12 @@ export function SupplierQuotes() {
             {can('supplier_quote.update') && (
               <Button
                 className="bg-purple-600 hover:bg-purple-700"
-                onClick={() => handleCompare()}
-                disabled={isComparing || quotes.length === 0}
+                onClick={() => handleCompare(rfqFilter === 'all' ? undefined : rfqFilter)}
+                disabled={isComparing || quotes.length === 0 || rfqFilter === 'all'}
+                title={rfqFilter === 'all' ? tx('请先筛选一个 RFQ。', 'Select an RFQ first.') : undefined}
               >
-                {isComparing ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Brain className="w-4 h-4 mr-1" />}
-                {tx('AI 比价', 'AI Comparison')}
+                {isComparing ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Scale className="w-4 h-4 mr-1" />}
+                {rfqFilter === 'all' ? tx('选择 RFQ 后比对', 'Select RFQ to Compare') : tx('规则比对', 'Rule Comparison')}
               </Button>
             )}
           </div>
@@ -280,15 +273,14 @@ export function SupplierQuotes() {
                 <TableHead>{tx('等级', 'Level')}</TableHead>
                 <TableHead>{tx('单价', 'Unit Price')}</TableHead>
                 <TableHead>{tx('交期', 'Lead Time')}</TableHead>
-                <TableHead>{tx('AI评分', 'AI Score')}</TableHead>
-                <TableHead>{tx('推荐结论', 'Recommendation')}</TableHead>
+                <TableHead>{tx('规则得分', 'Rule Score')}</TableHead>
                 <TableHead>{tx('状态', 'Status')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredQuotes.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12 text-gray-500">
+                  <TableCell colSpan={7} className="text-center py-12 text-gray-500">
                     <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                     {tx('暂无供应商报价', 'No supplier quotes')}
                   </TableCell>
@@ -329,26 +321,11 @@ export function SupplierQuotes() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      {quote.aiScore !== null ? (
+                      {quote.ruleScore !== null ? (
                         <div className="flex items-center gap-2">
-                          <Progress value={quote.aiScore} className="w-16 h-2" />
-                          <span className="text-sm font-medium">{quote.aiScore.toFixed(0)}</span>
+                          <Progress value={quote.ruleScore} className="w-16 h-2" />
+                          <span className="text-sm font-medium">{quote.ruleScore.toFixed(0)}</span>
                         </div>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {quote.aiRecommendation ? (
-                        <span className={cn(
-                          'text-xs',
-                          (quote.aiRecommendation.includes('强烈推荐') || quote.aiRecommendation.toLowerCase().includes('strongly recommend')) && 'text-green-600 font-medium',
-                          (quote.aiRecommendation.includes('推荐') || quote.aiRecommendation.toLowerCase().includes('recommend')) && 'text-blue-600',
-                          (quote.aiRecommendation.includes('考虑') || quote.aiRecommendation.toLowerCase().includes('consider')) && 'text-yellow-600',
-                          (quote.aiRecommendation.includes('不推荐') || quote.aiRecommendation.toLowerCase().includes('not recommend')) && 'text-red-600'
-                        )}>
-                          {quote.aiRecommendation}
-                        </span>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
@@ -392,30 +369,35 @@ export function SupplierQuotes() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Brain className="w-5 h-5 text-purple-600" />
-              {tx('AI 比价分析', 'AI Comparison Analysis')}
+              <Scale className="w-5 h-5 text-purple-600" />
+              {tx('规则比对（仅供人工复核）', 'Rule Comparison (Manual Review Only)')}
             </DialogTitle>
           </DialogHeader>
 
           {compareData && (
             <div className="space-y-6 py-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-1">
+                <p>{compareData.metadata.reason}</p>
+                <p className="text-xs">{tx('来源', 'Source')}: {compareData.metadata.source} · {tx('样本量', 'Sample size')}: {compareData.metadata.sampleSize} · {tx('算法版本', 'Algorithm')}: {compareData.metadata.algorithmVersion || '—'}</p>
+                <p className="text-xs">{compareData.metadata.decisionBoundary}</p>
+              </div>
               <div className="grid grid-cols-3 gap-4">
                 <Card className="bg-blue-50">
                   <CardContent className="p-4 text-center">
                     <p className="text-sm text-gray-500">{tx('最低报价', 'Lowest Price')}</p>
-                    <p className="text-2xl font-bold text-blue-600">${compareData.summary.lowestPrice.toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-blue-600">{compareData.summary.lowestPrice === null ? '—' : `$${compareData.summary.lowestPrice.toLocaleString()}`}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-green-50">
                   <CardContent className="p-4 text-center">
                     <p className="text-sm text-gray-500">{tx('平均报价', 'Average Price')}</p>
-                    <p className="text-2xl font-bold text-green-600">${compareData.summary.averagePrice.toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-green-600">{compareData.summary.averagePrice === null ? '—' : `$${compareData.summary.averagePrice.toLocaleString()}`}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-purple-50">
                   <CardContent className="p-4 text-center">
-                    <p className="text-sm text-gray-500">{tx('最优推荐', 'Top Recommendation')}</p>
-                    <p className="text-lg font-bold text-purple-600">{compareData.bestMatch.supplier.name}</p>
+                    <p className="text-sm text-gray-500">{tx('规则首位', 'Top Rule Rank')}</p>
+                    <p className="text-lg font-bold text-purple-600">{compareData.topRanked?.supplier.name || '—'}</p>
                   </CardContent>
                 </Card>
               </div>
@@ -423,110 +405,94 @@ export function SupplierQuotes() {
               <div className="space-y-3">
                 <h4 className="font-medium flex items-center gap-2">
                   <TrendingUp className="w-4 h-4" />
-                  {tx('供应商排名', 'Supplier Ranking')}
+                  {compareData.metadata.status === 'available'
+                    ? tx('供应商规则排序', 'Supplier Rule Ranking')
+                    : tx('已录入报价（未排序）', 'Recorded Quotes (Unranked)')}
                 </h4>
-                {compareData.quotes.map((quote, index) => (
-                  <Card
-                    key={quote.id}
-                    className={cn(
-                      quote.isWinner && 'border-green-500 bg-green-50',
-                      index === 0 && !quote.isWinner && 'border-purple-500'
-                    )}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className={cn(
-                            'w-8 h-8 rounded-full flex items-center justify-center font-bold',
-                            index === 0 && 'bg-purple-100 text-purple-700',
-                            index === 1 && 'bg-gray-100 text-gray-700',
-                            index === 2 && 'bg-yellow-100 text-yellow-700',
-                            index > 2 && 'bg-gray-50 text-gray-500'
-                          )}>
-                            {index + 1}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium">{quote.supplier.name}</p>
-                              {quote.isWinner && <Trophy className="w-4 h-4 text-green-600" />}
-                              {quote.isLowestPrice && <Badge variant="outline" className="text-green-600">{tx('最低价', 'Lowest Price')}</Badge>}
+                {compareData.quotes.map((quote, index) => {
+                  const isTopRanked = compareData.topRanked?.id === quote.id;
+                  return (
+                    <Card
+                      key={quote.id}
+                      className={cn(
+                        quote.isWinner && 'border-green-500 bg-green-50',
+                        isTopRanked && !quote.isWinner && 'border-purple-500'
+                      )}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            {compareData.metadata.status === 'available' && (
+                              <div className={cn(
+                                'w-8 h-8 rounded-full flex items-center justify-center font-bold',
+                                index === 0 && 'bg-purple-100 text-purple-700',
+                                index === 1 && 'bg-gray-100 text-gray-700',
+                                index === 2 && 'bg-yellow-100 text-yellow-700',
+                                index > 2 && 'bg-gray-50 text-gray-500'
+                              )}>
+                                {index + 1}
+                              </div>
+                            )}
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">{quote.supplier.name}</p>
+                                {quote.isWinner && <Trophy className="w-4 h-4 text-green-600" />}
+                                {quote.isLowestPrice && <Badge variant="outline" className="text-green-600">{tx('最低价', 'Lowest Price')}</Badge>}
+                              </div>
+                              <div className="flex items-center gap-4 text-sm text-gray-500">
+                                <span>{quote.supplier.level} {tx('级供应商', 'Level Supplier')}</span>
+                                <span>·</span>
+                                <span>${quote.unitPrice} x {quote.quantity}</span>
+                                <span>·</span>
+                                <span className={cn(quote.leadTimeDays <= 7 ? 'text-green-600' : 'text-yellow-600')}>
+                                  {quote.leadTimeDays} {tx('天', 'days')}
+                                </span>
+                                {quote.priceDiff !== null && quote.priceDiff > 0 && (
+                                  <>
+                                    <span>·</span>
+                                    <span className="text-red-500">{tx(`较最低价高 ${quote.priceDiff}%`, `${quote.priceDiff}% above lowest price`)}</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-4 text-sm text-gray-500">
-                              <span>{quote.supplier.level} {tx('级供应商', 'Level Supplier')}</span>
-                              <span>·</span>
-                              <span>${quote.unitPrice} x {quote.quantity}</span>
-                              <span>·</span>
-                              <span className={cn(quote.leadTimeDays <= 7 ? 'text-green-600' : 'text-yellow-600')}>
-                                {quote.leadTimeDays} {tx('天', 'days')}
-                              </span>
-                              {quote.priceDiff !== '0.0' && (
-                                <>
-                                  <span>·</span>
-                                  <span className="text-red-500">{tx(`较最低价高 ${quote.priceDiff}%`, `${quote.priceDiff}% above lowest price`)}</span>
-                                </>
-                              )}
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <p className="text-2xl font-bold text-purple-600">{quote.ruleScore?.toFixed(0) || '—'}</p>
+                              <p className="text-xs text-gray-500">{tx('规则得分', 'Rule Score')}</p>
                             </div>
+                            {!quote.isWinner && can('supplier_quote.update') && (
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => handleSelectWinner(quote.id)}
+                              >
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                {tx('选择该供应商', 'Select this supplier')}
+                              </Button>
+                            )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className="text-2xl font-bold text-purple-600">{quote.aiScore}</p>
-                            <p className="text-xs text-gray-500">{tx('AI综合评分', 'AI Composite Score')}</p>
+
+                        {quote.ruleScore !== null && (
+                          <div className="mt-4 grid grid-cols-3 gap-2">
+                            {[
+                              [tx('价格', 'Price'), quote.scoreComponents.price],
+                              [tx('交期', 'Lead Time'), quote.scoreComponents.leadTime],
+                              [tx('供应商绩效', 'Supplier performance'), quote.scoreComponents.supplierPerformance],
+                            ].map(([label, value]) => (
+                              <div className="text-center" key={String(label)}>
+                                <p className="text-xs text-gray-500">{label}</p>
+                                <Progress value={typeof value === 'number' ? value : 0} className="h-1 mt-1" />
+                                <p className="text-xs font-medium mt-1">{typeof value === 'number' ? value : '—'}</p>
+                              </div>
+                            ))}
                           </div>
-                          {!quote.isWinner && can('supplier_quote.update') && (
-                            <Button
-                              size="sm"
-                              className="bg-green-600 hover:bg-green-700"
-                              onClick={() => handleSelectWinner(quote.id)}
-                            >
-                              <CheckCircle className="w-4 h-4 mr-1" />
-                              {tx('选择该供应商', 'Select this supplier')}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-5 gap-2">
-                        <div className="text-center">
-                          <p className="text-xs text-gray-500">{tx('价格', 'Price')}</p>
-                          <Progress value={quote.scores.price} className="h-1 mt-1" />
-                          <p className="text-xs font-medium mt-1">{quote.scores.price}</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-xs text-gray-500">{tx('交期', 'Lead Time')}</p>
-                          <Progress value={quote.scores.leadTime} className="h-1 mt-1" />
-                          <p className="text-xs font-medium mt-1">{quote.scores.leadTime}</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-xs text-gray-500">{tx('供应商', 'Supplier')}</p>
-                          <Progress value={quote.scores.supplier} className="h-1 mt-1" />
-                          <p className="text-xs font-medium mt-1">{quote.scores.supplier}</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-xs text-gray-500">{tx('质量', 'Quality')}</p>
-                          <Progress value={quote.scores.quality} className="h-1 mt-1" />
-                          <p className="text-xs font-medium mt-1">{quote.scores.quality}</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-xs text-gray-500">{tx('响应', 'Response')}</p>
-                          <Progress value={quote.scores.response} className="h-1 mt-1" />
-                          <p className="text-xs font-medium mt-1">{quote.scores.response}</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 p-2 bg-gray-50 rounded text-sm">
-                        <p className={cn(
-                          (quote.aiRecommendation?.includes('强烈推荐') || quote.aiRecommendation?.toLowerCase().includes('strongly recommend')) && 'text-green-600 font-medium',
-                          (quote.aiRecommendation?.includes('推荐') || quote.aiRecommendation?.toLowerCase().includes('recommend')) && 'text-blue-600',
-                          (quote.aiRecommendation?.includes('考虑') || quote.aiRecommendation?.toLowerCase().includes('consider')) && 'text-yellow-600',
-                          (quote.aiRecommendation?.includes('不推荐') || quote.aiRecommendation?.toLowerCase().includes('not recommend')) && 'text-red-600'
-                        )}>
-                          {quote.aiRecommendation}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </div>
           )}

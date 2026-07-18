@@ -6,9 +6,11 @@ import {
   Download,
   Filter,
   Loader2,
+  ShieldAlert,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { EmptyState } from '@/components/EmptyState';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -34,10 +36,12 @@ import {
   useCustomerContribution,
   useInventoryTurnover,
 } from '@/hooks/useApi';
+import type { AnalyticsDataAvailability } from '@/api/client';
 
 const COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#6b7280', '#22c55e', '#8b5cf6'];
 
-function TrendIcon({ value }: { value: number }) {
+function TrendIcon({ value }: { value: number | null }) {
+  if (value === null) return null;
   return value >= 0 ? (
     <TrendingUp className="w-4 h-4" />
   ) : (
@@ -45,7 +49,8 @@ function TrendIcon({ value }: { value: number }) {
   );
 }
 
-function getTrendColor(value: number) {
+function getTrendColor(value: number | null) {
+  if (value === null) return 'text-gray-500';
   return value >= 0 ? 'text-green-500' : 'text-red-500';
 }
 
@@ -64,6 +69,32 @@ function ErrorCard({ message }: { message: string }) {
     <Card>
       <CardContent className="p-4 text-sm text-red-500">{message}</CardContent>
     </Card>
+  );
+}
+
+function NullableMetric({ value, suffix = '' }: { value: number | null; suffix?: string }) {
+  return value === null ? '—' : `${value.toFixed(1)}${suffix}`;
+}
+
+function ReportDataBoundary({
+  metadata,
+  tx,
+}: {
+  metadata: AnalyticsDataAvailability;
+  tx: (zh: string, en: string) => string;
+}) {
+  return (
+    <Alert className="border-slate-200 bg-slate-50 text-slate-700">
+      <ShieldAlert className="h-4 w-4" />
+      <AlertDescription className="space-y-1 text-sm">
+        <p>{metadata.reason || tx('当前数据可用。', 'Data is currently available.')}</p>
+        <p className="text-xs text-muted-foreground">
+          {tx('来源', 'Source')}: {metadata.source} · {tx('样本量', 'Sample size')}: {metadata.sampleSize}
+          {metadata.algorithmVersion ? ` · ${tx('算法版本', 'Algorithm')}: ${metadata.algorithmVersion}` : ''}
+        </p>
+        <p className="text-xs text-muted-foreground">{metadata.decisionBoundary}</p>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -109,10 +140,18 @@ export function Reports() {
     return `$${(value / 1000).toFixed(0)}K`;
   };
 
-  const formatTrend = (value: number) => {
+  const formatTrend = (value: number | null) => {
+    if (value === null) return tx('上期为零，无法计算', 'No comparable prior-period baseline');
     const prefix = value >= 0 ? '+' : '';
     return `${prefix}${value}%`;
   };
+
+  const turnoverItems = inventoryTurnover?.items.filter((item) => item.days !== null) ?? [];
+  const conversionTrend = salesTrend?.flatMap((item) => (
+    item.rfqs > 0
+      ? [{ ...item, conversionRate: Math.round((item.orders / item.rfqs) * 1000) / 10 }]
+      : []
+  )) ?? [];
 
   return (
     <div className="space-y-6">
@@ -143,6 +182,7 @@ export function Reports() {
 
         {/* Sales analysis */}
         <TabsContent value="sales" className="space-y-6">
+          {summary && <ReportDataBoundary metadata={summary.metadata} tx={tx} />}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {summaryLoading ? (
               <>
@@ -267,6 +307,7 @@ export function Reports() {
 
         {/* Conversion analysis */}
         <TabsContent value="conversion" className="space-y-6">
+          {conversion && <ReportDataBoundary metadata={conversion.metadata} tx={tx} />}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
@@ -308,8 +349,8 @@ export function Reports() {
                   </ResponsiveContainer>
                 ) : (
                   <EmptyState
-                    title={tx('暂无数据', 'No data available')}
-                    description={tx('当前没有可用的数据，请稍后重试', 'No data available at the moment')}
+                    title={tx('暂无可归因丢单数据', 'No attributable lost-deal data')}
+                    description={conversion?.metadata.reason || tx('当前没有可用的数据，请稍后重试', 'No data available at the moment')}
                   />
                 )}
               </CardContent>
@@ -328,21 +369,21 @@ export function Reports() {
                   </div>
                 ) : salesError ? (
                   <p className="text-sm text-red-500">{salesError}</p>
-                ) : salesTrend && salesTrend.length > 0 ? (
+                ) : conversionTrend.length > 0 ? (
                   <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={salesTrend}>
+                    <LineChart data={conversionTrend}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="month" />
                       <YAxis />
                       <Tooltip
                         formatter={(value: number) =>
-                          `${((value as number) / (salesTrend[0]?.rfqs || 1) * 100).toFixed(1)}%`
+                          `${(value as number).toFixed(1)}%`
                         }
                       />
                       <Legend />
                       <Line
                         type="monotone"
-                        dataKey="orders"
+                        dataKey="conversionRate"
                         name={tx('转化率', 'Conversion Rate')}
                         stroke="#22c55e"
                         strokeWidth={2}
@@ -374,7 +415,7 @@ export function Reports() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="p-4 bg-green-50 rounded-lg text-center">
                     <p className="text-3xl font-bold text-green-600">
-                      {conversion.overallRate.toFixed(1)}%
+                      <NullableMetric value={conversion.overallRate} suffix="%" />
                     </p>
                     <p className="text-sm text-gray-600">
                       {tx('整体转化率', 'Overall Conversion Rate')}
@@ -382,7 +423,9 @@ export function Reports() {
                   </div>
                   <div className="p-4 bg-blue-50 rounded-lg text-center">
                     <p className="text-3xl font-bold text-blue-600">
-                      {locale === 'zh-CN'
+                      {conversion.avgOrderValue === null
+                        ? '—'
+                        : locale === 'zh-CN'
                         ? `¥${conversion.avgOrderValue.toLocaleString()}`
                         : `$${conversion.avgOrderValue.toLocaleString()}`}
                     </p>
@@ -392,7 +435,7 @@ export function Reports() {
                   </div>
                   <div className="p-4 bg-yellow-50 rounded-lg text-center">
                     <p className="text-3xl font-bold text-yellow-600">
-                      {conversion.avgMargin.toFixed(1)}%
+                      <NullableMetric value={conversion.avgMargin} suffix="%" />
                     </p>
                     <p className="text-sm text-gray-600">
                       {tx('平均利润率', 'Average Margin')}
@@ -400,7 +443,7 @@ export function Reports() {
                   </div>
                   <div className="p-4 bg-purple-50 rounded-lg text-center">
                     <p className="text-3xl font-bold text-purple-600">
-                      {conversion.avgResponseTime.toFixed(1)}{tx('天', ' days')}
+                      <NullableMetric value={conversion.avgResponseTime} suffix={tx('天', ' days')} />
                     </p>
                     <p className="text-sm text-gray-600">
                       {tx('平均响应时间', 'Average Response Time')}
@@ -414,10 +457,11 @@ export function Reports() {
 
         {/* Customer analysis */}
         <TabsContent value="customers" className="space-y-6">
+          {summary && <ReportDataBoundary metadata={summary.metadata} tx={tx} />}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">
-                {tx('客户贡献分析', 'Customer Contribution Analysis')}
+                {tx('已记录客户年收入', 'Recorded Customer Annual Revenue')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -442,7 +486,7 @@ export function Reports() {
                     />
                     <Bar
                       dataKey="value"
-                      name={tx('采购金额', 'Purchase Volume')}
+                      name={tx('已记录年收入', 'Recorded Annual Revenue')}
                       fill="hsl(var(--brand-primary))"
                     />
                   </BarChart>
@@ -473,8 +517,8 @@ export function Reports() {
                       {tx('活跃客户', 'Active Customers')}
                     </p>
                     <p className="text-2xl font-bold">{summary.activeCustomers}</p>
-                    <p className="text-sm text-green-500">
-                      {tx('客户留存率', 'Retention')}: {summary.customerRetention}%
+                    <p className="text-sm text-muted-foreground">
+                      {tx('客户留存率', 'Retention')}: {summary.customerRetention === null ? '—' : `${summary.customerRetention}%`}
                     </p>
                   </CardContent>
                 </Card>
@@ -483,7 +527,7 @@ export function Reports() {
                     <p className="text-sm text-gray-500">
                       {tx('客户留存率', 'Customer Retention')}
                     </p>
-                    <p className="text-2xl font-bold">{summary.customerRetention}%</p>
+                    <p className="text-2xl font-bold">{summary.customerRetention === null ? '—' : `${summary.customerRetention}%`}</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -492,7 +536,7 @@ export function Reports() {
                       {tx('平均客户价值', 'Average Customer Value')}
                     </p>
                     <p className="text-2xl font-bold">
-                      {formatCurrency(summary.avgCustomerValue)}
+                      {summary.avgCustomerValue === null ? '—' : formatCurrency(summary.avgCustomerValue)}
                     </p>
                   </CardContent>
                 </Card>
@@ -503,6 +547,7 @@ export function Reports() {
 
         {/* Inventory analysis */}
         <TabsContent value="inventory" className="space-y-6">
+          {inventoryTurnover && <ReportDataBoundary metadata={inventoryTurnover.metadata} tx={tx} />}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">
@@ -516,9 +561,9 @@ export function Reports() {
                 </div>
               ) : inventoryError ? (
                 <p className="text-sm text-red-500">{inventoryError}</p>
-              ) : inventoryTurnover && inventoryTurnover.length > 0 ? (
+              ) : turnoverItems.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={inventoryTurnover}>
+                  <BarChart data={turnoverItems}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="category" />
                     <YAxis />
@@ -537,9 +582,9 @@ export function Reports() {
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <EmptyState
-                  title={tx('暂无数据', 'No data available')}
-                  description={tx('当前没有可用的数据，请稍后重试', 'No data available at the moment')}
+                  <EmptyState
+                    title={tx('暂无可计算的周转天数', 'No computable turnover days')}
+                    description={inventoryTurnover?.metadata.reason || tx('当前没有可用的数据，请稍后重试', 'No data available at the moment')}
                 />
               )}
             </CardContent>
@@ -572,9 +617,9 @@ export function Reports() {
                     <p className="text-sm text-gray-500">
                       {tx('平均周转天数', 'Average Turnover Days')}
                     </p>
-                    <p className="text-2xl font-bold">{summary.avgTurnoverDays}{tx('天', ' days')}</p>
-                    <p className="text-sm text-red-500">
-                      {tx('目标', 'Target')}: 70{tx('天', ' days')}
+                    <p className="text-2xl font-bold">{summary.avgTurnoverDays === null ? '—' : `${summary.avgTurnoverDays}${tx('天', ' days')}`}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {tx('未配置经批准的周转目标', 'No approved turnover target configured')}
                     </p>
                   </CardContent>
                 </Card>
@@ -584,10 +629,10 @@ export function Reports() {
                       {tx('呆滞库存', 'Slow-moving Inventory')}
                     </p>
                     <p className="text-2xl font-bold text-yellow-600">
-                      {formatCurrency(summary.slowMovingValue)}
+                      {summary.slowMovingValue === null ? '—' : formatCurrency(summary.slowMovingValue)}
                     </p>
                     <p className="text-sm text-gray-500">
-                      {tx('占比', 'Share')}: {summary.slowMovingShare.toFixed(1)}%
+                      {tx('占比', 'Share')}: {summary.slowMovingShare === null ? '—' : `${summary.slowMovingShare.toFixed(1)}%`}
                     </p>
                   </CardContent>
                 </Card>

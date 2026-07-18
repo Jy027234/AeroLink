@@ -56,6 +56,7 @@ import notificationPreferenceRoutes from './routes/notificationPreferences.js';
 import channelBindingRoutes from './routes/channelBindings.js';
 import pushRoutes from './routes/push.js';
 import outboxRoutes from './routes/outbox.js';
+import featureRoutes from './routes/features.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
 import { auditLogger } from './middleware/auditLogger.js';
@@ -180,6 +181,7 @@ app.use('/api/notification-preferences', authenticate, notificationPreferenceRou
 app.use('/api/channel-bindings', authenticate, channelBindingRoutes);
 app.use('/api/push', authenticate, pushRoutes);
 app.use('/api/outbox', authenticate, auditLogger({ resourceType: 'SETTINGS', actions: ['UPDATE'] }), outboxRoutes);
+app.use('/api/features', authenticate, featureRoutes);
 app.use('/uploads', authenticate, express.static('uploads'));
 
 app.get('/api/health', (_req, res) => {

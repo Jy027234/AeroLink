@@ -52,7 +52,7 @@ import {
 
 interface QuoteFormData {
   unitPrice: number;
-  leadTime: number;
+  leadTime: number | null;
   validUntil: string;
   notes: string;
   quantity: number;
@@ -63,8 +63,8 @@ interface SupplierSummary {
   name: string;
   level?: 'S' | 'A' | 'B' | 'C' | string;
   contactName?: string;
-  performanceScore?: number;
-  leadTime?: number;
+  performanceScore?: number | null;
+  leadTime?: number | null;
   portalUsers?: unknown[];
 }
 
@@ -83,16 +83,14 @@ interface SupplierQuoteRecord {
     name?: string;
     level?: string;
   };
-  aiScore?: number;
-  aiRecommendation?: string;
-  scores?: {
-    price?: number;
-    leadTime?: number;
-    supplier?: number;
-    quality?: number;
+  ruleScore?: number | null;
+  scoreComponents?: {
+    price?: number | null;
+    leadTime?: number | null;
+    supplierPerformance?: number | null;
   };
   isLowestPrice?: boolean;
-  priceDiff?: number;
+  priceDiff?: number | null;
   rfqNumber?: string;
 }
 
@@ -111,10 +109,16 @@ interface QuoteSubmitPayload extends Record<string, unknown> {
 interface CompareResult {
   summary: {
     totalQuotes: number;
-    lowestPrice: number;
-    averagePrice: number;
+    lowestPrice: number | null;
+    averagePrice: number | null;
   };
   quotes: SupplierQuoteRecord[];
+  topRanked?: SupplierQuoteRecord | null;
+  metadata?: {
+    status: 'available' | 'insufficient_data' | 'unavailable';
+    reason?: string;
+    decisionBoundary?: string;
+  };
 }
 
 function SubmitQuoteDialog({
@@ -132,7 +136,7 @@ function SubmitQuoteDialog({
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [formData, setFormData] = useState<QuoteFormData>({
     unitPrice: 0,
-    leadTime: 0,
+    leadTime: null,
     validUntil: '',
     notes: '',
     quantity: 0,
@@ -146,6 +150,11 @@ function SubmitQuoteDialog({
       toast.error(tx('请输入有效报价。', 'Please enter a valid quote.'));
       return;
     }
+    const leadTime = formData.leadTime;
+    if (leadTime === null || !Number.isInteger(leadTime) || leadTime < 0) {
+      toast.error(tx('请录入有效交期（天）。', 'Please enter a valid lead time in days.'));
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onSubmit({
@@ -155,7 +164,7 @@ function SubmitQuoteDialog({
         description: rfq.description,
         quantity: rfq.quantity,
         unitPrice: formData.unitPrice,
-        leadTimeDays: formData.leadTime,
+        leadTimeDays: leadTime,
         validUntil: formData.validUntil,
         notes: formData.notes,
       });
@@ -199,9 +208,12 @@ function SubmitQuoteDialog({
               <Label>{tx('交期（天）*', 'Lead Time (days) *')}</Label>
               <Input
                 type="number"
-                min={1}
-                value={formData.leadTime}
-                onChange={(e) => setFormData({ ...formData, leadTime: parseInt(e.target.value) || 0 })}
+                min={0}
+                value={formData.leadTime ?? ''}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setFormData({ ...formData, leadTime: value === '' ? null : Number(value) });
+                }}
                 placeholder={tx('输入交期天数', 'Delivery days')}
               />
             </div>
@@ -276,7 +288,7 @@ function CompareDialog({
 
   const handleSelectWinner = async (quoteId: string) => {
     await select(quoteId);
-    toast.success(tx('已选择最优供应商。', 'Best supplier selected.'));
+    toast.success(tx('已将该供应商标记为中选。', 'Supplier marked as selected.'));
     onClose();
   };
 
@@ -294,7 +306,7 @@ function CompareDialog({
           <div className="py-8 text-center">
             <Button onClick={handleCompare} disabled={loading}>
               {loading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <TrendingUp className="w-4 h-4 mr-1" />}
-              {tx('开始 AI 比价', 'Start AI Comparison')}
+              {tx('开始规则比对', 'Start Rule Comparison')}
             </Button>
           </div>
         )}
@@ -311,24 +323,33 @@ function CompareDialog({
               <Card>
                 <CardContent className="p-4 text-center">
                   <p className="text-sm text-gray-500">{tx('最低单价', 'Lowest Unit Price')}</p>
-                  <p className="text-2xl font-bold text-green-600">${result.summary.lowestPrice}</p>
+                  <p className="text-2xl font-bold text-green-600">{result.summary.lowestPrice === null ? '—' : `$${result.summary.lowestPrice}`}</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-4 text-center">
                   <p className="text-sm text-gray-500">{tx('平均单价', 'Average Unit Price')}</p>
-                  <p className="text-2xl font-bold">${result.summary.averagePrice}</p>
+                  <p className="text-2xl font-bold">{result.summary.averagePrice === null ? '—' : `$${result.summary.averagePrice}`}</p>
                 </CardContent>
               </Card>
             </div>
 
+            {result.metadata && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-1">
+                <p>{result.metadata.reason || tx('未生成规则排序。', 'No rule ranking was generated.')}</p>
+                <p className="text-xs">{result.metadata.decisionBoundary || tx('规则比对仅供人工复核，不构成中选建议。', 'Rule comparison is for manual review only and is not a selection recommendation.')}</p>
+              </div>
+            )}
+
             <div className="space-y-4">
-              {result.quotes?.map((quote: SupplierQuoteRecord, index: number) => (
-                <Card key={quote.id} className={cn(index === 0 && 'border-green-500 border-2')}>
+              {result.quotes?.map((quote: SupplierQuoteRecord) => {
+                const isTopRanked = result.topRanked?.id === quote.id;
+                return (
+                <Card key={quote.id} className={cn(isTopRanked && 'border-green-500 border-2')}>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
-                        {index === 0 && <Award className="w-5 h-5 text-yellow-500" />}
+                        {isTopRanked && <Award className="w-5 h-5 text-yellow-500" />}
                         <span className="font-semibold">{quote.supplier?.name || '-'}</span>
                         <Badge>{quote.supplier?.level || '-'} {tx('级', 'Level')}</Badge>
                       </div>
@@ -342,40 +363,44 @@ function CompareDialog({
                       <div>
                         <p className="text-gray-500">{tx('价差', 'Price Difference')}</p>
                         <p className={cn('font-medium', quote.isLowestPrice ? 'text-green-600' : 'text-red-600')}>
-                          {quote.isLowestPrice ? tx('最低价', 'Lowest') : `+${quote.priceDiff}%`}
+                          {quote.isLowestPrice ? tx('最低价', 'Lowest') : quote.priceDiff === null ? '—' : `+${quote.priceDiff}%`}
                         </p>
                       </div>
                       <div>
-                        <p className="text-gray-500">{tx('AI评分', 'AI Score')}</p>
-                        <p className="font-medium">{quote.aiScore}</p>
+                        <p className="text-gray-500">{tx('规则得分', 'Rule Score')}</p>
+                        <p className="font-medium">{quote.ruleScore ?? '—'}</p>
                       </div>
                       <div>
-                        <p className="text-gray-500">{tx('综合结论', 'Overall')}</p>
-                        <p className="font-medium text-xs">{quote.aiRecommendation}</p>
+                        <p className="text-gray-500">{tx('排序状态', 'Ranking status')}</p>
+                        <p className="font-medium text-xs">{isTopRanked ? tx('规则首位，仍需人工复核', 'Top rule rank; manual review required') : tx('未作推荐结论', 'No recommendation generated')}</p>
                       </div>
                     </div>
-                    <div className="mt-3">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span>{tx('价格', 'Price')} {quote.scores?.price ?? '-'}</span>
-                        <span>{tx('交期', 'Lead Time')} {quote.scores?.leadTime ?? '-'}</span>
-                        <span>{tx('供应商', 'Supplier')} {quote.scores?.supplier ?? '-'}</span>
-                        <span>{tx('质量', 'Quality')} {quote.scores?.quality ?? '-'}</span>
+                    {quote.ruleScore !== null && quote.ruleScore !== undefined ? (
+                      <div className="mt-3">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span>{tx('价格', 'Price')} {quote.scoreComponents?.price ?? '-'}</span>
+                          <span>{tx('交期', 'Lead Time')} {quote.scoreComponents?.leadTime ?? '-'}</span>
+                          <span>{tx('供应商绩效', 'Supplier performance')} {quote.scoreComponents?.supplierPerformance ?? '-'}</span>
+                        </div>
+                        <Progress value={quote.ruleScore} className="h-2" />
                       </div>
-                      <Progress value={quote.aiScore} className="h-2" />
-                    </div>
-                    {index === 0 && (
+                    ) : (
+                      <p className="mt-3 text-xs text-gray-500">{tx('样本不足，未生成规则评分。', 'Insufficient data; no rule score was generated.')}</p>
+                    )}
+                    {isTopRanked && (
                       <Button
                         size="sm"
                         className="mt-3 bg-green-600 hover:bg-green-700"
                         onClick={() => handleSelectWinner(quote.id)}
                       >
                         <Award className="w-4 h-4 mr-1" />
-                        {tx('设为最优供应商', 'Select as Best Supplier')}
+                        {tx('标记为中选供应商', 'Mark as Selected Supplier')}
                       </Button>
                     )}
                   </CardContent>
                 </Card>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -505,7 +530,7 @@ export function SupplierPortal() {
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="overview">{tx('供应商总览', 'Supplier Overview')}</TabsTrigger>
           <TabsTrigger value="quotes">{tx('供应商报价', 'Supplier Quotes')}</TabsTrigger>
-          <TabsTrigger value="performance">{tx('绩效分析', 'Performance Analysis')}</TabsTrigger>
+          <TabsTrigger value="performance">{tx('已记录数据', 'Recorded Data')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -525,7 +550,7 @@ export function SupplierPortal() {
                       <TableHead>{tx('供应商', 'Supplier')}</TableHead>
                       <TableHead>{tx('等级', 'Level')}</TableHead>
                       <TableHead>{tx('联系人', 'Contact')}</TableHead>
-                      <TableHead>{tx('评分', 'Score')}</TableHead>
+                      <TableHead>{tx('已记录绩效', 'Recorded Performance')}</TableHead>
                       <TableHead>{tx('交期', 'Lead Time')}</TableHead>
                       <TableHead>{tx('状态', 'Status')}</TableHead>
                     </TableRow>
@@ -556,12 +581,16 @@ export function SupplierPortal() {
                           </TableCell>
                           <TableCell>{supplier.contactName || '-'}</TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Progress value={supplier.performanceScore || 0} className="w-16 h-2" />
-                              <span className="text-sm">{supplier.performanceScore || 0}</span>
-                            </div>
+                            {typeof supplier.performanceScore === 'number' ? (
+                              <div className="flex items-center gap-2">
+                                <Progress value={supplier.performanceScore} className="w-16 h-2" />
+                                <span className="text-sm">{supplier.performanceScore}</span>
+                              </div>
+                            ) : (
+                              <span className="text-sm text-gray-500">{tx('未记录', 'Not recorded')}</span>
+                            )}
                           </TableCell>
-                          <TableCell>{supplier.leadTime ? `${supplier.leadTime} ${tx('天', 'days')}` : '-'}</TableCell>
+                          <TableCell>{typeof supplier.leadTime === 'number' ? `${supplier.leadTime} ${tx('天', 'days')}` : tx('未记录', 'Not recorded')}</TableCell>
                           <TableCell>
                             <span className="flex items-center gap-1 text-green-600">
                               <CheckCircle className="w-4 h-4" />
@@ -627,7 +656,7 @@ export function SupplierPortal() {
                       <TableHead>{tx('供应商', 'Supplier')}</TableHead>
                       <TableHead>{tx('单价', 'Unit Price')}</TableHead>
                       <TableHead>{tx('交期', 'Lead Time')}</TableHead>
-                      <TableHead>{tx('AI评分', 'AI Score')}</TableHead>
+                      <TableHead>{tx('规则得分', 'Rule Score')}</TableHead>
                       <TableHead>{tx('状态', 'Status')}</TableHead>
                       <TableHead>{tx('操作', 'Actions')}</TableHead>
                     </TableRow>
@@ -645,14 +674,14 @@ export function SupplierPortal() {
                           <TableCell className="font-mono font-medium">{quote.partNumber}</TableCell>
                           <TableCell>{quote.supplier?.name || '-'}</TableCell>
                           <TableCell className="font-semibold">
-                            ${quote.unitPrice?.toLocaleString() || '-'}
+                            {typeof quote.unitPrice === 'number' ? `$${quote.unitPrice.toLocaleString()}` : '—'}
                           </TableCell>
-                          <TableCell>{quote.leadTimeDays ? `${quote.leadTimeDays} ${tx('天', 'days')}` : '-'}</TableCell>
+                          <TableCell>{typeof quote.leadTimeDays === 'number' ? `${quote.leadTimeDays} ${tx('天', 'days')}` : '—'}</TableCell>
                           <TableCell>
-                            {quote.aiScore ? (
+                            {quote.ruleScore !== null && quote.ruleScore !== undefined ? (
                               <div className="flex items-center gap-2">
-                                <Progress value={quote.aiScore} className="w-16 h-2" />
-                                <span className="text-sm">{quote.aiScore}</span>
+                                <Progress value={quote.ruleScore} className="w-16 h-2" />
+                                <span className="text-sm">{quote.ruleScore}</span>
                               </div>
                             ) : (
                               '-'
@@ -734,10 +763,11 @@ export function SupplierPortal() {
         </TabsContent>
 
         <TabsContent value="performance">
+          <p className="mb-4 text-sm text-gray-500">{tx('仅展示供应商主数据中已录入的绩效、交期和等级；不会填充缺失记录或推算综合评分。', 'Only recorded supplier performance, lead time, and level are shown. Missing records and composite scores are not inferred.')}</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">{tx('价格竞争力', 'Price Competitiveness')}</CardTitle>
+                <CardTitle className="text-base">{tx('已记录绩效', 'Recorded Performance')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -745,9 +775,9 @@ export function SupplierPortal() {
                     <div key={supplier.id}>
                       <div className="flex justify-between text-sm mb-1">
                         <span>{supplier.name}</span>
-                        <span className="font-medium">{supplier.performanceScore || 0}/100</span>
+                        <span className="font-medium">{typeof supplier.performanceScore === 'number' ? `${supplier.performanceScore}/100` : tx('未记录', 'Not recorded')}</span>
                       </div>
-                      <Progress value={supplier.performanceScore || 0} className="h-2" />
+                      {typeof supplier.performanceScore === 'number' && <Progress value={supplier.performanceScore} className="h-2" />}
                     </div>
                   ))}
                   {suppliersList.length === 0 && (
@@ -759,22 +789,14 @@ export function SupplierPortal() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">{tx('交付可靠性', 'Delivery Reliability')}</CardTitle>
+                <CardTitle className="text-base">{tx('已录入交期', 'Recorded Lead Time')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {suppliersList.map((supplier: SupplierSummary) => (
-                    <div key={supplier.id}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span>{supplier.name}</span>
-                        <span className="font-medium">
-                          {supplier.leadTime ? `${supplier.leadTime} ${tx('天', 'days')}` : '-'}
-                        </span>
-                      </div>
-                      <Progress
-                        value={supplier.leadTime ? Math.max(0, 100 - supplier.leadTime * 2) : 50}
-                        className="h-2"
-                      />
+                    <div key={supplier.id} className="flex justify-between text-sm">
+                      <span>{supplier.name}</span>
+                      <span className="font-medium">{typeof supplier.leadTime === 'number' ? `${supplier.leadTime} ${tx('天', 'days')}` : tx('未记录', 'Not recorded')}</span>
                     </div>
                   ))}
                   {suppliersList.length === 0 && (
@@ -786,24 +808,14 @@ export function SupplierPortal() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">{tx('综合评分', 'Overall Score')}</CardTitle>
+                <CardTitle className="text-base">{tx('供应商等级', 'Supplier Level')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {suppliersList.map((supplier: SupplierSummary) => (
-                    <div key={supplier.id}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span>{supplier.name}</span>
-                        <span className="font-medium">{supplier.level} {tx('级', 'Level')}</span>
-                      </div>
-                      <Progress
-                        value={
-                          supplier.level === 'S' ? 95 :
-                          supplier.level === 'A' ? 85 :
-                          supplier.level === 'B' ? 70 : 50
-                        }
-                        className="h-2"
-                      />
+                    <div key={supplier.id} className="flex justify-between text-sm">
+                      <span>{supplier.name}</span>
+                      <span className="font-medium">{supplier.level ? `${supplier.level} ${tx('级', 'Level')}` : tx('未记录', 'Not recorded')}</span>
                     </div>
                   ))}
                   {suppliersList.length === 0 && (

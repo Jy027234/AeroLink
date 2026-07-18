@@ -396,56 +396,53 @@ export interface SupplierQuoteItem {
   notes: string | null;
   status: string;
   isWinner: boolean;
-  aiScore: number | null;
-  aiRecommendation: string | null;
+  ruleScore: number | null;
   createdAt: string;
   supplier: {
     id: string;
     name: string;
     level: string;
-    performanceScore: number;
+    performanceScore: number | null;
     contactName: string | null;
     contactEmail: string | null;
   };
 }
 
-interface SupplierQuoteComparedItem {
+export interface SupplierQuoteComparedItem {
   id: string;
   partNumber: string;
   supplier: {
     id: string;
     name: string;
     level: string;
-    performanceScore: number;
+    performanceScore: number | null;
   };
   unitPrice: number;
   totalPrice: number;
   quantity: number;
   leadTimeDays: number;
-  priceDiff: string;
+  priceDiff: number | null;
   isLowestPrice: boolean;
-  scores: {
-    price: number;
-    leadTime: number;
-    supplier: number;
-    quality: number;
-    response: number;
+  scoreComponents: {
+    price: number | null;
+    leadTime: number | null;
+    supplierPerformance: number | null;
   };
-  aiScore: number;
-  aiRecommendation: string;
+  ruleScore: number | null;
   status: string;
   isWinner: boolean;
 }
 
 export interface SupplierQuoteCompareResult {
   quotes: SupplierQuoteComparedItem[];
-  bestMatch: SupplierQuoteComparedItem;
+  topRanked: SupplierQuoteComparedItem | null;
   summary: {
     totalQuotes: number;
-    lowestPrice: number;
-    highestPrice: number;
-    averagePrice: number;
+    lowestPrice: number | null;
+    highestPrice: number | null;
+    averagePrice: number | null;
   };
+  metadata: AnalyticsDataAvailability;
 }
 
 class ApiException extends Error {
@@ -912,7 +909,7 @@ export interface SupplierSummary {
   a: number;
   b: number;
   c: number;
-  avgScore: number;
+  avgScore: number | null;
 }
 
 export interface PaginatedSuppliers extends PaginatedList<Supplier[]> {
@@ -1268,12 +1265,23 @@ export interface SalesTrendItem {
   revenue: number;
 }
 
+export interface AnalyticsDataAvailability {
+  status: 'available' | 'insufficient_data' | 'unavailable' | 'disabled';
+  source: string;
+  algorithmVersion: string | null;
+  sampleSize: number;
+  asOf: string;
+  reason?: string;
+  decisionBoundary: string;
+}
+
 export interface ConversionAnalysis {
-  overallRate: number;
-  avgOrderValue: number;
-  avgMargin: number;
-  avgResponseTime: number;
+  overallRate: number | null;
+  avgOrderValue: number | null;
+  avgMargin: number | null;
+  avgResponseTime: number | null;
   lostReasons: { name: string; value: number; color: string }[];
+  metadata: AnalyticsDataAvailability;
 }
 
 export interface CustomerContributionItem {
@@ -1283,27 +1291,34 @@ export interface CustomerContributionItem {
 
 export interface InventoryTurnoverItem {
   category: string;
-  days: number;
-  target: number;
+  days: number | null;
+  target: number | null;
+  sampleSize: number;
+}
+
+export interface InventoryTurnoverResponse {
+  items: InventoryTurnoverItem[];
+  metadata: AnalyticsDataAvailability;
 }
 
 export interface ReportSummary {
   rfqsThisMonth: number;
-  rfqTrend: number;
+  rfqTrend: number | null;
   quotesThisMonth: number;
-  quoteTrend: number;
+  quoteTrend: number | null;
   ordersThisMonth: number;
-  orderTrend: number;
+  orderTrend: number | null;
   revenueThisMonth: number;
-  revenueTrend: number;
+  revenueTrend: number | null;
   activeCustomers: number;
-  customerRetention: number;
-  avgCustomerValue: number;
+  customerRetention: number | null;
+  avgCustomerValue: number | null;
   totalInventoryValue: number;
-  avgTurnoverDays: number;
-  slowMovingValue: number;
-  slowMovingShare: number;
+  avgTurnoverDays: number | null;
+  slowMovingValue: number | null;
+  slowMovingShare: number | null;
   inventoryAlerts: number;
+  metadata: AnalyticsDataAvailability;
 }
 
 export const reportApi = {
@@ -1326,7 +1341,7 @@ export const reportApi = {
   },
 
   getInventoryTurnover: async () => {
-    return request<InventoryTurnoverItem[]>('/reports/inventory-turnover');
+    return request<InventoryTurnoverResponse>('/reports/inventory-turnover');
   },
 };
 
@@ -3080,6 +3095,12 @@ export interface MarketIntelligenceItem {
   demandTrend: 'up' | 'down' | 'stable';
 }
 
+export interface PricingDataset<T> {
+  feature: ProductFeatureStatus;
+  items: T[];
+  metadata: AnalyticsDataAvailability;
+}
+
 export interface PricingSuggestion {
   id: string;
   partNumber: string;
@@ -3101,16 +3122,18 @@ export interface LostOrderItem {
 }
 
 export interface PricingSummary {
-  avgMargin: number;
-  marginTrend: number;
-  priceCompetitiveness: number;
-  competitivenessTrend: number;
-  pendingSuggestions: number;
-  potentialUpside: number;
-  totalQuotes: number;
-  wonDeals: number;
-  lostDeals: number;
-  winRate: number;
+  feature: ProductFeatureStatus;
+  avgMargin: number | null;
+  marginTrend: number | null;
+  priceCompetitiveness: number | null;
+  competitivenessTrend: number | null;
+  pendingSuggestions: number | null;
+  potentialUpside: number | null;
+  totalQuotes: number | null;
+  wonDeals: number | null;
+  lostDeals: number | null;
+  winRate: number | null;
+  metadata: AnalyticsDataAvailability;
 }
 
 export interface PricingFactorWeight {
@@ -3118,25 +3141,41 @@ export interface PricingFactorWeight {
   weight: number;
 }
 
+export type ProductFeatureKey = 'pricingBi' | 'agentDemo';
+
+export interface ProductFeatureStatus {
+  key: ProductFeatureKey;
+  enabled: boolean;
+  defaultEnabled: boolean;
+  environmentVariable: string;
+  description: string;
+}
+
+export const productFeatureApi = {
+  getAll: async () => {
+    return request<ProductFeatureStatus[]>('/features');
+  },
+};
+
 export const pricingBIApi = {
   getSummary: async () => {
     return request<PricingSummary>('/pricing-bi/summary');
   },
 
   getMarketIntelligence: async () => {
-    return request<MarketIntelligenceItem[]>('/pricing-bi/market-intelligence');
+    return request<PricingDataset<MarketIntelligenceItem>>('/pricing-bi/market-intelligence');
   },
 
   getPricingSuggestions: async () => {
-    return request<PricingSuggestion[]>('/pricing-bi/suggestions');
+    return request<PricingDataset<PricingSuggestion>>('/pricing-bi/suggestions');
   },
 
   getLostOrders: async () => {
-    return request<LostOrderItem[]>('/pricing-bi/lost-orders');
+    return request<PricingDataset<LostOrderItem> & { unclassifiedCount: number }>('/pricing-bi/lost-orders');
   },
 
   getFactorWeights: async () => {
-    return request<PricingFactorWeight[]>('/pricing-bi/factor-weights');
+    return request<PricingDataset<PricingFactorWeight>>('/pricing-bi/factor-weights');
   },
 };
 
@@ -3156,6 +3195,12 @@ export interface BlockchainVerificationResult {
   block?: BlockchainBlock;
   certificateHash?: string;
   reason?: string;
+  integrity?: {
+    method: 'sha256_linked_records';
+    storageScope: 'internal_database';
+    externalTrustAnchor: false;
+    decisionBoundary: string;
+  };
 }
 
 export const blockchainApi = {

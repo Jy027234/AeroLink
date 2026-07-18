@@ -93,6 +93,8 @@ jobs:
       ALLOW_DB_PUSH: true
       DEMO_SEED_PASSWORD: ci-demo-password-2026
       E2E_PASSWORD: ci-demo-password-2026
+      # Controlled fixture only: production defaults to disabled.
+      FEATURE_AGENT_DEMO: 'true'
 
     services:
       postgres:

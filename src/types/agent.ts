@@ -58,8 +58,12 @@ export interface QuoteCandidate extends AgentRecord {
   supplier?: SupplierSummary;
   unitPrice?: number;
   leadTimeDays?: number;
-  aiScore?: number;
-  aiRecommendation?: string;
+  ruleScore?: number;
+  scoreComponents?: {
+    price?: number | null;
+    leadTime?: number | null;
+    supplierPerformance?: number | null;
+  };
 }
 
 export interface ConfirmationAuditEntry extends AgentRecord {

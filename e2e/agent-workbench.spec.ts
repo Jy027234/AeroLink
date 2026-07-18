@@ -3,7 +3,9 @@ import { test, expect, type Page } from '@playwright/test';
 const E2E_PASSWORD = process.env.E2E_PASSWORD;
 if (!E2E_PASSWORD) throw new Error('E2E_PASSWORD is required for seeded E2E tests.');
 const API_ORIGIN = process.env.PLAYWRIGHT_API_ORIGIN
-  ?? (process.env.PLAYWRIGHT_EXTERNAL === 'true' ? '' : 'http://127.0.0.1:3000');
+  ?? (process.env.PLAYWRIGHT_EXTERNAL === 'true'
+    ? ''
+    : `http://127.0.0.1:${process.env.PLAYWRIGHT_BACKEND_PORT || '3000'}`);
 
 const validUser = {
   email: 'zhang@aerolink.com',
@@ -66,7 +68,7 @@ test.describe('Agent Workbench', () => {
     await navigateToAgentWorkbench(page);
   });
 
-  test('demo creates a real RFQ only after confirmation and restores manual follow-up', async ({ page }) => {
+  test('controlled demo creates a real RFQ only after confirmation', async ({ page }) => {
     test.slow();
 
     const before = await getRfqSnapshot(page);
@@ -92,9 +94,7 @@ test.describe('Agent Workbench', () => {
     const afterConfirm = await getRfqSnapshot(page);
     expect(afterConfirm.latestRfqNumber).toBeTruthy();
 
-    await expect(page.getByText('Manual Follow-up').first()).toBeVisible();
-    await expect(page.getByText('微信催报 Skyline Aero Trading').first()).toBeVisible();
-    await expect(page.getByText('自动 2 / 人工 1').first()).toBeVisible();
     await expect(page.getByText(afterConfirm.latestRfqNumber!).first()).toBeVisible();
+    await expect(page.getByText('Skyline Aero Trading')).toHaveCount(0);
   });
 });

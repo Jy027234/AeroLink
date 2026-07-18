@@ -7,6 +7,7 @@ import { agentCreateSchema, agentRuntimeTaskSyncSchema, agentUpdateSchema } from
 import { classifyRFQEmail, generateQuoteAnalysis, generateCompletion, logAgentAction } from '../lib/aiService.js';
 import { logger } from '../lib/logger.js';
 import { emitWebhookEvent } from '../lib/webhookService.js';
+import { assertProductFeatureEnabled } from '../lib/productFeatures.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -277,6 +278,10 @@ router.put(
 
     if (req.params.id !== payload.id) {
       throw new AppError('路径任务ID与请求体任务ID不一致', 400);
+    }
+
+    if (payload.context?.demoMode === true) {
+      assertProductFeatureEnabled('agentDemo');
     }
 
     const task = await prisma.$transaction(async (tx) => {

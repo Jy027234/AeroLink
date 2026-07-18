@@ -525,38 +525,19 @@ function SupplierDetailDialog({ supplier, isOpen, onClose }: { supplier: Supplie
             <div>
               <h4 className="font-medium mb-3 flex items-center gap-2">
                 <BarChart3 className="w-4 h-4" />
-                Performance Scorecard
+                {tx('已记录绩效评分', 'Recorded Performance Score')}
               </h4>
-              <div className="space-y-4">
+              {typeof supplier.performanceScore === 'number' ? (
                 <div>
                   <div className="flex justify-between text-sm mb-1">
-                    <span>Price Competitiveness</span>
-                    <span className="font-medium">85/100</span>
+                    <span>{tx('供应商主数据中的绩效评分', 'Performance score recorded in supplier master data')}</span>
+                    <span className="font-medium">{supplier.performanceScore}/100</span>
                   </div>
-                  <Progress value={85} className="h-2" />
+                  <Progress value={supplier.performanceScore} className="h-2" />
                 </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Delivery Reliability</span>
-                    <span className="font-medium">92/100</span>
-                  </div>
-                  <Progress value={92} className="h-2" />
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Quality Compliance</span>
-                    <span className="font-medium">88/100</span>
-                  </div>
-                  <Progress value={88} className="h-2" />
-                </div>
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Responsiveness</span>
-                    <span className="font-medium">90/100</span>
-                  </div>
-                  <Progress value={90} className="h-2" />
-                </div>
-              </div>
+              ) : (
+                <p className="text-sm text-gray-500">{tx('暂无已记录绩效评分；系统不会推算价格、交付、质量或响应分项。', 'No performance score is recorded. The system does not infer price, delivery, quality, or responsiveness component scores.')}</p>
+              )}
             </div>
           </TabsContent>
 
@@ -798,6 +779,13 @@ export function Suppliers() {
     }
   }, [currentPage, setCurrentPage, totalPages]);
 
+  const recordedPerformanceScores = suppliersList
+    .map((supplier) => supplier.performanceScore)
+    .filter((score): score is number => typeof score === 'number');
+  const localAveragePerformanceScore = recordedPerformanceScores.length > 0
+    ? Math.round(recordedPerformanceScores.reduce((sum, score) => sum + score, 0) / recordedPerformanceScores.length)
+    : null;
+
   // Stats
   const stats = {
     total: suppliersSummary?.total ?? suppliersList.length,
@@ -805,7 +793,7 @@ export function Suppliers() {
     a: suppliersSummary?.a ?? suppliersList.filter((s) => s.level === 'A').length,
     b: suppliersSummary?.b ?? suppliersList.filter((s) => s.level === 'B').length,
     c: suppliersSummary?.c ?? suppliersList.filter((s) => s.level === 'C').length,
-    avgScore: suppliersSummary?.avgScore ?? Math.round(suppliersList.reduce((sum, s) => sum + (s.performanceScore || 0), 0) / (suppliersList.length || 1)),
+    avgScore: suppliersSummary ? suppliersSummary.avgScore : localAveragePerformanceScore,
     autoReady: capabilityProfiles.filter((profile) => profile.automationMode === 'auto').length,
     manualOnly: capabilityProfiles.filter((profile) => profile.automationMode === 'manual').length,
     profileGap: capabilityProfiles.filter((profile) => profile.automationMode === 'blocked').length,
@@ -933,8 +921,8 @@ export function Suppliers() {
         <Card className="hover:shadow-sm transition-shadow">
           <CardContent className="p-3 flex items-center justify-between">
             <div>
-              <p className="text-xs text-gray-500">{tx('平均评分', 'Average Score')}</p>
-              <p className="text-xl font-bold text-brand-primary">{stats.avgScore}</p>
+              <p className="text-xs text-gray-500">{tx('已记录平均绩效', 'Recorded Average Performance')}</p>
+              <p className="text-xl font-bold text-brand-primary">{stats.avgScore ?? tx('未记录', 'Not recorded')}</p>
             </div>
           </CardContent>
         </Card>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authApi, dashboardApi, rfqApi, quotationApi, orderApi, inventoryApi, inventoryItemApi, inventoryDetailApi, customerApi, supplierApi, supplierQuoteApi, notificationApi, emailApi, documentTemplateApi, documentApi, certificateApi, certificateTemplateApi, workflowApi, auditLogApi, pricingApi, inventoryAnalyticsApi, auctionApi, inventoryTransactionApi, userApi, notificationPreferenceApi, reportApi, shipmentTrackingApi, inquiryApi, pricingBIApi, blockchainApi, fmvApi, apiKeyApi, consignmentApi, exchangeVmiApi, technicalKitApi, channelBindingApi, notificationTemplateApi, imApi, notificationDispatcherApi, pushApi, agentApi } from '@/api/client';
+import { authApi, dashboardApi, rfqApi, quotationApi, orderApi, inventoryApi, inventoryItemApi, inventoryDetailApi, customerApi, supplierApi, supplierQuoteApi, notificationApi, emailApi, documentTemplateApi, documentApi, certificateApi, certificateTemplateApi, workflowApi, auditLogApi, pricingApi, inventoryAnalyticsApi, auctionApi, inventoryTransactionApi, userApi, notificationPreferenceApi, reportApi, shipmentTrackingApi, inquiryApi, pricingBIApi, blockchainApi, fmvApi, apiKeyApi, consignmentApi, exchangeVmiApi, technicalKitApi, channelBindingApi, notificationTemplateApi, imApi, notificationDispatcherApi, pushApi, agentApi, productFeatureApi } from '@/api/client';
 import type {
   SupplierQuoteItem,
   Auction,
@@ -962,6 +962,10 @@ export const useCreateInquiry = () => {
 };
 
 // ===== Pricing BI Hooks =====
+export const useProductFeatures = () => {
+  return useQuery(() => productFeatureApi.getAll(), []);
+};
+
 export const usePricingSummary = () => {
   return useQuery(() => pricingBIApi.getSummary(), []);
 };

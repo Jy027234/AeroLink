@@ -40,6 +40,7 @@ import { useTranslation } from '@/i18n';
 import type { AgentTask, ConfirmationNode, ConfirmationOption, AgentDashboard, QuoteCandidate, ConfirmationAuditEntry } from '@/types/agent';
 import type { SupplierFollowUpLog, SupplierFollowUpOutcome } from '@/types';
 import { useSupplierFollowUpStore } from '@/store';
+import { useProductFeatures } from '@/hooks/useApi';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -72,7 +73,7 @@ const supplierSelectionReasons = [
   { code: 'best_value', labelZh: '综合性价比最佳', labelEn: 'Best overall value' },
   { code: 'fastest_delivery', labelZh: '交期最优', labelEn: 'Fastest delivery' },
   { code: 'preferred_partner', labelZh: '优先合作供应商', labelEn: 'Preferred partner' },
-  { code: 'highest_confidence', labelZh: 'AI 置信度最高', labelEn: 'Highest AI confidence' },
+  { code: 'highest_confidence', labelZh: '规则得分最高', labelEn: 'Highest rule score' },
 ];
 
 const supplierSkipReasons = [
@@ -307,7 +308,7 @@ function ConfirmationDialog({
                     <div>
                       <p className="font-medium">{quote.supplier?.name || 'Supplier'}</p>
                       <p className="text-sm text-gray-500">
-                        ${quote.unitPrice} x {confirmation.data?.parsedData?.quantity || 1} | {quote.leadTimeDays} days
+                        ${quote.unitPrice ?? '—'} x {typeof confirmation.data?.parsedData?.quantity === 'number' ? confirmation.data.parsedData.quantity : '—'} | {quote.leadTimeDays ?? '—'} days
                       </p>
                       <p className="text-xs text-gray-500 mt-1">
                         {quote.supplier?.automationMode === 'auto'
@@ -325,28 +326,10 @@ function ConfirmationDialog({
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-xl font-bold text-purple-600">{quote.aiScore?.toFixed(0) || 0}</p>
-                    <p className="text-xs text-gray-500">AI Score</p>
+                    <p className="text-xl font-bold text-purple-600">{quote.ruleScore?.toFixed(0) || '—'}</p>
+                    <p className="text-xs text-gray-500">{tx('规则得分', 'Rule score')}</p>
                   </div>
                 </div>
-                {quote.aiRecommendation && (
-                  (() => {
-                    const recommendation = quote.aiRecommendation || '';
-                    const strong = recommendation.includes('强烈') || recommendation.toLowerCase().includes('strongly');
-                    const good = recommendation.includes('推荐') || recommendation.toLowerCase().includes('recommended');
-                    const warn = recommendation.includes('考虑') || recommendation.toLowerCase().includes('consider');
-                    return (
-                      <p className={cn(
-                        'mt-2 text-sm',
-                        strong && 'text-green-600 font-medium',
-                        !strong && good && 'text-blue-600',
-                        !strong && !good && warn && 'text-yellow-600'
-                      )}>
-                        {quote.aiRecommendation}
-                      </p>
-                    );
-                  })()
-                )}
               </CardContent>
             </Card>
           ))}
@@ -470,9 +453,13 @@ function ConfirmationDialog({
               <p className="text-xs text-gray-500">Margin</p>
               <p className={cn(
                 'font-semibold',
-                (confirmation.data.margin || 0) >= 15 ? 'text-green-600' : 'text-red-600'
+                typeof confirmation.data.margin === 'number'
+                  ? confirmation.data.margin >= 15 ? 'text-green-600' : 'text-red-600'
+                  : 'text-gray-500'
               )}>
-                {(confirmation.data.margin || 0).toFixed(1)}%
+                {typeof confirmation.data.margin === 'number'
+                  ? `${confirmation.data.margin.toFixed(1)}%`
+                  : tx('未计算', 'Not calculated')}
               </p>
             </div>
           </div>
@@ -1010,8 +997,12 @@ function TaskTimeline({ task }: { task: AgentTask }) {
       const quoteCollectionSummary = step.result.quoteCollectionSummary as Record<string, unknown>;
       return <span className="text-xs text-green-600">{tx('已收集', 'Collected')} {Number(quoteCollectionSummary.collectedQuotes || 0)} {tx('份报价', 'quotes')}</span>;
     }
-    if (step.capability === 'supplierQuote' && step.action === 'compare' && step.result?.bestMatch) {
-      return <span className="text-xs text-indigo-600">{tx('推荐', 'Recommended')} {step.result.bestMatch.supplier?.name}</span>;
+    if (step.capability === 'supplierQuote' && step.action === 'compare' && step.result?.compareSummary) {
+      const compareSummary = step.result.compareSummary as Record<string, unknown>;
+      if (compareSummary.status !== 'available') {
+        return <span className="text-xs text-amber-700">{tx('样本不足，未生成规则排序', 'Insufficient sample; no rule ranking generated')}</span>;
+      }
+      return <span className="text-xs text-indigo-600">{tx('规则首位', 'Top rule rank')} {step.result.bestMatch?.supplier?.name}</span>;
     }
     if (step.capability === 'quotation' && step.action === 'create' && step.result?.quotationNumber) {
       return <span className="text-xs text-emerald-600">{step.result.quotationNumber}</span>;
@@ -1369,6 +1360,7 @@ function TaskTimeline({ task }: { task: AgentTask }) {
 export function AgentWorkbench() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
+  const { data: productFeatures, loading: productFeaturesLoading } = useProductFeatures();
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [dashboard, setDashboard] = useState<AgentDashboard | null>(null);
   const [selectedConfirmationId, setSelectedConfirmationId] = useState<string | null>(null);
@@ -1466,10 +1458,32 @@ export function AgentWorkbench() {
   };
 
   const handleStartDemo = async () => {
+    const agentDemoEnabled = productFeatures?.some(
+      (feature) => feature.key === 'agentDemo' && feature.enabled
+    ) === true;
+    if (!agentDemoEnabled) {
+      toast.error(tx('当前环境未启用受控演示任务。', 'Controlled demo tasks are disabled in this environment.'));
+      return;
+    }
+
+    const requiredDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
     const task = await agentOrchestrator.createTask(
       { type: 'email', source: 'demo@airlines.com' },
       'email_received',
-      { emailId: 'demo_email_001', demoMode: true }
+      {
+        emailId: 'demo_email_001',
+        demoMode: true,
+        parsedData: {
+          customerName: '海南航空',
+          partNumber: '3214-567-100',
+          quantity: 2,
+          requiredDate,
+          aircraftType: 'Boeing 737-800',
+          urgency: 'standard',
+        },
+      }
     );
     setPreferredConfirmationTaskId(task.id);
   };
@@ -1539,14 +1553,22 @@ export function AgentWorkbench() {
             <RefreshCw className={cn('w-4 h-4 mr-1', autoRefresh && 'animate-spin')} />
             {autoRefresh ? tx('自动刷新', 'Auto refresh') : tx('已暂停', 'Paused')}
           </Button>
-          <Button
-            className="bg-purple-600 hover:bg-purple-700"
-            data-testid="agent-run-demo"
-            onClick={handleStartDemo}
-          >
-            <Play className="w-4 h-4 mr-1" />
-            {tx('运行演示', 'Run Demo')}
-          </Button>
+          {!productFeaturesLoading && productFeatures?.some(
+            (feature) => feature.key === 'agentDemo' && feature.enabled
+          ) ? (
+            <Button
+              className="bg-purple-600 hover:bg-purple-700"
+              data-testid="agent-run-demo"
+              onClick={handleStartDemo}
+            >
+              <Play className="w-4 h-4 mr-1" />
+              {tx('运行受控演示', 'Run Controlled Demo')}
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground" data-testid="agent-demo-disabled">
+              {tx('受控演示任务未启用', 'Controlled demo tasks are disabled')}
+            </span>
+          )}
         </div>
       </div>
 

@@ -5,6 +5,34 @@ import prisma from '../lib/prisma.js';
 
 const router = Router();
 
+type DataAvailabilityStatus = 'available' | 'insufficient_data' | 'unavailable';
+
+interface DataAvailability {
+  status: DataAvailabilityStatus;
+  source: string;
+  algorithmVersion: string | null;
+  sampleSize: number;
+  asOf: string;
+  reason?: string;
+  decisionBoundary: string;
+}
+
+function createAvailability(
+  status: DataAvailabilityStatus,
+  options: Omit<DataAvailability, 'status' | 'asOf'>
+): DataAvailability {
+  return {
+    status,
+    ...options,
+    asOf: new Date().toISOString(),
+  };
+}
+
+function round(value: number, decimals = 2) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
 // GET /summary - 报表汇总
 router.get(
   '/summary',
@@ -55,12 +83,10 @@ router.get(
     const revenueLastMonth = lastOrdersWithTotal.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
 
     const trend = (current: number, previous: number) =>
-      previous === 0 ? (current > 0 ? 100 : 0) : Math.round(((current - previous) / previous) * 100);
+      previous === 0 ? null : Math.round(((current - previous) / previous) * 100);
 
     // The detail layer is the valuation source. A reserved unit remains an
     // owned asset; only SCRAPPED details are excluded from asset value.
-    const slowMoving = inventoryDetails.filter((detail) => detail.quantity > 10);
-    const slowMovingValue = slowMoving.reduce((sum, i) => sum + (Number(i.unitCost) || 0) * (i.quantity || 0), 0);
     const totalInvValue = inventoryDetails.reduce((sum, i) => sum + (Number(i.unitCost) || 0) * i.quantity, 0);
 
     res.json({
@@ -73,13 +99,25 @@ router.get(
       revenueThisMonth,
       revenueTrend: trend(revenueThisMonth, revenueLastMonth),
       activeCustomers,
-      customerRetention: 85,
-      avgCustomerValue: activeCustomers > 0 ? Math.round(totalInvValue / activeCustomers) : 0,
+      customerRetention: null,
+      avgCustomerValue: null,
       totalInventoryValue: totalInvValue,
-      avgTurnoverDays: 45,
-      slowMovingValue,
-      slowMovingShare: totalInvValue > 0 ? Math.round((slowMovingValue / totalInvValue) * 100) : 0,
+      avgTurnoverDays: null,
+      slowMovingValue: null,
+      slowMovingShare: null,
       inventoryAlerts: inventoryDetails.filter((detail) => detail.status === 'AVAILABLE' && detail.quantity <= 2).length,
+      metadata: createAvailability(
+        inventoryDetails.length > 0 || rfqsThisMonth > 0 || quotesThisMonth > 0 || ordersThisMonth > 0
+          ? 'available'
+          : 'insufficient_data',
+        {
+          source: 'AeroLink RFQ, quotation, order, customer and inventory-detail records',
+          algorithmVersion: 'operational-summary-v1',
+          sampleSize: inventoryDetails.length + rfqsThisMonth + quotesThisMonth + ordersThisMonth,
+          reason: '客户留存、客户终身价值、库存周转和呆滞库存需要受批准的周期、成本和出入库口径；当前模型未提供这些定义。',
+          decisionBoundary: '本页只展示可由当前业务记录直接计算的运营数据；空值不是零，也不可替代财务或库存决策。',
+        }
+      ),
     });
   })
 );
@@ -119,33 +157,55 @@ router.get(
   '/conversion',
   requireCapability('report', 'read'),
   asyncHandler(async (_req, res) => {
-    const [totalRfqs, totalOrders, allOrders] = await Promise.all([
+    const [totalRfqs, totalOrders, allOrders, averageMargin, responseSamples] = await Promise.all([
       prisma.rFQ.count(),
       prisma.order.count(),
       prisma.order.findMany({ select: { totalAmount: true } }),
+      prisma.quotation.aggregate({ _avg: { margin: true } }),
+      prisma.quotation.findMany({
+        select: {
+          createdAt: true,
+          rfq: { select: { createdAt: true } },
+        },
+      }),
     ]);
 
     const avgOrderValue = allOrders.length > 0
       ? Math.round(allOrders.reduce((s, o) => s + (Number(o.totalAmount) || 0), 0) / allOrders.length)
-      : 0;
+      : null;
+
+    const responseTimeDays = responseSamples
+      .map((quotation) => {
+        const rfqCreatedAt = quotation.rfq?.createdAt;
+        if (!rfqCreatedAt) return null;
+        const elapsed = quotation.createdAt.getTime() - rfqCreatedAt.getTime();
+        return elapsed >= 0 ? elapsed / (24 * 60 * 60 * 1000) : null;
+      })
+      .filter((value): value is number => value !== null);
 
     res.json({
-      overallRate: totalRfqs > 0 ? Math.round((totalOrders / totalRfqs) * 100) : 0,
+      overallRate: totalRfqs > 0 ? Math.round((totalOrders / totalRfqs) * 100) : null,
       avgOrderValue,
-      avgMargin: 22,
-      avgResponseTime: 4.2,
-      lostReasons: [
-        { name: '价格过高', value: 35, color: '#ef4444' },
-        { name: '交期不满足', value: 25, color: '#f59e0b' },
-        { name: '无库存', value: 20, color: '#3b82f6' },
-        { name: '资质不符', value: 12, color: '#6b7280' },
-        { name: '其他', value: 8, color: '#22c55e' },
-      ],
+      avgMargin: averageMargin._avg.margin === null ? null : round(Number(averageMargin._avg.margin)),
+      avgResponseTime: responseTimeDays.length > 0
+        ? round(responseTimeDays.reduce((sum, value) => sum + value, 0) / responseTimeDays.length, 1)
+        : null,
+      lostReasons: [],
+      metadata: createAvailability(
+        totalRfqs > 0 || totalOrders > 0 ? 'available' : 'insufficient_data',
+        {
+          source: 'AeroLink RFQ, quotation and order records',
+          algorithmVersion: 'conversion-summary-v1',
+          sampleSize: Math.max(totalRfqs, responseSamples.length),
+          reason: '系统没有结构化丢单原因字段，因此不展示丢单原因占比；平均响应时间仅在报价关联 RFQ 时计算。',
+          decisionBoundary: '成交率和订单金额来自内部记录；丢单归因必须以人工确认的结构化原因补充。',
+        }
+      ),
     });
   })
 );
 
-// GET /customer-contribution - 客户贡献分析
+// GET /customer-contribution - 客户主数据中已录入的年收入
 router.get(
   '/customer-contribution',
   requireCapability('report', 'read'),
@@ -157,10 +217,13 @@ router.get(
       take: 10,
     });
 
-    const result = customers.map((c) => ({
-      name: c.name,
-      value: Number(c.annualRevenue) || 0,
-    }));
+    const result = customers.flatMap((customer) => {
+      if (customer.annualRevenue === null) return [];
+      return [{
+        name: customer.name,
+        value: Number(customer.annualRevenue),
+      }];
+    });
 
     res.json(result);
   })
@@ -199,15 +262,38 @@ router.get(
       const count = counts.get(category) ?? 0;
       return {
         category: categoryNames[category] || category,
-        days: count > 0 ? Math.round(30 + Math.random() * 60) : 0,
-        target: 45,
+        days: null,
+        target: null,
+        sampleSize: count,
       };
     });
 
-    // Also add a generic entry
-    result.unshift({ category: '全部', days: 45, target: 45 });
+    // Inventory quantity is known, but a turnover period needs approved cost
+    // and outbound-consumption definitions. Do not turn stock counts into a
+    // made-up number of days.
+    result.unshift({
+      category: '全部',
+      days: null,
+      target: null,
+      sampleSize: result.reduce((sum, item) => sum + item.sampleSize, 0),
+    });
 
-    res.json(result);
+    const totalSamples = result[0].sampleSize;
+    res.json({
+      items: result,
+      metadata: createAvailability(
+        totalSamples > 0 ? 'insufficient_data' : 'unavailable',
+        {
+          source: 'AeroLink inventory-detail records',
+          algorithmVersion: null,
+          sampleSize: totalSamples,
+          reason: totalSamples > 0
+            ? '已有库存数量，但没有经批准的销售成本、平均库存和出入库周期口径，无法计算库存周转天数。'
+            : '尚无可用库存明细。',
+          decisionBoundary: '库存数量不能被解释为库存周转天数；空值不表示零天周转。',
+        }
+      ),
+    });
   })
 );
 

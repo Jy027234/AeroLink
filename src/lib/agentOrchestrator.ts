@@ -12,12 +12,10 @@ import type {
   AgentDashboard,
 } from '@/types/agent';
 import type { Customer, Supplier, SupplierFollowUpLog, SupplierFollowUpOutcome } from '@/types';
-import { agentRuntimeApi, customerApi, rfqApi, supplierApi, aiApi } from '@/api/client';
-import { mockCustomers, mockSuppliers } from '@/data/mockData';
+import { agentRuntimeApi, customerApi, rfqApi, supplierApi, supplierQuoteApi, aiApi } from '@/api/client';
 import {
   buildInquiryDispatchSummary,
   selectSuppliersForSourcing,
-  synthesizeSupplierQuotes,
   type SupplierCapabilityProfile,
 } from '@/lib/supplierCapability';
 import { useAuthStore, useRFQStore, useSupplierFollowUpStore } from '@/store';
@@ -115,38 +113,8 @@ function normalizePhone(value: string | undefined): string {
   return (value || '').replace(/\D/g, '');
 }
 
-function formatDateOnly(date: Date): string {
-  return date.toISOString().split('T')[0];
-}
-
-function getDefaultRequiredDate(urgency: string | undefined): string {
-  const date = new Date();
-  date.setDate(date.getDate() + (urgency?.toLowerCase() === 'aog' ? 1 : 7));
-  return formatDateOnly(date);
-}
-
-function buildDemoSuppliers(sourceSuppliers: Supplier[]): Supplier[] {
-  const baseSuppliers = sourceSuppliers.length > 0 ? sourceSuppliers : mockSuppliers;
-  const manualCandidateIndex = baseSuppliers.findIndex((supplier) => normalizePhone(supplier.phone).startsWith('86'));
-  const fallbackIndex = baseSuppliers.length > 0 ? Math.min(baseSuppliers.length - 1, 2) : 0;
-  const manualIndex = manualCandidateIndex >= 0 ? manualCandidateIndex : fallbackIndex;
-
-  return baseSuppliers.map((supplier, index) => {
-    if (index !== manualIndex) {
-      return supplier;
-    }
-
-    return {
-      ...supplier,
-      // Keep the demo's manual branch deterministic without replacing the
-      // underlying supplier id. Follow-up completion can therefore still
-      // resolve back to the real supplier record and persist an auditable log.
-      name: 'Skyline Aero Trading',
-      email: undefined,
-      performanceScore: typeof supplier.performanceScore === 'number' ? Math.min(supplier.performanceScore, 82) : 82,
-      leadTime: typeof supplier.leadTime === 'number' ? supplier.leadTime : 12,
-    };
-  });
+function createRuntimeTaskId(): string {
+  return `task_${crypto.randomUUID()}`;
 }
 
 class AgentOrchestrator {
@@ -285,27 +253,18 @@ class AgentOrchestrator {
   }
 
   private async getAvailableSuppliers(search?: string): Promise<Supplier[]> {
-    try {
-      const suppliers = (await supplierApi.getAll({
-        search,
-        page: 1,
-        limit: 20,
-        sort: 'performanceScore',
-        direction: 'desc',
-      })).data;
-      if (suppliers.length > 0) {
-        return suppliers;
-      }
-    } catch {
-      // Keep the demo flow usable when supplier master data is unavailable.
-    }
-
-    return mockSuppliers;
+    const suppliers = (await supplierApi.getAll({
+      search,
+      page: 1,
+      limit: 20,
+      sort: 'performanceScore',
+      direction: 'desc',
+    })).data;
+    return suppliers;
   }
 
   private async resolveFollowUpSupplier(
-    supplier: NonNullable<AgentData['followUpQueue']>[number],
-    fallbackIndex: number
+    supplier: NonNullable<AgentData['followUpQueue']>[number]
   ): Promise<Supplier | undefined> {
 
     if (supplier.id) {
@@ -350,7 +309,7 @@ class AgentOrchestrator {
       return matchedSupplier;
     }
 
-    return currentSuppliers[fallbackIndex % currentSuppliers.length];
+    return undefined;
   }
 
   private async getSupplierProfiles(context: AgentData): Promise<SupplierCapabilityProfile[]> {
@@ -360,27 +319,27 @@ class AgentOrchestrator {
 
     const currentSuppliers = await this.getAvailableSuppliers();
 
-    if (context.demoMode === true) {
-      return selectSuppliersForSourcing(buildDemoSuppliers(currentSuppliers), context.parsedData?.urgency === 'aog' ? 3 : 3);
-    }
-
     return selectSuppliersForSourcing(currentSuppliers, context.parsedData?.urgency === 'aog' ? 3 : 3);
   }
 
   private async getAvailableCustomers(search?: string): Promise<Customer[]> {
-    try {
-      const customers = (await customerApi.getAll({ search, page: 1, limit: 20 })).data;
-      if (customers.length > 0) {
-        return customers;
-      }
-    } catch {
-      // Fallback to mock data to keep demo flow usable when customer bootstrap is late.
-    }
-
-    return mockCustomers;
+    const customers = (await customerApi.getAll({ search, page: 1, limit: 20 })).data;
+    return customers;
   }
 
-  private async resolveDemoCustomer(requestedName?: string): Promise<Customer> {
+  private async resolveCustomer(requestedId?: string, requestedName?: string): Promise<Customer | undefined> {
+    if (requestedId) {
+      try {
+        return await customerApi.getById(requestedId);
+      } catch {
+        return undefined;
+      }
+    }
+
+    if (!requestedName?.trim()) {
+      return undefined;
+    }
+
     const customers = await this.getAvailableCustomers(requestedName);
     const normalizedRequestedName = normalizeText(requestedName);
 
@@ -393,17 +352,13 @@ class AgentOrchestrator {
         })
       : undefined;
 
-    return matchedCustomer
-      || customers.find((customer) => customer.name === '海南航空')
-      || customers[0]
-      || mockCustomers[0];
+    return matchedCustomer;
   }
 
   private getNextTaskType(type: TaskType): TaskType | null {
     const transitions: Partial<Record<TaskType, TaskType>> = {
       email_received: 'rfq_created',
       rfq_created: 'sourcing_started',
-      sourcing_started: 'quotes_compared',
     };
 
     return transitions[type] || null;
@@ -447,7 +402,7 @@ class AgentOrchestrator {
 
     const createdAt = new Date();
     const followUpTask: AgentTask = {
-      id: `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: createRuntimeTaskId(),
       trigger: {
         type: 'system',
         source: `${task.type}:${task.id}`,
@@ -490,9 +445,9 @@ class AgentOrchestrator {
         title: '需求单生成确认',
         titleZh: '需求单生成确认',
         titleEn: 'RFQ Creation Confirmation',
-        description: '请确认AI解析的需求信息是否正确',
-        descriptionZh: '请确认AI解析的需求信息是否正确',
-        descriptionEn: 'Please confirm the AI-parsed RFQ details before creating the RFQ.',
+        description: '请确认已提取的需求信息是否正确',
+        descriptionZh: '请确认已提取的需求信息是否正确',
+        descriptionEn: 'Please confirm the extracted RFQ details before creating the RFQ.',
         data: task.context,
         options: [
           createConfirmationOption('confirm', '确认生成', 'Create RFQ', 'proceed'),
@@ -512,7 +467,7 @@ class AgentOrchestrator {
     const steps = this.generateSteps(type);
 
     const task: AgentTask = {
-      id: `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: createRuntimeTaskId(),
       trigger,
       type,
       status: 'running',
@@ -657,6 +612,10 @@ class AgentOrchestrator {
 
   private checkConfirmationNeed(step: TaskStep, task: AgentTask): ConfirmationNode | null {
     if (step.capability === 'supplierQuote' && step.action === 'compare') {
+      if (task.context.compareSummary?.status !== 'available') {
+        return null;
+      }
+
       const quotes = task.context.comparedQuotes || [];
       const options: ConfirmationOption[] = quotes.map((q: QuoteCandidate, index: number) => {
         const automationMode = q.supplier?.automationMode === 'auto'
@@ -669,8 +628,8 @@ class AgentOrchestrator {
           : q.supplier?.automationMode === 'manual'
             ? 'Manual follow-up'
             : 'Profile incomplete';
-        const descriptionZh = `$${q.unitPrice ?? '-'} | ${q.leadTimeDays ?? '-'}天 | ${automationMode} | 得分${q.aiScore?.toFixed(0) ?? '-'}`;
-        const descriptionEn = `$${q.unitPrice ?? '-'} | ${q.leadTimeDays ?? '-'} days | ${automationModeEn} | score ${q.aiScore?.toFixed(0) ?? '-'}`;
+        const descriptionZh = `$${q.unitPrice ?? '-'} | ${q.leadTimeDays ?? '-'}天 | ${automationMode} | 规则得分${q.ruleScore?.toFixed(0) ?? '-'}`;
+        const descriptionEn = `$${q.unitPrice ?? '-'} | ${q.leadTimeDays ?? '-'} days | ${automationModeEn} | rule score ${q.ruleScore?.toFixed(0) ?? '-'}`;
         return {
           ...createConfirmationOption(
             `select_${index}`,
@@ -692,9 +651,9 @@ class AgentOrchestrator {
         title: '供应商选择确认',
         titleZh: '供应商选择确认',
         titleEn: 'Supplier Selection Confirmation',
-        description: 'AI询比价完成，请选择最优供应商',
-        descriptionZh: 'AI询比价完成，请选择最优供应商',
-        descriptionEn: 'AI quote comparison is complete. Please choose the preferred supplier.',
+        description: '已基于真实报价完成规则比对，请选择供应商',
+        descriptionZh: '已基于真实报价完成规则比对，请选择供应商',
+        descriptionEn: 'Rule-based comparison of recorded supplier quotes is complete. Please choose a supplier.',
         data: { quotes, summary: task.context.compareSummary },
         options: [
           ...options,
@@ -704,8 +663,8 @@ class AgentOrchestrator {
     }
 
     if (step.capability === 'quotation' && step.action === 'create') {
-      const margin = task.context.margin || 0;
-      const warning = margin < 15 ? `⚠️ 利润率${margin.toFixed(1)}%低于15%阈值` : null;
+      const margin = typeof task.context.margin === 'number' ? task.context.margin : null;
+      const warning = margin !== null && margin < 15 ? `⚠️ 利润率${margin.toFixed(1)}%低于15%阈值` : null;
 
       return {
         id: `confirm_${Date.now()}`,
@@ -717,7 +676,7 @@ class AgentOrchestrator {
         titleEn: 'Quotation Confirmation',
         description: warning || '请确认报价单信息',
         descriptionZh: warning || '请确认报价单信息',
-        descriptionEn: warning
+        descriptionEn: warning && margin !== null
           ? `Warning: margin ${margin.toFixed(1)}% is below the 15% threshold.`
           : 'Please confirm the quotation details.',
         data: task.context,
@@ -853,60 +812,94 @@ class AgentOrchestrator {
     await delay(500);
 
     if (action === 'parse') {
-      const customer = await this.resolveDemoCustomer(
-        typeof context.parsedData?.customerName === 'string' ? context.parsedData.customerName : 'XX航空'
+      const existingParsedData = context.parsedData || {};
+      const customer = await this.resolveCustomer(
+        typeof existingParsedData.customerId === 'string' ? existingParsedData.customerId : undefined,
+        typeof existingParsedData.customerName === 'string' ? existingParsedData.customerName : undefined
       );
-      const urgency = typeof context.parsedData?.urgency === 'string' ? context.parsedData.urgency : 'aog';
+      if (!customer) {
+        return {
+          success: false,
+          error: '无法将来源邮件匹配到现有客户；请先补充真实客户 ID 或客户名称后再创建 RFQ。',
+        };
+      }
 
       const emailSubject = typeof context.emailSubject === 'string' ? context.emailSubject : undefined;
       const emailBody = typeof context.emailBody === 'string' ? context.emailBody : undefined;
 
+      if (
+        typeof existingParsedData.partNumber === 'string'
+        && typeof existingParsedData.quantity === 'number'
+        && existingParsedData.quantity > 0
+        && typeof existingParsedData.requiredDate === 'string'
+      ) {
+        return {
+          success: true,
+          data: {
+            ...(typeof context.emailId === 'string' ? { emailId: context.emailId } : {}),
+            parsedData: {
+              ...existingParsedData,
+              customerId: customer.id,
+              customerName: customer.name,
+              source: context.demoMode === true ? 'controlled_demo_fixture' : 'upstream_parsed_payload',
+            },
+          },
+        };
+      }
+
+      if (!emailSubject || !emailBody) {
+        return {
+          success: false,
+          error: '缺少可追溯的邮件主题和正文，Agent 不会生成示例需求数据。',
+        };
+      }
+
       if (emailSubject && emailBody) {
         try {
           const aiResult = await aiApi.parseEmail(emailSubject, emailBody);
+          const partNumber = aiResult.partNumbers[0];
+          const quantity = aiResult.quantities[0];
+          const requiredDate = existingParsedData.requiredDate;
+          if (!partNumber || !quantity || quantity <= 0 || typeof requiredDate !== 'string') {
+            return {
+              success: false,
+              error: '邮件解析结果缺少件号、数量或需求日期；请人工补充并确认，Agent 不会填充默认值。',
+            };
+          }
+
           return {
             success: true,
             data: {
-              emailId: context.emailId || 'email_001',
+              ...(typeof context.emailId === 'string' ? { emailId: context.emailId } : {}),
               parsedData: {
-                partNumber: aiResult.partNumbers[0] || 'BAC31GK0020',
-                quantity: aiResult.quantities[0] || 2,
+                ...existingParsedData,
+                partNumber,
+                quantity,
                 customerId: customer.id,
                 customerName: customer.name,
-                requiredDate: getDefaultRequiredDate(aiResult.urgency),
-                aircraftType: aiResult.aircraftType || 'Boeing 737-800',
-                targetPrice: 1200,
-                urgency: aiResult.urgency?.toLowerCase() || urgency,
+                requiredDate,
+                aircraftType: aiResult.aircraftType || existingParsedData.aircraftType,
+                urgency: aiResult.urgency?.toLowerCase() || existingParsedData.urgency,
                 aiClassified: true,
                 aiType: aiResult.type,
+                source: 'email_parser',
               },
             },
           };
         } catch (error) {
-          console.warn('AI email parse failed, falling back to demo data:', error);
+          console.warn('AI email parse failed; manual review is required:', error);
+          return {
+            success: false,
+            error: '邮件解析服务不可用；请转为人工需求录入，不会回退到示例数据。',
+          };
         }
       }
 
-      return {
-        success: true,
-        data: {
-          emailId: context.emailId || 'email_001',
-          parsedData: {
-            partNumber: 'BAC31GK0020',
-            quantity: 2,
-            customerId: customer.id,
-            customerName: customer.name,
-            requiredDate: getDefaultRequiredDate(urgency),
-            aircraftType: 'Boeing 737-800',
-            targetPrice: 1200,
-            urgency,
-          },
-        },
-      };
+      return { success: false, error: '缺少可处理的来源邮件。' };
     }
 
     if (action === 'send') {
-      return { success: true, data: { sent: true, messageId: `msg_${Date.now()}` } };
+      return { success: false, error: 'Agent 不会模拟邮件发送；请通过已配置的邮件工作流发送。' };
     }
 
     return { success: true, data: {} };
@@ -917,20 +910,26 @@ class AgentOrchestrator {
 
     if (action === 'create') {
       const parsedData = context.parsedData || {};
-      const resolvedCustomer = await this.resolveDemoCustomer(
+      const resolvedCustomer = await this.resolveCustomer(
+        typeof parsedData.customerId === 'string' ? parsedData.customerId : undefined,
         typeof parsedData.customerName === 'string' ? parsedData.customerName : undefined
       );
-      const customerId = typeof parsedData.customerId === 'string' ? parsedData.customerId : resolvedCustomer.id;
-      const customerName = typeof parsedData.customerName === 'string' ? parsedData.customerName : resolvedCustomer.name;
-      const requiredDate = typeof parsedData.requiredDate === 'string'
-        ? parsedData.requiredDate
-        : getDefaultRequiredDate(typeof parsedData.urgency === 'string' ? parsedData.urgency : undefined);
-      const urgency = typeof parsedData.urgency === 'string' ? parsedData.urgency.toUpperCase() : 'AOG';
+      const partNumber = typeof parsedData.partNumber === 'string' ? parsedData.partNumber.trim() : '';
+      const quantity = typeof parsedData.quantity === 'number' ? parsedData.quantity : 0;
+      const requiredDate = typeof parsedData.requiredDate === 'string' ? parsedData.requiredDate : undefined;
+      const urgency = typeof parsedData.urgency === 'string' ? parsedData.urgency.toUpperCase() : 'STANDARD';
+
+      if (!resolvedCustomer || !partNumber || quantity <= 0 || !requiredDate) {
+        return {
+          success: false,
+          error: 'RFQ 缺少已匹配客户、件号、数量或需求日期；请人工补全真实信息后再建单。',
+        };
+      }
 
       const createdRFQ = await rfqApi.create({
-        customerId,
-        partNumber: typeof parsedData.partNumber === 'string' ? parsedData.partNumber : 'BAC31GK0020',
-        quantity: typeof parsedData.quantity === 'number' ? parsedData.quantity : 1,
+        customerId: resolvedCustomer.id,
+        partNumber,
+        quantity,
         requiredDate,
         aircraftType: typeof parsedData.aircraftType === 'string' ? parsedData.aircraftType : undefined,
         targetPrice: typeof parsedData.targetPrice === 'number' ? parsedData.targetPrice : undefined,
@@ -948,7 +947,7 @@ class AgentOrchestrator {
           parsedData: {
             ...parsedData,
             customerId: createdRFQ.customerId,
-            customerName: createdRFQ.customerName || customerName,
+            customerName: createdRFQ.customerName || resolvedCustomer.name,
             requiredDate: createdRFQ.requiredDate || requiredDate,
             urgency: createdRFQ.urgency || urgency.toLowerCase(),
           },
@@ -970,8 +969,8 @@ class AgentOrchestrator {
       return {
         success: true,
         data: {
-          inventoryMatch: null,
-          message: '内部库存无匹配',
+          inventoryMatchStatus: 'not_evaluated',
+          message: '当前 Agent 未接入库存可用性检索；请在库存中心确认可用库存，不能据此认定无匹配。',
         },
       };
     }
@@ -987,7 +986,13 @@ class AgentOrchestrator {
         data: {
           selectedSuppliers: selectedProfiles.map((profile) => this.toSupplierSummary(profile)),
           selectedSupplierProfiles: selectedProfiles,
-          sourcingSummary: buildInquiryDispatchSummary(selectedProfiles),
+          sourcingSummary: {
+            ...buildInquiryDispatchSummary(selectedProfiles),
+            source: 'supplier_master_data',
+            algorithmVersion: 'supplier-readiness-v1',
+            sampleSize: selectedProfiles.length,
+            decisionBoundary: '候选排序仅供人工询价准备，不代表已验证供货能力、价格或交期。',
+          },
         },
       };
     }
@@ -999,9 +1004,14 @@ class AgentOrchestrator {
       return {
         success: true,
         data: {
-          inquirySent: inquiryDispatch.suppliersNotified > 0,
-          suppliersNotified: inquiryDispatch.suppliersNotified,
-          inquiryDispatch,
+          inquirySent: false,
+          suppliersNotified: 0,
+          inquiryDispatch: {
+            ...inquiryDispatch,
+            readyCandidateCount: inquiryDispatch.suppliersNotified,
+            dispatchStatus: 'manual_confirmation_required',
+            decisionBoundary: '候选供应商尚未被系统发送询价；请在正式询价工作流中人工确认并发送。',
+          },
           followUpQueue: selectedProfiles
             .filter((profile) => profile.automationMode !== 'auto')
             .map((profile) => this.toSupplierSummary(profile)),
@@ -1016,11 +1026,30 @@ class AgentOrchestrator {
     await delay(800);
 
     if (action === 'collect') {
-      const selectedProfiles = await this.getSupplierProfiles(context);
-      const quotes = synthesizeSupplierQuotes(selectedProfiles, context);
+      const rfqId = typeof context.rfqId === 'string' ? context.rfqId : undefined;
+      const inquiryId = typeof context.inquiryId === 'string' ? context.inquiryId : undefined;
+      if (!rfqId && !inquiryId) {
+        return { success: false, error: '缺少 RFQ 或询价单标识，无法读取真实供应商报价。' };
+      }
+
+      const supplierQuotes = await supplierQuoteApi.getAll({ rfqId, inquiryId });
+      const quotes = supplierQuotes.map((quote) => ({
+        id: quote.id,
+        supplierId: quote.supplier.id,
+        unitPrice: quote.unitPrice,
+        totalPrice: quote.totalPrice,
+        leadTimeDays: quote.leadTimeDays,
+        supplier: {
+          id: quote.supplier.id,
+          name: quote.supplier.name,
+          level: quote.supplier.level,
+          email: quote.supplier.contactEmail || undefined,
+          performanceScore: quote.supplier.performanceScore ?? undefined,
+        },
+      }));
 
       if (quotes.length === 0) {
-        return { success: false, error: '没有可收集的供应商报价，请先补充供应商联系方式' };
+        return { success: false, error: '尚未收到真实供应商报价；请等待回传或由人工录入报价。' };
       }
 
       return {
@@ -1029,185 +1058,103 @@ class AgentOrchestrator {
           quotes,
           quoteCollectionSummary: {
             collectedQuotes: quotes.length,
-            awaitingManualFollowUp: selectedProfiles.filter((profile) => profile.automationMode === 'manual').length,
-            blockedSuppliers: selectedProfiles.filter((profile) => profile.automationMode === 'blocked').length,
+            source: 'supplier_quote_records',
+            algorithmVersion: null,
+            sampleSize: quotes.length,
+            decisionBoundary: '仅收集已记录的供应商报价，不会合成报价、价格或交期。',
           },
         },
       };
     }
 
     if (action === 'compare') {
-      const quotes = context.quotes || [];
-      if (quotes.length === 0) {
-        return { success: false, error: '没有报价可用于比对' };
+      const rfqId = typeof context.rfqId === 'string' ? context.rfqId : undefined;
+      const inquiryId = typeof context.inquiryId === 'string' ? context.inquiryId : undefined;
+      if (!rfqId && !inquiryId) {
+        return { success: false, error: '缺少 RFQ 或询价单标识，无法比对真实供应商报价。' };
       }
 
-      const quotePrices = quotes
-        .map((q: QuoteCandidate) => (typeof q.unitPrice === 'number' ? q.unitPrice : Infinity))
-        .filter((value) => Number.isFinite(value));
-      const minPrice = quotePrices.length > 0 ? Math.min(...quotePrices) : 0;
-
-      const comparedQuotes = quotes.map((q: QuoteCandidate, index: number) => {
-        const unitPrice = q.unitPrice ?? 0;
-        const leadTimeDays = q.leadTimeDays ?? 0;
-        const quantity = context.parsedData?.quantity || 1;
-        const safeMinPrice = minPrice > 0 ? minPrice : 1;
-        const priceScore = ((unitPrice - safeMinPrice) / safeMinPrice) * -35 + 35;
-        const leadTimeScore = leadTimeDays <= 7 ? 20 : Math.max(5, 20 - (leadTimeDays - 7) * 2);
-        const supplierPerformance = typeof q.supplier?.performanceScore === 'number' ? q.supplier.performanceScore : 70;
-        const supplierScore = Math.max(8, supplierPerformance / 5 + (q.supplier?.automationMode === 'auto' ? 3 : 0));
-        const aiScore = priceScore + leadTimeScore + supplierScore;
-
+      const comparison = await supplierQuoteApi.compare({ rfqId, inquiryId });
+      const profileBySupplierId = new Map(
+        (Array.isArray(context.selectedSupplierProfiles) ? context.selectedSupplierProfiles : [])
+          .map((profile) => profile as SupplierCapabilityProfile)
+          .filter((profile) => typeof profile.id === 'string')
+          .map((profile) => [profile.id as string, profile])
+      );
+      const comparedQuotes: QuoteCandidate[] = comparison.quotes.map((quote) => {
+        const profile = profileBySupplierId.get(quote.supplier.id);
         return {
-          ...q,
-          supplier: q.supplier || { name: `供应商${index + 1}`, level: 'C' },
-          totalPrice: unitPrice * quantity,
-          aiScore,
-          aiRecommendation: aiScore >= 80 ? '强烈推荐' : aiScore >= 60 ? '推荐' : '考虑',
+          id: quote.id,
+          supplierId: quote.supplier.id,
+          unitPrice: quote.unitPrice,
+          totalPrice: quote.totalPrice,
+          leadTimeDays: quote.leadTimeDays,
+          ruleScore: quote.ruleScore ?? undefined,
+          scoreComponents: quote.scoreComponents,
+          supplier: {
+            id: quote.supplier.id,
+            name: quote.supplier.name,
+            level: quote.supplier.level,
+            performanceScore: quote.supplier.performanceScore ?? undefined,
+            automationMode: profile?.automationMode,
+            preferredChannel: profile?.preferredChannel,
+            profileCompleteness: profile?.profileCompleteness,
+            nextAction: profile?.nextAction,
+          },
         };
       });
-
-      comparedQuotes.sort((a, b) => (b.aiScore ?? 0) - (a.aiScore ?? 0));
-
-      let aiAnalysis: string | undefined;
-      try {
-        const rfqDetails = `件号: ${context.parsedData?.partNumber || '-'}, 数量: ${context.parsedData?.quantity || 1}, 客户: ${context.parsedData?.customerName || '-'}, 紧急度: ${context.parsedData?.urgency || 'standard'}`;
-        const supplierQuotes = quotes.map((q: QuoteCandidate, i: number) =>
-          `${i + 1}. ${q.supplier?.name || '供应商'}: 单价 $${q.unitPrice || '-'}, 交期 ${q.leadTimeDays || '-'}天, 绩效分 ${q.supplier?.performanceScore || '-'}`
-        ).join('\n');
-        const analysisResult = await aiApi.analyzeQuotes(rfqDetails, supplierQuotes);
-        aiAnalysis = analysisResult.analysis;
-      } catch (error) {
-        console.warn('AI quote analysis failed:', error);
-      }
 
       return {
         success: true,
         data: {
           comparedQuotes,
-          bestMatch: comparedQuotes[0],
+          bestMatch: comparison.topRanked
+            ? comparedQuotes.find((quote) => quote.id === comparison.topRanked?.id)
+            : undefined,
           compareSummary: {
-            totalQuotes: quotes.length,
-            lowestPrice: minPrice,
-            autoCapableSuppliers: comparedQuotes.filter((quote) => quote.supplier?.automationMode === 'auto').length,
-            aiAnalysis,
+            ...comparison.summary,
+            ...comparison.metadata,
           },
         },
       };
     }
 
     if (action === 'selectWinner') {
-      return { success: true, data: { winnerSelected: true } };
+      return { success: false, error: '请在供应商报价页面完成正式中选；Agent 不会模拟中选结果。' };
     }
 
     return { success: true, data: {} };
   }
 
   private async executeQuotationCapability(action: string, context: AgentData): Promise<CapabilityResult> {
-    await delay(600);
-
-    if (action === 'create') {
-      const bestQuote = context.bestMatch || { unitPrice: 1050 };
-      const quantityCandidate = context.parsedData?.quantity;
-      const quantity =
-        typeof quantityCandidate === 'number'
-          ? quantityCandidate
-          : Number(quantityCandidate ?? 1) || 1;
-      const unitPrice = typeof bestQuote.unitPrice === 'number' ? bestQuote.unitPrice : 1050;
-      const totalPrice = unitPrice * quantity;
-      const costPrice = unitPrice * 0.9;
-      const margin = ((unitPrice - costPrice) / unitPrice) * 100;
-
-      let customerEmail: string | undefined;
-      try {
-        const leadTimeDays =
-          typeof bestQuote.leadTimeDays === 'number'
-            ? bestQuote.leadTimeDays
-            : Number(bestQuote.leadTimeDays ?? 7) || 7;
-        const emailResult = await aiApi.generateEmail({
-          customerName: context.parsedData?.customerName || '客户',
-          partNumber: context.parsedData?.partNumber || '-',
-          quantity,
-          unitPrice,
-          totalPrice,
-          leadTimeDays,
-          validityDays: 30,
-        });
-        customerEmail = emailResult.email;
-      } catch (error) {
-        console.warn('AI email generation failed:', error);
-      }
-
-      return {
-        success: true,
-        data: {
-          quotationId: `QT-${Date.now()}`,
-          quotationNumber: `QT-2026-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
-          unitPrice,
-          totalPrice,
-          costPrice,
-          margin,
-          validityDays: 30,
-          customerEmail,
-        },
-      };
-    }
-
-    if (action === 'send') {
-      return { success: true, data: { sent: true, sentAt: new Date().toISOString() } };
-    }
-
-    return { success: true, data: {} };
+    void action;
+    void context;
+    return {
+      success: false,
+      error: 'Agent 不会合成报价、成本、利润或邮件内容；请在报价管理中基于已确认的真实供应商报价创建草稿。',
+    };
   }
 
   private async executeApprovalCapability(action: string): Promise<CapabilityResult> {
-    await delay(500);
-
-    if (action === 'request') {
-      return {
-        success: true,
-        data: {
-          approvalId: `AP-${Date.now()}`,
-          status: 'pending_approval',
-          requestedAt: new Date().toISOString(),
-        },
-      };
-    }
-
-    return { success: true, data: {} };
+    void action;
+    return {
+      success: true,
+      data: {
+        approvalStatus: 'manual_workflow_required',
+        message: '未创建模拟审批；请在报价管理中提交真实报价进入审批流程。',
+      },
+    };
   }
 
   private async executeOrderCapability(action: string): Promise<CapabilityResult> {
-    await delay(700);
-
-    if (action === 'create') {
-      return {
-        success: true,
-        data: {
-          orderId: `ORD-${Date.now()}`,
-          orderNumber: `ORD-2026-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
-          status: 'confirmed',
-          createdAt: new Date().toISOString(),
-        },
-      };
-    }
-
-    if (action === 'track') {
-      return {
-        success: true,
-        data: {
-          status: 'in_production',
-          progress: 45,
-          estimatedDelivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
-        },
-      };
-    }
-
-    if (action === 'complete') {
-      return { success: true, data: { completed: true, completedAt: new Date().toISOString() } };
-    }
-
-    return { success: true, data: {} };
+    void action;
+    return {
+      success: true,
+      data: {
+        orderStatus: 'manual_workflow_required',
+        message: '未创建模拟订单或物流进度；请在订单管理中处理真实客户确认和履约状态。',
+      },
+    };
   }
 
   private async executeNotificationCapability(): Promise<CapabilityResult> {
@@ -1216,9 +1163,8 @@ class AgentOrchestrator {
     return {
       success: true,
       data: {
-        notified: true,
-        method: 'system',
-        timestamp: new Date().toISOString(),
+        notificationStatus: 'not_dispatched',
+        message: '未模拟发送通知；请通过已配置的通知渠道执行实际通知。',
       },
     };
   }
@@ -1297,11 +1243,10 @@ class AgentOrchestrator {
     const followUpQueue = Array.isArray(task.context.followUpQueue) ? task.context.followUpQueue : [];
     const followUpNotes = payload?.notes?.trim() || undefined;
     const followUpOutcome = payload?.outcome || 'contacted_waiting_quote';
-    const resolvedFollowUpQueue = await Promise.all(followUpQueue.map(async (supplier, index) => {
-      const resolvedSupplier = await this.resolveFollowUpSupplier(supplier, index);
-
+    const resolvedFollowUpQueue = await Promise.all(followUpQueue.map(async (supplier) => {
+      const resolvedSupplier = await this.resolveFollowUpSupplier(supplier);
       if (!resolvedSupplier) {
-        return supplier;
+        throw new Error(`无法定位待跟进供应商“${supplier.name || supplier.id || '未知供应商'}”；请刷新供应商主数据后重试。`);
       }
 
       return {

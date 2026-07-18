@@ -34,6 +34,12 @@ export function BlockchainVerification() {
     };
     certificateHash?: string;
     reason?: string;
+    integrity?: {
+      method: 'sha256_linked_records';
+      storageScope: 'internal_database';
+      externalTrustAnchor: false;
+      decisionBoundary: string;
+    };
   } | null>(null);
 
   const { mutate: verify, loading, error } = useBlockchainVerify();
@@ -52,12 +58,12 @@ export function BlockchainVerification() {
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Shield className="w-7 h-7 text-brand-primary" />
-          {tx('区块链证书存证', 'Blockchain Certificate Storage')}
+          {tx('证书完整性校验', 'Certificate Integrity Check')}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           {tx(
-            '基于 SHA-256 哈希链的证书存证系统，确保证书数据不可篡改',
-            'SHA-256 hash chain based certificate storage system ensuring data immutability'
+            '校验证书字段与同一业务库内的 SHA-256 关联记录是否一致；不构成第三方存证、独立不可篡改证明或最终适航依据。',
+            'Checks whether certificate fields match linked SHA-256 records in the same business database. It is not third-party storage, independent immutability proof, or final airworthiness evidence.'
           )}
         </p>
       </div>
@@ -86,7 +92,7 @@ export function BlockchainVerification() {
               ) : (
                 <Search className="w-4 h-4" />
               )}
-              {tx('验证存证', 'Verify Storage')}
+              {tx('校验完整性', 'Check Integrity')}
             </Button>
           </div>
         </CardContent>
@@ -95,7 +101,7 @@ export function BlockchainVerification() {
       {error && (
         <Card className="border-red-200 bg-red-50/30">
           <CardContent className="py-4 text-sm text-red-600">
-            {tx('验证失败', 'Verification failed')}: {error}
+            {tx('完整性校验失败', 'Integrity check failed')}: {error}
           </CardContent>
         </Card>
       )}
@@ -122,14 +128,14 @@ export function BlockchainVerification() {
                 <div>
                   <div className="text-lg font-bold">
                     {result.verified
-                      ? tx('存证验证通过', 'Verification Passed')
-                      : tx('存证验证失败', 'Verification Failed')}
+                      ? tx('完整性校验通过', 'Integrity Check Passed')
+                      : tx('完整性校验不通过', 'Integrity Check Failed')}
                   </div>
                   <div className="text-sm text-muted-foreground">
                     {result.reason ||
                       tx(
-                        '证书数据完整，未被篡改',
-                        'Certificate data is intact and untampered'
+                        '证书字段与内部关联哈希记录一致。',
+                        'Certificate fields match the internal linked hash record.'
                       )}
                   </div>
                 </div>
@@ -143,7 +149,7 @@ export function BlockchainVerification() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Link className="w-5 h-5 text-brand-primary" />
-                  {tx('区块详情', 'Block Details')}
+                  {tx('关联记录详情', 'Linked Record Details')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -151,7 +157,7 @@ export function BlockchainVerification() {
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground flex items-center gap-1">
                       <Hash className="w-3 h-3" />
-                      {tx('区块索引', 'Block Index')}
+                      {tx('记录索引', 'Record Index')}
                     </div>
                     <div className="font-mono font-medium">
                       #{result.block.index}
@@ -190,7 +196,7 @@ export function BlockchainVerification() {
 
                 <div className="space-y-1">
                   <div className="text-xs text-muted-foreground">
-                    {tx('区块哈希', 'Block Hash')}
+                    {tx('关联记录哈希', 'Linked Record Hash')}
                   </div>
                   <div className="font-mono text-xs bg-gray-100 p-2 rounded break-all">
                     {result.block.hash}
@@ -200,20 +206,29 @@ export function BlockchainVerification() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">
-                      {tx('Nonce', 'Nonce')}
+                      {tx('历史格式 Nonce', 'Legacy-format Nonce')}
                     </div>
                     <div className="font-mono">{result.block.nonce}</div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">
-                      {tx('难度', 'Difficulty')}
+                      {tx('哈希格式', 'Hash Format')}
                     </div>
-                    <Badge variant="outline">4 leading zeros</Badge>
+                    <Badge variant="outline">SHA-256 linked record</Badge>
                   </div>
                 </div>
               </CardContent>
             </Card>
           )}
+
+          <Card className="border-amber-200 bg-amber-50/30">
+            <CardContent className="py-4 text-sm text-amber-800">
+              {result.integrity?.decisionBoundary || tx(
+                '此校验仅用于业务库内数据完整性核验，不构成第三方存证、独立不可篡改证明或最终适航依据。',
+                'This check is limited to data integrity within the business database; it is not third-party storage, independent immutability proof, or final airworthiness evidence.'
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

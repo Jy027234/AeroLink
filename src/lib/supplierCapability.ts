@@ -1,6 +1,5 @@
-import { mockSupplierPortalUsers } from '@/data/mockData';
 import type { Supplier } from '@/types';
-import type { AgentData, QuoteCandidate, SupplierSummary } from '@/types/agent';
+import type { SupplierSummary } from '@/types/agent';
 
 export type SupplierAutomationMode = 'auto' | 'manual' | 'blocked';
 export type SupplierManualActionType = 'portal_follow_up' | 'wechat_follow_up' | 'whatsapp_follow_up' | 'phone_follow_up' | 'contact_missing';
@@ -28,7 +27,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function getNormalizedStatus(status?: string) {
-  return status?.toLowerCase() || 'active';
+  return status?.toLowerCase() || 'unknown';
 }
 
 function getNormalizedPhone(phone?: string) {
@@ -38,11 +37,6 @@ function getNormalizedPhone(phone?: string) {
 function getManualActionType(supplier: Supplier, automationMode: SupplierAutomationMode): SupplierManualActionType | undefined {
   if (automationMode !== 'manual') {
     return undefined;
-  }
-
-  const hasPortalUser = mockSupplierPortalUsers.some((portalUser) => portalUser.supplierId === supplier.id);
-  if (hasPortalUser) {
-    return 'portal_follow_up';
   }
 
   const normalizedPhone = getNormalizedPhone(supplier.phone);
@@ -65,7 +59,7 @@ export function getSupplierCapabilityProfile(supplier: Supplier): SupplierCapabi
   const hasEmail = Boolean(supplier.email?.trim());
   const hasPhone = Boolean(supplier.phone?.trim());
   const status = getNormalizedStatus(supplier.status);
-  const isBlocked = status === 'inactive' || status === 'blocked';
+  const isBlocked = status === 'inactive' || status === 'blocked' || status === 'unknown';
 
   let automationMode: SupplierAutomationMode = 'blocked';
   if (!isBlocked && hasEmail) {
@@ -92,17 +86,20 @@ export function getSupplierCapabilityProfile(supplier: Supplier): SupplierCapabi
     (completenessSignals.filter(Boolean).length / completenessSignals.length) * 100
   );
 
-  const performanceWeight = clamp(supplier.performanceScore ?? 65, 0, 100) * 0.28;
+  const performanceWeight = typeof supplier.performanceScore === 'number'
+    ? clamp(supplier.performanceScore, 0, 100) * 0.28
+    : 0;
   const leadTimeWeight = typeof supplier.leadTime === 'number'
     ? Math.max(4, 18 - supplier.leadTime / 2)
-    : 8;
+    : 0;
   const automationBonus = automationMode === 'auto' ? 18 : automationMode === 'manual' ? 10 : 0;
   const statusPenalty = status === 'pending' ? 4 : isBlocked ? 35 : 0;
+  const recordedLevelWeight = supplier.level ? levelWeight[supplier.level] : 0;
 
   const readinessScore = Math.round(
     Math.max(
       0,
-      (levelWeight[supplier.level] || levelWeight.C) +
+      recordedLevelWeight +
         performanceWeight +
         leadTimeWeight +
         profileCompleteness * 0.18 +
@@ -160,7 +157,10 @@ function compareProfiles(a: SupplierCapabilityProfile, b: SupplierCapabilityProf
 export function selectSuppliersForSourcing(suppliers: Supplier[], limit = 3): SupplierCapabilityProfile[] {
   const ranked = suppliers.map(getSupplierCapabilityProfile).sort(compareProfiles);
   const reachable = ranked.filter((profile) => profile.automationMode !== 'blocked');
-  const pool = reachable.length > 0 ? reachable : ranked;
+  const pool = reachable;
+  if (pool.length === 0) {
+    return [];
+  }
   const normalizedLimit = Math.max(1, Math.min(limit, pool.length));
 
   const autoProfiles = pool.filter((profile) => profile.automationMode === 'auto');
@@ -195,47 +195,4 @@ export function buildInquiryDispatchSummary(profiles: SupplierCapabilityProfile[
     suppliersNotified: autoDispatchCount + manualFollowUpCount,
     autoDispatchReady: autoDispatchCount > 0,
   };
-}
-
-export function synthesizeSupplierQuotes(
-  profiles: SupplierCapabilityProfile[],
-  context: AgentData
-): QuoteCandidate[] {
-  const quantity = typeof context.parsedData?.quantity === 'number' ? context.parsedData.quantity : 1;
-  const urgency = String(context.parsedData?.urgency || '').toLowerCase();
-  const urgencyFactor = urgency === 'aog' ? 0.97 : 1;
-
-  return profiles
-    .filter((profile) => profile.automationMode !== 'blocked')
-    .map((profile, index) => {
-      const performance = clamp(profile.supplier.performanceScore ?? 72, 50, 100);
-      const basePrice = 980 + index * 55 + (100 - performance) * 2 + (profile.level === 'S' ? -25 : profile.level === 'A' ? 0 : 45);
-      const unitPrice = Math.round(basePrice * urgencyFactor);
-      const leadTimeDays = Math.max(
-        2,
-        Math.round((profile.supplier.leadTime ?? (profile.automationMode === 'auto' ? 7 : 10)) + index - (profile.automationMode === 'auto' ? 1 : 0))
-      );
-
-      return {
-        id: `quote_${profile.id}`,
-        supplierId: profile.id,
-        unitPrice,
-        totalPrice: unitPrice * quantity,
-        leadTimeDays,
-        supplier: {
-          id: profile.id,
-          name: profile.name,
-          level: profile.level,
-          email: profile.email,
-          phone: profile.phone,
-          status: profile.status,
-          performanceScore: profile.performanceScore,
-          automationMode: profile.automationMode,
-          preferredChannel: profile.preferredChannel,
-          manualActionType: profile.manualActionType,
-          profileCompleteness: profile.profileCompleteness,
-          nextAction: profile.nextAction,
-        },
-      };
-    });
 }
