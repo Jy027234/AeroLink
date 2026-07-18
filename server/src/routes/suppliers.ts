@@ -5,11 +5,9 @@ import { requireCapability } from '../middleware/capability.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import { validateBody } from '../middleware/validate.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { supplierCreateSchema, supplierUpdateSchema, supplierFollowUpLogBatchCreateSchema, supplierInviteSchema } from '../lib/validation.js';
+import { supplierCreateSchema, supplierUpdateSchema, supplierFollowUpLogBatchCreateSchema } from '../lib/validation.js';
 import prisma from '../lib/prisma.js';
 import { cache, CACHE_TTL, CACHE_KEY } from '../lib/cache.js';
-import { generateAuthToken, getActivationExpiryDate } from '../lib/authFlow.js';
-import { sendSupplierInviteEmail } from '../lib/authEmailService.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 
 function parseJsonArrayField(value: unknown): string | undefined {
@@ -148,8 +146,8 @@ function mapSupplierFollowUpLog(log: SupplierFollowUpLogWithRelations) {
     taskId: log.taskId,
     rfqId: log.rfqId || undefined,
     rfqNumber: log.rfqNumber || undefined,
-    actionType: log.actionType,
-    outcome: log.outcome,
+    actionType: log.actionType === 'portal_follow_up' ? 'recorded_contact_follow_up' : log.actionType,
+    outcome: log.outcome === 'portal_message_sent' ? 'follow_up_sent' : log.outcome,
     notes: log.notes || undefined,
     preferredChannel: log.preferredChannel || undefined,
     createdAt: log.createdAt.toISOString(),
@@ -423,7 +421,6 @@ router.get(
           include: {
             inventory: true,
             inquiries: true,
-            portalUsers: true,
           },
         });
 
@@ -431,7 +428,11 @@ router.get(
           throw new AppError('供应商不存在', 404);
         }
 
-        return supplier;
+        return {
+          ...mapSupplierResponse(supplier),
+          inventory: supplier.inventory,
+          inquiries: supplier.inquiries,
+        };
       },
       CACHE_TTL.SUPPLIER_DETAIL
     );
@@ -592,57 +593,15 @@ router.patch(
 router.post(
   '/invite',
   requireCapability('supplier', 'create'),
-  validateBody(supplierInviteSchema),
-  asyncHandler(async (req, res) => {
-    const { email, message } = req.body;
-    void message;
-
-    // 检查是否已存在该邮箱的供应商
-    const existing = await prisma.supplier.findFirst({
-      where: { email },
-    });
-
-    if (existing) {
-      throw new AppError('该邮箱已关联供应商', 409);
-    }
-
-    const token = generateAuthToken();
-    const expiresAt = getActivationExpiryDate();
-
-    // 创建待激活的供应商记录
-    const supplier = await prisma.supplier.create({
-      data: {
-        name: email.split('@')[0],
-        email,
-        level: 'C',
-        performanceScore: 50,
-        status: 'pending',
-        activationToken: token,
-        activationTokenExpiresAt: expiresAt,
-      },
-    });
-
-    // 清除供应商列表缓存
-    cache.delByPrefix(CACHE_KEY.SUPPLIER_LIST);
-
-    // 发送邀请邮件
-    const emailResult = await sendSupplierInviteEmail(
-      supplier.name,
-      supplier.email!,
-      token,
-      expiresAt
+  asyncHandler(async () => {
+    // Kept as a controlled compatibility endpoint. Supplier records are managed
+    // internally; no supplier account, registration link, or outbound invitation
+    // may be created through this route.
+    throw new AppError(
+      '供应商门户已停用，请在供应商管理中维护联系人、资质、报价与跟进记录。',
+      410,
+      'FEATURE_DISABLED'
     );
-
-    res.status(201).json({
-      success: true,
-      message: '邀请已发送',
-      data: {
-        id: supplier.id,
-        email: supplier.email,
-        status: supplier.status,
-        emailDeliveryStatus: emailResult.emailDeliveryStatus,
-      },
-    });
   })
 );
 

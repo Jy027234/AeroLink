@@ -2,7 +2,7 @@ import type { Supplier } from '@/types';
 import type { SupplierSummary } from '@/types/agent';
 
 export type SupplierAutomationMode = 'auto' | 'manual' | 'blocked';
-export type SupplierManualActionType = 'portal_follow_up' | 'wechat_follow_up' | 'whatsapp_follow_up' | 'phone_follow_up' | 'contact_missing';
+export type SupplierManualActionType = 'recorded_contact_follow_up' | 'wechat_follow_up' | 'whatsapp_follow_up' | 'phone_follow_up' | 'contact_missing';
 
 export interface SupplierCapabilityProfile extends SupplierSummary {
   supplier: Supplier;

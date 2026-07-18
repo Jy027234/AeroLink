@@ -616,11 +616,6 @@ export const paginationSchema = z.object({
   }),
 });
 
-export const supplierInviteSchema = z.object({
-  email: z.string().email('请提供有效的邮箱'),
-  message: z.string().optional(),
-});
-
 export const supplierCreateSchema = z.object({
   name: z.string().min(1, '供应商名称不能为空'),
   contactName: z.string().min(1, '联系人不能为空'),
@@ -746,19 +741,21 @@ export const supplierUpdateSchema = z.object({
 });
 
 const supplierFollowUpActionSchema = z.enum([
+  'recorded_contact_follow_up',
   'portal_follow_up',
   'wechat_follow_up',
   'whatsapp_follow_up',
   'phone_follow_up',
   'contact_missing',
-]);
+]).transform((value) => value === 'portal_follow_up' ? 'recorded_contact_follow_up' : value);
 
 const supplierFollowUpOutcomeSchema = z.enum([
   'contacted_waiting_quote',
   'quote_promised',
+  'follow_up_sent',
   'portal_message_sent',
   'contact_invalid',
-]);
+]).transform((value) => value === 'portal_message_sent' ? 'follow_up_sent' : value);
 
 const supplierFollowUpLogCreateItemSchema = z.object({
   supplierId: z.string().min(1, '供应商ID不能为空'),

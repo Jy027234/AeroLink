@@ -1,11 +1,8 @@
 import { useState } from 'react';
 import {
   Building2,
-  Download,
   Bell,
-  CheckCircle,
   Users,
-  Mail,
   Package,
   DollarSign,
   Send,
@@ -47,7 +44,6 @@ import {
   useCreateSupplierQuote,
   useCompareSupplierQuotes,
   useSelectWinner,
-  useInviteSupplier,
 } from '@/hooks/useApi';
 
 interface QuoteFormData {
@@ -63,9 +59,11 @@ interface SupplierSummary {
   name: string;
   level?: 'S' | 'A' | 'B' | 'C' | string;
   contactName?: string;
+  email?: string;
+  phone?: string;
+  status?: string;
   performanceScore?: number | null;
   leadTime?: number | null;
-  portalUsers?: unknown[];
 }
 
 interface SupplierQuoteRecord {
@@ -121,6 +119,24 @@ interface CompareResult {
   };
 }
 
+function getSupplierStatusPresentation(
+  status: string | undefined,
+  tx: (zh: string, en: string) => string
+) {
+  switch (status?.toLowerCase()) {
+    case 'active':
+      return { label: tx('启用', 'Active'), className: 'bg-green-50 text-green-700 border-green-200' };
+    case 'pending':
+      return { label: tx('待完善', 'Needs completion'), className: 'bg-amber-50 text-amber-700 border-amber-200' };
+    case 'inactive':
+      return { label: tx('停用', 'Inactive'), className: 'bg-gray-100 text-gray-700 border-gray-200' };
+    case 'blocked':
+      return { label: tx('已阻止', 'Blocked'), className: 'bg-red-50 text-red-700 border-red-200' };
+    default:
+      return { label: tx('未记录', 'Not recorded'), className: 'bg-gray-100 text-gray-600 border-gray-200' };
+  }
+}
+
 function SubmitQuoteDialog({
   open,
   onClose,
@@ -170,7 +186,7 @@ function SubmitQuoteDialog({
       });
       onClose();
     } catch (err) {
-      toast.error(tx('提交失败：', 'Submit failed: ') + (err instanceof Error ? err.message : tx('未知错误', 'Unknown error')));
+      toast.error(tx('录入失败：', 'Recording failed: ') + (err instanceof Error ? err.message : tx('未知错误', 'Unknown error')));
     } finally {
       setIsSubmitting(false);
     }
@@ -182,7 +198,7 @@ function SubmitQuoteDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Send className="w-5 h-5" />
-            {tx('提交报价', 'Submit Quote')} - {rfq.rfqNumber || rfq.rfqId}
+            {tx('录入报价', 'Record Quote')} - {rfq.rfqNumber || rfq.rfqId}
           </DialogTitle>
         </DialogHeader>
 
@@ -258,7 +274,7 @@ function SubmitQuoteDialog({
             disabled={isSubmitting}
           >
             {isSubmitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
-            {tx('提交报价', 'Submit Quote')}
+            {tx('保存报价', 'Save Quote')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -409,17 +425,14 @@ function CompareDialog({
   );
 }
 
-export function SupplierPortal() {
+export function SupplierInformationManagement() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [activeTab, setActiveTab] = useState('overview');
-  const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
   const [isQuoteDialogOpen, setIsQuoteDialogOpen] = useState(false);
   const [isCompareOpen, setIsCompareOpen] = useState(false);
   const [selectedRFQId, setSelectedRFQId] = useState('');
   const [selectedQuote, setSelectedQuote] = useState<SupplierQuoteRecord | null>(null);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteMessage, setInviteMessage] = useState(tx('欢迎使用 AeroLink 供应商门户，请使用下方链接完成注册。', 'Welcome to the AeroLink supplier portal. Please use the link below to register your account.'));
 
   // Pagination state
   const [supplierPage, setSupplierPage] = useState(1);
@@ -429,7 +442,6 @@ export function SupplierPortal() {
   const { data: suppliers, loading: suppliersLoading } = useSuppliers({ limit: 100 });
   const { data: quotes, loading: quotesLoading, refetch: refetchQuotes } = useSupplierQuotes();
   const { mutate: createQuote } = useCreateSupplierQuote();
-  const { mutate: inviteSupplier, loading: inviting } = useInviteSupplier();
 
   const suppliersList: SupplierSummary[] = (suppliers as SupplierSummary[] | undefined) || [];
   const quotesList: SupplierQuoteRecord[] = (quotes as SupplierQuoteRecord[] | undefined) || [];
@@ -445,7 +457,9 @@ export function SupplierPortal() {
 
   const stats = {
     totalSuppliers: suppliersList.length,
-    portalUsers: suppliersList.reduce((sum: number, s: SupplierSummary) => sum + (s.portalUsers?.length || 0), 0),
+    completeContacts: suppliersList.filter((supplier) =>
+      Boolean(supplier.contactName?.trim()) && Boolean(supplier.email?.trim() || supplier.phone?.trim())
+    ).length,
     totalQuotes: quotesList.length,
     pendingQuotes: quotesList.filter((q: SupplierQuoteRecord) => q.status === 'pending').length,
   };
@@ -455,17 +469,6 @@ export function SupplierPortal() {
     await refetchQuotes();
   };
 
-  const handleInvite = async () => {
-    if (!inviteEmail) {
-      toast.error(tx('请输入供应商邮箱。', 'Please enter supplier email.'));
-      return;
-    }
-    await inviteSupplier({ email: inviteEmail, message: inviteMessage });
-    setIsInviteDialogOpen(false);
-    setInviteEmail('');
-    toast.success(tx('邀请已发送。', 'Invitation sent.'));
-  };
-
   const handleOpenCompare = (rfqId: string) => {
     setSelectedRFQId(rfqId);
     setIsCompareOpen(true);
@@ -473,12 +476,27 @@ export function SupplierPortal() {
 
   return (
     <div className="space-y-6">
+      <Card className="border-blue-100 bg-blue-50/50">
+        <CardContent className="flex gap-3 p-4">
+          <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-brand-primary" />
+          <div>
+            <p className="font-medium text-gray-900">{tx('内部供应商信息管理', 'Internal Supplier Information Management')}</p>
+            <p className="mt-1 text-sm text-gray-600">
+              {tx(
+                '仅供平台内部人员维护供应商档案、联系人、资质、报价与跟进记录；不会创建供应商账号或发送注册邀请。',
+                'For internal teams to maintain supplier profiles, contacts, qualifications, quotes, and follow-up records. It does not create supplier accounts or send registration invitations.'
+              )}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4 flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">{tx('已连接供应商', 'Connected Suppliers')}</p>
+              <p className="text-sm text-gray-500">{tx('供应商档案', 'Supplier Profiles')}</p>
               <p className="text-2xl font-bold">{stats.totalSuppliers}</p>
             </div>
             <Building2 className="w-8 h-8 text-brand-primary" />
@@ -487,8 +505,8 @@ export function SupplierPortal() {
         <Card>
           <CardContent className="p-4 flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">{tx('门户用户', 'Portal Users')}</p>
-              <p className="text-2xl font-bold">{stats.portalUsers}</p>
+              <p className="text-sm text-gray-500">{tx('联系人信息完整', 'Complete Contact Details')}</p>
+              <p className="text-2xl font-bold">{stats.completeContacts}</p>
             </div>
             <Users className="w-8 h-8 text-green-500" />
           </CardContent>
@@ -513,30 +531,18 @@ export function SupplierPortal() {
         </Card>
       </div>
 
-      {/* Actions */}
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={() => setIsInviteDialogOpen(true)}>
-          <Mail className="w-4 h-4 mr-1" />
-          {tx('邀请供应商', 'Invite Supplier')}
-        </Button>
-        <Button variant="outline">
-          <Download className="w-4 h-4 mr-1" />
-          {tx('导出模板', 'Export Template')}
-        </Button>
-      </div>
-
       {/* Main content */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="overview">{tx('供应商总览', 'Supplier Overview')}</TabsTrigger>
-          <TabsTrigger value="quotes">{tx('供应商报价', 'Supplier Quotes')}</TabsTrigger>
-          <TabsTrigger value="performance">{tx('已记录数据', 'Recorded Data')}</TabsTrigger>
+          <TabsTrigger value="overview">{tx('供应商档案', 'Supplier Profiles')}</TabsTrigger>
+          <TabsTrigger value="quotes">{tx('报价记录', 'Quote Records')}</TabsTrigger>
+          <TabsTrigger value="performance">{tx('资料完整度', 'Record Completeness')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">{tx('已连接供应商', 'Connected Suppliers')}</CardTitle>
+              <CardTitle className="text-lg">{tx('供应商档案', 'Supplier Profiles')}</CardTitle>
             </CardHeader>
             <CardContent className="overflow-x-auto">
               {suppliersLoading ? (
@@ -549,7 +555,7 @@ export function SupplierPortal() {
                     <TableRow>
                       <TableHead>{tx('供应商', 'Supplier')}</TableHead>
                       <TableHead>{tx('等级', 'Level')}</TableHead>
-                      <TableHead>{tx('联系人', 'Contact')}</TableHead>
+                      <TableHead>{tx('联系人 / 联系方式', 'Contact / Channel')}</TableHead>
                       <TableHead>{tx('已记录绩效', 'Recorded Performance')}</TableHead>
                       <TableHead>{tx('交期', 'Lead Time')}</TableHead>
                       <TableHead>{tx('状态', 'Status')}</TableHead>
@@ -564,7 +570,9 @@ export function SupplierPortal() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      paginatedSuppliers.map((supplier: SupplierSummary) => (
+                      paginatedSuppliers.map((supplier: SupplierSummary) => {
+                        const supplierStatus = getSupplierStatusPresentation(supplier.status, tx);
+                        return (
                         <TableRow key={supplier.id}>
                           <TableCell className="font-medium">{supplier.name}</TableCell>
                           <TableCell>
@@ -579,7 +587,12 @@ export function SupplierPortal() {
                               {supplier.level} {tx('级', 'Level')}
                             </Badge>
                           </TableCell>
-                          <TableCell>{supplier.contactName || '-'}</TableCell>
+                          <TableCell>
+                            <p>{supplier.contactName || tx('未记录', 'Not recorded')}</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {[supplier.email, supplier.phone].filter(Boolean).join(' · ') || tx('未记录', 'Not recorded')}
+                            </p>
+                          </TableCell>
                           <TableCell>
                             {typeof supplier.performanceScore === 'number' ? (
                               <div className="flex items-center gap-2">
@@ -592,13 +605,13 @@ export function SupplierPortal() {
                           </TableCell>
                           <TableCell>{typeof supplier.leadTime === 'number' ? `${supplier.leadTime} ${tx('天', 'days')}` : tx('未记录', 'Not recorded')}</TableCell>
                           <TableCell>
-                            <span className="flex items-center gap-1 text-green-600">
-                              <CheckCircle className="w-4 h-4" />
-                              {tx('启用', 'Active')}
-                            </span>
+                            <Badge variant="outline" className={supplierStatus.className}>
+                              {supplierStatus.label}
+                            </Badge>
                           </TableCell>
                         </TableRow>
-                      ))
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>
@@ -714,7 +727,7 @@ export function SupplierPortal() {
                                   }}
                                 >
                                   <DollarSign className="w-4 h-4 mr-1" />
-                                  {tx('报价', 'Quote')}
+                                  {tx('录入报价', 'Record Quote')}
                                 </Button>
                               )}
                               <Button
@@ -827,42 +840,6 @@ export function SupplierPortal() {
           </div>
         </TabsContent>
       </Tabs>
-
-      {/* Invite supplier dialog */}
-      <Dialog open={isInviteDialogOpen} onOpenChange={setIsInviteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{tx('邀请供应商加入门户', 'Invite Supplier to Portal')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>{tx('供应商邮箱', 'Supplier Email')}</Label>
-              <Input
-                placeholder="supplier@example.com"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{tx('邀请信息', 'Invitation Message')}</Label>
-              <textarea
-                className="w-full p-2 border rounded-md h-24"
-                value={inviteMessage}
-                onChange={(e) => setInviteMessage(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsInviteDialogOpen(false)}>
-              {tx('取消', 'Cancel')}
-            </Button>
-            <Button onClick={handleInvite} disabled={inviting}>
-              {inviting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Mail className="w-4 h-4 mr-1" />}
-              {tx('发送邀请', 'Send Invitation')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <SubmitQuoteDialog
         open={isQuoteDialogOpen}

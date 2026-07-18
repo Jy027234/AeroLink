@@ -309,7 +309,7 @@ export interface Supplier {
 }
 
 export type SupplierFollowUpAction =
-  | 'portal_follow_up'
+  | 'recorded_contact_follow_up'
   | 'wechat_follow_up'
   | 'whatsapp_follow_up'
   | 'phone_follow_up'
@@ -318,7 +318,7 @@ export type SupplierFollowUpAction =
 export type SupplierFollowUpOutcome =
   | 'contacted_waiting_quote'
   | 'quote_promised'
-  | 'portal_message_sent'
+  | 'follow_up_sent'
   | 'contact_invalid';
 
 export interface SupplierFollowUpLog {
@@ -1006,16 +1006,6 @@ export interface CustomsRisk {
   inspectionRate: number;
   requiredDocs: string[];
   recommendations: string[];
-}
-
-// 供应商门户相关
-export interface SupplierPortalUser {
-  id: string;
-  supplierId: string;
-  email: string;
-  name: string;
-  role: 'admin' | 'sales' | 'logistics';
-  lastLogin?: string;
 }
 
 export interface SupplierInventoryUpload {

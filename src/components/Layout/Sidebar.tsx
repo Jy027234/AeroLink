@@ -15,7 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Wrench,
-  Globe,
+  Building2,
   Code,
   RefreshCw,
   TrendingUp,
@@ -147,7 +147,7 @@ const navGroups: NavGroup[] = [
       { id: 'customers', icon: UserCircle },
       { id: 'suppliers', icon: Truck },
       { id: 'supplier-quotes', icon: FileText },
-      { id: 'supplier-portal', icon: Globe },
+      { id: 'supplier-portal', icon: Building2 },
     ],
   },
   {

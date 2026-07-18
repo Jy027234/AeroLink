@@ -1900,12 +1900,6 @@ export const supplierApi = {
     });
   },
 
-  invite: async (data: { email: string; message?: string }) => {
-    return request<ApiRecord>('/suppliers/invite', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
 };
 
 // ===== Supplier Quote API =====

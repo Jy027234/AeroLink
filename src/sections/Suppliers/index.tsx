@@ -140,8 +140,8 @@ function getNextActionText(action: string, tx: (zh: string, en: string) => strin
       return tx('可直接进入自动询价', 'Ready for automated inquiry');
     case 'activate_and_send':
       return tx('激活后可自动询价', 'Activate before automated inquiry');
-    case 'portal_follow_up':
-      return tx('建议通过供应商门户催报', 'Follow up through the supplier portal');
+    case 'recorded_contact_follow_up':
+      return tx('建议通过已记录联系方式催报', 'Follow up through the recorded contact channel');
     case 'wechat_follow_up':
       return tx('建议通过微信催报', 'Follow up through WeChat');
     case 'whatsapp_follow_up':
@@ -164,8 +164,8 @@ function getManualActionText(
   tx: (zh: string, en: string) => string
 ) {
   switch (action) {
-    case 'portal_follow_up':
-      return tx('门户催报', 'Portal follow-up');
+    case 'recorded_contact_follow_up':
+      return tx('已记录人工催报', 'Recorded manual follow-up');
     case 'wechat_follow_up':
       return tx('微信催报', 'WeChat follow-up');
     case 'whatsapp_follow_up':
@@ -188,8 +188,8 @@ function getFollowUpOutcomeText(
       return tx('已联系，待报价', 'Contacted, waiting for quote');
     case 'quote_promised':
       return tx('对方承诺回传报价', 'Quote promised');
-    case 'portal_message_sent':
-      return tx('已发送门户提醒', 'Portal reminder sent');
+    case 'follow_up_sent':
+      return tx('已发出催报', 'Follow-up sent');
     case 'contact_invalid':
       return tx('联系方式失效', 'Contact invalid');
     default:

@@ -73,14 +73,6 @@ export function buildPasswordResetLink(token: string) {
   return buildAuthLink('reset', token);
 }
 
-export function buildSupplierInviteLink(token: string) {
-  const url = new URL(getPrimaryClientUrl());
-  url.searchParams.delete('activate');
-  url.searchParams.delete('reset');
-  url.searchParams.set('supplier-invite', token);
-  return url.toString();
-}
-
 function buildOutboundAccountConfig(account: {
   id: string;
   email: string;
@@ -321,48 +313,6 @@ export async function sendPasswordResetEmailToUser(
   const delivery = await sendManagedAuthEmail({
     purpose: 'PASSWORD_RESET',
     toEmail: user.email,
-    subject,
-    textBody,
-    htmlBody,
-  });
-
-  return {
-    link,
-    ...delivery,
-  };
-}
-
-export async function sendSupplierInviteEmail(
-  supplierName: string,
-  email: string,
-  token: string,
-  expiresAt: Date
-): Promise<AuthEmailDeliveryResult> {
-  const link = buildSupplierInviteLink(token);
-  const expiresAtLabel = formatExpiryLabel(expiresAt);
-  const subject = 'AeroLink 供应商门户邀请';
-  const textBody = [
-    `您好，${supplierName}：`,
-    '',
-    '您已被邀请加入 AeroLink 供应商门户，请通过下面的链接完成注册：',
-    link,
-    '',
-    `链接有效期至：${expiresAtLabel}`,
-    '',
-    '如果这不是您本人的操作，请忽略这封邮件。',
-  ].join('\n');
-  const htmlBody = buildActionEmailHtml({
-    greeting: `您好，${supplierName}：`,
-    intro: '您已被邀请加入 AeroLink 供应商门户，请点击下方链接完成注册。',
-    actionLabel: '接受邀请并注册',
-    link,
-    expiresAtLabel,
-    footer: '如果这不是您本人的操作，请忽略这封邮件。',
-  });
-
-  const delivery = await sendManagedAuthEmail({
-    purpose: 'SUPPLIER_INVITE',
-    toEmail: email,
     subject,
     textBody,
     htmlBody,

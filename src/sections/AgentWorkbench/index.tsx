@@ -99,8 +99,8 @@ const rfqCancelReasons = [
 
 function getManualActionText(action: string | undefined) {
   switch (action) {
-    case 'portal_follow_up':
-      return '门户催报';
+    case 'recorded_contact_follow_up':
+      return '已记录人工催报';
     case 'wechat_follow_up':
       return '微信催报';
     case 'whatsapp_follow_up':
@@ -572,8 +572,8 @@ function getManualActionLabel(
   tx: (zh: string, en: string) => string
 ) {
   switch (action) {
-    case 'portal_follow_up':
-      return tx('门户催报', 'Portal follow-up');
+    case 'recorded_contact_follow_up':
+      return tx('已记录人工催报', 'Recorded manual follow-up');
     case 'wechat_follow_up':
       return tx('微信催报', 'WeChat follow-up');
     case 'whatsapp_follow_up':
@@ -596,8 +596,8 @@ function getFollowUpOutcomeLabel(
       return tx('已联系，待报价', 'Contacted, waiting for quote');
     case 'quote_promised':
       return tx('对方承诺回传报价', 'Quote promised');
-    case 'portal_message_sent':
-      return tx('已发送门户提醒', 'Portal reminder sent');
+    case 'follow_up_sent':
+      return tx('已发出催报', 'Follow-up sent');
     case 'contact_invalid':
       return tx('联系方式失效', 'Contact invalid');
     default:
@@ -870,8 +870,8 @@ function mergeFollowUpTimelineEntries(
 }
 
 function getDefaultFollowUpOutcome(action: string | undefined): SupplierFollowUpOutcome {
-  if (action === 'portal_follow_up') {
-    return 'portal_message_sent';
+  if (action === 'recorded_contact_follow_up') {
+    return 'follow_up_sent';
   }
 
   if (action === 'contact_missing') {
@@ -1298,7 +1298,7 @@ function TaskTimeline({ task }: { task: AgentTask }) {
                           <SelectContent>
                             <SelectItem value="contacted_waiting_quote">{tx('已联系，待报价', 'Contacted, waiting for quote')}</SelectItem>
                             <SelectItem value="quote_promised">{tx('对方承诺回传报价', 'Quote promised')}</SelectItem>
-                            <SelectItem value="portal_message_sent">{tx('已发送门户提醒', 'Portal reminder sent')}</SelectItem>
+                            <SelectItem value="follow_up_sent">{tx('已发出催报', 'Follow-up sent')}</SelectItem>
                             <SelectItem value="contact_invalid">{tx('联系方式失效', 'Contact invalid')}</SelectItem>
                           </SelectContent>
                         </Select>

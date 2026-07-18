@@ -15,7 +15,7 @@ const PAGE_PATHS: Record<string, string> = {
   reports: '/reports',
   settings: '/settings',
   'technical-kit': '/technical-kit',
-  'supplier-portal': '/supplier-portal',
+  'supplier-portal': '/supplier-information',
   'exchange-vmi': '/exchange-vmi',
   'pricing-bi': '/pricing-bi',
   'order-tracking': '/order-tracking',
@@ -30,9 +30,18 @@ const PAGE_PATHS: Record<string, string> = {
   'audit-logs': '/audit-logs',
 };
 
-const pathToPage = new Map<string, string>(
-  Object.entries(PAGE_PATHS).map(([pageId, pathname]) => [pathname, pageId])
-);
+// Existing bookmarks keep resolving to the internal information-management view.
+// New navigation always uses the supplier-information path.
+const LEGACY_PAGE_PATHS: Record<string, string> = {
+  '/supplier-portal': 'supplier-portal',
+};
+
+const pathToPageEntries: Array<[string, string]> = [
+  ...Object.entries(PAGE_PATHS).map(([pageId, pathname]) => [pathname, pageId] as [string, string]),
+  ...Object.entries(LEGACY_PAGE_PATHS).map(([pathname, pageId]) => [pathname, pageId] as [string, string]),
+];
+
+const pathToPage = new Map<string, string>(pathToPageEntries);
 
 function normalizePathname(pathname: string): string {
   const trimmedPath = pathname.replace(/\/+$/, '');

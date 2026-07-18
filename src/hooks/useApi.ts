@@ -437,10 +437,6 @@ export const useSupplierFollowUpLogs = (params?: { supplierId?: string; limit?: 
   return useQuery<SupplierFollowUpLog[]>(() => supplierApi.getFollowUpLogs(params), [params?.supplierId, params?.limit]);
 };
 
-export const useInviteSupplier = () => {
-  return useMutation<ApiRecord, { email: string; message?: string }>((data) => supplierApi.invite(data));
-};
-
 // ===== Supplier Quote Hooks =====
 export const useSupplierQuotes = (filters?: { rfqId?: string; inquiryId?: string; status?: string; partNumber?: string }) => {
   return useQuery(() => supplierQuoteApi.getAll(filters), [filters?.rfqId, filters?.inquiryId, filters?.status, filters?.partNumber]);

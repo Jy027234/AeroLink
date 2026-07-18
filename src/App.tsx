@@ -62,8 +62,8 @@ const SettingsPage = lazy(() =>
 const TechnicalKit = lazy(() =>
   import('@/sections/TechnicalKit').then((module) => ({ default: module.TechnicalKit }))
 );
-const SupplierPortal = lazy(() =>
-  import('@/sections/SupplierPortal').then((module) => ({ default: module.SupplierPortal }))
+const SupplierInformationManagement = lazy(() =>
+  import('@/sections/SupplierPortal').then((module) => ({ default: module.SupplierInformationManagement }))
 );
 const ExchangeVMI = lazy(() =>
   import('@/sections/ExchangeVMI').then((module) => ({ default: module.ExchangeVMI }))
@@ -280,7 +280,7 @@ function App() {
       case 'technical-kit':
         return withPageReady('technical-kit', <TechnicalKit />);
       case 'supplier-portal':
-        return withPageReady('supplier-portal', <SupplierPortal />);
+        return withPageReady('supplier-portal', <SupplierInformationManagement />);
       case 'exchange-vmi':
         return withPageReady('exchange-vmi', <ExchangeVMI />);
       case 'pricing-bi':

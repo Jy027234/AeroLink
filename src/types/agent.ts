@@ -48,7 +48,7 @@ export interface SupplierSummary extends AgentRecord {
   performanceScore?: number;
   automationMode?: 'auto' | 'manual' | 'blocked';
   preferredChannel?: 'email' | 'phone' | 'manual';
-  manualActionType?: 'portal_follow_up' | 'wechat_follow_up' | 'whatsapp_follow_up' | 'phone_follow_up' | 'contact_missing';
+  manualActionType?: 'recorded_contact_follow_up' | 'wechat_follow_up' | 'whatsapp_follow_up' | 'phone_follow_up' | 'contact_missing';
   profileCompleteness?: number;
   nextAction?: string;
 }

@@ -1015,26 +1015,6 @@ export const mockCustomsRisks = [
   },
 ];
 
-// 供应商门户用户
-export const mockSupplierPortalUsers = [
-  {
-    id: 'spu001',
-    supplierId: 's001',
-    email: 'sales@aviationparts.com',
-    name: 'John Smith',
-    role: 'sales',
-    lastLogin: '2026-04-01T09:00:00Z',
-  },
-  {
-    id: 'spu002',
-    supplierId: 's002',
-    email: 'sarah@globalaero.com',
-    name: 'Sarah Johnson',
-    role: 'admin',
-    lastLogin: '2026-04-02T08:30:00Z',
-  },
-];
-
 // 供应商库存上传
 export const mockSupplierInventoryUploads = [
   {

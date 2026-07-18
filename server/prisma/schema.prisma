@@ -280,6 +280,7 @@ model Supplier {
   inventory         Inventory[]
   inventoryDetails  InventoryDetail[]
   inquiries         Inquiry[]
+  // Historical records retained for data retention; no supplier portal flow reads or writes them.
   portalUsers       SupplierPortalUser[]
   supplierQuotes    SupplierQuote[]
   followUpLogs      SupplierFollowUpLog[]
@@ -288,6 +289,7 @@ model Supplier {
   @@map("suppliers")
 }
 
+// Legacy data-retention model. It is not an externally accessible account model.
 model SupplierPortalUser {
   id         String    @id @default(uuid())
   supplierId String
