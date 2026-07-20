@@ -61,25 +61,7 @@ import { downloadBlob } from '@/lib/downloadBlob';
 import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import { toast } from 'sonner';
 import type { Inventory, ConditionCode, CertificateType } from '@/types';
-
-const statusConfig: Record<ConditionCode, { label: string; color: string; bgColor: string }> = {
-  NE: { label: 'New', color: 'text-green-600', bgColor: 'bg-green-50' },
-  NS: { label: 'New Surplus', color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
-  OH: { label: 'Overhaul', color: 'text-blue-600', bgColor: 'bg-blue-50' },
-  SV: { label: 'Serviceable', color: 'text-cyan-600', bgColor: 'bg-cyan-50' },
-  AR: { label: 'As Removed', color: 'text-yellow-600', bgColor: 'bg-yellow-50' },
-  RP: { label: 'Repairable', color: 'text-orange-600', bgColor: 'bg-orange-50' },
-  US: { label: 'Unserviceable', color: 'text-red-600', bgColor: 'bg-red-50' },
-  FN: { label: 'Factory New', color: 'text-purple-600', bgColor: 'bg-purple-50' },
-};
-
-const certConfig: Record<CertificateType, { label: string; color: string }> = {
-  'AAC-038': { label: 'AAC-038', color: 'text-green-600' },
-  'FAA-8130-3': { label: 'FAA 8130-3', color: 'text-green-600' },
-  'EASA-Form-1': { label: 'EASA Form 1', color: 'text-green-600' },
-  COC: { label: 'COC', color: 'text-blue-600' },
-  NONE: { label: 'None', color: 'text-red-600' },
-};
+import { getCertConfig, getStatusConfig } from './inventoryConfig';
 
 function InventoryDetailDialog({
   item,
@@ -95,8 +77,8 @@ function InventoryDetailDialog({
 
   if (!item) return null;
 
-  const status = statusConfig[item.conditionCode];
-  const cert = certConfig[item.certificateType];
+  const status = getStatusConfig(item.conditionCode);
+  const cert = getCertConfig(item.certificateType);
 
   const shelfLifeWarning = item.shelfLifeDate
     ? new Date(item.shelfLifeDate) < new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
@@ -2054,8 +2036,8 @@ export function InventoryCenter() {
                 </TableRow>
               ) : (
                 paginatedInventory.map((item: Inventory) => {
-                  const status = statusConfig[item.conditionCode];
-                  const cert = certConfig[item.certificateType];
+                  const status = getStatusConfig(item.conditionCode);
+                  const cert = getCertConfig(item.certificateType);
                   const isSelected = selectedItems.has(item.id);
                   const statusLabelMap: Record<ConditionCode, string> = {
                     NE: tx('新品', 'New'),
