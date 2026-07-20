@@ -20,6 +20,7 @@ services:
       - aerolink-prod
 
   web:
+    image: ${WEB_IMAGE:-aerolink-prod-web}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.web
@@ -35,6 +36,7 @@ services:
       - aerolink-prod
 
   backend:
+    image: ${BACKEND_IMAGE:-aerolink-prod-backend}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.server
@@ -55,6 +57,9 @@ services:
       ALLOW_PRODUCTION_DEMO_SEED: ${ALLOW_PRODUCTION_DEMO_SEED:-false}
       REQUIRE_ACTIVE_ADMIN: ${REQUIRE_ACTIVE_ADMIN:-true}
       REQUIRE_SECURE_ORIGIN: ${REQUIRE_SECURE_ORIGIN:-true}
+      TRACE_EXPORTER_URL: ${TRACE_EXPORTER_URL:-}
+      OBSERVABILITY_METRICS_RETENTION_DAYS: ${OBSERVABILITY_METRICS_RETENTION_DAYS:-}
+      OBSERVABILITY_TRACE_RETENTION_HOURS: ${OBSERVABILITY_TRACE_RETENTION_HOURS:-}
       PRISMA_SCHEMA_PATH: prisma/schema.prisma
     depends_on:
       postgres:
@@ -70,6 +75,36 @@ services:
       timeout: 10s
       retries: 5
       start_period: 20s
+    networks:
+      - aerolink-prod
+
+  worker:
+    image: ${WORKER_IMAGE:-aerolink-prod-backend}:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.server
+      args:
+        PRISMA_SCHEMA_PATH: prisma/schema.prisma
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://aerolink:${DB_PASSWORD}@postgres:5432/aerolink?schema=public
+      EMAIL_MESSAGE_ID_DOMAIN: ${EMAIL_MESSAGE_ID_DOMAIN:-aerolink.local}
+      PRISMA_SCHEMA_PATH: prisma/schema.prisma
+      WORKER_ID: ${WORKER_ID:-aerolink-worker}
+      TRACE_EXPORTER_URL: ${TRACE_EXPORTER_URL:-}
+      OBSERVABILITY_METRICS_RETENTION_DAYS: ${OBSERVABILITY_METRICS_RETENTION_DAYS:-}
+      OBSERVABILITY_TRACE_RETENTION_HOURS: ${OBSERVABILITY_TRACE_RETENTION_HOURS:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+    secrets:
+      - encryption_key
+    volumes:
+      - backend-uploads:/app/uploads
+    restart: unless-stopped
+    stop_grace_period: 45s
+    entrypoint: ["dumb-init", "--"]
+    command: ["npm", "run", "worker"]
     networks:
       - aerolink-prod
 

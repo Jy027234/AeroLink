@@ -49,8 +49,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useQuotations, useApproveQuotation, quotationApi, useDocumentTemplates, useRFQs, useDispatchNotification } from '@/hooks/useApi';
-import { documentApi } from '@/api/client';
+import { useAcceptQuotation, useApproveQuotation, useCreateQuotation, useQuotation, useQuotations, useSendQuotation, useWithdrawQuotation } from '@/features/quotations';
+import { useRFQs } from '@/features/rfqs';
+import { useDispatchNotification, useDocumentTemplates } from '@/features/integrations';
+import { documentApi, quotationApi } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { PriceRecommendationPanel } from '@/components/PriceRecommendationPanel';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
@@ -111,45 +113,10 @@ function QuoteDetailDialog({
   const { locale } = useTranslation();
   const can = useCapabilityStore((state) => state.can);
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const [detailQuote, setDetailQuote] = useState<Quotation | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailLoadFailed, setDetailLoadFailed] = useState(false);
-  const [detailRequestVersion, setDetailRequestVersion] = useState(0);
-
-  useEffect(() => {
-    if (!quote || !isOpen) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadQuoteDetails = async () => {
-      setDetailLoading(true);
-      setDetailLoadFailed(false);
-
-      try {
-        const result = await quotationApi.getById(quote.id);
-        if (!cancelled) {
-          setDetailQuote(result);
-        }
-      } catch {
-        if (!cancelled) {
-          setDetailQuote(quote);
-          setDetailLoadFailed(true);
-        }
-      } finally {
-        if (!cancelled) {
-          setDetailLoading(false);
-        }
-      }
-    };
-
-    void loadQuoteDetails();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, quote, detailRequestVersion]);
+  const detailQuery = useQuotation(isOpen && quote ? quote.id : '');
+  const detailQuote = detailQuery.data;
+  const detailLoading = detailQuery.loading;
+  const detailLoadFailed = Boolean(detailQuery.error);
 
   if (!quote) return null;
 
@@ -157,9 +124,6 @@ function QuoteDetailDialog({
 
   const handleDialogOpenChange = (open: boolean) => {
     if (!open) {
-      setDetailQuote(null);
-      setDetailLoading(false);
-      setDetailLoadFailed(false);
       onClose();
     }
   };
@@ -190,7 +154,7 @@ function QuoteDetailDialog({
                   <p className="text-sm text-amber-800">{tx('当前展示的报价详情可能不是最新，请重试。', 'The quote details may be stale. Please retry.')}</p>
                 </div>
               </div>
-              <Button variant="outline" onClick={() => setDetailRequestVersion((version) => version + 1)}>
+              <Button variant="outline" onClick={() => void detailQuery.refetch()}>
                 {tx('重试加载', 'Retry Loading')}
               </Button>
             </div>
@@ -427,6 +391,7 @@ function CreateQuoteDialog({
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const { data: rfqs } = useRFQs();
+  const { mutate: createQuotation } = useCreateQuotation();
   const [formData, setFormData] = useState({
     rfqId: '',
     customerId: '',
@@ -488,7 +453,7 @@ function CreateQuoteDialog({
     }
     setIsSubmitting(true);
     try {
-      await quotationApi.create({
+      await createQuotation({
         rfqId: formData.rfqId,
         customerId: formData.customerId || 'c001',
         customerName: formData.customerName,
@@ -1081,6 +1046,7 @@ function ConvertToOrderDialog({
   const [confirmationNote, setConfirmationNote] = useState('');
   const [templateId, setTemplateId] = useState(defaultTemplateId);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { accept } = useAcceptQuotation();
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
 
@@ -1093,7 +1059,7 @@ function ConvertToOrderDialog({
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      const result = await quotationApi.accept(quote.id, {
+      const result = await accept(quote.id, {
         poNumber,
         deliveryDate,
         templateId: templateId || undefined,
@@ -1211,16 +1177,15 @@ function SendQuoteDialog({
   quote,
   isOpen,
   onClose,
-  onSent,
 }: {
   quote: Quotation | null;
   isOpen: boolean;
   onClose: () => void;
-  onSent: () => Promise<void>;
 }) {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { send } = useSendQuotation();
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
 
@@ -1251,14 +1216,13 @@ function SendQuoteDialog({
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      const result = await quotationApi.send(quote.id, { subject, message, version: quote.version });
+      const result = await send(quote.id, { subject, message, version: quote.version });
       if (result.emailDeliveryStatus === 'queued') {
         toast.success(`Quote ${quote.quoteNumber} email queued for ${quote.customerEmail || quote.customerName}.`);
       } else {
         toast.success(`Quote ${quote.quoteNumber} sent to ${quote.customerEmail || quote.customerName}.`);
       }
       onClose();
-      await onSent();
     } catch (error) {
       console.error('Failed to send quote:', error);
       toast.error('Failed to send quote. Please verify the default outbound email account.');
@@ -1320,6 +1284,7 @@ function WithdrawQuoteDialog({
   const [reason, setReason] = useState('');
   const [sendNotice, setSendNotice] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { withdraw } = useWithdrawQuotation();
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
 
@@ -1338,7 +1303,7 @@ function WithdrawQuoteDialog({
 
     setIsSubmitting(true);
     try {
-      await quotationApi.withdraw(quote.id, {
+      await withdraw(quote.id, {
         reason,
         sendWithdrawalNotice: sendNotice,
         version: quote.version,
@@ -1486,7 +1451,7 @@ export function Quotations() {
             customerName: selectedQuote.customerName || '',
             totalPrice: String(selectedQuote.totalPrice || ''),
           },
-        });
+        }).catch(() => undefined);
       }
     }
   };
@@ -1579,7 +1544,7 @@ export function Quotations() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-3" data-quotation-stat-grid>
         <Card className="hover:shadow-sm transition-shadow">
           <CardContent className="p-3 flex items-center justify-between">
             <div>
@@ -1645,8 +1610,8 @@ export function Quotations() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex-1 min-w-[300px] flex gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-4" data-quotation-toolbar>
+        <div className="flex min-w-0 flex-1 flex-wrap gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <Input
@@ -1681,7 +1646,7 @@ export function Quotations() {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2" data-quotation-actions>
           <Button variant="outline" size="sm" disabled>
             <Filter className="w-4 h-4 mr-1" />
             {tx('筛选', 'Filters')}
@@ -1700,7 +1665,7 @@ export function Quotations() {
         setActiveTab(value);
         setCurrentPage(1);
       }}>
-        <TabsList>
+        <TabsList className="flex h-auto w-full max-w-full flex-wrap justify-start">
           <TabsTrigger value="all">{tx('全部', 'All')}</TabsTrigger>
           <TabsTrigger value="pending_approval">{tx('待审批', 'Pending')}</TabsTrigger>
           <TabsTrigger value="approved">{tx('已审批', 'Approved')}</TabsTrigger>
@@ -1929,7 +1894,7 @@ export function Quotations() {
                 customerName: selectedQuote.customerName || '',
                 totalPrice: String(selectedQuote.totalPrice || ''),
               },
-            });
+            }).catch(() => undefined);
           }
         }}
       />
@@ -1940,9 +1905,6 @@ export function Quotations() {
         onClose={() => {
           setIsSendOpen(false);
           setSelectedQuote(null);
-        }}
-        onSent={async () => {
-          await refetchQuotes();
         }}
       />
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authApi, dashboardApi, rfqApi, quotationApi, orderApi, inventoryApi, inventoryItemApi, inventoryDetailApi, customerApi, supplierApi, supplierQuoteApi, notificationApi, emailApi, documentTemplateApi, documentApi, certificateApi, certificateTemplateApi, workflowApi, auditLogApi, pricingApi, inventoryAnalyticsApi, auctionApi, inventoryTransactionApi, userApi, notificationPreferenceApi, reportApi, shipmentTrackingApi, inquiryApi, pricingBIApi, blockchainApi, fmvApi, apiKeyApi, consignmentApi, exchangeVmiApi, technicalKitApi, channelBindingApi, notificationTemplateApi, imApi, notificationDispatcherApi, pushApi, agentApi, productFeatureApi } from '@/api/client';
+import { authApi, dashboardApi, quotationApi, inventoryApi, inventoryItemApi, inventoryDetailApi, customerApi, supplierApi, supplierQuoteApi, notificationApi, emailApi, documentTemplateApi, documentApi, certificateApi, certificateTemplateApi, workflowApi, auditLogApi, pricingApi, inventoryAnalyticsApi, auctionApi, inventoryTransactionApi, userApi, notificationPreferenceApi, reportApi, shipmentTrackingApi, inquiryApi, pricingBIApi, blockchainApi, fmvApi, apiKeyApi, consignmentApi, exchangeVmiApi, technicalKitApi, channelBindingApi, notificationTemplateApi, imApi, notificationDispatcherApi, pushApi, agentApi, productFeatureApi } from '@/api/client';
 import type {
   SupplierQuoteItem,
   Auction,
@@ -21,8 +21,26 @@ import type {
   DispatchNotificationPayload,
   PushSubscriptionPayload,
   UserOnboardingResponse,
+  PaginatedRFQs,
+  RFQSummary,
+  PaginatedQuotations,
+  QuotationSummary,
+  PaginatedOrders,
+  OrderSummary,
+  PaginatedInventory,
+  InventorySummary,
+  PaginatedCustomers,
+  CustomerSummary,
+  PaginatedSuppliers,
+  SupplierSummary,
 } from '@/api/client';
-import type { User, RFQ, Quotation, Order, SupplierFollowUpLog, DocumentTemplate, GeneratedDocument, Certificate, CertificateTemplate, WorkflowDefinition, WorkflowInstance } from '@/types';
+import type { User, RFQ, Quotation, Order, Inventory, Customer, Supplier, SupplierFollowUpLog, DocumentTemplate, GeneratedDocument, Certificate, CertificateTemplate, WorkflowDefinition, WorkflowInstance } from '@/types';
+import { useRfqsQuery, useRfqQuery, useCreateRfqMutation, useUpdateRfqMutation, useUpdateRfqStatusMutation } from '@/features/rfqs';
+import { useAcceptQuotationMutation, useApproveQuotationMutation, useCreateQuotationMutation, useQuotationsQuery, useQuotationQuery, useSendQuotationMutation, useSubmitQuotationMutation, useWithdrawQuotationMutation } from '@/features/quotations';
+import { useOrdersQuery, useOrderQuery, useCreateOrderMutation, useUpdateOrderMutation } from '@/features/orders';
+import { useCreateInventoryMutation, useInventoryQuery, useInventoryDetailQuery, useUpdateInventoryMutation } from '@/features/inventory';
+import { useCreateCustomerMutation, useCustomersQuery, useCustomerQuery, useUpdateCustomerMutation } from '@/features/customers';
+import { useCreateSupplierMutation, useSuppliersQuery, useSupplierQuery, useUpdateSupplierMutation } from '@/features/suppliers';
 
 export { quotationApi, customerApi, documentTemplateApi, documentApi };
 
@@ -146,48 +164,54 @@ export const useRFQs = (filters?: {
   sort?: string;
   direction?: 'asc' | 'desc';
 }) => {
-  const query = useQuery(() => rfqApi.getAll(filters), [
-    filters?.status,
-    filters?.urgency,
-    filters?.search,
-    filters?.page,
-    filters?.limit,
-    filters?.sort,
-    filters?.direction,
-  ]);
+  const query = useRfqsQuery(filters ?? {});
   return {
-    ...query,
-    data: query.data?.data ?? null,
-    pagination: query.data?.pagination,
-    summary: query.data?.summary,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: (query.data?.data as unknown as PaginatedRFQs['data'] | undefined) ?? null,
+    pagination: query.data?.pagination as PaginatedRFQs['pagination'] | undefined,
+    summary: query.data?.summary as RFQSummary | undefined,
   };
 };
 
 export const useRFQ = (id: string) => {
-  return useQuery(() => rfqApi.getById(id), [id]);
+  const query = useRfqQuery(id);
+  return {
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: query.data?.data as unknown as RFQ | undefined,
+  };
 };
 
 export const useCreateRFQ = () => {
-  return useMutation<RFQ, Payload>((data) => rfqApi.create(data));
+  const mutation = useCreateRfqMutation();
+  const mutate = useCallback(async (data: Payload): Promise<RFQ> => {
+    const result = await mutation.mutateAsync(data as never);
+    return result.data as unknown as RFQ;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 export const useUpdateRFQ = () => {
-  return useMutation<RFQ, { id: string; data: Payload }>(({ id, data }) => rfqApi.update(id, data));
+  const mutation = useUpdateRfqMutation();
+  const mutate = useCallback(async ({ id, data }: { id: string; data: Payload }): Promise<RFQ> => {
+    const result = await mutation.mutateAsync({ id, body: data as never });
+    return result.data as unknown as RFQ;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 export const useUpdateRFQStatus = () => {
-  const [loading, setLoading] = useState(false);
+  const mutation = useUpdateRfqStatusMutation();
 
   const updateStatus = useCallback(async (id: string, status: RFQ['status'], version?: number) => {
-    setLoading(true);
-    try {
-      return await rfqApi.updateStatus(id, status, version);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    const result = await mutation.mutateAsync({ id, body: { status, version } as never });
+    return result.data as unknown as RFQ;
+  }, [mutation]);
 
-  return { updateStatus, loading };
+  return { updateStatus, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 // ===== Quotation Hooks =====
@@ -199,58 +223,79 @@ export const useQuotations = (filters?: {
   sort?: string;
   direction?: 'asc' | 'desc';
 }) => {
-  const query = useQuery(() => quotationApi.getAll(filters), [
-    filters?.status,
-    filters?.search,
-    filters?.page,
-    filters?.limit,
-    filters?.sort,
-    filters?.direction,
-  ]);
+  const query = useQuotationsQuery(filters ?? {});
   return {
-    ...query,
-    data: query.data?.data ?? null,
-    pagination: query.data?.pagination,
-    summary: query.data?.summary,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: (query.data?.data as unknown as PaginatedQuotations['data'] | undefined) ?? null,
+    pagination: query.data?.pagination as PaginatedQuotations['pagination'] | undefined,
+    summary: query.data?.summary as QuotationSummary | undefined,
   };
 };
 
 export const useQuotation = (id: string) => {
-  return useQuery(() => quotationApi.getById(id), [id]);
+  const query = useQuotationQuery(id);
+  return {
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: query.data?.data as unknown as Quotation | undefined,
+  };
 };
 
 export const useCreateQuotation = () => {
-  return useMutation<Quotation, Payload>((data) => quotationApi.create(data));
+  const mutation = useCreateQuotationMutation();
+  const mutate = useCallback(async (data: Payload): Promise<Quotation> => {
+    const result = await mutation.mutateAsync(data as never);
+    return result.data as unknown as Quotation;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 export const useSubmitQuotation = () => {
-  const [loading, setLoading] = useState(false);
-
+  const mutation = useSubmitQuotationMutation();
   const submit = useCallback(async (id: string, version?: number) => {
-    setLoading(true);
-    try {
-      return await quotationApi.submitForApproval(id, version);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  return { submit, loading };
+    const result = await mutation.mutateAsync({ id, body: { version } });
+    return result.data;
+  }, [mutation]);
+  return { submit, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 export const useApproveQuotation = () => {
-  const [loading, setLoading] = useState(false);
-
+  const mutation = useApproveQuotationMutation();
   const approve = useCallback(async (id: string, action: 'approve' | 'reject', version?: number, comment?: string) => {
-    setLoading(true);
-    try {
-      return await quotationApi.approve(id, action, version, comment);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    const result = await mutation.mutateAsync({ id, body: { action, version, comment } });
+    return result.data;
+  }, [mutation]);
+  return { approve, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
+};
 
-  return { approve, loading };
+export const useSendQuotation = () => {
+  const mutation = useSendQuotationMutation();
+  const send = useCallback(async (id: string, body: Payload) => {
+    const result = await mutation.mutateAsync({ id, body: body as never });
+    return result.data;
+  }, [mutation]);
+  return { send, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
+};
+
+export const useWithdrawQuotation = () => {
+  const mutation = useWithdrawQuotationMutation();
+  const withdraw = useCallback(async (id: string, body: Payload) => {
+    const result = await mutation.mutateAsync({ id, body: body as never });
+    return result.data;
+  }, [mutation]);
+  return { withdraw, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
+};
+
+export const useAcceptQuotation = () => {
+  const mutation = useAcceptQuotationMutation();
+  const accept = useCallback(async (id: string, body: Payload) => {
+    const result = await mutation.mutateAsync({ id, body: body as never });
+    return result.data;
+  }, [mutation]);
+  return { accept, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 // ===== Order Hooks =====
@@ -262,32 +307,43 @@ export const useOrders = (filters?: {
   sort?: string;
   direction?: 'asc' | 'desc';
 }) => {
-  const query = useQuery(() => orderApi.getAll(filters), [
-    filters?.status,
-    filters?.search,
-    filters?.page,
-    filters?.limit,
-    filters?.sort,
-    filters?.direction,
-  ]);
+  const query = useOrdersQuery(filters ?? {});
   return {
-    ...query,
-    data: query.data?.data ?? null,
-    pagination: query.data?.pagination,
-    summary: query.data?.summary,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: (query.data?.data as unknown as PaginatedOrders['data'] | undefined) ?? null,
+    pagination: query.data?.pagination as PaginatedOrders['pagination'] | undefined,
+    summary: query.data?.summary as OrderSummary | undefined,
   };
 };
 
 export const useOrder = (id: string) => {
-  return useQuery(() => orderApi.getById(id), [id]);
+  const query = useOrderQuery(id);
+  return {
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: query.data?.data as unknown as Order | undefined,
+  };
 };
 
 export const useCreateOrder = () => {
-  return useMutation<Order, Payload>((data) => orderApi.create(data));
+  const mutation = useCreateOrderMutation();
+  const mutate = useCallback(async (data: Payload): Promise<Order> => {
+    const result = await mutation.mutateAsync(data as never);
+    return result.data as unknown as Order;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 export const useUpdateOrder = () => {
-  return useMutation<Order, { id: string; data: Payload }>(({ id, data }) => orderApi.update(id, data));
+  const mutation = useUpdateOrderMutation();
+  const mutate = useCallback(async ({ id, data }: { id: string; data: Payload }): Promise<Order> => {
+    const result = await mutation.mutateAsync({ id, body: data as never });
+    return result.data as unknown as Order;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 export const useDocumentTemplates = (documentType = 'ORDER_CONTRACT') => {
@@ -320,28 +376,43 @@ export const useInventory = (filters?: {
   sort?: string;
   direction?: 'asc' | 'desc';
 }) => {
-  const query = useQuery(() => inventoryApi.getAll(filters), [
-    filters?.search,
-    filters?.conditionCode,
-    filters?.certificateType,
-    filters?.type,
-    filters?.partCategory,
-    filters?.location,
-    filters?.page,
-    filters?.limit,
-    filters?.sort,
-    filters?.direction,
-  ]);
+  const query = useInventoryQuery(filters ?? {});
   return {
-    ...query,
-    data: query.data?.data ?? null,
-    pagination: query.data?.pagination,
-    summary: query.data?.summary,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: (query.data?.data as unknown as PaginatedInventory['data'] | undefined) ?? null,
+    pagination: query.data?.pagination as PaginatedInventory['pagination'] | undefined,
+    summary: query.data?.summary as InventorySummary | undefined,
   };
 };
 
 export const useInventoryItem = (id: string) => {
-  return useQuery(() => inventoryApi.getById(id), [id]);
+  const query = useInventoryDetailQuery(id);
+  return {
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: query.data?.data as unknown as Inventory | undefined,
+  };
+};
+
+export const useCreateInventory = () => {
+  const mutation = useCreateInventoryMutation();
+  const mutate = useCallback(async (data: Payload): Promise<Inventory> => {
+    const result = await mutation.mutateAsync(data as never);
+    return result.data as unknown as Inventory;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
+};
+
+export const useUpdateInventory = () => {
+  const mutation = useUpdateInventoryMutation();
+  const mutate = useCallback(async ({ id, data }: { id: string; data: Payload }): Promise<Inventory> => {
+    const result = await mutation.mutateAsync({ id, body: data as never });
+    return result.data as unknown as Inventory;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 export const useInventoryByPartNumber = (partNumber: string) => {
@@ -382,24 +453,43 @@ export const useCustomers = (params?: {
   sort?: string;
   direction?: 'asc' | 'desc';
 }) => {
-  const query = useQuery(() => customerApi.getAll(params), [
-    params?.status,
-    params?.search,
-    params?.page,
-    params?.limit,
-    params?.sort,
-    params?.direction,
-  ]);
+  const query = useCustomersQuery(params ?? {});
   return {
-    ...query,
-    data: query.data?.data ?? null,
-    pagination: query.data?.pagination,
-    summary: query.data?.summary,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: (query.data?.data as unknown as PaginatedCustomers['data'] | undefined) ?? null,
+    pagination: query.data?.pagination as PaginatedCustomers['pagination'] | undefined,
+    summary: query.data?.summary as CustomerSummary | undefined,
   };
 };
 
 export const useCustomer = (id: string) => {
-  return useQuery(() => customerApi.getById(id), [id]);
+  const query = useCustomerQuery(id);
+  return {
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: query.data?.data as unknown as Customer | undefined,
+  };
+};
+
+export const useCreateCustomer = () => {
+  const mutation = useCreateCustomerMutation();
+  const mutate = useCallback(async (data: Payload): Promise<Customer> => {
+    const result = await mutation.mutateAsync(data as never);
+    return result.data as unknown as Customer;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
+};
+
+export const useUpdateCustomer = () => {
+  const mutation = useUpdateCustomerMutation();
+  const mutate = useCallback(async ({ id, data }: { id: string; data: Payload }): Promise<Customer> => {
+    const result = await mutation.mutateAsync({ id, body: data as never });
+    return result.data as unknown as Customer;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 // ===== Supplier Hooks =====
@@ -412,25 +502,43 @@ export const useSuppliers = (params?: {
   sort?: string;
   direction?: 'asc' | 'desc';
 }) => {
-  const query = useQuery(() => supplierApi.getAll(params), [
-    params?.level,
-    params?.search,
-    params?.followUpFilter,
-    params?.page,
-    params?.limit,
-    params?.sort,
-    params?.direction,
-  ]);
+  const query = useSuppliersQuery(params ?? {});
   return {
-    ...query,
-    data: query.data?.data ?? null,
-    pagination: query.data?.pagination,
-    summary: query.data?.summary,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: (query.data?.data as unknown as PaginatedSuppliers['data'] | undefined) ?? null,
+    pagination: query.data?.pagination as PaginatedSuppliers['pagination'] | undefined,
+    summary: query.data?.summary as SupplierSummary | undefined,
   };
 };
 
 export const useSupplier = (id: string) => {
-  return useQuery(() => supplierApi.getById(id), [id]);
+  const query = useSupplierQuery(id);
+  return {
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    data: query.data?.data as unknown as Supplier | undefined,
+  };
+};
+
+export const useCreateSupplier = () => {
+  const mutation = useCreateSupplierMutation();
+  const mutate = useCallback(async (data: Payload): Promise<Supplier> => {
+    const result = await mutation.mutateAsync(data as never);
+    return result.data as unknown as Supplier;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
+};
+
+export const useUpdateSupplier = () => {
+  const mutation = useUpdateSupplierMutation();
+  const mutate = useCallback(async ({ id, data }: { id: string; data: Payload }): Promise<Supplier> => {
+    const result = await mutation.mutateAsync({ id, body: data as never });
+    return result.data as unknown as Supplier;
+  }, [mutation]);
+  return { mutate, loading: mutation.isPending, error: mutation.error instanceof Error ? mutation.error.message : null };
 };
 
 export const useSupplierFollowUpLogs = (params?: { supplierId?: string; limit?: number }) => {

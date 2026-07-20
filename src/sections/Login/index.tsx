@@ -273,7 +273,11 @@ export function Login() {
           {/* 登录表单 */}
           <form onSubmit={isPasswordFlowMode ? handlePasswordFlowSubmit : handleSubmit} className="space-y-6">
             {activeError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm text-center animate-pulse">
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm text-center animate-pulse"
+              >
                 {activeError}
               </div>
             )}
@@ -458,12 +462,12 @@ export function Login() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             {forgotSuccess && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+              <div role="status" aria-live="polite" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
                 {forgotSuccess}
               </div>
             )}
             {forgotError && (
-              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+              <div role="alert" aria-live="assertive" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
                 {forgotError}
               </div>
             )}

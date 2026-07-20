@@ -1026,15 +1026,21 @@ model OutboxEvent {
   maxAttempts   Int      @default(5)
   nextRetryAt   DateTime?
   lockedAt      DateTime?
+  workerId      String?
   deliveredAt   DateTime?
   lastError     String?
   createdById   String?
+  requestId     String?
+  traceId       String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([status, nextRetryAt, createdAt])
+  @@index([workerId, status])
   @@index([aggregateType, aggregateId, createdAt])
   @@index([createdById, createdAt])
+  @@index([requestId])
+  @@index([traceId])
   @@map("outbox_events")
 }
 
@@ -1195,6 +1201,8 @@ model WebhookDelivery {
   attemptCount    Int      @default(0)
   maxRetries      Int      @default(5)
   nextRetryAt     DateTime?
+  lockedAt        DateTime?
+  workerId        String?
   responseStatus  Int?
   responseBody    String?
   lastError       String?
@@ -1213,6 +1221,8 @@ model WebhookDelivery {
   endpoint        WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 
   @@index([status, nextRetryAt])
+  @@index([status, lockedAt])
+  @@index([workerId, status])
   @@index([status])  // Phase 2: fast query for quarantined
   @@index([endpointId, createdAt])
   @@index([eventId])
@@ -1414,6 +1424,31 @@ model CertificateTemplate {
 
   @@index([certificateType, isActive, isDefault])
   @@map("certificate_templates")
+}
+
+// P2-06: File metadata is the database truth; the bytes live in an object
+// storage adapter (local disk in development, S3-compatible in deployments).
+model StoredObject {
+  id             String   @id @default(uuid())
+  objectKey      String   @unique
+  version        Int      @default(1)
+  sha256         String
+  sizeBytes      Int
+  mimeType       String
+  originalName   String?
+  domain         String?
+  resourceId     String?
+  ownerId        String?
+  status         String   @default("AVAILABLE")
+  retentionUntil DateTime?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([domain, resourceId])
+  @@index([ownerId, createdAt])
+  @@index([status, retentionUntil])
+  @@map("stored_objects")
 }
 
 model Certificate {

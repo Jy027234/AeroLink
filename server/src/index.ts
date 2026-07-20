@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -26,6 +28,8 @@ import modelRoutes from './routes/models.js';
 import usersRoutes from './routes/users.js';
 import supplierQuoteRoutes from './routes/supplierQuotes.js';
 import uploadRoutes from './routes/upload.js';
+import filesRoutes from './routes/files.js';
+import { legacyUploadsMiddleware } from './routes/legacyUploads.js';
 import webhookRoutes from './routes/webhooks.js';
 import webhooksPhase2Routes from './routes/webhooks-phase2.js';
 import inboundWebhookRoutes from './routes/inboundWebhooks.js';
@@ -60,11 +64,11 @@ import featureRoutes from './routes/features.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
 import { auditLogger } from './middleware/auditLogger.js';
+import { requireCapability } from './middleware/capability.js';
 import { logger, requestLogger } from './lib/logger.js';
+import { getMetricsWithAlerts } from './lib/metrics.js';
 import { initSocketIO, SocketRooms } from './lib/socketEvents.js';
-import { processPendingWebhookRetries } from './lib/webhookService.js';
-import { processPendingOutboxEvents } from './lib/outboxService.js';
-import { pruneExpiredIdempotencyRecords } from './lib/idempotencyService.js';
+import { startWorker, type WorkerRuntime } from './worker.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -151,6 +155,7 @@ app.use('/api/models', authenticate, modelRoutes);
 app.use('/api/users', authenticate, auditLogger({ resourceType: 'SETTINGS', actions: ['CREATE', 'UPDATE', 'DELETE'] }), usersRoutes);
 app.use('/api/supplier-quotes', authenticate, auditLogger({ resourceType: 'QUOTATION', actions: ['CREATE', 'UPDATE', 'DELETE'] }), supplierQuoteRoutes);
 app.use('/api/upload', authenticate, uploadRoutes);
+app.use('/api/files', authenticate, filesRoutes);
 app.use('/api/webhooks', authenticate, webhookRoutes);
 app.use('/api/webhooks/phase2', authenticate, webhooksPhase2Routes);
 app.use('/api/inbound-webhooks', inboundWebhookRoutes);
@@ -182,10 +187,14 @@ app.use('/api/channel-bindings', authenticate, channelBindingRoutes);
 app.use('/api/push', authenticate, pushRoutes);
 app.use('/api/outbox', authenticate, auditLogger({ resourceType: 'SETTINGS', actions: ['UPDATE'] }), outboxRoutes);
 app.use('/api/features', authenticate, featureRoutes);
-app.use('/uploads', authenticate, express.static('uploads'));
+app.use('/uploads', authenticate, legacyUploadsMiddleware);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/metrics', authenticate, requireCapability('settings', 'read'), (_req, res) => {
+  res.json({ success: true, data: getMetricsWithAlerts() });
 });
 
 app.use(errorHandler);
@@ -243,40 +252,25 @@ io.on('connection', (socket) => {
 });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const isMainModule = process.argv[1]
+  ? fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+  : false;
 
-const webhookRetryTimer = setInterval(() => {
-  void processPendingWebhookRetries(30).catch((error) => {
-    logger.error({ error }, 'Webhook retry worker execution failed');
-  });
-}, 30_000);
+const inlineWorker: WorkerRuntime | null = isMainModule && process.env.ENABLE_INLINE_WORKER === 'true'
+  ? startWorker()
+  : null;
 
-const outboxRetryTimer = setInterval(() => {
-  void processPendingOutboxEvents(30).catch((error) => {
-    logger.error({ error }, 'Transactional outbox worker execution failed');
+if (isMainModule) {
+  httpServer.listen(PORT, () => {
+    logger.info(`🚀 AeroLink Server running on http://localhost:${PORT}`);
+    logger.info(`📚 Health check: http://localhost:${PORT}/api/health`);
+    logger.info(inlineWorker ? '🔁 Inline worker enabled for controlled test/dev fixture' : '🔁 Worker runs as a separate process');
   });
-}, 5_000);
-
-const idempotencyCleanupTimer = setInterval(() => {
-  void pruneExpiredIdempotencyRecords().catch((error) => {
-    logger.error({ error }, 'Idempotency record cleanup failed');
-  });
-}, 6 * 60 * 60 * 1000);
-
-httpServer.listen(PORT, () => {
-  logger.info(`🚀 AeroLink Server running on http://localhost:${PORT}`);
-  logger.info(`📚 Health check: http://localhost:${PORT}/api/health`);
-  logger.info('🔁 Webhook retry worker started (interval: 30s)');
-  logger.info('📮 Transactional outbox worker started (interval: 5s)');
-  void processPendingOutboxEvents(30).catch((error) => {
-    logger.error({ error }, 'Initial transactional outbox worker execution failed');
-  });
-});
+}
 
 function gracefulShutdown(signal: string) {
   logger.info({ signal }, 'Shutting down gracefully...');
-  clearInterval(webhookRetryTimer);
-  clearInterval(outboxRetryTimer);
-  clearInterval(idempotencyCleanupTimer);
+  void inlineWorker?.stop();
   io.close(() => {
     logger.info('Socket.IO closed');
   });
@@ -285,7 +279,9 @@ function gracefulShutdown(signal: string) {
   });
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+if (isMainModule) {
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+}
 
 export { app, httpServer, io };

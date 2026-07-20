@@ -1,0 +1,13 @@
+apis:
+  aerolink:
+    root: ./contracts/openapi/openapi.json
+    x-openapi-ts:
+      output: ./src/api/generated/openapi.d.ts
+
+extends:
+  - minimal
+
+rules:
+  no-unused-components: off
+  operation-summary: off
+  operation-description: off

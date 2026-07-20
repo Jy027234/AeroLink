@@ -52,6 +52,26 @@ make dev
 
 更多 Docker 说明见 [docker-readme.md](docker-readme.md)。
 
+## P2 工程交接与质量门禁
+
+P2 的范围、依赖顺序和未做事项以 [P2 阶段开发与验收清单](docs/AeroLink_P2阶段开发与验收清单_2026-07-19.md) 为准；当前首批交付记录见 `docs/P2-00_*.md` 至 `docs/P2-09_*.md`，交接入口见 [项目交接与剩余开发清单](docs/AeroLink项目交接与剩余开发清单_2026-07-15.md)。
+
+```bash
+npm run api:check
+npm run features:check
+npm run modules:check
+npm run lint
+npx vitest run
+npm --prefix server test
+npm run build
+npm --prefix server run build
+npm --prefix server run observability:retention-check
+# 有人工 A11-A19 证据 JSON 时再执行格式校验
+npm run a11y:verify-manual-evidence -- path/to/p2-09-manual-evidence.json
+```
+
+OpenAPI 生成物位于 `src/api/generated/`，禁止手工编辑；独立 Worker 使用 `npm --prefix server run worker` 启动。历史 `uploads` 迁移默认只读，可用 `npm --prefix server run storage:migrate-uploads -- --manifest=...` 生成 SHA/大小对账清单，只有完成隔离验收后才允许显式 `--apply`。
+
 ## 生产部署
 
 项目提供单端口生产编排，前端静态资源、`/api`、`/uploads` 和 `socket.io` 全部统一走 `8080` 端口。
@@ -76,6 +96,11 @@ DB_PASSWORD=<PostgreSQL profile 必填，SQLite profile 可忽略>
 ```
 
 PostgreSQL profile 默认使用 `prisma migrate deploy`，只有在备份/演练环境完成迁移基线确认后，才可将 `MIGRATION_BASELINE_CONFIRMED=true`。SQLite 兼容 profile 使用显式的 `SCHEMA_MIGRATION_MODE=push`，用于存量过渡，不作为 PostgreSQL 正式迁移方案。
+
+外部 trace 采集默认关闭。若设置 `TRACE_EXPORTER_URL`，发布前必须同时设置
+`OBSERVABILITY_METRICS_RETENTION_DAYS` 与 `OBSERVABILITY_TRACE_RETENTION_HOURS`，并在部署记录中确认 collector 的实际删除策略；可执行
+`npm --prefix server run observability:retention-check` 进行配置门禁，`deploy/cloud-verify.sh` 会在测试云验证时强制执行同一门禁。部署后收到脱敏的 collector 留存记录时，再用
+`npm run observability:verify-retention-evidence -- <证据 JSON 路径>` 校验格式（也可直接用 Node 的 `--evidence=<路径>` 形式）；两个门禁都不替代外部平台的实际留存确认。
 
 3. 准备 Docker secret（如果未使用环境变量回退）：
 

@@ -6,7 +6,7 @@ import { createAuditLog } from '../middleware/auditLogger.js';
 import { validateBody } from '../middleware/validate.js';
 import { customerCreateSchema, customerUpdateSchema } from '../lib/validation.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
-import prisma from '../lib/prisma.js';
+import { customerRepository, normalizeCustomerStatus, updateCustomerAggregate } from '../modules/customerSupplier/index.js';
 
 const router = Router();
 
@@ -123,19 +123,19 @@ router.get(
     const where = buildCustomerListWhere(query);
 
     const [customers, total, statusCounts, revenueAggregate] = await Promise.all([
-      prisma.customer.findMany({
+          customerRepository.findMany({
         where,
         include: customerInclude,
         orderBy: customerListOrderBy(sort, direction),
         skip,
         take: pageSize,
       }),
-      prisma.customer.count({ where }),
-      prisma.customer.groupBy({
+          customerRepository.count({ where }),
+          customerRepository.groupBy({
         by: ['status'],
         _count: { _all: true },
       }),
-      prisma.customer.aggregate({
+          customerRepository.aggregate({
         _sum: { annualRevenue: true },
       }),
     ]);
@@ -177,7 +177,7 @@ router.get(
       defaultSort: 'name',
       defaultDirection: 'asc',
     });
-    const customers = await prisma.customer.findMany({
+    const customers = await customerRepository.findMany({
       where: buildCustomerListWhere(query),
       select: {
         name: true,
@@ -225,7 +225,7 @@ router.get(
   '/:id',
   requireCapability('customer', 'read'),
   asyncHandler(async (req, res) => {
-    const customer = await prisma.customer.findUnique({
+    const customer = await customerRepository.findUnique({
       where: { id: req.params.id },
       include: {
         ...customerInclude,
@@ -278,7 +278,7 @@ router.post(
       competitorListings,
     } = req.body;
 
-    const customer = await prisma.customer.create({
+    const customer = await customerRepository.create({
       data: {
         name,
         contactName,
@@ -372,32 +372,7 @@ router.patch(
       competitorListings,
     } = req.body;
 
-    const existing = await prisma.customer.findUnique({
-      where: { id: req.params.id },
-      include: customerInclude,
-    });
-
-    if (!existing) {
-      throw new AppError('客户不存在', 404);
-    }
-
-    // Handle nested contacts: delete existing and recreate if provided
-    if (contacts !== undefined) {
-      await prisma.customerContact.deleteMany({
-        where: { customerId: req.params.id },
-      });
-    }
-
-    // Handle nested competitorListings: delete existing and recreate if provided
-    if (competitorListings !== undefined) {
-      await prisma.competitorListing.deleteMany({
-        where: { customerId: req.params.id },
-      });
-    }
-
-    const customer = await prisma.customer.update({
-      where: { id: req.params.id },
-      data: {
+    const customer = await updateCustomerAggregate(req.params.id, {
         ...(name !== undefined && { name }),
         ...(contactName !== undefined && { contactName }),
         ...(email !== undefined && { email }),
@@ -421,7 +396,7 @@ router.patch(
         ...(preferredIncoterm !== undefined && { preferredIncoterm }),
         ...(customsBroker !== undefined && { customsBroker }),
         ...(qualityApprovalStatus !== undefined && { qualityApprovalStatus }),
-        ...(status !== undefined && { status: status.toUpperCase().replace('-', '_') }),
+        ...(status !== undefined && { status: normalizeCustomerStatus(status) }),
         ...(contacts?.length && {
           contacts: {
             create: contacts.map((c: any) => ({
@@ -445,9 +420,10 @@ router.patch(
             })),
           },
         }),
-      },
-      include: customerInclude,
-    });
+      }, customerInclude, {
+        contactsProvided: contacts !== undefined,
+        competitorListingsProvided: competitorListings !== undefined,
+      });
 
     res.json({
       success: true,
@@ -460,12 +436,12 @@ router.delete(
   '/:id',
   requireCapability('customer', 'delete'),
   asyncHandler(async (req, res) => {
-    const existing = await prisma.customer.findUnique({ where: { id: req.params.id } });
+    const existing = await customerRepository.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       throw new AppError('客户不存在', 404);
     }
 
-    await prisma.customer.update({
+    await customerRepository.update({
       where: { id: req.params.id },
       data: { status: 'INACTIVE' },
     });

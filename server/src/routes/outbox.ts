@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { asyncHandler } from '../middleware/errorHandler.js';
+import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import { requireCapability } from '../middleware/capability.js';
+import { createAuditLog } from '../middleware/auditLogger.js';
 import {
   cancelOutboxEvent,
   getOutboxStats,
@@ -49,6 +50,8 @@ router.get(
           maxAttempts: true,
           nextRetryAt: true,
           lockedAt: true,
+          workerId: true,
+          requestId: true,
           deliveredAt: true,
           lastError: true,
           createdById: true,
@@ -82,8 +85,36 @@ router.get(
 router.post(
   '/:id/retry',
   asyncHandler(async (req, res) => {
-    const event = await retryOutboxEvent(req.params.id);
-    res.json({ success: true, data: event });
+    if (req.body?.confirm !== 'replay') {
+      throw new AppError(
+        '人工重放需要显式确认，请传入 confirm=replay',
+        400,
+        'OUTBOX_REPLAY_CONFIRMATION_REQUIRED',
+      );
+    }
+
+    try {
+      const event = await retryOutboxEvent(req.params.id);
+      await createAuditLog({
+        req,
+        action: 'REPLAY',
+        resourceType: 'OUTBOX',
+        resourceId: req.params.id,
+        details: 'Manual Outbox replay requested and queued',
+      });
+      res.json({ success: true, data: event });
+    } catch (error) {
+      await createAuditLog({
+        req,
+        action: 'REPLAY',
+        resourceType: 'OUTBOX',
+        resourceId: req.params.id,
+        details: 'Manual Outbox replay rejected',
+        status: 'FAILURE',
+        errorMessage: error instanceof Error ? error.message : 'Unknown replay failure',
+      });
+      throw error;
+    }
   }),
 );
 

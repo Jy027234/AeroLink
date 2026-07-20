@@ -7,6 +7,7 @@ ENV_FILE="${ENV_FILE:-.env.production}"
 RELEASE_TAG="${RELEASE_TAG:?RELEASE_TAG is required and must be the full Git SHA}"
 SOURCE_REF="${SOURCE_REF:?SOURCE_REF is required and must be the full Git SHA}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-aerolink-prod-backend}"
+WORKER_IMAGE="${WORKER_IMAGE:-$BACKEND_IMAGE}"
 WEB_IMAGE="${WEB_IMAGE:-aerolink-prod-web}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 SMOKE_TIMEOUT_SECONDS="${SMOKE_TIMEOUT_SECONDS:-90}"
@@ -80,6 +81,7 @@ if [[ "$manifest_source_ref" != "$SOURCE_REF" || "$manifest_release_tag" != "$RE
 fi
 
 cd "$PROJECT_DIR"
+export BACKEND_IMAGE WORKER_IMAGE WEB_IMAGE IMAGE_TAG=latest
 mkdir -p "$RECORD_DIR"
 chmod 700 "$RECORD_DIR"
 
@@ -87,6 +89,7 @@ compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$RELEASE_TAG"
 record_file="$RECORD_DIR/$run_id.env"
 backend_rollback_ref="$BACKEND_IMAGE:rollback-$run_id"
+worker_rollback_ref="$WORKER_IMAGE:rollback-$run_id"
 web_rollback_ref="$WEB_IMAGE:rollback-$run_id"
 db_backup="$RECORD_DIR/$run_id.postgres.sql.gz"
 backend_sbom="$RECORD_DIR/$run_id.backend.spdx.json"
@@ -95,9 +98,18 @@ release_manifest="$RECORD_DIR/$run_id.manifest.env"
 
 previous_backend_id="$(docker image inspect "$BACKEND_IMAGE:latest" --format '{{.Id}}' 2>/dev/null || true)"
 previous_web_id="$(docker image inspect "$WEB_IMAGE:latest" --format '{{.Id}}' 2>/dev/null || true)"
+previous_worker_container_id="$("${compose[@]}" ps -q worker 2>/dev/null | tr -d '[:space:]' || true)"
+rollback_worker_enabled=false
+previous_worker_id=""
+if [[ -n "$previous_worker_container_id" ]]; then
+  rollback_worker_enabled=true
+  previous_worker_id="$(docker inspect "$previous_worker_container_id" --format '{{.Image}}')"
+fi
 require_image "$BACKEND_IMAGE:$RELEASE_TAG"
+require_image "$WORKER_IMAGE:$RELEASE_TAG"
 require_image "$WEB_IMAGE:$RELEASE_TAG"
 release_backend_id="$(docker image inspect "$BACKEND_IMAGE:$RELEASE_TAG" --format '{{.Id}}')"
+release_worker_id="$(docker image inspect "$WORKER_IMAGE:$RELEASE_TAG" --format '{{.Id}}')"
 release_web_id="$(docker image inspect "$WEB_IMAGE:$RELEASE_TAG" --format '{{.Id}}')"
 
 cp "$SBOM_DIR/backend.sbom.spdx.json" "$backend_sbom"
@@ -116,6 +128,9 @@ chmod 600 "$db_backup"
 if [[ -n "$previous_backend_id" ]]; then
   docker tag "$previous_backend_id" "$backend_rollback_ref"
 fi
+if [[ "$rollback_worker_enabled" == true ]]; then
+  docker tag "$previous_worker_id" "$worker_rollback_ref"
+fi
 if [[ -n "$previous_web_id" ]]; then
   docker tag "$previous_web_id" "$web_rollback_ref"
 fi
@@ -126,10 +141,14 @@ RUN_ID=$run_id
 SOURCE_REF=$SOURCE_REF
 SOURCE_MANIFEST=$release_manifest
 BACKEND_ROLLBACK_REF=$backend_rollback_ref
+WORKER_ROLLBACK_REF=$worker_rollback_ref
 WEB_ROLLBACK_REF=$web_rollback_ref
+ROLLBACK_WORKER_ENABLED=$rollback_worker_enabled
 BACKEND_RELEASE_IMAGE=$BACKEND_IMAGE:$RELEASE_TAG
+WORKER_RELEASE_IMAGE=$WORKER_IMAGE:$RELEASE_TAG
 WEB_RELEASE_IMAGE=$WEB_IMAGE:$RELEASE_TAG
 BACKEND_RELEASE_ID=$release_backend_id
+WORKER_RELEASE_ID=$release_worker_id
 WEB_RELEASE_ID=$release_web_id
 DB_BACKUP=$db_backup
 BACKEND_SBOM=$backend_sbom
@@ -141,20 +160,31 @@ chmod 600 "$record_file"
 rollback() {
   trap - ERR
   echo "Release verification failed; restoring previous images." >&2
-  if [[ -z "$previous_backend_id" || -z "$previous_web_id" ]]; then
+  if [[ -z "$previous_backend_id" || -z "$previous_web_id" || ( "$rollback_worker_enabled" == true && -z "$previous_worker_id" ) ]]; then
     set_record_status "rollback_unavailable"
-    echo "No previous backend/web image pair is available for automatic rollback." >&2
+    echo "The previous release images required for automatic rollback are unavailable." >&2
     return 1
   fi
   if ! docker tag "$backend_rollback_ref" "$BACKEND_IMAGE:latest"; then
     set_record_status "rollback_failed"
     return 1
   fi
+  if [[ "$rollback_worker_enabled" == true ]]; then
+    if ! docker tag "$worker_rollback_ref" "$WORKER_IMAGE:latest"; then
+      set_record_status "rollback_failed"
+      return 1
+    fi
+  fi
   if ! docker tag "$web_rollback_ref" "$WEB_IMAGE:latest"; then
     set_record_status "rollback_failed"
     return 1
   fi
-  if ! "${compose[@]}" up -d --no-build backend web >/dev/null; then
+  "${compose[@]}" stop -t 45 worker >/dev/null || true
+  rollback_services=(backend web)
+  if [[ "$rollback_worker_enabled" == true ]]; then
+    rollback_services+=(worker)
+  fi
+  if ! "${compose[@]}" up -d --no-build "${rollback_services[@]}" >/dev/null; then
     set_record_status "rollback_failed"
     return 1
   fi
@@ -168,7 +198,9 @@ rollback() {
 trap 'rollback' ERR
 
 docker tag "$BACKEND_IMAGE:$RELEASE_TAG" "$BACKEND_IMAGE:latest"
+docker tag "$WORKER_IMAGE:$RELEASE_TAG" "$WORKER_IMAGE:latest"
 docker tag "$WEB_IMAGE:$RELEASE_TAG" "$WEB_IMAGE:latest"
+"${compose[@]}" stop -t 45 worker || true
 "${compose[@]}" up -d --no-build backend web
 
 if ! wait_for_health; then
@@ -176,6 +208,11 @@ if ! wait_for_health; then
   rollback
   exit 1
 fi
+
+# Drain the old worker before the migration/backend switch. The new worker is
+# started only after the new backend is healthy, so pre-lease and post-lease
+# binaries never compete for the same outbox rows during this rollout.
+"${compose[@]}" up -d --no-build worker
 
 if ! PROJECT_DIR="$PROJECT_DIR" COMPOSE_FILE="$COMPOSE_FILE" ENV_FILE="$ENV_FILE" \
   HEALTH_URL="$HEALTH_URL" RELEASE_RECORD="$record_file" SOURCE_REF="$SOURCE_REF" \

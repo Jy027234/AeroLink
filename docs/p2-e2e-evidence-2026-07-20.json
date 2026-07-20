@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "capturedOn": "2026-07-20",
+  "baselineSha": "8868d844a0e1a47c33758b809795807b23688c51",
+  "runtime": {
+    "node": "22.16.0",
+    "browser": "Chromium",
+    "database": "temporary isolated PostgreSQL",
+    "apiOrigin": "http://127.0.0.1:3042",
+    "frontendOrigin": "http://127.0.0.1:5292",
+    "featureAgentDemo": true
+  },
+  "command": "PLAYWRIGHT_EXTERNAL=true npx playwright test --project=chromium",
+  "result": {
+    "tests": 44,
+    "passed": 44,
+    "failed": 0,
+    "duration": "2.6m"
+  },
+  "coveredP2Suites": {
+    "highZoom": 2,
+    "keyboardFocus": 2,
+    "readingOrder": 1,
+    "responsiveA11y": 3,
+    "settingsUrl": 2,
+    "errorAnnouncements": 2,
+    "ordersAndQuotationFailureRecovery": 9
+  },
+  "boundary": "Automated evidence only; it does not replace external collector retention evidence or A11-A19 manual sign-off."
+}

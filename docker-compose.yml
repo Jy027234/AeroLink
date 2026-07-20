@@ -89,13 +89,38 @@ services:
     command: >
       sh -c "
         npx prisma generate &&
-        npx prisma db push &&
+        npx prisma migrate deploy &&
         npm run db:seed &&
         npm run dev
       "
     depends_on:
       postgres:
         condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: development
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    env_file:
+      - server/.env.docker
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://aerolink:aerolink_password@postgres:5432/aerolink?schema=public
+    working_dir: /app
+    command: >
+      sh -c "
+        npx prisma generate &&
+        npm run worker
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aerodinetwork
 
 volumes:
   postgres_data:

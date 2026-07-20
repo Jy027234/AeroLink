@@ -58,7 +58,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { useOrders, useUpdateOrder, useInventoryItemByPartNumber, useInventoryTransactionsByOrder, useCreateInventoryReservation, useCreateOutbound } from '@/hooks/useApi';
+import { useOrder, useOrders, useUpdateOrder } from '@/features/orders';
+import { useCreateInventoryReservation, useCreateOutbound, useInventoryItemByPartNumber, useInventoryTransactionsByOrder } from '@/features/inventory';
 import { documentApi, orderApi } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
@@ -416,20 +417,20 @@ function ReserveInventoryDialog({
 
   const handleSubmit = async () => {
     if (!isValid || !selectedDetail) return;
-    const result = await createReservation.mutate({
-      inventoryDetailId: selectedDetail.id,
-      quotationId: order.quotationId,
-      quantity: parsedQuantity,
-      notes: notes.trim() || undefined,
-    });
-    if (!result) {
-      toast.error(createReservation.error || tx('库存预留失败', 'Inventory reservation failed'));
-      return;
+    try {
+      await createReservation.mutate({
+        inventoryDetailId: selectedDetail.id,
+        quotationId: order.quotationId,
+        quantity: parsedQuantity,
+        notes: notes.trim() || undefined,
+      });
+      toast.success(tx('库存预留成功', 'Inventory reserved'));
+      onSuccess();
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : tx('库存预留失败', 'Inventory reservation failed');
+      toast.error(message);
     }
-
-    toast.success(tx('库存预留成功', 'Inventory reserved'));
-    onSuccess();
-    onClose();
   };
 
   return (
@@ -532,54 +533,22 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
   const can = useCapabilityStore((state) => state.can);
   const canViewCost = can('order.view_cost');
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const [detailOrder, setDetailOrder] = useState<Order | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailLoadFailed, setDetailLoadFailed] = useState(false);
-  const [detailRequestVersion, setDetailRequestVersion] = useState(0);
-
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<Partial<Order>>({});
   const [customsOpen, setCustomsOpen] = useState(false);
   const [reservationDialogOpen, setReservationDialogOpen] = useState(false);
   const [outboundDialogOpen, setOutboundDialogOpen] = useState(false);
   const { mutate: updateOrder, loading: updateLoading } = useUpdateOrder();
+  const {
+    data: detailOrder,
+    loading: detailLoading,
+    fetching: detailFetching,
+    error: detailError,
+    refetch: refetchDetail,
+  } = useOrder(order?.id || '', isOpen);
 
   const activeOrder = detailOrder?.id === order?.id ? detailOrder : order;
-
-  useEffect(() => {
-    if (!order || !isOpen) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadOrderDetails = async () => {
-      setDetailLoading(true);
-      setDetailLoadFailed(false);
-
-      try {
-        const result = await orderApi.getById(order.id);
-        if (!cancelled) {
-          setDetailOrder(result);
-        }
-      } catch {
-        if (!cancelled) {
-          setDetailOrder(order);
-          setDetailLoadFailed(true);
-        }
-      } finally {
-        if (!cancelled) {
-          setDetailLoading(false);
-        }
-      }
-    };
-
-    void loadOrderDetails();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, order, detailRequestVersion]);
+  const detailLoadFailed = Boolean(detailError);
 
   useEffect(() => {
     if (isEditing && activeOrder) {
@@ -599,9 +568,6 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 
   const handleDialogOpenChange = (open: boolean) => {
     if (!open) {
-      setDetailOrder(null);
-      setDetailLoading(false);
-      setDetailLoadFailed(false);
       setIsEditing(false);
       onClose();
     }
@@ -613,10 +579,11 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 
   const handleSave = async () => {
     if (!activeOrder) return;
-    const result = await updateOrder({ id: activeOrder.id, data: formData });
-    if (result) {
-      setDetailOrder(result);
+    try {
+      await updateOrder({ id: activeOrder.id, data: formData });
       setIsEditing(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : tx('订单更新失败', 'Failed to update order'));
     }
   };
 
@@ -687,7 +654,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {detailLoadFailed && !detailLoading && (
+          {detailLoadFailed && !detailFetching && (
             <div role="alert" className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900 md:flex-row md:items-center md:justify-between">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
@@ -696,13 +663,13 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
                   <p className="text-sm text-amber-800">{tx('当前展示的订单详情可能不是最新，请重试。', 'The order details may be stale. Please retry.')}</p>
                 </div>
               </div>
-              <Button variant="outline" onClick={() => setDetailRequestVersion((version) => version + 1)}>
+              <Button variant="outline" onClick={() => void refetchDetail()}>
                 {tx('重试加载', 'Retry Loading')}
               </Button>
             </div>
           )}
 
-          {detailLoading && (
+          {(detailLoading || detailFetching) && (
             <div className="flex items-center justify-center py-2 text-gray-500">
               <Loader2 className="h-5 w-5 animate-spin text-brand-primary" />
               <span className="ml-2 text-sm">{tx('加载详情...', 'Loading details...')}</span>
@@ -1284,13 +1251,13 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
             order={activeOrder}
             isOpen={reservationDialogOpen}
             onClose={() => setReservationDialogOpen(false)}
-            onSuccess={() => setDetailRequestVersion((v) => v + 1)}
+            onSuccess={() => void refetchDetail()}
           />
           <OutboundDialog
             order={activeOrder}
             isOpen={outboundDialogOpen}
             onClose={() => setOutboundDialogOpen(false)}
-            onSuccess={() => setDetailRequestVersion((v) => v + 1)}
+            onSuccess={() => void refetchDetail()}
           />
         </>
       )}
@@ -1410,7 +1377,7 @@ export function Orders() {
   return (
     <div className="space-y-6">
       {/* Stat cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3" data-orders-stat-grid>
         <Card className="hover:shadow-sm transition-shadow">
           <CardContent className="p-3 flex items-center justify-between">
             <div>
@@ -1446,8 +1413,8 @@ export function Orders() {
       </div>
 
       {/* Search bar */}
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex-1 min-w-[300px] flex gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-4" data-orders-toolbar>
+        <div className="flex min-w-0 flex-1 flex-wrap gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input

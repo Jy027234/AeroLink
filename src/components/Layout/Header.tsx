@@ -56,6 +56,8 @@ export function Header() {
           variant="ghost"
           size="icon"
           className="md:hidden"
+          aria-label={locale === 'zh-CN' ? '打开导航菜单' : 'Open navigation menu'}
+          data-mobile-nav-trigger
           onClick={() => setMobileSidebarOpen(true)}
         >
           <Menu className="w-5 h-5 text-gray-600" />
@@ -66,9 +68,9 @@ export function Header() {
       </div>
 
       {/* 右侧操作区 */}
-      <div className="flex items-center gap-2 md:gap-4">
+      <div className="flex items-center gap-2 md:gap-4" data-header-actions>
         {/* 搜索框 - 移动端隐藏，平板及以上显示 */}
-        <form onSubmit={handleSearch} className="relative hidden sm:block">
+        <form onSubmit={handleSearch} className="relative hidden sm:block" data-header-search>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input
             type="search"
@@ -80,7 +82,7 @@ export function Header() {
         </form>
 
         {/* 移动端搜索按钮 */}
-        <Button variant="ghost" size="icon" className="sm:hidden">
+        <Button variant="ghost" size="icon" className="sm:hidden" aria-label={t('header.search')}>
           <Search className="w-5 h-5 text-gray-600" />
         </Button>
 
@@ -89,6 +91,7 @@ export function Header() {
           variant="ghost"
           size="sm"
           className="hidden sm:flex items-center gap-1 text-xs"
+          data-header-locale
           onClick={() => setLocale(locale === 'zh-CN' ? 'en' : 'zh-CN')}
         >
           <Globe className="w-4 h-4" />
@@ -98,12 +101,12 @@ export function Header() {
         {/* 通知图标 */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative">
+            <Button variant="ghost" size="icon" className="relative" aria-label={t('header.notifications')}>
               <Bell className="w-5 h-5 text-gray-600" />
               {unreadCount > 0 && (
                 <Badge
                   variant="destructive"
-                  className="absolute -top-1 -right-1 h-5 min-w-5 flex items-center justify-center text-xs animate-pulse"
+                  className="absolute -top-1 -right-1 h-5 min-w-5 flex items-center justify-center text-xs animate-pulse bg-red-700 hover:bg-red-800"
                 >
                   {unreadCount}
                 </Badge>
@@ -166,15 +169,19 @@ export function Header() {
         {/* 用户头像 */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex items-center gap-2 px-1 md:px-2">
+            <Button
+              variant="ghost"
+              className="flex items-center gap-2 px-1 md:px-2"
+              aria-label={`${t('header.myAccount')}: ${user?.name || 'User'}`}
+            >
               <div className="w-8 h-8 bg-brand-primary rounded-full flex items-center justify-center">
                 <User className="w-4 h-4 text-white" />
               </div>
-              <div className="text-left hidden sm:block">
+              <div className="text-left hidden sm:block" data-header-account-meta>
                 <p className="text-sm font-medium">{user?.name || 'User'}</p>
                 <p className="text-xs text-gray-500">{roleLabel}</p>
               </div>
-              <ChevronDown className="w-4 h-4 text-gray-400 hidden sm:block" />
+              <ChevronDown className="w-4 h-4 text-gray-400 hidden sm:block" data-header-account-chevron />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

@@ -39,7 +39,7 @@ export function ProfileSettings({ user }: { user: CurrentUserProfile | null }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" data-settings-profile-grid>
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>{tx('个人资料', 'Profile')}</CardTitle>
@@ -58,31 +58,35 @@ export function ProfileSettings({ user }: { user: CurrentUserProfile | null }) {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>{tx('姓名', 'Name')}</Label>
+                <Label htmlFor="settings-profile-name">{tx('姓名', 'Name')}</Label>
                 <Input
+                  id="settings-profile-name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <Label>{tx('邮箱', 'Email')}</Label>
+                <Label htmlFor="settings-profile-email">{tx('邮箱', 'Email')}</Label>
                 <Input
+                  id="settings-profile-email"
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <Label>{tx('电话', 'Phone')}</Label>
+                <Label htmlFor="settings-profile-phone">{tx('电话', 'Phone')}</Label>
                 <Input
+                  id="settings-profile-phone"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   placeholder={tx('例如：+86-138-0000-0001', 'e.g. +86-138-0000-0001')}
                 />
               </div>
               <div className="space-y-2">
-                <Label>{tx('部门', 'Department')}</Label>
+                <Label htmlFor="settings-profile-department">{tx('部门', 'Department')}</Label>
                 <Input
+                  id="settings-profile-department"
                   value={formData.department}
                   onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                 />
@@ -93,7 +97,7 @@ export function ProfileSettings({ user }: { user: CurrentUserProfile | null }) {
               <Button
                 onClick={handleSubmit}
                 disabled={updateProfile.loading}
-                className="bg-brand-primary hover:bg-brand-primary-hover"
+                className="bg-brand-primary text-slate-900 hover:bg-brand-primary-hover hover:text-slate-900"
               >
                 <Save className="w-4 h-4 mr-2" />
                 {tx('保存', 'Save')}
@@ -107,13 +111,13 @@ export function ProfileSettings({ user }: { user: CurrentUserProfile | null }) {
             <CardTitle>{tx('账号信息', 'Account Info')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex justify-between text-sm">
+            <div className="flex min-w-0 flex-wrap justify-between gap-2 text-sm">
               <span className="text-gray-500">{tx('用户ID', 'User ID')}</span>
-              <span className="font-mono">{user?.id || '-'}</span>
+              <span className="min-w-0 break-all font-mono text-right">{user?.id || '-'}</span>
             </div>
-            <div className="flex justify-between text-sm">
+            <div className="flex min-w-0 flex-wrap justify-between gap-2 text-sm">
               <span className="text-gray-500">{tx('角色', 'Role')}</span>
-              <Badge variant="outline">
+              <Badge variant="outline" className="min-w-0 max-w-full whitespace-normal break-words text-right">
                 {user?.role === 'manager' ? tx('销售经理', 'Sales Manager')
                   : user?.role === 'sales' ? tx('销售', 'Sales')
                   : user?.role === 'finance' ? tx('财务', 'Finance')
@@ -121,14 +125,14 @@ export function ProfileSettings({ user }: { user: CurrentUserProfile | null }) {
                   : user?.role || '-'}
               </Badge>
             </div>
-            <div className="flex justify-between text-sm">
+            <div className="flex min-w-0 flex-wrap justify-between gap-2 text-sm">
               <span className="text-gray-500">{tx('部门', 'Department')}</span>
-              <span>{user?.department || '-'}</span>
+              <span className="min-w-0 break-words text-right">{user?.department || '-'}</span>
             </div>
             <Separator />
-            <div className="flex justify-between text-sm">
+            <div className="flex min-w-0 flex-wrap justify-between gap-2 text-sm">
               <span className="text-gray-500">{tx('最近登录', 'Last Login')}</span>
-              <span>{new Date().toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US')}</span>
+              <span className="min-w-0 break-words text-right">{new Date().toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US')}</span>
             </div>
           </CardContent>
         </Card>

@@ -1,3 +1,5 @@
+import { recordFrontendMetric } from './monitoring';
+
 type NavigationSource = 'sidebar' | 'programmatic' | 'boot';
 
 type PerfMetricName = 'first_screen_ready' | 'page_navigation_ready';
@@ -17,6 +19,7 @@ let firstScreenCaptured = false;
 
 function emitMetric(metric: PerfMetric): void {
   metricBuffer.push(metric);
+  recordFrontendMetric(`perf_${metric.name}`, metric.durationMs, metric.pageId);
 
   if (metricBuffer.length > 200) {
     metricBuffer.shift();

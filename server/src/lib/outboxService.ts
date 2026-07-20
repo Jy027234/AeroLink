@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { OutboxEvent, Prisma } from '@prisma/client';
 import { decrypt } from './crypto.js';
 import { sendEmail, type EmailAccountConfig } from './emailService.js';
@@ -11,6 +12,9 @@ import { transitionQuotationStatus } from './transactionStateService.js';
 import { preferredQuotationStatus } from './transactionStatusShadows.js';
 import { queueWebhookEvent } from './webhookService.js';
 import { logger } from './logger.js';
+import { getRequestId, runWithContext } from './requestContext.js';
+import { getTraceId, traceSpan } from './trace.js';
+import { recordOperationalAlert } from './alerting.js';
 
 export const OutboxChannel = {
   WEBHOOK: 'WEBHOOK',
@@ -63,7 +67,25 @@ export type EnqueueOutboundEmailInput = {
 };
 
 const OUTBOX_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+const OUTBOX_LEASE_HEARTBEAT_MS = 60_000;
 const MAX_ERROR_LENGTH = 2000;
+const DEFAULT_WORKER_ID = process.env.WORKER_ID?.trim() || `worker-${crypto.randomUUID()}`;
+const P2_FAULT_INJECTION_ENABLED = ['1', 'true', 'yes'].includes((process.env.P2_FAULT_INJECTION ?? '').toLowerCase());
+const P2_WORKER_CRASH_DELAY_MS = Math.max(0, Number.parseInt(process.env.P2_WORKER_CRASH_DELAY_MS ?? '25', 10) || 25);
+
+type P2WorkerCrashPoint = 'before-dispatch' | 'during-side-effect' | 'before-finalize';
+
+function terminateForP2FaultInjection(point: P2WorkerCrashPoint, outboxEventId: string, workerId?: string) {
+  if (!P2_FAULT_INJECTION_ENABLED || process.env.P2_WORKER_CRASH_POINT?.trim() !== point) return;
+  logger.error({ outboxEventId, workerId, crashPoint: point }, 'P2 fault injection terminating worker process');
+  process.exit(70);
+}
+
+async function waitForP2SideEffectCrash(outboxEventId: string, workerId: string) {
+  if (!P2_FAULT_INJECTION_ENABLED || process.env.P2_WORKER_CRASH_POINT?.trim() !== 'during-side-effect') return;
+  await new Promise<void>((resolve) => setTimeout(resolve, P2_WORKER_CRASH_DELAY_MS));
+  terminateForP2FaultInjection('during-side-effect', outboxEventId, workerId);
+}
 
 function serializePayload(payload: Record<string, unknown>) {
   return JSON.stringify(payload);
@@ -131,6 +153,8 @@ export async function enqueueBusinessEvent(tx: OutboxTransactionClient, input: E
       aggregateId: input.aggregateId,
       payload: serializePayload(input.data),
       createdById,
+      requestId: getRequestId() ?? null,
+      traceId: getTraceId() ?? null,
     },
   });
 
@@ -150,6 +174,8 @@ export async function enqueueBusinessEvent(tx: OutboxTransactionClient, input: E
         data: input.data,
       }),
       createdById,
+      requestId: getRequestId() ?? null,
+      traceId: getTraceId() ?? null,
     },
   });
 
@@ -169,6 +195,8 @@ export async function enqueueOutboundEmail(tx: OutboxTransactionClient, input: E
         includeQuotationPdf: input.includeQuotationPdf === true,
       }),
       createdById: input.createdById ?? null,
+      requestId: getRequestId() ?? null,
+      traceId: getTraceId() ?? null,
     },
   });
 }
@@ -352,7 +380,12 @@ async function dispatchOutboxEvent(event: OutboxEvent) {
       outboxEventId: event.id,
       occurredAt: event.createdAt,
       deliverImmediately: false,
+      requestId: event.requestId ?? undefined,
     });
+    // The injected pause models a worker dying while the external side-effect
+    // boundary is still in progress. It is reachable only in the explicitly
+    // enabled crash-recovery harness and never in normal deployments.
+    await waitForP2SideEffectCrash(event.id, process.env.WORKER_ID?.trim() || 'worker-unknown');
     return;
   }
 
@@ -372,7 +405,7 @@ async function dispatchOutboxEvent(event: OutboxEvent) {
   throw new Error(`Unsupported outbox channel: ${event.channel}`);
 }
 
-async function markOutboxFailure(event: OutboxEvent, error: unknown) {
+async function markOutboxFailure(event: OutboxEvent, workerId: string, error: unknown) {
   const message = errorMessage(error);
   const terminal = event.attemptCount >= event.maxAttempts;
   const nextStatus = terminal ? OutboxStatus.FAILED : OutboxStatus.RETRYING;
@@ -387,15 +420,21 @@ async function markOutboxFailure(event: OutboxEvent, error: unknown) {
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.outboxEvent.update({
-      where: { id: event.id },
+    const released = await tx.outboxEvent.updateMany({
+      where: { id: event.id, status: OutboxStatus.PROCESSING, workerId },
       data: {
         status: nextStatus,
         nextRetryAt: terminal ? null : scheduleNextRetry(event.attemptCount),
         lockedAt: null,
+        workerId: null,
         lastError: message,
       },
     });
+
+    // A stale lease may have been recovered by another worker while the
+    // external side effect was running. Never let the old worker overwrite
+    // the newer claim or emit a duplicate compensation notification.
+    if (released.count !== 1) return;
 
     if (!emailPayload) {
       return;
@@ -424,21 +463,33 @@ async function markOutboxFailure(event: OutboxEvent, error: unknown) {
       });
     }
   });
+
+  if (terminal) {
+    recordOperationalAlert({
+      key: `worker.outbox.retry-exhausted.${event.id}`,
+      severity: 'critical',
+      title: 'Outbox retry exhausted',
+      message: 'An asynchronous outbox event reached its retry limit and requires controlled replay or compensation.',
+      source: 'worker.outbox',
+      metadata: { outboxEventId: event.id, attemptCount: event.attemptCount, channel: event.channel },
+    });
+  }
 }
 
-async function markOutboxCancelled(event: OutboxEvent, error: CancelledOutboxEventError) {
-  await prisma.outboxEvent.update({
-    where: { id: event.id },
+async function markOutboxCancelled(event: OutboxEvent, workerId: string, error: CancelledOutboxEventError) {
+  await prisma.outboxEvent.updateMany({
+    where: { id: event.id, status: OutboxStatus.PROCESSING, workerId },
     data: {
       status: OutboxStatus.CANCELLED,
       nextRetryAt: null,
       lockedAt: null,
+      workerId: null,
       lastError: errorMessage(error),
     },
   });
 }
 
-export async function processOutboxEvent(id: string): Promise<boolean> {
+export async function processOutboxEvent(id: string, workerId = DEFAULT_WORKER_ID): Promise<boolean> {
   const now = new Date();
   const claim = await prisma.outboxEvent.updateMany({
     where: {
@@ -450,6 +501,7 @@ export async function processOutboxEvent(id: string): Promise<boolean> {
       status: OutboxStatus.PROCESSING,
       attemptCount: { increment: 1 },
       lockedAt: now,
+      workerId,
     },
   });
 
@@ -459,35 +511,74 @@ export async function processOutboxEvent(id: string): Promise<boolean> {
 
   const event = await prisma.outboxEvent.findUnique({ where: { id } });
   if (!event) {
+    // The event may have been deleted by an administrative cleanup between
+    // the atomic claim and the read. Do not leave a phantom PROCESSING lease
+    // behind if the row still exists; the conditional predicate also keeps a
+    // newer worker from being overwritten in the unlikely race.
+    await prisma.outboxEvent.updateMany({
+      where: { id, status: OutboxStatus.PROCESSING, workerId },
+      data: {
+        status: OutboxStatus.RETRYING,
+        nextRetryAt: new Date(),
+        lockedAt: null,
+        workerId: null,
+        lastError: 'Outbox event disappeared after claim',
+      },
+    });
+    logger.warn({ outboxEventId: id, workerId }, 'Outbox event disappeared after claim');
     return false;
   }
 
-  try {
-    await dispatchOutboxEvent(event);
-    await prisma.outboxEvent.update({
-      where: { id: event.id },
-      data: {
-        status: OutboxStatus.DELIVERED,
-        deliveredAt: new Date(),
-        nextRetryAt: null,
-        lockedAt: null,
-        lastError: null,
-      },
+  terminateForP2FaultInjection('before-dispatch', event.id, workerId);
+
+  const heartbeat = setInterval(() => {
+    void prisma.outboxEvent.updateMany({
+      where: { id, status: OutboxStatus.PROCESSING, workerId },
+      data: { lockedAt: new Date() },
+    }).catch((error) => {
+      logger.warn({ error, outboxEventId: id, workerId }, 'Outbox lease heartbeat failed');
     });
-    return true;
+  }, OUTBOX_LEASE_HEARTBEAT_MS);
+
+  try {
+    return await runWithContext({
+      requestId: event.requestId ?? `worker:${workerId}`,
+      traceId: event.traceId ?? crypto.randomUUID(),
+    }, () => traceSpan('outbox.process', {
+      outboxEventId: event.id,
+      channel: event.channel,
+      eventType: event.eventType,
+    }, async () => {
+      await dispatchOutboxEvent(event);
+      terminateForP2FaultInjection('before-finalize', event.id, workerId);
+      const released = await prisma.outboxEvent.updateMany({
+        where: { id: event.id, status: OutboxStatus.PROCESSING, workerId },
+        data: {
+          status: OutboxStatus.DELIVERED,
+          deliveredAt: new Date(),
+          nextRetryAt: null,
+          lockedAt: null,
+          workerId: null,
+          lastError: null,
+        },
+      });
+      return released.count === 1;
+    }));
   } catch (error) {
     if (error instanceof CancelledOutboxEventError) {
-      await markOutboxCancelled(event, error);
+      await markOutboxCancelled(event, workerId, error);
       return false;
     }
-    await markOutboxFailure(event, error);
-    logger.warn({ error, outboxEventId: event.id, channel: event.channel, eventType: event.eventType }, 'Outbox event dispatch failed');
+    await markOutboxFailure(event, workerId, error);
+    logger.warn({ error, outboxEventId: event.id, channel: event.channel, eventType: event.eventType, requestId: event.requestId, traceId: event.traceId }, 'Outbox event dispatch failed');
     return false;
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
 /** Recover stale claims and process due events. Safe for multiple server replicas. */
-export async function processPendingOutboxEvents(limit = 50) {
+export async function processPendingOutboxEvents(limit = 50, workerId = DEFAULT_WORKER_ID) {
   const now = new Date();
   await prisma.outboxEvent.updateMany({
     where: {
@@ -497,6 +588,7 @@ export async function processPendingOutboxEvents(limit = 50) {
     data: {
       status: OutboxStatus.RETRYING,
       lockedAt: null,
+      workerId: null,
       nextRetryAt: now,
       lastError: 'Recovered stale outbox worker claim',
     },
@@ -514,7 +606,7 @@ export async function processPendingOutboxEvents(limit = 50) {
 
   let delivered = 0;
   for (const candidate of candidates) {
-    if (await processOutboxEvent(candidate.id)) {
+    if (await processOutboxEvent(candidate.id, workerId)) {
       delivered += 1;
     }
   }
@@ -539,6 +631,7 @@ export async function retryOutboxEvent(id: string) {
         attemptCount: 0,
         nextRetryAt: null,
         lockedAt: null,
+        workerId: null,
         lastError: null,
       },
     });
@@ -565,6 +658,7 @@ export async function cancelOutboxEvent(id: string, reason?: string) {
       status: OutboxStatus.CANCELLED,
       nextRetryAt: null,
       lockedAt: null,
+      workerId: null,
       lastError: reason?.trim().slice(0, MAX_ERROR_LENGTH) || 'Cancelled manually',
     },
   });

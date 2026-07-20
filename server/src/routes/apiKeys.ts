@@ -162,7 +162,7 @@ router.put(
     res.json({
       success: true,
       data: (() => {
-        const { scopesJson, ...legacyKey } = updated;
+        const { scopesJson, keyHash: _keyHash, ...legacyKey } = updated;
         return {
           ...legacyKey,
           scopes: projectScopes(scopesJson, legacyKey.scopes),

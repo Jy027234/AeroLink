@@ -14,7 +14,7 @@ const webServer = externalServer
       {
         command: `${nodeCommand} --import tsx src/index.ts`,
         cwd: './server',
-        env: { ...process.env, PORT: String(backendPort) },
+        env: { ...process.env, PORT: String(backendPort), ENABLE_INLINE_WORKER: 'true' },
         url: `${localApiOrigin}/api/health`,
         reuseExistingServer: !process.env.CI,
         timeout: 120000,

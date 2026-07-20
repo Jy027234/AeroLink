@@ -52,6 +52,9 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      - name: Validate observability retention contract
+        run: npm run observability:retention-check
+
   frontend:
     name: Frontend Tests
     runs-on: ubuntu-latest
@@ -72,6 +75,15 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --registry=https://registry.npmjs.org
 
+      - name: Validate OpenAPI contract and generated types
+        run: npm run api:check
+
+      - name: Validate feature boundaries
+        run: npm run features:check
+
+      - name: Validate server module boundaries
+        run: npm run modules:check
+
       - name: Run frontend unit tests
         run: npx vitest run
 
@@ -89,8 +101,6 @@ jobs:
       JWT_REFRESH_SECRET: ci-refresh-secret
       CLIENT_URL: http://127.0.0.1:5173
       VITE_API_URL: http://127.0.0.1:3000/api
-      SCHEMA_MIGRATION_MODE: push
-      ALLOW_DB_PUSH: true
       DEMO_SEED_PASSWORD: ci-demo-password-2026
       E2E_PASSWORD: ci-demo-password-2026
       # Controlled fixture only: production defaults to disabled.
@@ -134,7 +144,15 @@ jobs:
 
       - name: Prepare isolated E2E database
         working-directory: ./server
-        run: npx prisma db push --schema prisma/schema.prisma --accept-data-loss && npm run db:seed
+        run: npx prisma migrate deploy --schema prisma/schema.prisma && npm run db:seed
+
+      - name: Run PostgreSQL reconciliation gates
+        working-directory: ./server
+        run: >-
+          npm run db:check:inventory-reconciliation &&
+          npm run db:check:money-reconciliation &&
+          npm run db:check:json-configuration-reconciliation &&
+          npm run db:check:transaction-status-reconciliation
 
       - name: Install Playwright
         run: npx playwright install --with-deps chromium

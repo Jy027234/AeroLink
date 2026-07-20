@@ -53,7 +53,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCustomers, useQuotations, customerApi } from '@/hooks/useApi';
+import { useCreateCustomer, useCustomers, useUpdateCustomer } from '@/features/customers';
+import { useQuotations } from '@/features/quotations';
+import { customerApi } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { useTranslation } from '@/i18n';
@@ -466,6 +468,8 @@ function CustomerFormDialog({
     customer?.competitorListings?.map((c) => ({ ...c })) || []
   );
   const [saving, setSaving] = useState(false);
+  const createCustomer = useCreateCustomer();
+  const updateCustomer = useUpdateCustomer();
 
   const handleSubmit = async () => {
     setSaving(true);
@@ -492,9 +496,9 @@ function CustomerFormDialog({
       };
 
       if (customer) {
-        await customerApi.update(customer.id, data);
+        await updateCustomer.mutate({ id: customer.id, data });
       } else {
-        await customerApi.create(data);
+        await createCustomer.mutate(data);
       }
       onSave();
       onClose();

@@ -201,7 +201,13 @@ router.post(
 router.get(
   '/:id',
   requireCapability('auction', 'read'),
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req, res, next) => {
+    // Reserved collection routes are declared below for historical reasons;
+    // skip this parameter route so /active and /my-bids reach their handlers.
+    if (req.params.id === 'active' || req.params.id === 'my-bids') {
+      next('route');
+      return;
+    }
     const auction = await prisma.auction.findUnique({
       where: { id: req.params.id },
       include: {

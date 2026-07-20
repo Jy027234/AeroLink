@@ -8,7 +8,8 @@
     "node": ">=22.12.0 <23"
   },
   "scripts": {
-    "dev": "prisma generate && prisma db push && node --import tsx src/index.ts",
+    "dev": "prisma generate && prisma migrate deploy && node --import tsx src/index.ts",
+    "worker": "node --import tsx src/worker-entry.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "db:generate": "prisma generate",
@@ -19,12 +20,20 @@
     "db:check:money-reconciliation": "node --import tsx src/scripts/checkMoneyReconciliation.ts",
     "db:check:json-configuration-reconciliation": "node --import tsx src/scripts/checkJsonConfigurationReconciliation.ts",
     "db:check:transaction-status-reconciliation": "node --import tsx src/scripts/checkTransactionStatusReconciliation.ts",
+    "modules:integration-check": "node --import tsx src/scripts/checkModulePostgresIntegration.ts",
+    "storage:migrate-uploads": "node --import tsx src/scripts/migrateUploads.ts",
+    "storage:verify-manifest": "node --import tsx src/scripts/verifyUploadManifest.ts",
+    "storage:check:s3": "node --import tsx src/scripts/checkObjectStorageS3.ts",
+    "observability:check": "node --import tsx src/scripts/checkObservability.ts",
+    "observability:retention-check": "node --import tsx src/scripts/checkObservabilityRetention.ts",
+    "worker:fault-check": "node --import tsx src/scripts/checkWorkerFaultInjection.ts",
+    "worker:crash-check": "node --import tsx src/scripts/checkWorkerCrashRecovery.ts",
     "db:rotate-encryption-key": "node --import tsx src/scripts/rotateEncryptionKey.ts",
     "db:seed": "node --import tsx src/seed.ts",
     "db:bootstrap-admin": "node --import tsx src/scripts/bootstrapAdmin.ts",
     "db:prepare:legacy-sqlite": "node --import tsx src/scripts/prepareLegacySqlite.ts",
     "db:import:sqlite-to-postgres": "node --import tsx src/scripts/importSqliteToPostgres.ts",
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism --maxWorkers=1",
     "test:watch": "vitest"
   },
   "dependencies": {

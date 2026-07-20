@@ -477,8 +477,13 @@ test('should show a retryable error banner when quotation list refresh fails aft
   });
 
   await page.route('**/api/quotations*', async (route) => {
-    if (!shouldProjectSentState || route.request().method() !== 'GET') {
-      await route.continue();
+    const requestUrl = new URL(route.request().url());
+    const isActiveQuotationList = requestUrl.searchParams.get('search') === quoteNumber;
+    if (!shouldProjectSentState || route.request().method() !== 'GET' || !isActiveQuotationList) {
+      // This broad matcher is registered after the send-specific matcher.
+      // Fall back so Playwright can run that earlier handler instead of
+      // bypassing the controlled response with a real network request.
+      await route.fallback();
       return;
     }
 

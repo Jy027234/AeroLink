@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-07-19",
+  "baseline": {
+    "sha": "8868d844a0e1a47c33758b809795807b23688c51",
+    "buildCommand": "npm run build",
+    "javascriptFiles": 48,
+    "javascriptBytes": 2231907
+  },
+  "currentWorktree": {
+    "buildCommand": "npm run build",
+    "javascriptFiles": 50,
+    "javascriptBytes": 2291625
+  },
+  "delta": {
+    "javascriptFiles": 2,
+    "javascriptBytes": 59718,
+    "javascriptPercent": 2.68,
+    "thresholdPercent": 10,
+    "status": "PASS"
+  },
+  "scope": "Vite dist/assets JavaScript bytes only; runtime request count and first-usable-content timing require a deployed-window comparison."
+}

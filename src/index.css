@@ -178,3 +178,82 @@
     }
   }
 }
+
+/* ResizeObserver-backed compact mode also catches browser/page zoom where the
+ * CSS media query still reports the unscaled desktop viewport. */
+[data-compact-viewport] [data-sidebar-desktop] {
+  display: none !important;
+}
+
+[data-compact-viewport] [data-mobile-nav-trigger] {
+  display: inline-flex !important;
+}
+
+[data-compact-viewport] header {
+  left: 0 !important;
+}
+
+[data-compact-viewport] [data-layout-content] {
+  margin-left: 0 !important;
+}
+
+[data-compact-viewport] [data-header-actions] {
+  display: none !important;
+}
+
+[data-compact-viewport] [data-header-search],
+[data-compact-viewport] [data-header-locale],
+[data-compact-viewport] [data-header-account-meta],
+[data-compact-viewport] [data-header-account-chevron] {
+  display: none !important;
+}
+
+[data-compact-viewport] [data-dashboard-stat-grid],
+[data-compact-viewport] [data-dashboard-alert-grid],
+[data-compact-viewport] [data-quotation-stat-grid] {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+[data-compact-viewport] [data-dashboard-funnel] {
+  flex-direction: column !important;
+}
+
+[data-compact-viewport] [data-dashboard-funnel] > * {
+  width: 100%;
+}
+
+[data-compact-viewport] [data-quotation-actions] {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+[data-compact-viewport] [data-settings-profile-grid] {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+[data-compact-viewport] [data-orders-stat-grid] {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+[data-compact-viewport] [data-settings-tabs-list] {
+  width: 100% !important;
+  max-width: 100%;
+  height: auto !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+@media (max-width: 1280px) {
+  [data-dashboard-stat-grid],
+  [data-dashboard-alert-grid],
+  [data-quotation-stat-grid] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  [data-dashboard-funnel] {
+    flex-direction: column !important;
+  }
+
+  [data-dashboard-funnel] > * {
+    width: 100%;
+  }
+}

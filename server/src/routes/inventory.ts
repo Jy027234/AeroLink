@@ -12,7 +12,7 @@ import { serializeInventoryDetail } from '../lib/inventoryProjection.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
-import prisma from '../lib/prisma.js';
+import { createInventoryAggregate, deleteInventoryAggregate, inventoryRepository, updateInventoryAggregate } from '../modules/inventoryQuality/index.js';
 
 const router = Router();
 const requireInventoryMutationRole = requireCapability('inventory', 'manage');
@@ -184,15 +184,15 @@ router.get(
     const where = buildInventoryDetailWhere(req.query as Record<string, unknown>);
 
     const [details, total, summaryRows] = await Promise.all([
-      prisma.inventoryDetail.findMany({
+      inventoryRepository.findMany({
         where,
         include: inventoryDetailInclude,
         orderBy: inventoryListOrderBy(sort, direction),
         skip,
         take: pageSize,
       }),
-      prisma.inventoryDetail.count({ where }),
-      prisma.inventoryDetail.findMany({
+      inventoryRepository.count({ where }),
+      inventoryRepository.findMany({
         where,
         select: {
           quantity: true,
@@ -245,7 +245,7 @@ router.get(
       defaultSort: 'partNumber',
       defaultDirection: 'asc',
     });
-    const details = await prisma.inventoryDetail.findMany({
+    const details = await inventoryRepository.findMany({
       where: buildInventoryDetailWhere(query),
       include: inventoryDetailInclude,
       orderBy: inventoryListOrderBy(sort, direction),
@@ -309,7 +309,7 @@ router.get(
 router.get(
   '/part/:partNumber',
   asyncHandler(async (req, res) => {
-    const details = await prisma.inventoryDetail.findMany({
+    const details = await inventoryRepository.findMany({
       where: { inventoryItem: { partNumber: req.params.partNumber } },
       include: inventoryDetailInclude,
       orderBy: { createdAt: 'asc' },
@@ -325,7 +325,7 @@ router.get(
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {
-    const detail = await prisma.inventoryDetail.findUnique({
+    const detail = await inventoryRepository.findUnique({
       where: { id: req.params.id },
       include: inventoryDetailInclude,
     });
@@ -350,9 +350,8 @@ router.post(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/inventory'),
       async (tx) => {
-        const item = await tx.inventoryItem.upsert({
-          where: { partNumber: input.partNumber! },
-          create: {
+        const detail = await createInventoryAggregate(tx, {
+          item: {
             partNumber: input.partNumber!,
             description: input.description!,
             partCategory: input.partCategory?.toUpperCase() ?? 'CONSUMABLE',
@@ -365,14 +364,7 @@ router.post(
             countryOfOrigin: input.countryOfOrigin || null,
             hsCode: input.hsCode || null,
           },
-          // A stock receipt must not silently overwrite the part master shared
-          // by other details. Master changes go through PATCH /inventory/:id.
-          update: {},
-        });
-
-        const detail = await tx.inventoryDetail.create({
-          data: {
-            inventoryItemId: item.id,
+          detail: {
             serialNumber: input.serialNumber ? emptyToNull(input.serialNumber) : null,
             batchNumber: input.batchNumber ? emptyToNull(input.batchNumber) : null,
             quantity,
@@ -415,22 +407,9 @@ router.post(
             type: input.type?.toUpperCase() ?? 'OWN',
           },
           include: inventoryDetailInclude,
+          actorId,
+          notes: input.notes,
         });
-
-        if (quantity > 0) {
-          await tx.inventoryTransaction.create({
-            data: {
-              inventoryDetailId: detail.id,
-              type: 'INBOUND',
-              quantity,
-              beforeQuantity: 0,
-              afterQuantity: quantity,
-              referenceType: 'MANUAL',
-              notes: input.notes?.trim() || 'Manual inventory receipt.',
-              createdBy: actorId,
-            },
-          });
-        }
 
         const payload = serializeInventoryDetail(detail);
         await enqueueBusinessEvent(tx, {
@@ -467,17 +446,6 @@ router.patch(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'PATCH:/inventory/:id'),
       async (tx) => {
-        const existing = await tx.inventoryDetail.findUnique({
-          where: { id: req.params.id },
-          include: inventoryDetailInclude,
-        });
-        if (!existing) {
-          throw new AppError('库存不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        if (input.quantity !== undefined && existing.status !== 'AVAILABLE') {
-          throw new AppError('预留或隔离库存不能直接调整数量', 409, 'RESOURCE_CONFLICT');
-        }
-
         const itemData: Prisma.InventoryItemUpdateInput = {
           ...(input.description !== undefined && { description: input.description }),
           ...(input.partCategory !== undefined && { partCategory: input.partCategory.toUpperCase() }),
@@ -490,10 +458,6 @@ router.patch(
           ...(input.countryOfOrigin !== undefined && { countryOfOrigin: emptyToNull(input.countryOfOrigin) }),
           ...(input.hsCode !== undefined && { hsCode: emptyToNull(input.hsCode) }),
         };
-        if (Object.keys(itemData).length > 0) {
-          await tx.inventoryItem.update({ where: { id: existing.inventoryItemId }, data: itemData });
-        }
-
         const detailData: Prisma.InventoryDetailUncheckedUpdateInput = {
           ...(input.quantity !== undefined && { quantity: input.quantity }),
           ...(input.location !== undefined && { location: input.location }),
@@ -535,27 +499,16 @@ router.patch(
           ...(input.storageTempMax !== undefined && { storageTempMax: input.storageTempMax }),
           ...(input.hazardClass !== undefined && { hazardClass: emptyToNull(input.hazardClass) }),
         };
-        const updated = await tx.inventoryDetail.update({
-          where: { id: existing.id },
-          data: detailData,
+        const { existing, updated, quantityDelta } = await updateInventoryAggregate(tx, {
+          id: req.params.id,
+          itemData,
+          detailData,
           include: inventoryDetailInclude,
+          quantityProvided: input.quantity !== undefined,
+          quantity: input.quantity,
+          actorId,
+          notes: input.notes,
         });
-
-        const quantityDelta = input.quantity === undefined ? 0 : input.quantity - existing.quantity;
-        if (quantityDelta !== 0) {
-          await tx.inventoryTransaction.create({
-            data: {
-              inventoryDetailId: updated.id,
-              type: 'ADJUSTMENT',
-              quantity: quantityDelta,
-              beforeQuantity: existing.quantity,
-              afterQuantity: updated.quantity,
-              referenceType: 'MANUAL',
-              notes: input.notes?.trim() || 'Manual inventory adjustment.',
-              createdBy: actorId,
-            },
-          });
-        }
 
         const payload = serializeInventoryDetail(updated);
         await enqueueBusinessEvent(tx, {
@@ -592,49 +545,25 @@ router.delete(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'DELETE:/inventory/:id'),
       async (tx) => {
-        const detail = await tx.inventoryDetail.findUnique({
-          where: { id: req.params.id },
+        const deleted = await deleteInventoryAggregate(tx, {
+          id: req.params.id,
           include: inventoryDetailInclude,
         });
-        if (!detail) {
-          throw new AppError('库存不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        if (detail.quantity !== 0) {
-          throw new AppError('库存数量不为零，不能物理删除；请先通过调整流水清零', 409, 'RESOURCE_CONFLICT');
-        }
-
-        const [legacyRecord, transaction, certificate] = await Promise.all([
-          tx.inventory.findUnique({ where: { id: detail.id } }),
-          tx.inventoryTransaction.findFirst({ where: { inventoryDetailId: detail.id } }),
-          tx.certificate.findFirst({ where: { inventoryDetailId: detail.id } }),
-        ]);
-        if (legacyRecord) {
-          throw new AppError('迁移自旧库存的记录只读保留，请使用隔离或报废状态归档', 409, 'RESOURCE_CONFLICT');
-        }
-        if (transaction || certificate) {
-          throw new AppError('库存明细已有流水或证书关联，不能物理删除', 409, 'RESOURCE_CONFLICT');
-        }
-
-        const payload = serializeInventoryDetail(detail);
-        await tx.inventoryDetail.delete({ where: { id: detail.id } });
-        const remainingDetails = await tx.inventoryDetail.count({ where: { inventoryItemId: detail.inventoryItemId } });
-        if (remainingDetails === 0) {
-          await tx.inventoryItem.delete({ where: { id: detail.inventoryItemId } });
-        }
+        const payload = serializeInventoryDetail(deleted);
 
         await enqueueBusinessEvent(tx, {
           eventType: 'inventory.deleted',
           aggregateType: 'INVENTORY_DETAIL',
-          aggregateId: detail.id,
+          aggregateId: deleted.id,
           data: serializeInventoryEvent('deleted', payload),
           socket: { room: SocketRooms.INVENTORY, event: SocketEvents.INVENTORY_UPDATED },
           createdById: actorId,
         });
 
         return {
-          payload: { id: detail.id, deleted: true },
+          payload: { id: deleted.id, deleted: true },
           resourceType: 'INVENTORY_DETAIL',
-          resourceId: detail.id,
+          resourceId: deleted.id,
         };
       },
     );

@@ -549,12 +549,15 @@ export function Sidebar() {
           'hidden md:block',
           sidebarCollapsed ? 'w-20' : 'w-64'
         )}
+        data-sidebar-desktop
       >
         <SidebarContent collapsed={sidebarCollapsed} />
 
         {/* Collapse button */}
         <button
           onClick={toggleSidebar}
+          aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+          title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
           className="absolute bottom-4 right-4 w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center hover:bg-white/20 transition-colors"
         >
           {sidebarCollapsed ? (
@@ -567,7 +570,14 @@ export function Sidebar() {
 
       {/* Mobile Sidebar Drawer */}
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-        <SheetContent side="left" className="w-[280px] max-w-[85vw] bg-brand-sidebar text-white p-0 border-r-0">
+        <SheetContent
+          side="left"
+          className="w-[280px] max-w-[85vw] bg-brand-sidebar text-white p-0 border-r-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            document.querySelector<HTMLButtonElement>('[data-mobile-nav-trigger]')?.focus();
+          }}
+        >
           <SheetTitle className="sr-only">Main navigation</SheetTitle>
           <SheetDescription className="sr-only">Choose a page to navigate</SheetDescription>
           <SidebarContent onNavigate={() => setMobileSidebarOpen(false)} />

@@ -7,6 +7,7 @@ import { validateBody } from '../middleware/validate.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { supplierCreateSchema, supplierUpdateSchema, supplierFollowUpLogBatchCreateSchema } from '../lib/validation.js';
 import prisma from '../lib/prisma.js';
+import { createSupplierAggregate, normalizeSupplierEmail, normalizeSupplierLevel, normalizeSupplierPhone, supplierRepository, updateSupplierAggregate } from '../modules/customerSupplier/index.js';
 import { cache, CACHE_TTL, CACHE_KEY } from '../lib/cache.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 
@@ -185,18 +186,18 @@ router.get(
         const where = buildSupplierListWhere(query);
 
         const [suppliers, total, levelCounts, performanceAggregate] = await Promise.all([
-          prisma.supplier.findMany({
+          supplierRepository.findMany({
             where,
             orderBy: supplierListOrderBy(sort, direction),
             skip,
             take: pageSize,
           }),
-          prisma.supplier.count({ where }),
-          prisma.supplier.groupBy({
+          supplierRepository.count({ where }),
+          supplierRepository.groupBy({
             by: ['level'],
             _count: { _all: true },
           }),
-          prisma.supplier.aggregate({
+          supplierRepository.aggregate({
             _avg: { performanceScore: true },
           }),
         ]);
@@ -244,7 +245,7 @@ router.get(
       defaultSort: 'name',
       defaultDirection: 'asc',
     });
-    const suppliers = await prisma.supplier.findMany({
+    const suppliers = await supplierRepository.findMany({
       where: buildSupplierListWhere(query),
       select: {
         name: true,
@@ -354,7 +355,7 @@ router.post(
     }>;
 
     const supplierIds = Array.from(new Set(incomingLogs.map((log) => log.supplierId)));
-    const suppliers = await prisma.supplier.findMany({
+    const suppliers = await supplierRepository.findMany({
       where: { id: { in: supplierIds } },
       select: { id: true },
     });
@@ -416,7 +417,7 @@ router.get(
     const data = await cache.getOrSet(
       cacheKey,
       async () => {
-        const supplier = await prisma.supplier.findUnique({
+    const supplier = await supplierRepository.findUnique({
           where: { id: req.params.id },
           include: {
             inventory: true,
@@ -458,25 +459,17 @@ router.post(
       leadTimeAverage, onTimeDeliveryRate, certificateTypesProvided,
       moqPolicy, warrantyPolicy, returnPolicy, bankAccountInfo,
     } = req.body;
-    const email = typeof req.body.email === 'string' ? req.body.email.trim() || undefined : undefined;
-    const phone = typeof req.body.phone === 'string' ? req.body.phone.trim() || undefined : undefined;
+    const email = normalizeSupplierEmail(req.body.email);
+    const phone = normalizeSupplierPhone(req.body.phone);
     const address = typeof req.body.address === 'string' ? req.body.address.trim() || undefined : undefined;
 
-    if (email) {
-      const existing = await prisma.supplier.findUnique({ where: { email } });
-      if (existing) {
-        throw new AppError('该邮箱已关联供应商', 409);
-      }
-    }
-
-    const supplier = await prisma.supplier.create({
-      data: {
+    const supplier = await createSupplierAggregate({
         name,
         contactName,
         email: email || null,
         phone: phone || null,
         address: address || null,
-        level: (level || 'C').toString().toUpperCase(),
+        level: normalizeSupplierLevel(level),
         paymentTerms: paymentTerms || null,
         leadTime: typeof leadTime === 'number' ? leadTime : null,
         status: 'active',
@@ -501,8 +494,7 @@ router.post(
         moqPolicy: moqPolicy || null,
         warrantyPolicy: warrantyPolicy || null,
         returnPolicy: returnPolicy || null,
-        bankAccountInfo: bankAccountInfo || null,
-      },
+      bankAccountInfo: bankAccountInfo || null,
     });
 
     cache.delByPrefix(CACHE_KEY.SUPPLIER_LIST);
@@ -528,21 +520,9 @@ router.patch(
       leadTimeAverage, onTimeDeliveryRate, certificateTypesProvided,
       moqPolicy, warrantyPolicy, returnPolicy, bankAccountInfo,
     } = req.body;
-    const email = typeof req.body.email === 'string' ? req.body.email.trim() || undefined : undefined;
-    const phone = typeof req.body.phone === 'string' ? req.body.phone.trim() || undefined : undefined;
+    const email = normalizeSupplierEmail(req.body.email);
+    const phone = normalizeSupplierPhone(req.body.phone);
     const address = typeof req.body.address === 'string' ? req.body.address.trim() || undefined : undefined;
-
-    const existing = await prisma.supplier.findUnique({ where: { id: req.params.id } });
-    if (!existing) {
-      throw new AppError('供应商不存在', 404);
-    }
-
-    if (email && email !== existing.email) {
-      const duplicate = await prisma.supplier.findUnique({ where: { email } });
-      if (duplicate) {
-        throw new AppError('该邮箱已关联其他供应商', 409);
-      }
-    }
 
     const data: Prisma.SupplierUpdateInput = {};
     if (name !== undefined) data.name = name;
@@ -575,10 +555,7 @@ router.patch(
     if (returnPolicy !== undefined) data.returnPolicy = returnPolicy || null;
     if (bankAccountInfo !== undefined) data.bankAccountInfo = bankAccountInfo || null;
 
-    const supplier = await prisma.supplier.update({
-      where: { id: req.params.id },
-      data,
-    });
+    const supplier = await updateSupplierAggregate(req.params.id, data);
 
     cache.delByPrefix(CACHE_KEY.SUPPLIER_LIST);
     cache.del(CACHE_KEY.SUPPLIER_DETAIL(req.params.id));
@@ -609,12 +586,12 @@ router.delete(
   '/:id',
   requireCapability('supplier', 'delete'),
   asyncHandler(async (req, res) => {
-    const existing = await prisma.supplier.findUnique({ where: { id: req.params.id } });
+    const existing = await supplierRepository.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       throw new AppError('供应商不存在', 404);
     }
 
-    await prisma.supplier.update({
+    await supplierRepository.update({
       where: { id: req.params.id },
       data: { status: 'inactive' },
     });

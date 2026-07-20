@@ -1,0 +1,2329 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-07-19T18:05:58.227Z",
+  "environment": {
+    "node": "v22.16.0",
+    "browser": "Playwright Chromium (headless)",
+    "viewport": "1440x900",
+    "runs": 5,
+    "settleMs": 500,
+    "path": "/dashboard",
+    "passwordSource": "E2E_PASSWORD environment variable (not persisted)"
+  },
+  "baseline": {
+    "label": "baseline",
+    "baseURL": "http://127.0.0.1:5291",
+    "path": "/dashboard",
+    "runs": [
+      {
+        "run": 1,
+        "requestCount": 33,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-ByR8tksS.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BuurWFMk.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-dLlbogur.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Bqf8s3KM.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DhgyPI_Q.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-0DQLowcI.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-B6oyLEIs.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-CNCzVpYb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BSJSl9f-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-VRwM7ubx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-BcBlIx_U.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-BLniiBor.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BOaTrK9-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-bqTdRfJm.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-D6LpENR3.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-B_Hbltqr.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 9
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 31
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 15
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 22
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 13
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 19
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 20
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 39
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 57
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 12
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 13
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 55
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 50
+          }
+        ],
+        "wallClockMs": 701,
+        "fcpMs": 64,
+        "domContentLoadedMs": 36.6,
+        "loadEventMs": 37.3,
+        "firstUsableContentMs": 184.4
+      },
+      {
+        "run": 2,
+        "requestCount": 33,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-ByR8tksS.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BuurWFMk.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-dLlbogur.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Bqf8s3KM.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DhgyPI_Q.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-0DQLowcI.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-B6oyLEIs.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-CNCzVpYb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BSJSl9f-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-VRwM7ubx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-BcBlIx_U.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-BLniiBor.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BOaTrK9-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-bqTdRfJm.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-D6LpENR3.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-B_Hbltqr.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 6
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 20
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 11
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 13
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 12
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 22
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 30
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 37
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 54
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 11
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 13
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 37
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 50
+          }
+        ],
+        "wallClockMs": 612,
+        "fcpMs": 36,
+        "domContentLoadedMs": 30.3,
+        "loadEventMs": 30.8,
+        "firstUsableContentMs": 100.9
+      },
+      {
+        "run": 3,
+        "requestCount": 33,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-ByR8tksS.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BuurWFMk.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-dLlbogur.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Bqf8s3KM.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DhgyPI_Q.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-0DQLowcI.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-B6oyLEIs.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-CNCzVpYb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BSJSl9f-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-VRwM7ubx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-BcBlIx_U.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-BLniiBor.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BOaTrK9-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-bqTdRfJm.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-D6LpENR3.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-B_Hbltqr.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 12
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 31
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 10
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 12
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 15
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 25
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 22
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 25
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 52
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 13
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 13
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 27
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 48
+          }
+        ],
+        "wallClockMs": 682,
+        "fcpMs": 40,
+        "domContentLoadedMs": 26.3,
+        "loadEventMs": 27.5,
+        "firstUsableContentMs": 170.6
+      },
+      {
+        "run": 4,
+        "requestCount": 33,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-ByR8tksS.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BuurWFMk.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-dLlbogur.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Bqf8s3KM.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DhgyPI_Q.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-0DQLowcI.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-B6oyLEIs.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-CNCzVpYb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BSJSl9f-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-VRwM7ubx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-BcBlIx_U.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-BLniiBor.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BOaTrK9-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-bqTdRfJm.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-D6LpENR3.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-B_Hbltqr.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 8
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 32
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 13
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 14
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 14
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 20
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 21
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 29
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 36
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 15
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 22
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 42
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 66
+          }
+        ],
+        "wallClockMs": 652,
+        "fcpMs": 44,
+        "domContentLoadedMs": 25.3,
+        "loadEventMs": 26.3,
+        "firstUsableContentMs": 144.2
+      },
+      {
+        "run": 5,
+        "requestCount": 33,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-ByR8tksS.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BuurWFMk.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-dLlbogur.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Bqf8s3KM.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DhgyPI_Q.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-0DQLowcI.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-B6oyLEIs.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-CNCzVpYb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BSJSl9f-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-VRwM7ubx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-BcBlIx_U.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-BLniiBor.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-BOaTrK9-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-bqTdRfJm.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-D6LpENR3.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-B_Hbltqr.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 18
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 35
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 16
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 19
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 22
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 30
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 38
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 41
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 79
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 10
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 11
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 26
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 46
+          }
+        ],
+        "wallClockMs": 671,
+        "fcpMs": 56,
+        "domContentLoadedMs": 38,
+        "loadEventMs": 39.1,
+        "firstUsableContentMs": 163.1
+      }
+    ],
+    "warmMedian": {
+      "requestCount": 33,
+      "apiRequestCount": 13,
+      "apiP50Ms": 22,
+      "apiP95Ms": 54,
+      "fcpMs": 44,
+      "firstUsableContentMs": 163.1,
+      "domContentLoadedMs": 30.3,
+      "loadEventMs": 30.8,
+      "wallClockMs": 671
+    }
+  },
+  "current": {
+    "label": "current",
+    "baseURL": "http://127.0.0.1:5292",
+    "path": "/dashboard",
+    "runs": [
+      {
+        "run": 1,
+        "requestCount": 35,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DFbemD6-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-GtiDbAtS.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dwfm_uhb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Dr75y-uU.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-CeCymzcc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-DjS3oT96.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-DXbt06Ww.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-uGvtnopL.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BNOXqhUh.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-Dx4Iomoo.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-Bj1dOoWx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-CYMyCwZZ.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-QtwxHXTx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-lws7faE0.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DQcr2G0X.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-BsU4E4Va.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-IGW8GyeD.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dswz_wzj.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 13
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 61
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 22
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 47
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 36
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 47
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 24
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 24
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 56
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 82
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 82
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 144
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 91
+          }
+        ],
+        "wallClockMs": 725,
+        "fcpMs": 64,
+        "domContentLoadedMs": 29.9,
+        "loadEventMs": 30.6,
+        "firstUsableContentMs": 214.7
+      },
+      {
+        "run": 2,
+        "requestCount": 35,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DFbemD6-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-GtiDbAtS.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dwfm_uhb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Dr75y-uU.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-CeCymzcc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-DjS3oT96.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-DXbt06Ww.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-uGvtnopL.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BNOXqhUh.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-Dx4Iomoo.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-Bj1dOoWx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-CYMyCwZZ.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-QtwxHXTx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-lws7faE0.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DQcr2G0X.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-BsU4E4Va.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-IGW8GyeD.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dswz_wzj.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 9
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 24
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 12
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 14
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 19
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 22
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 26
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 29
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 64
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 16
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 17
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 29
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 54
+          }
+        ],
+        "wallClockMs": 633,
+        "fcpMs": 44,
+        "domContentLoadedMs": 27.6,
+        "loadEventMs": 28.7,
+        "firstUsableContentMs": 121.4
+      },
+      {
+        "run": 3,
+        "requestCount": 35,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DFbemD6-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-GtiDbAtS.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dwfm_uhb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Dr75y-uU.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-CeCymzcc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-DjS3oT96.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-DXbt06Ww.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-uGvtnopL.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BNOXqhUh.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-Dx4Iomoo.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-Bj1dOoWx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-CYMyCwZZ.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-QtwxHXTx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-lws7faE0.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DQcr2G0X.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-BsU4E4Va.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-IGW8GyeD.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dswz_wzj.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 14
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 28
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 10
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 11
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 12
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 23
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 27
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 31
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 60
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 20
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 21
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 46
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 52
+          }
+        ],
+        "wallClockMs": 619,
+        "fcpMs": 44,
+        "domContentLoadedMs": 29.4,
+        "loadEventMs": 29.9,
+        "firstUsableContentMs": 113.1
+      },
+      {
+        "run": 4,
+        "requestCount": 35,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DFbemD6-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-GtiDbAtS.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dwfm_uhb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Dr75y-uU.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-CeCymzcc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-DjS3oT96.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-DXbt06Ww.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-uGvtnopL.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BNOXqhUh.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-Dx4Iomoo.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-Bj1dOoWx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-CYMyCwZZ.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-QtwxHXTx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-lws7faE0.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DQcr2G0X.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-BsU4E4Va.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-IGW8GyeD.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dswz_wzj.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 6
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 19
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 14
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 15
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 15
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 25
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 30
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 40
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 48
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 14
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 15
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 42
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 59
+          }
+        ],
+        "wallClockMs": 629,
+        "fcpMs": 40,
+        "domContentLoadedMs": 25.9,
+        "loadEventMs": 27,
+        "firstUsableContentMs": 111.1
+      },
+      {
+        "run": 5,
+        "requestCount": 35,
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/dashboard"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DFbemD6-.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-icons-RFX4BViv.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-radix-COkt7-0f.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/vendor-charts-ByHfXvDc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-GtiDbAtS.css"
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dwfm_uhb.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/card-Dr75y-uU.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-CeCymzcc.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/label-DjS3oT96.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/checkbox-DXbt06Ww.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/textarea-uGvtnopL.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/table-BNOXqhUh.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/dialog-Dx4Iomoo.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/select-Bj1dOoWx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/ControlledListExportButton-CYMyCwZZ.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-QtwxHXTx.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/queries-lws7faE0.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-DQcr2G0X.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/tabs-BsU4E4Va.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/switch-IGW8GyeD.js"
+          },
+          {
+            "method": "GET",
+            "url": "/assets/index-Dswz_wzj.js"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities"
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me"
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations"
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs"
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails"
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats"
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory"
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary"
+          }
+        ],
+        "apiRequestCount": 13,
+        "apiRequests": [
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 401,
+            "durationMs": 15
+          },
+          {
+            "method": "POST",
+            "url": "/api/auth/refresh",
+            "status": 200,
+            "durationMs": 43
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/capabilities",
+            "status": 200,
+            "durationMs": 16
+          },
+          {
+            "method": "GET",
+            "url": "/api/auth/me",
+            "status": 200,
+            "durationMs": 18
+          },
+          {
+            "method": "GET",
+            "url": "/api/suppliers/follow-up-logs",
+            "status": 200,
+            "durationMs": 16
+          },
+          {
+            "method": "GET",
+            "url": "/api/emails",
+            "status": 200,
+            "durationMs": 36
+          },
+          {
+            "method": "GET",
+            "url": "/api/notifications",
+            "status": 200,
+            "durationMs": 41
+          },
+          {
+            "method": "GET",
+            "url": "/api/rfqs",
+            "status": 200,
+            "durationMs": 54
+          },
+          {
+            "method": "GET",
+            "url": "/api/quotations",
+            "status": 200,
+            "durationMs": 58
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/stats",
+            "status": 200,
+            "durationMs": 10
+          },
+          {
+            "method": "GET",
+            "url": "/api/dashboard/funnel",
+            "status": 200,
+            "durationMs": 13
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory",
+            "status": 200,
+            "durationMs": 25
+          },
+          {
+            "method": "GET",
+            "url": "/api/inventory-analytics/health-summary",
+            "status": 200,
+            "durationMs": 44
+          }
+        ],
+        "wallClockMs": 666,
+        "fcpMs": 52,
+        "domContentLoadedMs": 28.8,
+        "loadEventMs": 29.9,
+        "firstUsableContentMs": 153.9
+      }
+    ],
+    "warmMedian": {
+      "requestCount": 35,
+      "apiRequestCount": 13,
+      "apiP50Ms": 22,
+      "apiP95Ms": 59,
+      "fcpMs": 44,
+      "firstUsableContentMs": 121.4,
+      "domContentLoadedMs": 28.8,
+      "loadEventMs": 29.9,
+      "wallClockMs": 633
+    }
+  }
+}

@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/i18n';
+import { reportFrontendError } from '@/lib/monitoring';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -61,7 +62,7 @@ class ErrorBoundaryRoot extends React.Component<ErrorBoundaryProps, ErrorBoundar
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('[ErrorBoundary] Uncaught error:', error, errorInfo);
+    reportFrontendError(error, { source: 'react.error-boundary', componentStack: errorInfo.componentStack });
     this.setState({ errorInfo });
     // 上报到 localStorage
     try {

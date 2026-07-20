@@ -161,10 +161,16 @@ describe('Quotation workflow routes', () => {
       enqueueBusinessEvent: enqueueBusinessEventMock,
       enqueueOutboundEmail: enqueueOutboundEmailMock,
     }));
-    vi.doMock('../lib/orderWorkflowService.js', () => ({
-      createOrderFromQuotation: createOrderFromQuotationMock,
-      mapOrderResponse: mapOrderResponseMock,
-    }));
+    vi.doMock('../modules/quotationOrder/index.js', async () => {
+      const actual = await vi.importActual<typeof import('../modules/quotationOrder/index.js')>('../modules/quotationOrder/index.js');
+      return {
+        ...actual,
+        orderRepository: prismaMock.__tx.order,
+        quotationRepository: prismaMock.quotation,
+        createOrderFromQuotation: createOrderFromQuotationMock,
+        mapOrderResponse: mapOrderResponseMock,
+      };
+    });
     vi.doMock('../lib/documentTemplateService.js', () => ({
       ensureOrderContractDocument: ensureOrderContractDocumentMock,
       ORDER_CONTRACT_DOCUMENT_TYPE: 'ORDER_CONTRACT',

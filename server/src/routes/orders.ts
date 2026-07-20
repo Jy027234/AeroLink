@@ -1,26 +1,30 @@
 import { Router } from 'express';
-import { Prisma, type OrderStatusEnum, type Quotation, type QuotationStatusEnum } from '@prisma/client';
+import { Prisma, type OrderStatusEnum, type QuotationStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { assertCapability, requireCapability } from '../middleware/capability.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
 import { orderCreateSchema, orderStatusUpdateSchema, orderUpdateSchema } from '../lib/validation.js';
-import { createOrderFromQuotation, mapOrderResponse } from '../lib/orderWorkflowService.js';
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { normalizeMoney, preferredMoneyValue } from '../lib/money.js';
 import { generateOrderPDF } from '../lib/pdfService.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, type IdempotentExecution, runIdempotentOperation } from '../lib/idempotencyService.js';
-import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import { isUniqueConstraintError } from '../lib/prismaErrors.js';
-import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
-import { isOrderStatusTransitionAllowed, normalizeOrderStatus, toUiOrderStatus } from '../lib/orderStateMachine.js';
-import { isQuotationTransitionAllowed, normalizeQuotationStatus } from '../lib/quotationStateMachine.js';
-import { transitionOrderStatus, transitionQuotationStatus } from '../lib/transactionStateService.js';
+import { toUiOrderStatus } from '../lib/orderStateMachine.js';
 import { preferredOrderStatus, preferredQuotationStatus } from '../lib/transactionStatusShadows.js';
 import { getCapabilityScope, hasCapability } from '../lib/capabilityPolicy.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
+import {
+  createOrderFromQuotation,
+  createOrderAggregate,
+  mapOrderResponse,
+  orderRepository,
+  quotationRepository,
+  transitionOrderAggregate,
+  updateOrderAggregate,
+} from '../modules/quotationOrder/index.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -111,7 +115,6 @@ function canViewOrderCost(actor: NonNullable<AuthRequest['user']>, order: Scoped
   });
 }
 
-type OrderWithCustomer = Prisma.OrderGetPayload<{ include: { customer: true } }>;
 type OrderCreateResponse = ReturnType<typeof mapOrderResponse> & {
   contractDocumentId: string;
   contractDocumentTitle: string;
@@ -261,7 +264,7 @@ router.get(
     const where = buildOrderListWhere(query, actor);
 
     const [orders, total, statusCounts, amountAggregate] = await Promise.all([
-      prisma.order.findMany({
+      orderRepository.findMany({
         where,
         include: {
           customer: true,
@@ -283,13 +286,13 @@ router.get(
         skip,
         take: pageSize,
       }),
-      prisma.order.count({ where }),
-      prisma.order.groupBy({
+      orderRepository.count({ where }),
+      orderRepository.groupBy({
         where,
         by: ['status'],
         _count: { _all: true },
       }),
-      prisma.order.aggregate({
+      orderRepository.aggregate({
         where,
         _sum: { totalAmount: true, totalAmountDecimal: true },
       }),
@@ -387,7 +390,7 @@ router.get(
       defaultSort: 'createdAt',
       defaultDirection: 'desc',
     });
-    const orders = await prisma.order.findMany({
+    const orders = await orderRepository.findMany({
       where: buildOrderListWhere(query, (req as AuthRequest).user!),
       select: {
         orderNumber: true,
@@ -437,7 +440,7 @@ router.get(
   '/:id/status-history',
   requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
-    const order = await prisma.order.findUnique({
+    const order = await orderRepository.findUnique({
       where: { id: req.params.id },
       select: {
         id: true,
@@ -476,7 +479,7 @@ router.get(
   '/:id',
   requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
-    const order = await prisma.order.findUnique({
+    const order = await orderRepository.findUnique({
       where: { id: req.params.id },
       include: {
         customer: true,
@@ -543,148 +546,58 @@ router.post(
       execution = await runIdempotentOperation(
         idempotencyContext,
         async (tx) => {
-          const quotation = await tx.quotation.findUnique({
-            where: { id: quotationId },
-            include: {
-              customer: true,
-              creator: { select: { department: true } },
-            },
-          });
-          if (!quotation) {
-            throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
-          }
-          const quotationAccessContext = {
-            ownerId: quotation.createdBy,
-            department: quotation.creator?.department,
-          };
-          assertCapability(actor, 'order', 'create', quotationAccessContext);
-          assertCapability(actor, 'quotation', 'accept', quotationAccessContext);
-          if (quotation.customerId !== customerId) {
-            throw new AppError('订单客户与报价客户不一致', 400, 'BAD_REQUEST');
-          }
-
-          const existingOrder = await tx.order.findUnique({
-            where: { quotationId },
-            include: { customer: true },
-          });
-
-          let order: OrderWithCustomer;
-          let updatedQuotation: Quotation;
-          let isNewOrder = false;
-
-          if (existingOrder) {
-            order = existingOrder;
-            updatedQuotation = quotation;
-          } else {
-            const quotationStatus = normalizeQuotationStatus(
-              preferredQuotationStatus(quotation.statusEnum, quotation.status),
-            );
-            if (!quotationStatus || !['APPROVED', 'SENT', 'ACCEPTED'].includes(quotationStatus)) {
-              throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
-            }
-            if (quotationStatus !== 'ACCEPTED' && !isQuotationTransitionAllowed(quotationStatus, 'ACCEPTED')) {
-              throw new AppError('当前报价状态不能创建订单', 409, 'INVALID_STATE_TRANSITION');
-            }
-
-            updatedQuotation = quotationStatus === 'ACCEPTED'
-              ? quotation
-              : await transitionQuotationStatus(tx, {
-                id: quotation.id,
-                currentStatus: quotation.status,
-                currentVersion: quotation.version,
-                nextStatus: 'ACCEPTED',
-                expectedVersion: quotationVersion,
-                actorId,
-                reasonCode: 'ORDER_CREATED_FROM_QUOTATION',
-                data: { acceptedAt: quotation.acceptedAt || new Date() },
-              });
-
-            order = await createOrderFromQuotation({
-              tx,
-              quotation: updatedQuotation,
-              customer: quotation.customer,
-              poNumber,
-              deliveryDate,
-              saleType,
-              incoterm,
-              incotermLocation,
-              shipToId,
-              shipForId,
-              warrantyDays,
-              warrantyStartDate,
-              certificateRequired,
-              certificateType,
-              certificateDelivered,
-              packagingStandard,
-              shippingMethod,
-              carrierAccount,
-              inspectionRequired,
-              inspectionPassed,
-              inspectionDate,
-              customsClearanceRequired,
-              customsDeclarationNo,
-              importDuty,
-              vatAmount,
-              totalLandCost,
-              exchangeCoreCharge,
-              exchangeCoreDueDate,
-              eSignatureCustomer,
-              eSignatureSupplier,
-              actorId,
-              reasonCode: 'ORDER_CREATED_FROM_QUOTATION',
-            });
-            isNewOrder = true;
-          }
-
-          const generatedDocument = await ensureOrderContractDocument({
-            quotation: updatedQuotation,
-            customer: quotation.customer,
-            order,
-            templateId,
-            generatedById: actorId,
+          const { order, generatedDocument, isNewOrder } = await createOrderAggregate({
             tx,
+            quotationId,
+            customerId,
+            quotationVersion,
+            actorId,
+            poNumber,
+            deliveryDate,
+            templateId,
+            saleType,
+            incoterm,
+            incotermLocation,
+            shipToId,
+            shipForId,
+            warrantyDays,
+            warrantyStartDate,
+            certificateRequired,
+            certificateType,
+            certificateDelivered,
+            packagingStandard,
+            shippingMethod,
+            carrierAccount,
+            inspectionRequired,
+            inspectionPassed,
+            inspectionDate,
+            customsClearanceRequired,
+            customsDeclarationNo,
+            importDuty,
+            vatAmount,
+            totalLandCost,
+            exchangeCoreCharge,
+            exchangeCoreDueDate,
+            eSignatureCustomer,
+            eSignatureSupplier,
+            authorize: (quotation) => {
+              const quotationAccessContext = {
+                ownerId: quotation.createdBy,
+                department: quotation.creator?.department,
+              };
+              assertCapability(actor, 'order', 'create', quotationAccessContext);
+              assertCapability(actor, 'quotation', 'accept', quotationAccessContext);
+            },
+            createOrder: createOrderFromQuotation,
+            ensureContractDocument: ({ quotation, customer, order, templateId: contractTemplateId, generatedById, tx: transaction }) => ensureOrderContractDocument({
+              quotation,
+              customer,
+              order,
+              templateId: contractTemplateId,
+              generatedById,
+              tx: transaction,
+            }),
           });
-
-          if (isNewOrder) {
-            await enqueueBusinessEvent(tx, {
-              eventType: 'order.created',
-              aggregateType: 'ORDER',
-              aggregateId: order.id,
-              data: {
-                orderId: order.id,
-                orderNumber: order.orderNumber,
-                soNumber: order.soNumber,
-                quotationId: order.quotationId,
-                customerId: order.customerId,
-                customerName: order.customer.name,
-                status: orderStatus(order),
-                totalAmount: orderTotalAmount(order),
-                createdAt: order.createdAt.toISOString(),
-              },
-              socket: {
-                room: SocketRooms.ORDERS,
-                event: SocketEvents.ORDER_CREATED,
-              },
-              createdById: actorId,
-            });
-            await enqueueBusinessEvent(tx, {
-              eventType: 'quotation.accepted',
-              aggregateType: 'QUOTATION',
-              aggregateId: updatedQuotation.id,
-              data: {
-                quotationId: updatedQuotation.id,
-                quoteNumber: updatedQuotation.quoteNumber,
-                acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
-                orderId: order.id,
-                contractDocumentId: generatedDocument.id,
-              },
-              socket: {
-                room: SocketRooms.QUOTATIONS,
-                event: SocketEvents.QUOTATION_UPDATED,
-              },
-              createdById: actorId,
-            });
-          }
 
           return {
             payload: {
@@ -707,8 +620,8 @@ router.post(
       // request won the unique constraint, return its committed order instead
       // of reporting a false conflict to a retrying caller.
       const [concurrentOrder, currentQuotation] = await Promise.all([
-        prisma.order.findUnique({ where: { quotationId }, include: { customer: true } }),
-        prisma.quotation.findUnique({
+        orderRepository.findUnique({ where: { quotationId }, include: { customer: true } }),
+        quotationRepository.findUnique({
           where: { id: quotationId },
           include: {
             customer: true,
@@ -764,59 +677,15 @@ router.patch(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'PATCH:/orders/:id/status'),
       async (tx) => {
-        const existing = await tx.order.findUnique({
-          where: { id: req.params.id },
-          include: {
-            quotation: {
-              select: {
-                createdBy: true,
-                creator: { select: { department: true } },
-              },
-            },
-          },
+        const { order } = await transitionOrderAggregate(tx, {
+          id: req.params.id,
+          nextStatus,
+          expectedVersion: req.body.version,
+          actorId,
+          reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
+          reason: req.body.reason,
+          authorize: (candidate) => assertOrderAccess(actor, 'transition', candidate),
         });
-        if (!existing) {
-          throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        assertOrderAccess(actor, 'transition', existing);
-
-        const currentStatus = normalizeOrderStatus(orderStatus(existing));
-        if (!isOrderStatusTransitionAllowed(currentStatus, nextStatus)) {
-          throw new AppError(`订单不允许从 ${toUiOrderStatus(currentStatus)} 变更为 ${toUiOrderStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
-        }
-
-        const order = currentStatus === normalizeOrderStatus(nextStatus)
-          ? existing
-          : await transitionOrderStatus(tx, {
-            id: existing.id,
-            currentStatus: existing.status,
-            currentVersion: existing.version,
-            nextStatus,
-            expectedVersion: req.body.version,
-            actorId,
-            reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
-            reason: req.body.reason,
-          });
-
-        if (currentStatus !== orderStatus(order)) {
-          await enqueueBusinessEvent(tx, {
-            eventType: 'order.status.changed',
-            aggregateType: 'ORDER',
-            aggregateId: order.id,
-            data: {
-              orderId: order.id,
-              orderNumber: order.orderNumber,
-              oldStatus: currentStatus,
-              newStatus: orderStatus(order),
-              changedAt: new Date().toISOString(),
-            },
-            socket: {
-              room: SocketRooms.ORDERS,
-              event: SocketEvents.ORDER_STATUS_CHANGED,
-            },
-            createdById: actorId,
-          });
-        }
 
         return {
           payload: {
@@ -900,24 +769,8 @@ router.patch(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'PATCH:/orders/:id'),
       async (tx) => {
-        const existing = await tx.order.findUnique({
-          where: { id: req.params.id },
-          include: {
-            quotation: {
-              select: {
-                createdBy: true,
-                creator: { select: { department: true } },
-              },
-            },
-          },
-        });
-        if (!existing) {
-          throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        assertOrderAccess(actor, 'update', existing);
-
-        const order = await tx.order.update({
-          where: { id: req.params.id },
+        const order = await updateOrderAggregate(tx, {
+          id: req.params.id,
           data,
           include: {
             customer: true,
@@ -928,6 +781,7 @@ router.patch(
               orderBy: { generatedAt: 'desc' },
             },
           },
+          authorize: (candidate) => assertOrderAccess(actor, 'update', candidate),
         });
 
         return {
@@ -955,7 +809,7 @@ router.get(
   '/:id/tracking',
   requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
-    const order = await prisma.order.findUnique({
+    const order = await orderRepository.findUnique({
       where: { id: req.params.id },
       select: {
         id: true,
@@ -992,7 +846,7 @@ router.get(
   '/:id/pdf',
   requireCapability('order', 'read'),
   asyncHandler(async (req, res) => {
-    const order = await prisma.order.findUnique({
+    const order = await orderRepository.findUnique({
       where: { id: req.params.id },
       include: {
         customer: true,

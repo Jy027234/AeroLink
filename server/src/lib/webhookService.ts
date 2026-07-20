@@ -10,6 +10,9 @@ import {
 } from './jsonConfigurationShadows.js';
 import { logger } from './logger.js';
 
+const DEFAULT_WEBHOOK_WORKER_ID = process.env.WORKER_ID?.trim() || `worker-${crypto.randomUUID()}`;
+const WEBHOOK_LEASE_HEARTBEAT_MS = 60_000;
+
 export const SUPPORTED_WEBHOOK_EVENTS = [
   'rfq.created',
   'rfq.status.changed',
@@ -51,6 +54,8 @@ export interface QueueWebhookEventOptions {
   occurredAt?: Date;
   /** Legacy direct callers can still request immediate webhook delivery. */
   deliverImmediately?: boolean;
+  /** Internal correlation only; never included in the external webhook body. */
+  requestId?: string;
 }
 
 interface EndpointHeaders {
@@ -270,7 +275,7 @@ function buildDefaultEnvelope(
   };
 }
 
-async function deliverOnce(delivery: WebhookDelivery & { endpoint: WebhookEndpoint }) {
+async function deliverOnce(delivery: WebhookDelivery & { endpoint: WebhookEndpoint }, workerId?: string) {
   const payload = delivery.payload;
   const endpoint = delivery.endpoint;
   const attemptCount = delivery.attemptCount + 1;
@@ -296,6 +301,18 @@ async function deliverOnce(delivery: WebhookDelivery & { endpoint: WebhookEndpoi
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), endpoint.timeoutMs);
+  const deliveryWhere: Prisma.WebhookDeliveryWhereInput = workerId
+    ? { id: delivery.id, status: 'processing', workerId }
+    : { id: delivery.id };
+  const finalize = async (
+    data: Prisma.WebhookDeliveryUpdateManyMutationInput,
+    endpointData: Prisma.WebhookEndpointUpdateInput,
+  ) => prisma.$transaction(async (tx) => {
+    const released = await tx.webhookDelivery.updateMany({ where: deliveryWhere, data });
+    if (released.count !== 1) return false;
+    await tx.webhookEndpoint.update({ where: { id: endpoint.id }, data: endpointData });
+    return true;
+  });
 
   try {
     const response = await fetch(endpoint.url, {
@@ -318,73 +335,52 @@ async function deliverOnce(delivery: WebhookDelivery & { endpoint: WebhookEndpoi
     };
 
     if (response.ok) {
-      await prisma.$transaction([
-        prisma.webhookDelivery.update({
-          where: { id: delivery.id },
-          data: {
-            ...commonData,
-            status: 'success',
-            deliveredAt: new Date(),
-            nextRetryAt: null,
-          },
-        }),
-        prisma.webhookEndpoint.update({
-          where: { id: endpoint.id },
-          data: { lastSuccessAt: new Date() },
-        }),
-      ]);
+      await finalize({
+        ...commonData,
+        status: 'success',
+        deliveredAt: new Date(),
+        nextRetryAt: null,
+        lockedAt: null,
+        workerId: null,
+      }, { lastSuccessAt: new Date() });
       return;
     }
 
     const shouldRetry = attemptCount <= endpoint.maxRetries;
-    await prisma.$transaction([
-      prisma.webhookDelivery.update({
-        where: { id: delivery.id },
-        data: {
-          ...commonData,
-          status: shouldRetry ? 'retrying' : 'failed',
-          nextRetryAt: shouldRetry ? scheduleNextRetry(attemptCount) : null,
-          deliveredAt: null,
-          lastError: `HTTP_${response.status}`,
-        },
-      }),
-      prisma.webhookEndpoint.update({
-        where: { id: endpoint.id },
-        data: { lastFailureAt: new Date() },
-      }),
-    ]);
+    await finalize({
+      ...commonData,
+      status: shouldRetry ? 'retrying' : 'failed',
+      nextRetryAt: shouldRetry ? scheduleNextRetry(attemptCount) : null,
+      deliveredAt: null,
+      lockedAt: null,
+      workerId: null,
+      lastError: `HTTP_${response.status}`,
+    }, { lastFailureAt: new Date() });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     const shouldRetry = attemptCount <= endpoint.maxRetries;
     const requestHeaders = buildJsonObjectShadow(headers);
 
-    await prisma.$transaction([
-      prisma.webhookDelivery.update({
-        where: { id: delivery.id },
-        data: {
-          attemptCount,
-          requestHeaders: requestHeaders.legacy,
-          requestHeadersJson: requestHeaders.shadow,
-          status: shouldRetry ? 'retrying' : 'failed',
-          nextRetryAt: shouldRetry ? scheduleNextRetry(attemptCount) : null,
-          deliveredAt: null,
-          responseStatus: null,
-          responseBody: null,
-          lastError: message,
-          updatedAt: new Date(),
-        },
-      }),
-      prisma.webhookEndpoint.update({
-        where: { id: endpoint.id },
-        data: { lastFailureAt: new Date() },
-      }),
-    ]);
+    await finalize({
+      attemptCount,
+      requestHeaders: requestHeaders.legacy,
+      requestHeadersJson: requestHeaders.shadow,
+      status: shouldRetry ? 'retrying' : 'failed',
+      nextRetryAt: shouldRetry ? scheduleNextRetry(attemptCount) : null,
+      deliveredAt: null,
+      lockedAt: null,
+      workerId: null,
+      responseStatus: null,
+      responseBody: null,
+      lastError: message,
+      updatedAt: new Date(),
+    }, { lastFailureAt: new Date() });
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function deliverById(deliveryId: string) {
+async function deliverById(deliveryId: string, workerId?: string) {
   const delivery = await prisma.webhookDelivery.findUnique({
     where: { id: deliveryId },
     include: { endpoint: true },
@@ -394,19 +390,25 @@ async function deliverById(deliveryId: string) {
     return;
   }
 
+  if (workerId && (delivery.status !== 'processing' || delivery.workerId !== workerId)) {
+    return;
+  }
+
   if (!delivery.endpoint.isActive) {
-    await prisma.webhookDelivery.update({
-      where: { id: delivery.id },
+    await prisma.webhookDelivery.updateMany({
+      where: workerId ? { id: delivery.id, status: 'processing', workerId } : { id: delivery.id },
       data: {
         status: 'failed',
         lastError: 'Endpoint is inactive',
         nextRetryAt: null,
+        lockedAt: null,
+        workerId: null,
       },
     });
     return;
   }
 
-  await deliverOnce(delivery);
+  await deliverOnce(delivery, workerId);
 }
 
 /**
@@ -578,11 +580,30 @@ export async function retryWebhookDelivery(deliveryId: string) {
   return cloned.id;
 }
 
-export async function processPendingWebhookRetries(limit = 50) {
+export async function processPendingWebhookRetries(limit = 50, workerId = DEFAULT_WEBHOOK_WORKER_ID) {
+  const now = new Date();
+  const staleLeaseCutoff = new Date(now.getTime() - 5 * 60 * 1000);
+  await prisma.webhookDelivery.updateMany({
+    where: {
+      status: 'processing',
+      OR: [
+        { lockedAt: { lt: staleLeaseCutoff } },
+        { lockedAt: null, updatedAt: { lt: staleLeaseCutoff } },
+      ],
+    },
+      data: {
+        status: 'retrying',
+        nextRetryAt: now,
+        lockedAt: null,
+        workerId: null,
+      lastError: 'Recovered stale webhook worker claim',
+    },
+  });
+
   const jobs = await prisma.webhookDelivery.findMany({
     where: {
       status: { in: ['pending', 'retrying'] },
-      OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: new Date() } }],
+      OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
     },
     orderBy: { createdAt: 'asc' },
     take: limit,
@@ -590,10 +611,33 @@ export async function processPendingWebhookRetries(limit = 50) {
   });
 
   for (const job of jobs) {
+    const claim = await prisma.webhookDelivery.updateMany({
+      where: {
+        id: job.id,
+        status: { in: ['pending', 'retrying'] },
+        OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
+      },
+      data: { status: 'processing', workerId, lockedAt: new Date(), updatedAt: new Date() },
+    });
+    if (claim.count !== 1) continue;
+
+    const heartbeat = workerId
+      ? setInterval(() => {
+          void prisma.webhookDelivery.updateMany({
+            where: { id: job.id, status: 'processing', workerId },
+            data: { lockedAt: new Date(), updatedAt: new Date() },
+          }).catch((error) => {
+            logger.warn({ error, deliveryId: job.id, workerId }, 'Webhook lease heartbeat failed');
+          });
+        }, WEBHOOK_LEASE_HEARTBEAT_MS)
+      : undefined;
+
     try {
-      await deliverById(job.id);
+      await deliverById(job.id, workerId);
     } catch (error) {
       logger.error({ error, deliveryId: job.id }, 'Retry worker failed to process webhook delivery');
+    } finally {
+      if (heartbeat) clearInterval(heartbeat);
     }
   }
 

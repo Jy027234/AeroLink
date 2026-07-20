@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import { logger } from '../lib/logger.js';
+import { getRequestId } from '../lib/requestContext.js';
 
 export type ErrorCode =
   | 'AUTH_INVALID_CREDENTIALS'
@@ -12,6 +13,7 @@ export type ErrorCode =
   | 'AUTH_TOO_MANY_ATTEMPTS'
   | 'VALIDATION_ERROR'
   | 'EXPORT_CONFIRMATION_REQUIRED'
+  | 'OUTBOX_REPLAY_CONFIRMATION_REQUIRED'
   | 'RESOURCE_NOT_FOUND'
   | 'RESOURCE_CONFLICT'
   | 'STATE_CONFLICT'
@@ -41,11 +43,21 @@ export class AppError extends Error {
 
 export const errorHandler = (
   err: Error | AppError,
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ) => {
   void next;
+  const suppliedRequestId = req.get('x-request-id');
+  const requestId = getRequestId() || (
+    suppliedRequestId && /^[A-Za-z0-9._:-]{1,128}$/.test(suppliedRequestId)
+      ? suppliedRequestId
+      : undefined
+  );
+  const withRequestId = <T extends Record<string, unknown>>(body: T) => ({
+    ...body,
+    ...(requestId ? { requestId } : {}),
+  });
   if (err instanceof ZodError) {
     const details: Record<string, string[]> = {};
     err.errors.forEach((e) => {
@@ -54,21 +66,21 @@ export const errorHandler = (
       details[path].push(e.message);
     });
 
-    return res.status(400).json({
+    return res.status(400).json(withRequestId({
       success: false,
       code: 'VALIDATION_ERROR',
       message: '请求参数校验失败',
       details,
-    });
+    }));
   }
 
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
+    return res.status(err.statusCode).json(withRequestId({
       success: false,
       code: err.code,
       message: err.message,
       ...(err.details && { details: err.details }),
-    });
+    }));
   }
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
@@ -80,21 +92,21 @@ export const errorHandler = (
     };
     const mapped = codeMap[(err as Prisma.PrismaClientKnownRequestError).code];
     if (mapped) {
-      return res.status(mapped.status).json({
+      return res.status(mapped.status).json(withRequestId({
         success: false,
         code: mapped.code,
         message: mapped.message,
-      });
+      }));
     }
   }
 
-  logger.error({ err }, 'Unexpected error');
+  logger.error({ err, requestId }, 'Unexpected error');
 
-  return res.status(500).json({
+  return res.status(500).json(withRequestId({
     success: false,
     code: 'INTERNAL_ERROR',
     message: '服务器内部错误，请稍后重试',
-  });
+  }));
 };
 
 export const asyncHandler = (

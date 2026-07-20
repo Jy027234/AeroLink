@@ -45,8 +45,10 @@ RELEASE_RECORD="$(CDPATH= cd -- "$(dirname -- "$RELEASE_RECORD")" && pwd)/$(base
 record_source_ref="$(read_record_value SOURCE_REF)"
 record_release_tag="$(read_record_value RELEASE_TAG)"
 backend_release_image="$(read_record_value BACKEND_RELEASE_IMAGE)"
+worker_release_image="$(read_record_value WORKER_RELEASE_IMAGE)"
 web_release_image="$(read_record_value WEB_RELEASE_IMAGE)"
 backend_release_id="$(read_record_value BACKEND_RELEASE_ID)"
+worker_release_id="$(read_record_value WORKER_RELEASE_ID)"
 web_release_id="$(read_record_value WEB_RELEASE_ID)"
 
 if [[ "$record_source_ref" != "$SOURCE_REF" || "$record_release_tag" != "$SOURCE_REF" ]]; then
@@ -55,8 +57,9 @@ if [[ "$record_source_ref" != "$SOURCE_REF" || "$record_release_tag" != "$SOURCE
 fi
 
 actual_backend_id="$(docker image inspect "$backend_release_image" --format '{{.Id}}')"
+actual_worker_id="$(docker image inspect "$worker_release_image" --format '{{.Id}}')"
 actual_web_id="$(docker image inspect "$web_release_image" --format '{{.Id}}')"
-if [[ "$actual_backend_id" != "$backend_release_id" || "$actual_web_id" != "$web_release_id" ]]; then
+if [[ "$actual_backend_id" != "$backend_release_id" || "$actual_worker_id" != "$worker_release_id" || "$actual_web_id" != "$web_release_id" ]]; then
   echo "Release image IDs no longer match the release record." >&2
   exit 1
 fi
@@ -68,7 +71,19 @@ if ! printf '%s' "$health_response" | grep -Eq '"status"[[:space:]]*:[[:space:]]
 fi
 
 cd "$PROJECT_DIR"
+export BACKEND_IMAGE="${backend_release_image%%:*}" WORKER_IMAGE="${worker_release_image%%:*}" WEB_IMAGE="${web_release_image%%:*}" IMAGE_TAG=latest
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+
+worker_container_id="$("${compose[@]}" ps -q worker | tr -d '[:space:]')"
+if [[ -z "$worker_container_id" ]]; then
+  echo "Worker service is not running after release." >&2
+  exit 1
+fi
+running_worker_image_id="$(docker inspect "$worker_container_id" --format '{{.Image}}')"
+if [[ "$running_worker_image_id" != "$worker_release_id" ]]; then
+  echo "Worker container image does not match the release record." >&2
+  exit 1
+fi
 
 "${compose[@]}" exec -T backend npx prisma migrate status --schema prisma/schema.prisma
 expected_migration_count="$(find "$PROJECT_DIR/server/prisma/migrations" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
@@ -81,6 +96,7 @@ if [[ ! "$applied_migration_count" =~ ^[0-9]+$ || "$applied_migration_count" != 
   echo "Migration count mismatch: expected $expected_migration_count applied migrations, got ${applied_migration_count:-none}." >&2
   exit 1
 fi
+"${compose[@]}" exec -T backend npm run observability:retention-check
 "${compose[@]}" exec -T backend npm run db:check:inventory-reconciliation
 "${compose[@]}" exec -T backend npm run db:check:money-reconciliation
 "${compose[@]}" exec -T backend npm run db:check:transaction-status-reconciliation

@@ -59,7 +59,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { useSuppliers } from '@/hooks/useApi';
+import { useCreateSupplier, useSuppliers, useUpdateSupplier } from '@/features/suppliers';
 import { supplierApi } from '@/api/client';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { useTranslation } from '@/i18n';
@@ -706,6 +706,8 @@ function formToPayload(form: typeof emptyForm): Record<string, unknown> {
 
 export function Suppliers() {
   const { locale } = useTranslation();
+  const createSupplier = useCreateSupplier();
+  const updateSupplier = useUpdateSupplier();
   const can = useCapabilityStore((state) => state.can);
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const paymentTermsMap: Record<string, string> = {
@@ -829,10 +831,10 @@ export function Suppliers() {
     try {
       const payload = formToPayload(createForm);
       if (formMode === 'create') {
-        await supplierApi.create(payload as Parameters<typeof supplierApi.create>[0]);
+        await createSupplier.mutate(payload);
         toast.success(tx('供应商已新增', 'Supplier created'));
       } else if (selectedSupplier) {
-        await supplierApi.update(selectedSupplier.id, payload as Parameters<typeof supplierApi.update>[1]);
+        await updateSupplier.mutate({ id: selectedSupplier.id, data: payload });
         toast.success(tx('供应商已更新', 'Supplier updated'));
       }
       setIsFormOpen(false);

@@ -32,15 +32,14 @@ export function SettingsPage() {
   useEffect(() => {
     return subscribeToSettingsTabUrlChange(() => {
       const nextTab = getSettingsTabFromUrl();
-      if (nextTab) {
-        setActiveTab(nextTab);
-      }
+      setActiveTab(nextTab || defaultTab);
     });
-  }, []);
+  }, [defaultTab]);
 
   const handleTabChange = (nextTab: string) => {
     setActiveTab(nextTab);
-    setSettingsTabInUrl(nextTab);
+    // A tab is a navigable sub-state: browser back/forward must restore it.
+    setSettingsTabInUrl(nextTab, 'push');
   };
 
   return (
@@ -48,6 +47,7 @@ export function SettingsPage() {
       <Tabs value={resolvedActiveTab} onValueChange={handleTabChange}>
         <TabsList
           className="grid w-fit"
+          data-settings-tabs-list
           style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}
         >
           {visibleTabs.map((tab) => {

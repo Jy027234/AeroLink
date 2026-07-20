@@ -25,13 +25,19 @@ describe('Order idempotency and concurrent creation recovery', () => {
       runIdempotentOperation: runIdempotentOperationMock,
       applyIdempotencyHeaders: vi.fn(),
     }));
-    vi.doMock('../lib/orderWorkflowService.js', () => ({
-      createOrderFromQuotation: vi.fn(),
-      mapOrderResponse: vi.fn((order: { id: string; orderNumber: string }) => ({
-        id: order.id,
-        orderNumber: order.orderNumber,
-      })),
-    }));
+    vi.doMock('../modules/quotationOrder/index.js', async () => {
+      const actual = await vi.importActual<typeof import('../modules/quotationOrder/index.js')>('../modules/quotationOrder/index.js');
+      return {
+        ...actual,
+        orderRepository: prismaMock.order,
+        quotationRepository: prismaMock.quotation,
+        createOrderFromQuotation: vi.fn(),
+        mapOrderResponse: vi.fn((order: { id: string; orderNumber: string }) => ({
+          id: order.id,
+          orderNumber: order.orderNumber,
+        })),
+      };
+    });
     vi.doMock('../lib/documentTemplateService.js', () => ({
       ensureOrderContractDocument: ensureOrderContractDocumentMock,
       ORDER_CONTRACT_DOCUMENT_TYPE: 'ORDER_CONTRACT',

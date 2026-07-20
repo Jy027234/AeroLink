@@ -7,6 +7,8 @@ describe('API key route authorization', () => {
     apiKey: {
       findMany: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
+      findUnique: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
     };
   };
 
@@ -26,6 +28,8 @@ describe('API key route authorization', () => {
           expiresAt: data.expiresAt,
           createdAt: new Date('2026-07-17T00:00:00.000Z'),
         })),
+        findUnique: vi.fn(),
+        update: vi.fn(),
       },
     };
     vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
@@ -82,5 +86,34 @@ describe('API key route authorization', () => {
         scopesJson: ['read', 'write'],
       }),
     }));
+  });
+
+  it('never returns the persisted API key hash from an update response', async () => {
+    const updated = {
+      id: 'api-key-002',
+      name: 'Updated key',
+      keyHash: 'sha256-secret-material',
+      keyPrefix: 'ak_live_abc...',
+      scopes: '["read","admin"]',
+      scopesJson: ['read', 'admin'],
+      rateLimit: 1000,
+      isActive: true,
+      lastUsedAt: null,
+      expiresAt: null,
+      createdBy: 'user-1',
+      createdAt: new Date('2026-07-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-17T01:00:00.000Z'),
+    };
+    prismaMock.apiKey.findUnique.mockResolvedValue(updated);
+    prismaMock.apiKey.update.mockResolvedValue(updated);
+
+    const app = await buildApp('gm');
+    const response = await request(app)
+      .put('/api/api-keys/api-key-002')
+      .send({ name: 'Updated key' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).not.toHaveProperty('keyHash');
+    expect(response.body.data.scopes).toEqual(['read', 'admin']);
   });
 });

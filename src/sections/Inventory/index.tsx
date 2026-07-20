@@ -51,7 +51,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCapabilityStore, useInquiryStore, useUIStore } from '@/store';
-import { useInventory } from '@/hooks/useApi';
+import { useCreateInventory, useInventory, useUpdateInventory } from '@/features/inventory';
 import { inventoryApi, type InventoryReconciliationResult } from '@/api/client';
 import { ipcApi } from '@/api/client';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
@@ -460,6 +460,8 @@ function InventoryFormDialog({
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [saving, setSaving] = useState(false);
+  const createInventory = useCreateInventory();
+  const updateInventory = useUpdateInventory();
   const [activeTab, setActiveTab] = useState('basic');
   const [ipcFilled, setIpcFilled] = useState(false);
   const [ipcWarning, setIpcWarning] = useState('');
@@ -679,10 +681,10 @@ function InventoryFormDialog({
       };
 
       if (item) {
-        await inventoryApi.update(item.id, payload);
+        await updateInventory.mutate({ id: item.id, data: payload });
         toast.success(tx('库存已更新', 'Inventory updated'));
       } else {
-        await inventoryApi.create(payload);
+        await createInventory.mutate(payload);
         toast.success(tx('库存已创建', 'Inventory created'));
       }
       onSave();
@@ -1882,7 +1884,7 @@ export function InventoryCenter() {
           <div className="flex-1" />
 
           {/* Actions */}
-          <div className="flex gap-2">
+          <div className="flex min-w-0 max-w-full flex-wrap justify-end gap-2" data-inventory-actions>
             <Button variant="outline" size="sm" onClick={handleAddNew}>
               <Plus className="w-4 h-4 mr-1" />
               {tx('新增库存', 'Add Inventory')}

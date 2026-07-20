@@ -5,15 +5,22 @@ import fs from 'fs';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { logger } from '../lib/logger.js';
+import prisma from '../lib/prisma.js';
+import { objectStorage } from '../lib/objectStorage.js';
 
 const router = Router();
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+export function isUploadSizeAllowed(size: number) {
+  return Number.isFinite(size) && size > 0 && size <= MAX_UPLOAD_BYTES;
+}
 
 /**
  * Verify a file's content matches its declared MIME type by checking magic bytes.
  * Reads the first 8 bytes of the file and compares against known signatures.
  * Returns true for text-based types (like CSV) that have no binary signature.
  */
-function verifyFileSignature(filePath: string, mimetype: string): boolean {
+export function verifyFileSignature(filePath: string, mimetype: string): boolean {
   const buffer = Buffer.alloc(8);
   let fd: number;
   try {
@@ -108,9 +115,55 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB
+    fileSize: MAX_UPLOAD_BYTES,
   },
 });
+
+async function persistObject(file: Express.Multer.File, ownerId?: string) {
+  const metadata = await objectStorage.putFile({
+    sourcePath: file.path,
+    objectKey: file.filename,
+    mimeType: file.mimetype,
+    originalName: file.originalname,
+    domain: 'upload',
+    ownerId,
+  });
+
+  try {
+    const record = await prisma.storedObject.create({
+      data: {
+        objectKey: metadata.objectKey,
+        version: metadata.version,
+        sha256: metadata.sha256,
+        sizeBytes: metadata.sizeBytes,
+        mimeType: metadata.mimeType,
+        originalName: metadata.originalName,
+        domain: metadata.domain,
+        ownerId: metadata.ownerId,
+      },
+    });
+    return { ...metadata, id: record.id };
+  } catch (error) {
+    await objectStorage.delete(metadata.objectKey).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function persistObjects(files: Express.Multer.File[], ownerId?: string) {
+  const persisted: Array<{ objectKey: string }> = [];
+  try {
+    const results = [];
+    for (const file of files) {
+      const storedObject = await persistObject(file, ownerId);
+      persisted.push(storedObject);
+      results.push({ file, storedObject });
+    }
+    return results;
+  } catch (error) {
+    await Promise.all(persisted.map((object) => objectStorage.delete(object.objectKey).catch(() => undefined)));
+    throw error;
+  }
+}
 
 router.post(
   '/',
@@ -120,6 +173,10 @@ router.post(
     if (!req.file) {
       throw new AppError('没有上传文件', 400);
     }
+    if (!isUploadSizeAllowed(req.file.size)) {
+      try { fs.unlinkSync(req.file.path); } catch { /* ignore cleanup errors */ }
+      throw new AppError('文件大小超出限制', 400);
+    }
 
     // Verify file content against declared MIME type using magic bytes
     if (!verifyFileSignature(req.file.path, req.file.mimetype)) {
@@ -127,9 +184,18 @@ router.post(
       throw new AppError('文件类型与实际内容不符', 400);
     }
 
+    let storedObject: Awaited<ReturnType<typeof persistObject>>;
+    try {
+      storedObject = await persistObject(req.file, req.user?.id);
+    } catch (error) {
+      try { fs.unlinkSync(req.file.path); } catch { /* cleanup is best effort */ }
+      throw error;
+    }
+
     logger.info({
       userId: req.user?.id,
-      filename: req.file.filename,
+      objectId: storedObject.id,
+      objectKey: storedObject.objectKey,
       originalname: req.file.originalname,
       size: req.file.size,
       mimetype: req.file.mimetype,
@@ -138,11 +204,15 @@ router.post(
     res.json({
       success: true,
       data: {
+        id: storedObject.id,
         filename: req.file.filename,
         originalName: req.file.originalname,
         size: req.file.size,
         mimetype: req.file.mimetype,
         url: `/uploads/${req.file.filename}`,
+        downloadUrl: `/api/files/${storedObject.id}`,
+        sha256: storedObject.sha256,
+        version: storedObject.version,
       },
     });
   })
@@ -156,6 +226,12 @@ router.post(
     if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
       throw new AppError('没有上传文件', 400);
     }
+    if (req.files.some((file) => !isUploadSizeAllowed(file.size))) {
+      for (const file of req.files) {
+        try { fs.unlinkSync(file.path); } catch { /* ignore cleanup errors */ }
+      }
+      throw new AppError('文件大小超出限制', 400);
+    }
 
     // Verify each file's content against its declared MIME type using magic bytes
     for (const file of req.files) {
@@ -168,13 +244,28 @@ router.post(
       }
     }
 
-    const files = req.files.map((file) => ({
-      filename: file.filename,
-      originalName: file.originalname,
-      size: file.size,
-      mimetype: file.mimetype,
-      url: `/uploads/${file.filename}`,
-    }));
+    let persistedFiles: Awaited<ReturnType<typeof persistObjects>>;
+    try {
+      persistedFiles = await persistObjects(req.files, req.user?.id);
+    } catch (error) {
+      for (const file of req.files) {
+        try { fs.unlinkSync(file.path); } catch { /* cleanup is best effort */ }
+      }
+      throw error;
+    }
+    const files = persistedFiles.map(({ file, storedObject }) => {
+      return {
+        id: storedObject.id,
+        filename: file.filename,
+        originalName: file.originalname,
+        size: file.size,
+        mimetype: file.mimetype,
+        url: `/uploads/${file.filename}`,
+        downloadUrl: `/api/files/${storedObject.id}`,
+        sha256: storedObject.sha256,
+        version: storedObject.version,
+      };
+    });
 
     logger.info({
       userId: req.user?.id,

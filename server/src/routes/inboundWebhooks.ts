@@ -312,7 +312,12 @@ router.post(
     }
 
     if (endpoint.authMethod === 'HMAC') {
-      const signature = req.header('x-signature') ?? undefined;
+      // `X-Webhook-Signature` is the documented contract header. Keep accepting
+      // the legacy `X-Signature` spelling for existing integrations during the
+      // P2 migration window.
+      const signature = req.header('x-signature')
+        ?? req.header('x-webhook-signature')
+        ?? undefined;
       if (!endpoint.secret || !verifyInboundSignature(endpoint.secret, payloadString, signature)) {
         await prisma.inboundWebhookDelivery.create({
           data: {

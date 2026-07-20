@@ -71,10 +71,16 @@ describe('order monetary shadows', () => {
         return { payload: result.payload, statusCode: result.statusCode ?? 200, replayed: false };
       }),
     }));
-    vi.doMock('../lib/orderWorkflowService.js', () => ({
-      createOrderFromQuotation: vi.fn(),
-      mapOrderResponse: vi.fn(),
-    }));
+    vi.doMock('../modules/quotationOrder/index.js', async () => {
+      const actual = await vi.importActual<typeof import('../modules/quotationOrder/index.js')>('../modules/quotationOrder/index.js');
+      return {
+        ...actual,
+        orderRepository: { findUnique: vi.fn() },
+        quotationRepository: { findUnique: vi.fn() },
+        createOrderFromQuotation: vi.fn(),
+        mapOrderResponse: vi.fn(),
+      };
+    });
     vi.doMock('../lib/documentTemplateService.js', () => ({
       ensureOrderContractDocument: vi.fn(),
       ORDER_CONTRACT_DOCUMENT_TYPE: 'ORDER_CONTRACT',

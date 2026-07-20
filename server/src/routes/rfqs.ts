@@ -8,13 +8,11 @@ import { rfqCreateSchema, rfqStatusUpdateSchema } from '../lib/validation.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { enqueueBusinessEvent } from '../lib/outboxService.js';
-import { isRfqStatusTransitionAllowed, normalizeRfqStatus, toUiRfqStatus } from '../lib/rfqStateMachine.js';
 import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
-import { createInitialStatusHistory, transitionRfqStatus } from '../lib/transactionStateService.js';
+import { assertRfqTransition, createRfqAggregate, normalizeRfqStatus, rfqRepository, toUiRfqStatus, transitionRfqStatus, updateRfqAggregate } from '../modules/rfqSourcing/index.js';
 import {
   preferredQuotationStatus,
   preferredRfqStatus,
-  toRfqStatusEnum,
 } from '../lib/transactionStatusShadows.js';
 import { getCapabilityScope } from '../lib/capabilityPolicy.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
@@ -104,7 +102,7 @@ function parseAlternatePartNumbers(value: string | null): string[] | undefined {
   }
 }
 
-function toRfqResponse(rfq: Awaited<ReturnType<typeof prisma.rFQ.findUnique>> & { customer?: { name: string }; creator?: { name: string } }) {
+function toRfqResponse(rfq: Awaited<ReturnType<typeof rfqRepository.findUnique>> & { customer?: { name: string }; creator?: { name: string } }) {
   if (!rfq) return null;
   return {
     id: rfq.id,
@@ -184,7 +182,7 @@ router.get(
     const where = buildRfqListWhere(query, (req as AuthRequest).user!);
 
     const [rfqs, total, statusCounts] = await Promise.all([
-      prisma.rFQ.findMany({
+      rfqRepository.findMany({
         where,
         include: {
           customer: true,
@@ -196,8 +194,8 @@ router.get(
         skip,
         take: pageSize,
       }),
-      prisma.rFQ.count({ where }),
-      prisma.rFQ.groupBy({
+      rfqRepository.count({ where }),
+      rfqRepository.groupBy({
         where,
         by: ['status'],
         _count: { _all: true },
@@ -242,7 +240,7 @@ router.get(
       defaultSort: 'createdAt',
       defaultDirection: 'desc',
     });
-    const rfqs = await prisma.rFQ.findMany({
+    const rfqs = await rfqRepository.findMany({
       where: buildRfqListWhere(query, (req as AuthRequest).user!),
       select: {
         rfqNumber: true,
@@ -294,7 +292,7 @@ router.get(
   '/:id/status-history',
   requireCapability('rfq', 'read'),
   asyncHandler(async (req, res) => {
-    const rfq = await prisma.rFQ.findUnique({
+    const rfq = await rfqRepository.findUnique({
       where: { id: req.params.id },
       select: {
         id: true,
@@ -329,7 +327,7 @@ router.get(
   '/:id',
   requireCapability('rfq', 'read'),
   asyncHandler(async (req, res) => {
-    const rfq = await prisma.rFQ.findUnique({
+    const rfq = await rfqRepository.findUnique({
       where: { id: req.params.id },
       include: {
         customer: true,
@@ -394,50 +392,32 @@ router.post(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, userId, 'POST:/rfqs'),
       async (tx) => {
-        const rfqNumber = `RFQ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-        const created = await tx.rFQ.create({
-          data: {
-            rfqNumber,
-            customerId,
-            partNumber,
-            quantity,
-            uom,
-            conditionCode,
-            description,
-            serialNumber,
-            batchNumber,
-            ataChapter,
-            aircraftType,
-            aircraftModel,
-            alternatePartNumbers,
-            targetPrice,
-            targetPriceCurrency,
-            certificateRequired,
-            certificateType,
-            requiredDate: requiredDate ? new Date(requiredDate) : new Date(),
-            responseDeadline: responseDeadline ? new Date(responseDeadline) : undefined,
-            leadTimeDays,
-            urgency: urgency?.toUpperCase() || 'STANDARD',
-            urgencyJustification,
-            status: 'PENDING',
-            statusEnum: toRfqStatusEnum('PENDING')!,
-            notes,
-            emailId,
-            createdBy: userId,
-          },
-          include: {
-            customer: true,
-          },
-        });
-
-        await createInitialStatusHistory(tx, {
-          entityType: 'RFQ',
-          entityId: created.id,
-          toStatus: created.status,
-          reasonCode: 'RFQ_CREATED',
-          actorId: userId,
-          version: created.version,
-        });
+        const created = await createRfqAggregate(tx, {
+          customerId,
+          partNumber,
+          quantity,
+          uom,
+          conditionCode,
+          description,
+          serialNumber,
+          batchNumber,
+          ataChapter,
+          aircraftType,
+          aircraftModel,
+          alternatePartNumbers,
+          targetPrice,
+          targetPriceCurrency,
+          certificateRequired,
+          certificateType,
+          requiredDate: requiredDate ? new Date(requiredDate) : new Date(),
+          responseDeadline: responseDeadline ? new Date(responseDeadline) : undefined,
+          leadTimeDays,
+          urgency: urgency?.toUpperCase() || 'STANDARD',
+          urgencyJustification,
+          notes,
+          emailId,
+          createdBy: userId,
+        }, userId);
 
         await enqueueBusinessEvent(tx, {
           eventType: 'rfq.created',
@@ -539,16 +519,7 @@ router.patch(
         }
         assertRfqAccess((req as AuthRequest).user!, 'update', existing);
 
-        const rfq = await tx.rFQ.update({
-          where: { id },
-          data: updateData,
-          include: {
-            customer: true,
-            creator: {
-              select: { id: true, name: true },
-            },
-          },
-        });
+        const rfq = await updateRfqAggregate(tx, id, updateData);
 
         return {
           payload: toRfqResponse(rfq),
@@ -587,10 +558,7 @@ router.patch(
 
         const effectiveCurrentStatus = preferredRfqStatus(current.statusEnum, current.status);
         const currentStatus = normalizeRfqStatus(effectiveCurrentStatus);
-        const normalizedNextStatus = toRfqStatusEnum(nextStatus);
-        if (!currentStatus || !normalizedNextStatus || !isRfqStatusTransitionAllowed(effectiveCurrentStatus, normalizedNextStatus)) {
-          throw new AppError(`RFQ 不允许从 ${toUiRfqStatus(effectiveCurrentStatus)} 变更为 ${toUiRfqStatus(nextStatus)}`, 409, 'INVALID_STATE_TRANSITION');
-        }
+        const normalizedNextStatus = assertRfqTransition(effectiveCurrentStatus, nextStatus);
 
         const isNoop = currentStatus === normalizedNextStatus;
         const rfq = isNoop

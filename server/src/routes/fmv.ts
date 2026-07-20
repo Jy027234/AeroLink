@@ -8,29 +8,6 @@ const router = Router();
 router.use(requireCapability('fmv', 'read'));
 
 /**
- * GET /api/fmv/:partNumber
- * Calculate FMV for a part number (requires authentication)
- */
-router.get('/:partNumber', async (req, res, next) => {
-  try {
-    const { partNumber } = req.params;
-    const { conditionCode = 'SV' } = req.query;
-
-    const result = await calculateFMV(
-      partNumber,
-      conditionCode as string
-    );
-
-    res.json({
-      success: true,
-      data: result,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-/**
  * GET /api/fmv/:partNumber/history
  * Get historical price data for a part number
  */
@@ -152,6 +129,31 @@ router.post('/batch', async (req, res, next) => {
         total: items.length,
         successful: results.filter((r) => r.success).length,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/fmv/:partNumber
+ * Calculate FMV for a part number (requires authentication).
+ * Keep this parameterised route after /history and /batch so reserved paths
+ * cannot be interpreted as a part number.
+ */
+router.get('/:partNumber', async (req, res, next) => {
+  try {
+    const { partNumber } = req.params;
+    const { conditionCode = 'SV' } = req.query;
+
+    const result = await calculateFMV(
+      partNumber,
+      conditionCode as string
+    );
+
+    res.json({
+      success: true,
+      data: result,
     });
   } catch (err) {
     next(err);

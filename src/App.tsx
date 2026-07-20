@@ -1,5 +1,6 @@
 // App component
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { I18nProvider } from '@/i18n';
 import { Layout } from '@/components/Layout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -106,7 +107,7 @@ function PageLoadingFallback() {
   const { t } = useTranslation();
 
   return (
-    <div className="flex min-h-[280px] items-center justify-center text-sm text-muted-foreground">
+    <div className="flex min-h-[280px] items-center justify-center text-sm text-gray-700" role="status" aria-live="polite">
       {t('common.loading')}
     </div>
   );
@@ -133,7 +134,9 @@ function App() {
   const capabilitiesLoaded = useCapabilityStore((state) => state.loaded);
   const loadCapabilities = useCapabilityStore((state) => state.load);
   const clearCapabilities = useCapabilityStore((state) => state.clear);
+  const queryClient = useQueryClient();
   const bootNavigationMarkedRef = useRef(false);
+  const previousUserIdRef = useRef<string | undefined>(user?.id);
   const [sessionRestoring, setSessionRestoring] = useState(false);
 
   useEffect(() => {
@@ -159,6 +162,14 @@ function App() {
       window.removeEventListener('popstate', syncPageFromLocation);
     };
   }, [setCurrentPage]);
+
+  useEffect(() => {
+    const previousUserId = previousUserIdRef.current;
+    if (!isAuthenticated || (previousUserId && previousUserId !== user?.id)) {
+      queryClient.clear();
+    }
+    previousUserIdRef.current = user?.id;
+  }, [isAuthenticated, queryClient, user?.id]);
 
   useEffect(() => {
     if (!isAuthenticated || getAccessToken()) {

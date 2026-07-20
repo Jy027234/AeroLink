@@ -57,13 +57,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCapabilityStore, useRFQStore } from '@/store';
+import { useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { downloadBlob } from '@/lib/downloadBlob';
 import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
-import { useCustomers, useCreateRFQ, useRFQs, useUpdateRFQ, useUpdateRFQStatus, useSuppliers, useDispatchNotification } from '@/hooks/useApi';
+import { useCustomers } from '@/features/customers';
+import { useSuppliers } from '@/features/suppliers';
+import { useDispatchNotification } from '@/features/integrations';
+import { useCreateRFQ, useRFQs, useUpdateRFQ, useUpdateRFQStatus } from '@/features/rfqs';
 import { ipcApi, rfqApi } from '@/api/client';
 import type { RFQ, RFQStatus, UrgencyLevel, ConditionCode, CertificateType } from '@/types';
 
@@ -873,7 +876,6 @@ export function RFQManagement() {
   const { locale } = useTranslation();
   const can = useCapabilityStore((state) => state.can);
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const { rfqs, addRFQ, updateRFQ } = useRFQStore();
   const pageSize = 10;
   const { mutate: createRFQ } = useCreateRFQ();
   const { mutate: updateRFQApi } = useUpdateRFQ();
@@ -905,7 +907,7 @@ export function RFQManagement() {
     direction: direction === 'asc' ? 'asc' : 'desc',
   });
 
-  const sourceRFQs = serverRFQs ?? rfqs;
+  const sourceRFQs = serverRFQs ?? [];
 
   const filteredRFQs = sourceRFQs.filter((rfq: RFQ) => {
     if (statusFilter !== 'all' && rfq.status !== statusFilter) return false;
@@ -936,14 +938,7 @@ export function RFQManagement() {
     }
   }, [currentPage, setCurrentPage, totalPages]);
 
-  const stats = serverSummary ?? {
-    total: rfqs.length,
-    pending: rfqs.filter((r: RFQ) => r.status === 'pending').length,
-    sourcing: rfqs.filter((r: RFQ) => r.status === 'sourcing').length,
-    quoting: rfqs.filter((r: RFQ) => r.status === 'quoting').length,
-    won: rfqs.filter((r: RFQ) => r.status === 'won').length,
-    lost: rfqs.filter((r: RFQ) => r.status === 'lost').length,
-  };
+  const stats = serverSummary ?? { total: 0, pending: 0, sourcing: 0, quoting: 0, won: 0, lost: 0 };
 
   const handleViewDetail = (rfq: RFQ) => {
     setSelectedRFQ(rfq);
@@ -957,7 +952,6 @@ export function RFQManagement() {
     try {
       const updated = await updateRFQStatus(rfqId, newStatus, rfq.version);
       if (!updated) return false;
-      updateRFQ(updated);
       if (selectedRFQ?.id === updated.id) {
         setSelectedRFQ(updated);
       }
@@ -987,18 +981,14 @@ export function RFQManagement() {
   };
 
   const handleFormSave = async (data: Record<string, unknown>) => {
-    if (editingRFQ) {
-      const result = await updateRFQApi({ id: editingRFQ.id, data });
-      if (result) {
-        updateRFQ(result);
+    try {
+      if (editingRFQ) {
+        await updateRFQApi({ id: editingRFQ.id, data });
         setIsFormOpen(false);
         setEditingRFQ(null);
         await refetchRFQs();
-      }
-    } else {
-      const result = await createRFQ(data);
-      if (result) {
-        addRFQ(result);
+      } else {
+        const result = await createRFQ(data);
         setIsFormOpen(false);
         await refetchRFQs();
         // AOG 通知触发
@@ -1011,9 +1001,11 @@ export function RFQManagement() {
               customerName: (data.customerName as string) || '',
               requiredDate: (data.requiredDate as string) || '',
             },
-          });
+          }).catch(() => undefined);
         }
       }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : tx('保存需求单失败', 'Failed to save RFQ'));
     }
   };
 
@@ -1087,9 +1079,9 @@ export function RFQManagement() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 flex-1">
-              <div className="relative flex-1 max-w-sm">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <div className="relative min-w-0 flex-1 max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <Input
                   placeholder={tx('搜索需求单...', 'Search RFQs...')}
@@ -1130,7 +1122,7 @@ export function RFQManagement() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {(statusFilter !== 'all' || urgencyFilter !== 'all') && (
                 <Button variant="ghost" onClick={() => { setStatusFilter('all'); setUrgencyFilter('all'); setCurrentPage(1); }}>
                   {tx('清空筛选', 'Clear Filters')}

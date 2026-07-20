@@ -53,12 +53,12 @@ export function InventoryHealthCard() {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Package className="w-4 h-4 text-blue-500" />
             {tx('库存健康度', 'Inventory Health')}
           </CardTitle>
-          <Badge variant="outline" className="text-xs">
+          <Badge variant="outline" className="min-w-0 max-w-full shrink whitespace-normal break-words text-right text-xs">
             {health.totalItems} {tx('件号', 'items')}
           </Badge>
         </div>

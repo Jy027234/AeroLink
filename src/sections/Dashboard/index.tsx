@@ -124,7 +124,7 @@ function FunnelStage({ stage, count, amount, isActive, isLast }: FunnelStageProp
   const displayStage = stageMeta?.label || stage;
 
   return (
-    <div className="flex items-center flex-1">
+    <div className="flex min-w-0 items-center flex-1">
       <button
         onClick={() => {
           if (stageMeta?.page) {
@@ -132,7 +132,7 @@ function FunnelStage({ stage, count, amount, isActive, isLast }: FunnelStageProp
           }
         }}
         className={cn(
-          'flex-1 p-2 rounded-lg border-2 transition-all duration-200 text-left',
+          'min-w-0 flex-1 p-2 rounded-lg border-2 transition-all duration-200 text-left',
           isActive
             ? 'border-brand-primary bg-brand-primary/5'
             : 'border-gray-200 bg-white hover:border-gray-300'
@@ -213,9 +213,9 @@ export function Dashboard() {
   const salesFunnel = funnelData || [];
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6" data-dashboard-root>
       {/* 统计卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-dashboard-stat-grid>
         <StatCard
           title={t('dashboard.todayPendingRFQs')}
           value={stats.pendingRFQs}
@@ -249,7 +249,7 @@ export function Dashboard() {
           <CardTitle className="text-base">{t('dashboard.salesFunnel')}</CardTitle>
         </CardHeader>
         <CardContent className="pb-2 px-3 pt-0">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" data-dashboard-funnel>
             {salesFunnel.map((stage, index) => (
               <FunnelStage
                 key={stage.stage}
@@ -265,15 +265,17 @@ export function Dashboard() {
       </Card>
 
       {/* 提醒区域 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" data-dashboard-alert-grid>
         {/* 客户跟进提醒 */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-lg flex items-center gap-2">
               <Users className="w-5 h-5 text-brand-primary" />
               {t('dashboard.customerFollowUpAlerts')}
             </CardTitle>
-            <Badge variant="secondary">{customerAlerts.length} {t('dashboard.pendingFollowUp')}</Badge>
+            <Badge variant="secondary" className="min-w-0 max-w-full shrink whitespace-normal break-words text-right">
+              {customerAlerts.length} {t('dashboard.pendingFollowUp')}
+            </Badge>
           </CardHeader>
           <CardContent>
             {customerAlerts.length === 0 ? (
@@ -287,9 +289,9 @@ export function Dashboard() {
                 {customerAlerts.map((alert) => (
                   <div
                     key={alert.customerId}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                    className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                   >
-                    <div>
+                    <div className="min-w-0 break-words">
                       <p className="font-medium">{alert.customerName}</p>
                       <p className="text-sm text-gray-500">
                         {t('dashboard.quotePrefix')} {alert.quoteNumber} · {alert.daysSinceQuote} {t('dashboard.daysSinceQuote')}
@@ -310,12 +312,14 @@ export function Dashboard() {
 
         {/* 时寿件预警 */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-lg flex items-center gap-2">
               <Clock className="w-5 h-5 text-brand-primary" />
               {tx('时寿件预警', 'Life Limited Alerts')}
             </CardTitle>
-            <Badge variant="destructive">{lifeLimitedAlerts.length} {tx('条预警', 'alerts')}</Badge>
+            <Badge variant="destructive" className="min-w-0 max-w-full shrink whitespace-normal break-words text-right">
+              {lifeLimitedAlerts.length} {tx('条预警', 'alerts')}
+            </Badge>
           </CardHeader>
           <CardContent>
             {lifeLimitedAlerts.length === 0 ? (

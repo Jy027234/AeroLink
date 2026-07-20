@@ -49,7 +49,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useEmailStore } from '@/store';
-import { useRFQs, useCreateRFQ, useCustomers } from '@/hooks/useApi';
+import { useRFQs, useCreateRFQ } from '@/features/rfqs';
+import { useCustomers } from '@/features/customers';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { Email, RFQ, EmailType } from '@/types';
@@ -175,13 +176,14 @@ export function IngestionHub() {
       createdBy: 'u001',
     };
 
-    const result = await createRFQ(rfqData);
-    
-    if (result) {
+    try {
+      const result = await createRFQ(rfqData);
       setIsSheetOpen(false);
       selectEmail(null);
       refetchRFQs();
       toast.success(tx(`需求单 ${result.rfqNumber} 创建成功。`, `RFQ ${result.rfqNumber} has been created successfully.`));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : tx('创建需求单失败', 'Failed to create RFQ'));
     }
   };
 

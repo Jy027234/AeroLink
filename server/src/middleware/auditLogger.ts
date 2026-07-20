@@ -3,8 +3,8 @@ import prisma from '../lib/prisma.js';
 import { AuthRequest } from './auth.js';
 import { logger } from '../lib/logger.js';
 
-export type AuditActionType = 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'APPROVE' | 'REJECT';
-export type AuditResourceType = 'RFQ' | 'QUOTATION' | 'ORDER' | 'INVENTORY' | 'CUSTOMER' | 'SUPPLIER' | 'CERTIFICATE' | 'SETTINGS' | 'WORKFLOW';
+export type AuditActionType = 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'APPROVE' | 'REJECT' | 'REPLAY';
+export type AuditResourceType = 'RFQ' | 'QUOTATION' | 'ORDER' | 'INVENTORY' | 'CUSTOMER' | 'SUPPLIER' | 'CERTIFICATE' | 'SETTINGS' | 'WORKFLOW' | 'OUTBOX';
 
 interface AuditLoggerOptions {
   resourceType: AuditResourceType;

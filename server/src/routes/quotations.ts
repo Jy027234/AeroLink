@@ -15,24 +15,25 @@ import {
 } from '../lib/validation.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { generateQuotationPDF } from '../lib/pdfService.js';
-import { createOrderFromQuotation, mapOrderResponse } from '../lib/orderWorkflowService.js';
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
-import { calculateMarginPercent, calculateMoneyTotal, normalizeMoney, preferredMoneyValue } from '../lib/money.js';
-import { enqueueBusinessEvent, enqueueOutboundEmail } from '../lib/outboxService.js';
-import { isQuotationTransitionAllowed, normalizeQuotationStatus, type QuotationStatus } from '../lib/quotationStateMachine.js';
-import { isRfqStatusTransitionAllowed, normalizeRfqStatus } from '../lib/rfqStateMachine.js';
-import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
+import { preferredMoneyValue } from '../lib/money.js';
 import {
-  createInitialStatusHistory,
-  transitionQuotationStatus,
-  transitionRfqStatus,
-} from '../lib/transactionStateService.js';
+  submitQuotationAggregate,
+  approveQuotationAggregate,
+  toUiQuotationStatus,
+  createOrderFromQuotation,
+  acceptQuotationAggregate,
+  createQuotationAggregate,
+  sendQuotationAggregate,
+  withdrawQuotationAggregate,
+  mapOrderResponse,
+  quotationRepository,
+} from '../modules/quotationOrder/index.js';
 import {
   preferredOrderStatus,
   preferredQuotationStatus,
   preferredRfqStatus,
-  toQuotationStatusEnum,
 } from '../lib/transactionStatusShadows.js';
 import { getCapabilityScope, hasCapability } from '../lib/capabilityPolicy.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
@@ -133,28 +134,6 @@ async function getDefaultOutboundAccount(db: OutboundAccountClient = prisma) {
   }
 
   return account;
-}
-
-function textToHtml(text: string) {
-  return text
-    .split('\n')
-    .map((line) => `<p>${line}</p>`)
-    .join('');
-}
-
-function assertQuotationTransition(current: string, target: QuotationStatus) {
-  if (!isQuotationTransitionAllowed(current, target)) {
-    const normalizedCurrent = normalizeQuotationStatus(current) || current;
-    throw new AppError(
-      `报价状态不能从 ${normalizedCurrent} 转为 ${target}`,
-      409,
-      'INVALID_STATE_TRANSITION',
-    );
-  }
-}
-
-function toUiQuotationStatus(status: string) {
-  return normalizeQuotationStatus(status)?.toLowerCase() || status.toLowerCase();
 }
 
 type QuotationMoneySource = {
@@ -316,7 +295,7 @@ router.get(
     const where = buildQuotationListWhere(query, actor);
 
     const [quotations, total, statusCounts, acceptedAggregate] = await Promise.all([
-      prisma.quotation.findMany({
+      quotationRepository.findMany({
         where,
         include: {
           customer: true,
@@ -341,13 +320,13 @@ router.get(
         skip,
         take: pageSize,
       }),
-      prisma.quotation.count({ where }),
-      prisma.quotation.groupBy({
+      quotationRepository.count({ where }),
+      quotationRepository.groupBy({
         where,
         by: ['status'],
         _count: { _all: true },
       }),
-      prisma.quotation.aggregate({
+      quotationRepository.aggregate({
         where: { AND: [scopedWhere, { status: 'ACCEPTED' }] },
         _sum: { totalPrice: true, totalPriceDecimal: true },
       }),
@@ -459,7 +438,7 @@ router.get(
       defaultSort: 'createdAt',
       defaultDirection: 'desc',
     });
-    const quotations = await prisma.quotation.findMany({
+    const quotations = await quotationRepository.findMany({
       where: buildQuotationListWhere(query, (req as AuthRequest).user!),
       select: {
         quoteNumber: true,
@@ -509,7 +488,7 @@ router.get(
   '/:id/status-history',
   requireCapability('quotation', 'read'),
   asyncHandler(async (req, res) => {
-    const quotation = await prisma.quotation.findUnique({
+    const quotation = await quotationRepository.findUnique({
       where: { id: req.params.id },
       select: {
         id: true,
@@ -544,7 +523,7 @@ router.get(
   '/:id',
   requireCapability('quotation', 'read'),
   asyncHandler(async (req, res) => {
-    const quotation = await prisma.quotation.findUnique({
+    const quotation = await quotationRepository.findUnique({
       where: { id: req.params.id },
       include: {
         customer: true,
@@ -629,165 +608,21 @@ router.post(
   requireCapability('quotation', 'create'),
   validateBody(quotationCreateSchema),
   asyncHandler(async (req, res) => {
-    const { rfqId, customerId, partNumber, quantity, unitPrice, costPrice, certificateFiles, template, validityDays,
-      saleType, shipToId, shipForId, incoterm, incotermLocation, leadTimeDays, leadTimeBasis,
-      moq, mpq, priceBasis, taxIncluded, taxRate, warrantyDays, warrantyTerms,
-      packagingRequirement, shippingMethod, ccRecipients, commonNote,
-      eSignature, eSignatureStatus, countryOfOrigin, hsCode, eccn, dualUse,
-    } = req.body;
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations'),
       async (tx) => {
-        const relatedRfq = rfqId
-          ? await tx.rFQ.findUnique({
-            where: { id: rfqId },
-            include: { creator: { select: { department: true } } },
-          })
-          : null;
-        if (relatedRfq) {
-          assertCapability(actor, 'rfq', 'read', {
-            ownerId: relatedRfq.createdBy,
-            department: relatedRfq.creator?.department,
-          });
-        }
-        const isAog = relatedRfq?.urgency.toUpperCase() === 'AOG';
-        const finalValidityDays = isAog ? 1 : (validityDays || 7);
-        const unitPriceDecimal = normalizeMoney(unitPrice);
-        const costPriceDecimal = normalizeMoney(costPrice);
-        const totalPriceDecimal = calculateMoneyTotal(unitPriceDecimal, quantity);
-        const margin = calculateMarginPercent(totalPriceDecimal, costPriceDecimal, quantity);
-        const quoteNumber = `QT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-        const expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + finalValidityDays);
-
-        const initialStatus = isAog ? 'PENDING_APPROVAL' : 'DRAFT';
-        const initialStatusEnum = toQuotationStatusEnum(initialStatus)!;
-        const quotation = await tx.quotation.create({
-          data: {
-            quoteNumber,
-            rfqId,
-            customerId,
-            partNumber,
-            quantity,
-            unitPrice: unitPriceDecimal.toNumber(),
-            unitPriceDecimal,
-            totalPrice: totalPriceDecimal.toNumber(),
-            totalPriceDecimal,
-            costPrice: costPriceDecimal.toNumber(),
-            costPriceDecimal,
-            margin,
-            certificateFiles: Array.isArray(certificateFiles) ? certificateFiles.join(',') : certificateFiles,
-            template: template?.toUpperCase() || 'STANDARD',
-            status: initialStatus,
-            statusEnum: initialStatusEnum,
-            validityDays: finalValidityDays,
-            saleType: saleType || 'Sale',
-            shipToId: shipToId || null,
-            shipForId: shipForId || null,
-            incoterm: incoterm || null,
-            incotermLocation: incotermLocation || null,
-            leadTimeDays: leadTimeDays || null,
-            leadTimeBasis: leadTimeBasis || null,
-            moq: moq || null,
-            mpq: mpq || null,
-            priceBasis: priceBasis || null,
-            taxIncluded: taxIncluded !== undefined ? taxIncluded : true,
-            taxRate: taxRate || null,
-            warrantyDays: warrantyDays || 90,
-            warrantyTerms: warrantyTerms || null,
-            packagingRequirement: packagingRequirement || null,
-            shippingMethod: shippingMethod || null,
-            ccRecipients: Array.isArray(ccRecipients) ? JSON.stringify(ccRecipients) : ccRecipients || null,
-            commonNote: commonNote || null,
-            eSignature: eSignature || null,
-            eSignatureStatus: eSignatureStatus || 'Unsigned',
-            countryOfOrigin: countryOfOrigin || null,
-            hsCode: hsCode || null,
-            eccn: eccn || null,
-            dualUse: dualUse !== undefined ? dualUse : false,
-            expiryDate,
-            createdBy: actorId,
-          },
-          include: { customer: true },
-        });
-
-        await createInitialStatusHistory(tx, {
-          entityType: 'QUOTATION',
-          entityId: quotation.id,
-          toStatus: quotationStatus(quotation),
-          reasonCode: isAog ? 'AOG_QUOTATION_CREATED' : 'QUOTATION_CREATED',
+        const { quotation } = await createQuotationAggregate({
+          tx,
+          ...req.body,
           actorId,
-          version: quotation.version,
-        });
-
-        const relatedRfqStatus = relatedRfq ? rfqStatus(relatedRfq) : null;
-        if (isAog && relatedRfq && relatedRfqStatus !== 'QUOTING') {
-          if (!normalizeRfqStatus(relatedRfqStatus) || !isRfqStatusTransitionAllowed(relatedRfqStatus, 'QUOTING')) {
-            throw new AppError('AOG 报价不能将当前 RFQ 变更为报价中', 409, 'INVALID_STATE_TRANSITION');
-          }
-          const updatedRfq = await transitionRfqStatus(tx, {
-            id: relatedRfq.id,
-            currentStatus: relatedRfq.status,
-            currentVersion: relatedRfq.version,
-            nextStatus: 'QUOTING',
-            actorId,
-            reasonCode: 'AOG_QUOTATION_CREATED',
-            reason: `AOG quotation ${quotation.quoteNumber} created.`,
-          });
-          await enqueueBusinessEvent(tx, {
-            eventType: 'rfq.status.changed',
-            aggregateType: 'RFQ',
-            aggregateId: updatedRfq.id,
-            data: {
-              rfqId: updatedRfq.id,
-              rfqNumber: updatedRfq.rfqNumber,
-              oldStatus: relatedRfqStatus,
-              newStatus: rfqStatus(updatedRfq),
-              changedBy: actorId,
-              changedAt: new Date().toISOString(),
-            },
-            socket: { room: SocketRooms.RFQS, event: SocketEvents.RFQ_UPDATED },
-            createdById: actorId,
-          });
-        }
-
-        if (isAog) {
-          const managers = await tx.user.findMany({
-            where: { role: { in: ['MANAGER', 'GM'] }, isActive: true },
-            select: { id: true },
-          });
-          if (managers.length > 0) {
-            await tx.notification.createMany({
-              data: managers.map((manager) => ({
-                userId: manager.id,
-                title: 'AOG 报价单待审批',
-                message: `AOG 紧急报价单 ${quotation.quoteNumber}（件号 ${quotation.partNumber}）已创建，请尽快审批。有效期仅 1 天。`,
-                type: 'warning',
-                link: `/quotations/${quotation.id}`,
-              })),
+          authorizeRfq: (relatedRfq) => {
+            assertCapability(actor, 'rfq', 'read', {
+              ownerId: relatedRfq.createdBy,
+              department: relatedRfq.creator?.department,
             });
-          }
-        }
-
-        await enqueueBusinessEvent(tx, {
-          eventType: 'quotation.created',
-          aggregateType: 'QUOTATION',
-          aggregateId: quotation.id,
-          data: {
-            quotationId: quotation.id,
-            quoteNumber: quotation.quoteNumber,
-            customerId: quotation.customerId,
-            customerName: quotation.customer.name,
-            rfqId: quotation.rfqId,
-            status: quotationStatus(quotation),
-            totalPrice: quotationTotalPrice(quotation),
-            margin: quotation.margin,
-            createdBy: actorId,
           },
-          socket: { room: SocketRooms.QUOTATIONS, event: SocketEvents.QUOTATION_CREATED },
-          createdById: actorId,
         });
 
         return {
@@ -825,47 +660,15 @@ router.post(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/submit'),
       async (tx) => {
-        const currentQuotation = await tx.quotation.findUnique({
-          where: { id: req.params.id },
-          include: { creator: { select: { department: true } } },
+        const { quotation } = await submitQuotationAggregate({
+          tx,
+          quotationId: req.params.id,
+          actorId,
+          expectedVersion: req.body.version,
+          reasonCode: req.body.reasonCode,
+          reason: req.body.reason,
+          authorize: (quotation) => assertQuotationAccess(actor, 'transition', quotation),
         });
-        if (!currentQuotation) {
-          throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        assertQuotationAccess(actor, 'transition', currentQuotation);
-        const currentQuotationStatus = quotationStatus(currentQuotation);
-        assertQuotationTransition(currentQuotationStatus, 'PENDING_APPROVAL');
-
-        const isNoop = currentQuotationStatus === 'PENDING_APPROVAL';
-        const quotation = isNoop
-          ? currentQuotation
-          : await transitionQuotationStatus(tx, {
-            id: currentQuotation.id,
-            currentStatus: currentQuotation.status,
-            currentVersion: currentQuotation.version,
-            nextStatus: 'PENDING_APPROVAL',
-            expectedVersion: req.body.version,
-            actorId,
-            reasonCode: req.body.reasonCode || 'QUOTATION_SUBMITTED_FOR_APPROVAL',
-            reason: req.body.reason,
-          });
-
-        if (!isNoop) {
-          await enqueueBusinessEvent(tx, {
-            eventType: 'quotation.submitted',
-            aggregateType: 'QUOTATION',
-            aggregateId: quotation.id,
-            data: {
-              quotationId: quotation.id,
-              quoteNumber: quotation.quoteNumber,
-              status: quotationStatus(quotation),
-              submittedBy: actorId,
-              submittedAt: new Date().toISOString(),
-            },
-            socket: { room: SocketRooms.QUOTATIONS, event: SocketEvents.QUOTATION_SUBMITTED },
-            createdById: actorId,
-          });
-        }
 
         return {
           payload: { ...projectQuotationMoney(quotation), status: quotationStatus(quotation).toLowerCase() },
@@ -894,71 +697,16 @@ router.post(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, userId, 'POST:/quotations/:id/approve'),
       async (tx) => {
-        const quotationWithRfq = await tx.quotation.findUnique({
-          where: { id: req.params.id },
-          include: {
-            rfq: true,
-            creator: { select: { department: true } },
-          },
+        const { quotation } = await approveQuotationAggregate({
+          tx,
+          quotationId: req.params.id,
+          actorId: userId,
+          action,
+          comment,
+          expectedVersion: version,
+          reasonCode,
+          authorize: (quotation) => assertQuotationAccess(actor, 'approve', quotation),
         });
-        if (!quotationWithRfq) {
-          throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        assertQuotationAccess(actor, 'approve', quotationWithRfq);
-
-        const isAog = quotationWithRfq.rfq?.urgency?.toUpperCase() === 'AOG';
-        const targetStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
-        const quotationWithRfqStatus = quotationStatus(quotationWithRfq);
-        assertQuotationTransition(quotationWithRfqStatus, targetStatus);
-        const isNoop = quotationWithRfqStatus === targetStatus;
-        const quotation = isNoop
-          ? quotationWithRfq
-          : await transitionQuotationStatus(tx, {
-            id: quotationWithRfq.id,
-            currentStatus: quotationWithRfq.status,
-            currentVersion: quotationWithRfq.version,
-            nextStatus: targetStatus,
-            expectedVersion: version,
-            actorId: userId,
-            reasonCode: reasonCode || (action === 'approve' ? 'QUOTATION_APPROVED' : 'QUOTATION_REJECTED'),
-            reason: comment,
-            data: {
-              approvedBy: action === 'approve' ? userId : null,
-              approvedAt: action === 'approve' ? new Date() : null,
-            },
-          });
-
-        if (!isNoop) {
-          await tx.approval.create({
-            data: {
-              quotationId: req.params.id,
-              level: isAog ? 'AOG' : (quotationTotalPrice(quotation) > 50000 ? 'GM' : quotationTotalPrice(quotation) > 5000 ? 'FINANCE' : 'MANAGER'),
-              approverId: userId,
-              action: action.toUpperCase(),
-              comment,
-            },
-          });
-          await enqueueBusinessEvent(tx, {
-            eventType: action === 'approve' ? 'quotation.approved' : 'quotation.rejected',
-            aggregateType: 'QUOTATION',
-            aggregateId: quotation.id,
-            data: {
-              quotationId: quotation.id,
-              quoteNumber: quotation.quoteNumber,
-              status: quotationStatus(quotation),
-              totalPrice: quotationTotalPrice(quotation),
-              comment,
-              approvedBy: action === 'approve' ? userId : null,
-              reviewedBy: userId,
-              reviewedAt: new Date().toISOString(),
-            },
-            socket: {
-              room: SocketRooms.QUOTATIONS,
-              event: action === 'approve' ? SocketEvents.QUOTATION_APPROVED : SocketEvents.QUOTATION_UPDATED,
-            },
-            createdById: userId,
-          });
-        }
 
         return {
           payload: { ...projectQuotationMoney(quotation), status: quotationStatus(quotation).toLowerCase() },
@@ -986,68 +734,16 @@ router.post(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/send'),
       async (tx) => {
-        const quotation = await tx.quotation.findUnique({
-          where: { id: req.params.id },
-          include: {
-            customer: true,
-            creator: { select: { department: true } },
-          },
+        const { quotation, pendingEmail } = await sendQuotationAggregate({
+          tx,
+          quotationId: req.params.id,
+          actorId,
+          subject: req.body.subject,
+          message: req.body.message,
+          authorize: (candidate) => assertQuotationAccess(actor, 'send', candidate),
+          getDefaultOutboundAccount,
         });
-        if (!quotation) {
-          throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        assertQuotationAccess(actor, 'send', quotation);
         const currentQuotationStatus = quotationStatus(quotation);
-        if (currentQuotationStatus === 'WITHDRAWN') {
-          throw new AppError('已撤回的报价不能再次发送，请复制或新建报价后重新发送', 400, 'BAD_REQUEST');
-        }
-        assertQuotationTransition(currentQuotationStatus, 'SENT');
-        if (!['APPROVED', 'SENT'].includes(currentQuotationStatus)) {
-          throw new AppError('只有已审批报价才能发送给客户', 400, 'BAD_REQUEST');
-        }
-        if (!quotation.customer.email) {
-          throw new AppError('客户未配置邮箱地址，无法发送报价', 400, 'BAD_REQUEST');
-        }
-
-        const account = await getDefaultOutboundAccount(tx);
-        const subject = req.body.subject || `Quotation ${quotation.quoteNumber} - ${quotation.partNumber}`;
-        const plainBody = req.body.message || [
-          `${quotation.customer.contactName || quotation.customer.name} 您好，`,
-          '',
-          `附件为报价单 ${quotation.quoteNumber}，对应件号 ${quotation.partNumber}。`,
-          `数量：${quotation.quantity}`,
-          `总价：USD ${quotationTotalPrice(quotation).toLocaleString('en-US')}`,
-          `销售类型：${quotation.saleType || 'Sale'}`,
-          `贸易术语：${quotation.incoterm || '-'} ${quotation.incotermLocation || ''}`,
-          `交货期：${quotation.leadTimeDays || '-'} 天`,
-          `含税：${quotation.taxIncluded ? '是' : '否'}${quotation.taxRate ? ` (税率 ${quotation.taxRate}%)` : ''}`,
-          `质保：${quotation.warrantyDays || 90} 天`,
-          '',
-          '如确认报价，请在系统中登记客户确认，系统将自动生成销售订单与合同。',
-          '',
-          'AeroLink 销售团队',
-        ].join('\n');
-        const pendingEmail = await tx.outboundEmail.create({
-          data: {
-            purpose: 'QUOTATION_SEND',
-            quotationId: quotation.id,
-            customerId: quotation.customerId,
-            accountId: account.id,
-            toEmail: quotation.customer.email,
-            subject,
-            textBody: plainBody,
-            htmlBody: textToHtml(plainBody),
-            status: 'PENDING',
-          },
-        });
-        await enqueueOutboundEmail(tx, {
-          eventType: 'quotation.email.send',
-          aggregateType: 'QUOTATION',
-          aggregateId: quotation.id,
-          outboundEmailId: pendingEmail.id,
-          includeQuotationPdf: true,
-          createdById: actorId,
-        });
 
         return {
           payload: {
@@ -1084,189 +780,16 @@ router.post(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/withdraw'),
       async (tx) => {
-        const quotation = await tx.quotation.findUnique({
-          where: { id: req.params.id },
-          include: {
-            customer: true,
-            creator: { select: { department: true } },
-            outboundEmails: {
-              where: { purpose: 'QUOTATION_SEND', status: 'SENT' },
-              orderBy: { sentAt: 'desc' },
-              take: 1,
-            },
-          },
-        });
-        if (!quotation) {
-          throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        assertQuotationAccess(actor, 'withdraw', quotation);
-        const currentQuotationStatus = quotationStatus(quotation);
-        if (currentQuotationStatus === 'ACCEPTED') {
-          throw new AppError('客户已确认的报价不能直接撤回，请通过订单/变更流程处理', 400, 'BAD_REQUEST');
-        }
-        if (currentQuotationStatus === 'WITHDRAWN') {
-          throw new AppError('该报价已撤回，无需重复操作', 400, 'BAD_REQUEST');
-        }
-        assertQuotationTransition(currentQuotationStatus, 'WITHDRAWN');
-
-        const latestSentEmail = quotation.outboundEmails[0];
-        if (!latestSentEmail) {
-          throw new AppError('当前报价没有已发送记录，不能执行撤回', 400, 'BAD_REQUEST');
-        }
-        if (sendWithdrawalNotice && !quotation.customer.email) {
-          throw new AppError('客户未配置邮箱，无法发送撤回通知', 400, 'BAD_REQUEST');
-        }
-
-        let releasedReservation: {
-          inventoryDetailId: string;
-          partNumber: string;
-          quantity: number;
-          reservedQuantity: number;
-          transactionId: string;
-        } | undefined;
-        if (quotation.inventoryDetailId && quotation.reservedQuantity > 0) {
-          const detail = await tx.inventoryDetail.findUnique({
-            where: { id: quotation.inventoryDetailId },
-            include: { inventoryItem: true },
-          });
-          if (!detail || detail.status !== 'RESERVED') {
-            throw new AppError('报价预留库存状态异常，无法完成撤回', 409, 'STATE_CONFLICT');
-          }
-          if (detail.inventoryItem.partNumber !== quotation.partNumber) {
-            throw new AppError('报价预留库存件号不一致，无法完成撤回', 409, 'RESOURCE_CONFLICT');
-          }
-
-          const released = await tx.inventoryDetail.updateMany({
-            where: { id: detail.id, status: 'RESERVED' },
-            data: { status: 'AVAILABLE' },
-          });
-          if (released.count !== 1) {
-            throw new AppError('报价预留库存已被其他操作更新，请刷新后重试', 409, 'STATE_CONFLICT');
-          }
-
-          const releaseTransaction = await tx.inventoryTransaction.create({
-            data: {
-              inventoryDetailId: detail.id,
-              type: 'RESERVATION_RELEASE',
-              quantity: 0,
-              beforeQuantity: detail.quantity,
-              afterQuantity: detail.quantity,
-              quotationId: quotation.id,
-              referenceNo: quotation.quoteNumber,
-              referenceType: 'QUOTATION',
-              notes: `Quotation withdrawn: ${reason}`,
-              createdBy: actorId,
-            },
-          });
-          releasedReservation = {
-            inventoryDetailId: detail.id,
-            partNumber: detail.inventoryItem.partNumber,
-            quantity: detail.quantity,
-            reservedQuantity: quotation.reservedQuantity,
-            transactionId: releaseTransaction.id,
-          };
-        }
-
-        const withdrawnAt = new Date();
-        const updatedQuotation = await transitionQuotationStatus(tx, {
-          id: quotation.id,
-          currentStatus: quotation.status,
-          currentVersion: quotation.version,
-          nextStatus: 'WITHDRAWN',
-          expectedVersion: req.body.version,
+        const { quotation: updatedQuotation, noticeId, releasedReservation } = await withdrawQuotationAggregate({
+          tx,
+          quotationId: req.params.id,
           actorId,
-          reasonCode: req.body.reasonCode || 'QUOTATION_WITHDRAWN',
           reason,
-          data: {
-            withdrawnAt,
-            withdrawalReason: reason,
-            ...(releasedReservation ? { reservedQuantity: 0 } : {}),
-          },
-        });
-        await tx.outboundEmail.update({
-          where: { id: latestSentEmail.id },
-          data: {
-            status: 'WITHDRAWN',
-            withdrawnAt,
-            withdrawalReason: reason,
-          },
-        });
-
-        let noticeId: string | undefined;
-        if (sendWithdrawalNotice) {
-          const account = await getDefaultOutboundAccount(tx);
-          const subject = `Withdrawal Notice: ${quotation.quoteNumber}`;
-          const plainBody = [
-            `${quotation.customer.contactName || quotation.customer.name} 您好，`,
-            '',
-            `此前发送的报价单 ${quotation.quoteNumber} 已撤回，请忽略旧版报价。`,
-            `撤回原因：${reason}`,
-            '',
-            '如需新版报价，我们会尽快补发。',
-            '',
-            'AeroLink 销售团队',
-          ].join('\n');
-          const notice = await tx.outboundEmail.create({
-            data: {
-              purpose: 'QUOTATION_WITHDRAWAL',
-              quotationId: quotation.id,
-              customerId: quotation.customerId,
-              accountId: account.id,
-              toEmail: quotation.customer.email,
-              subject,
-              textBody: plainBody,
-              htmlBody: textToHtml(plainBody),
-              status: 'PENDING',
-              withdrawalReason: reason,
-            },
-          });
-          await enqueueOutboundEmail(tx, {
-            eventType: 'quotation.withdrawal.email',
-            aggregateType: 'QUOTATION',
-            aggregateId: quotation.id,
-            outboundEmailId: notice.id,
-            createdById: actorId,
-          });
-          noticeId = notice.id;
-        }
-
-        if (releasedReservation) {
-          await enqueueBusinessEvent(tx, {
-            eventType: 'inventory.reservation.released',
-            aggregateType: 'INVENTORY_DETAIL',
-            aggregateId: releasedReservation.inventoryDetailId,
-            data: {
-              inventoryDetailId: releasedReservation.inventoryDetailId,
-              partNumber: releasedReservation.partNumber,
-              status: 'AVAILABLE',
-              quantity: releasedReservation.quantity,
-              releasedQuantity: releasedReservation.reservedQuantity,
-              quotationId: quotation.id,
-              quoteNumber: quotation.quoteNumber,
-              transactionId: releasedReservation.transactionId,
-              releasedBy: actorId,
-              reason,
-            },
-            socket: { room: SocketRooms.INVENTORY, event: SocketEvents.INVENTORY_UPDATED },
-            createdById: actorId,
-          });
-        }
-
-        await enqueueBusinessEvent(tx, {
-          eventType: 'quotation.withdrawn',
-          aggregateType: 'QUOTATION',
-          aggregateId: updatedQuotation.id,
-          data: {
-            quotationId: updatedQuotation.id,
-            quoteNumber: updatedQuotation.quoteNumber,
-            withdrawnAt: updatedQuotation.withdrawnAt?.toISOString(),
-            withdrawalReason: updatedQuotation.withdrawalReason,
-            withdrawalNoticeId: noticeId,
-            reservationReleased: Boolean(releasedReservation),
-            releasedInventoryDetailId: releasedReservation?.inventoryDetailId,
-          },
-          socket: { room: SocketRooms.QUOTATIONS, event: SocketEvents.QUOTATION_UPDATED },
-          createdById: actorId,
+          sendWithdrawalNotice,
+          expectedVersion: req.body.version,
+          reasonCode: req.body.reasonCode,
+          authorize: (quotation) => assertQuotationAccess(actor, 'withdraw', quotation),
+          getDefaultOutboundAccount: (transaction) => getDefaultOutboundAccount(transaction),
         });
 
         return {
@@ -1301,111 +824,33 @@ router.post(
   requireCapability('quotation', 'accept'),
   validateBody(quotationAcceptSchema),
   asyncHandler(async (req, res) => {
-    const { poNumber, deliveryDate, templateId, confirmationNote, reasonCode, reason, version } = req.body;
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/accept'),
       async (tx) => {
-        const quotation = await tx.quotation.findUnique({
-          where: { id: req.params.id },
-          include: {
-            customer: true,
-            creator: { select: { department: true } },
-          },
-        });
-        if (!quotation) {
-          throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
-        }
-        assertQuotationAccess(actor, 'accept', quotation);
-        const currentQuotationStatus = quotationStatus(quotation);
-        if (currentQuotationStatus === 'WITHDRAWN') {
-          throw new AppError('已撤回的报价不能登记客户确认', 400, 'BAD_REQUEST');
-        }
-        assertQuotationTransition(currentQuotationStatus, 'ACCEPTED');
-        if (!['APPROVED', 'SENT', 'ACCEPTED'].includes(currentQuotationStatus)) {
-          throw new AppError('当前报价状态不能登记客户确认', 400, 'BAD_REQUEST');
-        }
-
-        const wasAlreadyAccepted = currentQuotationStatus === 'ACCEPTED';
-        const updatedQuotation = wasAlreadyAccepted
-          ? quotation
-          : await transitionQuotationStatus(tx, {
-            id: quotation.id,
-            currentStatus: quotation.status,
-            currentVersion: quotation.version,
-            nextStatus: 'ACCEPTED',
-            expectedVersion: version,
-            actorId,
-            reasonCode: reasonCode || 'CUSTOMER_ACCEPTED_QUOTATION',
-            reason: confirmationNote ?? reason,
-            data: {
-              acceptedAt: quotation.acceptedAt || new Date(),
-              customerConfirmationNote: confirmationNote ?? quotation.customerConfirmationNote,
-            },
-          });
-
-        const existingOrder = await tx.order.findFirst({
-          where: { quotationId: quotation.id },
-          include: { customer: true },
-        });
-        const order = existingOrder || await createOrderFromQuotation({
+        const { quotation: updatedQuotation, order, generatedDocument } = await acceptQuotationAggregate({
           tx,
-          quotation: updatedQuotation,
-          customer: quotation.customer,
-          poNumber,
-          deliveryDate,
+          quotationId: req.params.id,
           actorId,
-          reasonCode: 'ORDER_CREATED_FROM_ACCEPTED_QUOTATION',
-          reason: confirmationNote ?? reason,
+          poNumber: req.body.poNumber,
+          deliveryDate: req.body.deliveryDate,
+          templateId: req.body.templateId,
+          confirmationNote: req.body.confirmationNote,
+          reasonCode: req.body.reasonCode,
+          reason: req.body.reason,
+          expectedVersion: req.body.version,
+          authorize: (quotation) => assertQuotationAccess(actor, 'accept', quotation),
+          createOrder: createOrderFromQuotation,
+          ensureContractDocument: ({ quotation, customer, order, templateId, generatedById, tx: transaction }) => ensureOrderContractDocument({
+            quotation,
+            customer,
+            order,
+            templateId,
+            generatedById,
+            tx: transaction,
+          }),
         });
-        const isNewOrder = !existingOrder;
-        const generatedDocument = await ensureOrderContractDocument({
-          quotation: updatedQuotation,
-          customer: quotation.customer,
-          order,
-          templateId,
-          generatedById: actorId,
-          tx,
-        });
-
-        if (isNewOrder || !wasAlreadyAccepted) {
-          await enqueueBusinessEvent(tx, {
-            eventType: 'quotation.accepted',
-            aggregateType: 'QUOTATION',
-            aggregateId: updatedQuotation.id,
-            data: {
-              quotationId: updatedQuotation.id,
-              quoteNumber: updatedQuotation.quoteNumber,
-              acceptedAt: updatedQuotation.acceptedAt?.toISOString(),
-              orderId: order.id,
-              contractDocumentId: generatedDocument.id,
-              autoCreatedOrder: isNewOrder,
-            },
-            socket: { room: SocketRooms.QUOTATIONS, event: SocketEvents.QUOTATION_UPDATED },
-            createdById: actorId,
-          });
-        }
-        if (isNewOrder) {
-          await enqueueBusinessEvent(tx, {
-            eventType: 'order.created',
-            aggregateType: 'ORDER',
-            aggregateId: order.id,
-            data: {
-              orderId: order.id,
-              orderNumber: order.orderNumber,
-              soNumber: order.soNumber,
-              quotationId: order.quotationId,
-              customerId: order.customerId,
-              customerName: order.customer.name,
-              status: preferredOrderStatus(order.statusEnum, order.status),
-              totalAmount: mapOrderResponse(order).totalAmount,
-              createdAt: order.createdAt.toISOString(),
-            },
-            socket: { room: SocketRooms.ORDERS, event: SocketEvents.ORDER_CREATED },
-            createdById: actorId,
-          });
-        }
 
         return {
           payload: {
@@ -1437,7 +882,7 @@ router.get(
   '/:id/pdf',
   requireCapability('quotation', 'read'),
   asyncHandler(async (req, res) => {
-    const quotation = await prisma.quotation.findUnique({
+    const quotation = await quotationRepository.findUnique({
       where: { id: req.params.id },
       include: {
         customer: true,

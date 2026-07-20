@@ -72,6 +72,48 @@ router.post(
 );
 
 /**
+ * GET /api/consignments/alerts - get consignment alerts
+ *
+ * This reserved collection route must be registered before /:id.
+ */
+router.get(
+  '/alerts',
+  requireCapability('consignment', 'read'),
+  asyncHandler(async (_req: AuthRequest, res) => {
+    const now = new Date();
+    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const [expiring, lowStock] = await Promise.all([
+      prisma.consignment.findMany({
+        where: {
+          status: 'ACTIVE',
+          endDate: { lte: thirtyDaysLater },
+        },
+        orderBy: { endDate: 'asc' },
+        take: 20,
+      }),
+      prisma.consignment.findMany({
+        where: {
+          status: 'ACTIVE',
+          currentQuantity: { lte: prisma.consignment.fields.minStockLevel },
+        },
+        orderBy: { currentQuantity: 'asc' },
+        take: 20,
+      }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        expiring,
+        lowStock,
+        totalAlerts: expiring.length + lowStock.length,
+      },
+    });
+  })
+);
+
+/**
  * GET /api/consignments/:id
  */
 router.get(
@@ -163,46 +205,6 @@ router.post(
     });
 
     res.json({ success: true, data: updated });
-  })
-);
-
-/**
- * GET /api/consignments/alerts - get consignment alerts
- */
-router.get(
-  '/alerts',
-  requireCapability('consignment', 'read'),
-  asyncHandler(async (_req: AuthRequest, res) => {
-    const now = new Date();
-    const thirtyDaysLater = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-    const [expiring, lowStock] = await Promise.all([
-      prisma.consignment.findMany({
-        where: {
-          status: 'ACTIVE',
-          endDate: { lte: thirtyDaysLater },
-        },
-        orderBy: { endDate: 'asc' },
-        take: 20,
-      }),
-      prisma.consignment.findMany({
-        where: {
-          status: 'ACTIVE',
-          currentQuantity: { lte: prisma.consignment.fields.minStockLevel },
-        },
-        orderBy: { currentQuantity: 'asc' },
-        take: 20,
-      }),
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        expiring,
-        lowStock,
-        totalAlerts: expiring.length + lowStock.length,
-      },
-    });
   })
 );
 
