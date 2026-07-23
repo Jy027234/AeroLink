@@ -13,7 +13,7 @@ export interface CapabilitySnapshot {
 export const PAGE_CAPABILITIES: Record<string, string> = {
   dashboard: 'dashboard.read',
   'agent-workbench': 'agent.run',
-  ingestion: 'rfq.create',
+  ingestion: 'email.read',
   'rfq-management': 'rfq.read',
   inventory: 'inventory.read',
   sourcing: 'supplier.read',

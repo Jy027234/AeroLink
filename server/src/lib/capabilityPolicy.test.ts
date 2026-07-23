@@ -11,7 +11,7 @@ describe('capability policy', () => {
 
     expect(hasCapability(actor, 'webhook', 'delete')).toBe(true);
     expect(hasCapability(actor, 'session', 'manage')).toBe(true);
-    expect(getCapabilitiesForActor(actor)).toHaveLength(27 * 15);
+    expect(getCapabilitiesForActor(actor)).toHaveLength(28 * 15);
   });
 
   it('limits sales transaction access to resources they own', () => {

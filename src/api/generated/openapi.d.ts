@@ -1328,6 +1328,26 @@ export interface paths {
         patch: operations["patchEmailsIdClassify"];
         trace?: never;
     };
+    "/api/emails/{id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/emails/:id/discard
+         * @description Persistently discards an unprocessed inbound email. Emails already linked to an RFQ are protected from discard.
+         */
+        patch: operations["patchEmailsIdDiscard"];
+        trace?: never;
+    };
     "/api/email-accounts": {
         parameters: {
             query?: never;
@@ -5774,6 +5794,13 @@ export interface components {
             type: "aog" | "standard" | "inquiry" | "spam";
             isRead: boolean;
             attachments: string[];
+            /** @enum {string} */
+            processingStatus?: "pending" | "processed" | "discarded" | "failed";
+            /** Format: date-time */
+            processedAt?: string | null;
+            /** Format: date-time */
+            discardedAt?: string | null;
+            rfqId?: string | null;
             accountId?: string | null;
             rfq?: {
                 [key: string]: unknown;
@@ -5793,6 +5820,14 @@ export interface components {
             success: true;
             data: components["schemas"]["Email"][];
             pagination?: components["schemas"]["Pagination"];
+            summary?: {
+                total: number;
+                aog: number;
+                standard: number;
+                inquiry: number;
+                unread: number;
+                spam: number;
+            };
         } & {
             [key: string]: unknown;
         };
@@ -14856,6 +14891,8 @@ export interface operations {
             query?: {
                 type?: "aog" | "standard" | "inquiry" | "spam";
                 isRead?: boolean;
+                processingStatus?: "pending" | "processed" | "discarded" | "failed";
+                excludeSpam?: boolean;
                 page?: number;
                 limit?: number;
             };
@@ -14936,6 +14973,31 @@ export interface operations {
             cookie?: never;
         };
         requestBody: components["requestBodies"]["EmailClassify"];
+        responses: {
+            200: components["responses"]["Email"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    patchEmailsIdDiscard: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: components["responses"]["Email"];
             400: components["responses"]["Error"];

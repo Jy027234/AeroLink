@@ -5827,6 +5827,28 @@
             }
           },
           {
+            "name": "processingStatus",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "processed",
+                "discarded",
+                "failed"
+              ]
+            }
+          },
+          {
+            "name": "excludeSpam",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -6081,6 +6103,77 @@
         },
         "requestBody": {
           "$ref": "#/components/requestBodies/EmailClassify"
+        }
+      }
+    },
+    "/api/emails/{id}/discard": {
+      "patch": {
+        "operationId": "patchEmailsIdDiscard",
+        "tags": [
+          "emails"
+        ],
+        "summary": "PATCH /api/emails/:id/discard",
+        "description": "Persistently discards an unprocessed inbound email. Emails already linked to an RFQ are protected from discard.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/emails",
+        "x-aerolink-source": {
+          "file": "server/src/routes/emails.ts",
+          "line": 162
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Email"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
         }
       }
     },
@@ -25753,6 +25846,35 @@
               "type": "string"
             }
           },
+          "processingStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "processed",
+              "discarded",
+              "failed"
+            ]
+          },
+          "processedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "discardedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "rfqId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "accountId": {
             "type": [
               "string",
@@ -25803,6 +25925,26 @@
           },
           "pagination": {
             "$ref": "#/components/schemas/Pagination"
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "total",
+              "aog",
+              "standard",
+              "inquiry",
+              "unread",
+              "spam"
+            ],
+            "properties": {
+              "total": { "type": "integer", "minimum": 0 },
+              "aog": { "type": "integer", "minimum": 0 },
+              "standard": { "type": "integer", "minimum": 0 },
+              "inquiry": { "type": "integer", "minimum": 0 },
+              "unread": { "type": "integer", "minimum": 0 },
+              "spam": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": true

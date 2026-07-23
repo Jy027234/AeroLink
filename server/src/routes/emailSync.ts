@@ -3,8 +3,8 @@ import { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireCapability } from '../middleware/capability.js';
 import { authenticate } from '../middleware/auth.js';
-import { syncEmails, saveSyncedEmails, autoClassifyEmail } from '../lib/emailService.js';
-import { decrypt } from '../lib/crypto.js';
+import { autoClassifyEmail } from '../lib/emailService.js';
+import { syncEmailAccount } from '../lib/inboundEmailSyncService.js';
 import { logger } from '../lib/logger.js';
 import prisma from '../lib/prisma.js';
 
@@ -27,39 +27,27 @@ router.post(
       throw new AppError('邮箱账户不存在', 404);
     }
 
-    const config = {
-      id: account.id,
-      email: account.email,
-      displayName: account.displayName,
-      imapServer: account.imapServer,
-      imapPort: account.imapPort,
-      smtpServer: account.smtpServer,
-      smtpPort: account.smtpPort,
-      authCode: decrypt(account.authCode),
-      accountType: account.accountType,
-    };
-
     try {
-      const emails = await syncEmails(config, 50);
-      const savedCount = await saveSyncedEmails(account.id, emails);
+      const result = await syncEmailAccount(account.id, { force: true, batchSize: 50 });
+      if (!result.claimed) {
+        throw new AppError('该邮箱正在同步，请稍后重试', 409, 'STATE_CONFLICT');
+      }
 
-      await prisma.emailAccount.update({
-        where: { id: accountId },
-        data: { lastSyncAt: new Date() },
-      });
-
-      logger.info({ accountId, syncedCount: savedCount }, 'Email sync completed via email-sync route');
+      logger.info({ accountId, syncedCount: result.savedCount }, 'Email sync completed via email-sync route');
 
       res.json({
         success: true,
-        message: `同步完成，新增 ${savedCount} 封邮件`,
+        message: `同步完成，新增 ${result.savedCount} 封邮件`,
         data: {
-          syncedCount: savedCount,
-          fetchedCount: emails.length,
-          lastSyncAt: new Date().toISOString(),
+          syncedCount: result.savedCount,
+          fetchedCount: result.fetchedCount,
+          lastSyncAt: result.lastSyncAt?.toISOString() || null,
+          lastUid: result.lastUid,
+          cursorReset: result.cursorReset,
         },
       });
     } catch (error) {
+      if (error instanceof AppError) throw error;
       logger.error({ error, accountId }, 'Email sync failed via email-sync route');
 
       res.status(500).json({

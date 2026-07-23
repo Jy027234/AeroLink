@@ -1,18 +1,15 @@
 import { useEffect } from 'react';
 import {
   useSupplierFollowUpLogs,
-  useEmails,
   useNotifications,
 } from '@/hooks/useApi';
 import {
   useSupplierFollowUpStore,
-  useEmailStore,
   useNotificationStore,
 } from '@/store';
 
 export function DataInitializer({ children }: { children: React.ReactNode }) {
   const { data: supplierFollowUpLogs } = useSupplierFollowUpLogs();
-  const { data: emails } = useEmails();
   const { data: notifications } = useNotifications();
 
   useEffect(() => {
@@ -20,12 +17,6 @@ export function DataInitializer({ children }: { children: React.ReactNode }) {
       useSupplierFollowUpStore.getState().setLogs(supplierFollowUpLogs);
     }
   }, [supplierFollowUpLogs]);
-
-  useEffect(() => {
-    if (emails) {
-      useEmailStore.getState().setEmails(emails);
-    }
-  }, [emails]);
 
   useEffect(() => {
     if (notifications) {

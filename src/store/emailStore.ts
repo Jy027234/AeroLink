@@ -24,11 +24,17 @@ export const useEmailStore = create<EmailState>((set) => ({
       emails: state.emails.map((email) =>
         email.id === emailId ? { ...email, isRead: true } : email
       ),
+      selectedEmail: state.selectedEmail?.id === emailId
+        ? { ...state.selectedEmail, isRead: true }
+        : state.selectedEmail,
     })),
   classifyEmail: (emailId, type) =>
     set((state) => ({
       emails: state.emails.map((email) =>
         email.id === emailId ? { ...email, type } : email
       ),
+      selectedEmail: state.selectedEmail?.id === emailId
+        ? { ...state.selectedEmail, type }
+        : state.selectedEmail,
     })),
 }));

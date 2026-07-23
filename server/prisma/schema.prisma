@@ -496,20 +496,32 @@ model InventoryDetail {
 }
 
 model Email {
-  id          String   @id @default(uuid())
-  from        String
-  fromName    String
-  subject     String
-  body        String
-  receivedAt  DateTime @default(now())
-  type        String   @default("STANDARD")
-  isRead      Boolean  @default(false)
-  attachments String?
-  accountId   String?
+  id               String    @id @default(uuid())
+  from             String
+  fromName         String
+  subject          String
+  body             String
+  receivedAt       DateTime  @default(now())
+  type             String    @default("STANDARD")
+  isRead           Boolean   @default(false)
+  attachments      String?
+  accountId        String?
+  messageId        String?
+  mailbox          String    @default("INBOX")
+  imapUid          Int?
+  imapUidValidity  String?
+  rawHeaders       String?
+  processingStatus String    @default("PENDING")
+  processedAt      DateTime?
+  discardedAt      DateTime?
 
   rfq RFQ?
   account EmailAccount? @relation(fields: [accountId], references: [id])
 
+  @@unique([accountId, messageId], name: "emailAccountMessageId")
+  @@unique([accountId, mailbox, imapUidValidity, imapUid], name: "emailAccountMailboxUid")
+  @@index([processingStatus, receivedAt])
+  @@index([accountId, receivedAt])
   @@map("emails")
 }
 
@@ -532,8 +544,34 @@ model EmailAccount {
 
   emails Email[]
   outboundEmails OutboundEmail[]
+  syncCursors EmailSyncCursor[]
 
   @@map("email_accounts")
+}
+
+model EmailSyncCursor {
+  id            String    @id @default(uuid())
+  accountId     String
+  mailbox       String    @default("INBOX")
+  uidValidity   String?
+  lastUid       Int       @default(0)
+  status        String    @default("IDLE")
+  retryCount    Int       @default(0)
+  nextSyncAt    DateTime? @default(now())
+  lastAttemptAt DateTime?
+  lastSuccessAt DateTime?
+  lastError     String?
+  lockedAt      DateTime?
+  workerId      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  account EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, mailbox])
+  @@index([status, nextSyncAt])
+  @@index([workerId, status])
+  @@map("email_sync_cursors")
 }
 
 model RFQ {

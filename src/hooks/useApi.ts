@@ -637,8 +637,22 @@ export const useMarkNotificationsRead = () => {
 };
 
 // ===== Email Hooks =====
-export const useEmails = (filters?: { type?: string; isRead?: boolean }) => {
-  return useQuery(() => emailApi.getAll(filters), [filters?.type, filters?.isRead]);
+export const useEmails = (filters?: {
+  type?: string;
+  isRead?: boolean;
+  processingStatus?: string;
+  excludeSpam?: boolean;
+  page?: number;
+  limit?: number;
+}) => {
+  return useQuery(() => emailApi.getAll(filters), [
+    filters?.type,
+    filters?.isRead,
+    filters?.processingStatus,
+    filters?.excludeSpam,
+    filters?.page,
+    filters?.limit,
+  ]);
 };
 
 export const useEmail = (id: string) => {

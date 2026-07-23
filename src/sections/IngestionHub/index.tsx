@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Inbox,
@@ -49,6 +49,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useEmailStore } from '@/store';
+import { emailApi } from '@/api/client';
+import { useEmails } from '@/hooks/useApi';
 import { useRFQs, useCreateRFQ } from '@/features/rfqs';
 import { useCustomers } from '@/features/customers';
 import { useTranslation } from '@/i18n';
@@ -63,7 +65,8 @@ const emailTypeConfig: Record<EmailType, { label: string; color: string; bgColor
 };
 
 function EmailTypeBadge({ type }: { type: EmailType }) {
-  const config = emailTypeConfig[type];
+  const normalizedType = emailTypeConfig[type] ? type : 'standard';
+  const config = emailTypeConfig[normalizedType];
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
 
@@ -79,8 +82,8 @@ function EmailTypeBadge({ type }: { type: EmailType }) {
       variant="outline"
       className={cn(config.bgColor, config.color, 'border')}
     >
-      {type === 'aog' && <AlertTriangle className="w-3 h-3 mr-1" />}
-      {labelMap[type] || config.label}
+      {normalizedType === 'aog' && <AlertTriangle className="w-3 h-3 mr-1" />}
+      {labelMap[normalizedType] || config.label}
     </Badge>
   );
 }
@@ -105,7 +108,14 @@ function extractRFQFromEmail(email: Email): Partial<RFQ> {
 }
 
 export function IngestionHub() {
-  const { emails, selectedEmail, selectEmail, filter, setFilter, markAsRead, classifyEmail } = useEmailStore();
+  const { emails, selectedEmail, setEmails, selectEmail, filter, setFilter, markAsRead, classifyEmail } = useEmailStore();
+  const [page, setPage] = useState(1);
+  const emailQuery = useEmails({
+    type: filter === 'all' ? undefined : filter,
+    excludeSpam: filter === 'all',
+    page,
+    limit: 20,
+  });
   const { loading: rfqsLoading, refetch: refetchRFQs } = useRFQs();
   const { mutate: createRFQ } = useCreateRFQ();
   const { data: customerMatches } = useCustomers({
@@ -119,14 +129,14 @@ export function IngestionHub() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
 
-  // Filter emails
-  const filteredEmails = emails.filter((email) => {
-    if (filter === 'all') return email.type !== 'spam';
-    return email.type === filter;
-  });
+  useEffect(() => {
+    if (emailQuery.data) setEmails(emailQuery.data.data);
+  }, [emailQuery.data, setEmails]);
+
+  const filteredEmails = emails;
 
   // Stats
-  const stats = {
+  const stats = emailQuery.data?.summary || {
     total: emails.filter((e) => e.type !== 'spam').length,
     aog: emails.filter((e) => e.type === 'aog').length,
     standard: emails.filter((e) => e.type === 'standard').length,
@@ -147,6 +157,10 @@ export function IngestionHub() {
     selectEmail(email);
     if (!email.isRead) {
       markAsRead(email.id);
+      void emailApi.markAsRead(email.id).catch((error) => {
+        void emailQuery.refetch();
+        toast.error(error instanceof Error ? error.message : tx('标记已读失败', 'Failed to mark email as read'));
+      });
     }
     const extracted = extractRFQFromEmail(email);
     setExtractedData(extracted);
@@ -181,10 +195,42 @@ export function IngestionHub() {
       setIsSheetOpen(false);
       selectEmail(null);
       refetchRFQs();
+      await emailQuery.refetch();
       toast.success(tx(`需求单 ${result.rfqNumber} 创建成功。`, `RFQ ${result.rfqNumber} has been created successfully.`));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : tx('创建需求单失败', 'Failed to create RFQ'));
     }
+  };
+
+  const handleClassify = async (email: Email, type: EmailType) => {
+    const previousType = email.type;
+    classifyEmail(email.id, type);
+    try {
+      await emailApi.classify(email.id, type);
+      await emailQuery.refetch();
+      toast.success(tx('邮件分类已更新', 'Email classification updated'));
+    } catch (error) {
+      classifyEmail(email.id, previousType);
+      toast.error(error instanceof Error ? error.message : tx('更新邮件分类失败', 'Failed to update email classification'));
+    }
+  };
+
+  const handleDiscard = async () => {
+    if (!selectedEmail) return;
+    try {
+      await emailApi.discard(selectedEmail.id);
+      setIsSheetOpen(false);
+      selectEmail(null);
+      await emailQuery.refetch();
+      toast.success(tx('邮件已丢弃', 'Email discarded'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : tx('丢弃邮件失败', 'Failed to discard email'));
+    }
+  };
+
+  const handleFilterChange = (nextFilter: typeof filter) => {
+    setPage(1);
+    setFilter(nextFilter);
   };
 
   return (
@@ -236,7 +282,7 @@ export function IngestionHub() {
             key={type}
             variant={filter === type ? 'default' : 'outline'}
             size="sm"
-            onClick={() => setFilter(type)}
+            onClick={() => handleFilterChange(type)}
             className={cn(
               filter === type && 'bg-brand-primary hover:bg-brand-primary-hover',
               type === 'spam' && filter !== type && 'text-gray-500'
@@ -257,8 +303,18 @@ export function IngestionHub() {
           <CardTitle>{tx('邮件列表', 'Email List')}</CardTitle>
         </CardHeader>
         <CardContent>
+          {emailQuery.error && (
+            <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {emailQuery.error}
+            </div>
+          )}
           <div className="divide-y">
-            {filteredEmails.length === 0 ? (
+            {emailQuery.loading ? (
+              <div className="flex items-center justify-center py-12 text-gray-500">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                {tx('正在加载邮件...', 'Loading emails...')}
+              </div>
+            ) : filteredEmails.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <Inbox className="w-16 h-16 mx-auto mb-4 text-gray-300" />
                 <p>{tx('未找到邮件', 'No emails found')}</p>
@@ -283,6 +339,11 @@ export function IngestionHub() {
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{email.fromName}</span>
                           <EmailTypeBadge type={email.type} />
+                          {email.processingStatus === 'processed' && (
+                            <Badge variant="outline" className="border-green-200 bg-green-50 text-green-700">
+                              {tx('已生成需求单', 'RFQ created')}
+                            </Badge>
+                          )}
                           {email.type === 'aog' && (
                             <span className="animate-pulse">
                               <AlertTriangle className="w-4 h-4 text-red-500" />
@@ -317,20 +378,20 @@ export function IngestionHub() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => classifyEmail(email.id, 'aog')}>
+                          <DropdownMenuItem onClick={() => void handleClassify(email, 'aog')}>
                             <AlertCircle className="w-4 h-4 mr-2 text-red-500" />
                             {tx('标记为AOG', 'Mark as AOG')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => classifyEmail(email.id, 'standard')}>
+                          <DropdownMenuItem onClick={() => void handleClassify(email, 'standard')}>
                             <FileText className="w-4 h-4 mr-2 text-yellow-500" />
                             {tx('标记为标准需求单', 'Mark as Standard RFQ')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => classifyEmail(email.id, 'inquiry')}>
+                          <DropdownMenuItem onClick={() => void handleClassify(email, 'inquiry')}>
                             <Mail className="w-4 h-4 mr-2 text-green-500" />
                             {tx('标记为普通询盘', 'Mark as General Inquiry')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => classifyEmail(email.id, 'spam')}>
+                          <DropdownMenuItem onClick={() => void handleClassify(email, 'spam')}>
                             <Ban className="w-4 h-4 mr-2 text-gray-500" />
                             {tx('移至垃圾邮件', 'Move to Spam')}
                           </DropdownMenuItem>
@@ -342,6 +403,29 @@ export function IngestionHub() {
               ))
             )}
           </div>
+          {(emailQuery.data?.pagination.totalPages || 0) > 1 && (
+            <div className="mt-4 flex items-center justify-between border-t pt-4 text-sm text-gray-500">
+              <span>
+                {tx(
+                  `第 ${emailQuery.data?.pagination.page} / ${emailQuery.data?.pagination.totalPages} 页，共 ${emailQuery.data?.pagination.total} 封`,
+                  `Page ${emailQuery.data?.pagination.page} of ${emailQuery.data?.pagination.totalPages}, ${emailQuery.data?.pagination.total} emails`,
+                )}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+                  {tx('上一页', 'Previous')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= (emailQuery.data?.pagination.totalPages || 1)}
+                  onClick={() => setPage((value) => value + 1)}
+                >
+                  {tx('下一页', 'Next')}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -538,13 +622,17 @@ export function IngestionHub() {
               <X className="w-4 h-4 mr-1" />
               {tx('取消', 'Cancel')}
             </Button>
-            <Button variant="destructive" onClick={() => setIsSheetOpen(false)}>
+            <Button
+              variant="destructive"
+              onClick={() => void handleDiscard()}
+              disabled={Boolean(selectedEmail?.rfqId || selectedEmail?.processingStatus === 'processed')}
+            >
               <Trash2 className="w-4 h-4 mr-1" />
               {tx('丢弃', 'Discard')}
             </Button>
             <Button
               onClick={handleCreateRFQ}
-              disabled={!extractedData.partNumber}
+              disabled={!extractedData.partNumber || Boolean(selectedEmail?.rfqId || selectedEmail?.processingStatus === 'processed')}
               className="bg-brand-primary hover:bg-brand-primary-hover"
             >
               <Send className="w-4 h-4 mr-1" />

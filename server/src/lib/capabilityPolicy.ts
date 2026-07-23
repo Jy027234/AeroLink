@@ -14,6 +14,7 @@ export const CAPABILITY_RESOURCES = [
   'webhook',
   'api_key',
   'user',
+  'email',
   'email_account',
   'agent',
   'model',
@@ -127,6 +128,7 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('model', ['read', 'manage']),
       ...keys('report', ['read', 'export']),
       ...keys('integration', ['read', 'manage']),
+      ...keys('email', ['read', 'update']),
       ...keys('auction', ['read', 'create', 'update']),
       ...keys('consignment', ['read', 'create', 'update']),
       ...keys('fmv', ['read']),
@@ -159,6 +161,7 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('supplier_quote', ['read', 'create', 'update']),
       ...keys('agent', ['read', 'run']),
       ...keys('certificate', ['read']),
+      ...keys('email', ['read', 'update']),
     ]),
     grant('own', [
       ...keys('rfq', ['read', 'create', 'update', 'transition', 'export']),

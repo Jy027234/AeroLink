@@ -3,7 +3,8 @@ import type { EmailAccount } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { validateBody } from '../middleware/validate.js';
 import { emailAccountCreateSchema, emailAccountUpdateSchema } from '../lib/validation.js';
-import { testImapConnection, testSmtpConnection, syncEmails, saveSyncedEmails } from '../lib/emailService.js';
+import { testImapConnection, testSmtpConnection } from '../lib/emailService.js';
+import { syncEmailAccount } from '../lib/inboundEmailSyncService.js';
 import { encrypt, decrypt } from '../lib/crypto.js';
 import { logger } from '../lib/logger.js';
 import { MISSING_OUTBOUND_ACCOUNT_MESSAGE } from '../lib/authEmailService.js';
@@ -349,29 +350,27 @@ router.post(
       throw new AppError('账户已停用', 400);
     }
 
-    const config = buildAccountConfig(account);
-
     try {
-      const emails = await syncEmails(config, 50);
-      const savedCount = await saveSyncedEmails(account.id, emails);
+      const result = await syncEmailAccount(account.id, { force: true, batchSize: 50 });
+      if (!result.claimed) {
+        throw new AppError('该邮箱正在同步，请稍后重试', 409, 'STATE_CONFLICT');
+      }
 
-      await prisma.emailAccount.update({
-        where: { id: req.params.id },
-        data: { lastSyncAt: new Date() },
-      });
-
-      logger.info({ accountId: account.id, syncedCount: savedCount }, 'Email sync completed');
+      logger.info({ accountId: account.id, syncedCount: result.savedCount }, 'Email sync completed');
 
       res.json({
         success: true,
-        message: `邮件同步完成，新增 ${savedCount} 封邮件`,
+        message: `邮件同步完成，新增 ${result.savedCount} 封邮件`,
         data: {
-          syncedCount: savedCount,
-          fetchedCount: emails.length,
-          lastSyncAt: new Date().toISOString(),
+          syncedCount: result.savedCount,
+          fetchedCount: result.fetchedCount,
+          lastSyncAt: result.lastSyncAt?.toISOString() || null,
+          lastUid: result.lastUid,
+          cursorReset: result.cursorReset,
         },
       });
     } catch (error) {
+      if (error instanceof AppError) throw error;
       logger.error({ error, accountId: account.id }, 'Email sync failed');
       throw new AppError('邮件同步失败: ' + (error instanceof Error ? error.message : '未知错误'), 500);
     }

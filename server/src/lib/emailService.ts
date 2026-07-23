@@ -1,7 +1,6 @@
 import { createTransport } from 'nodemailer';
-import { simpleParser, ParsedMail } from 'mailparser';
+import { simpleParser, type ParsedMail } from 'mailparser';
 import { logger } from './logger.js';
-import prisma from './prisma.js';
 
 export interface EmailAccountConfig {
   id: string;
@@ -16,6 +15,10 @@ export interface EmailAccountConfig {
 }
 
 export interface SyncedEmail {
+  uid: number;
+  uidValidity: string;
+  mailbox: string;
+  messageId: string | null;
   from: string;
   fromName: string;
   subject: string;
@@ -23,6 +26,20 @@ export interface SyncedEmail {
   receivedAt: Date;
   attachments: string[];
   rawHeaders: string;
+}
+
+export interface MailboxFetchResult {
+  emails: SyncedEmail[];
+  uidValidity: string;
+  highestUid: number;
+  cursorReset: boolean;
+}
+
+export interface MailboxFetchOptions {
+  mailbox?: string;
+  afterUid?: number;
+  expectedUidValidity?: string | null;
+  limit?: number;
 }
 
 export interface EmailAttachment {
@@ -79,6 +96,7 @@ export async function testImapConnection(account: EmailAccountConfig): Promise<b
     const config = getImapConfig(account);
     const { default: imaps } = await import('imap-simple');
     const connection = await imaps.connect(config);
+    await connection.openBox('INBOX');
     await connection.closeBox(true);
     connection.end();
     return true;
@@ -99,33 +117,50 @@ export async function testSmtpConnection(account: EmailAccountConfig): Promise<b
   }
 }
 
-export async function syncEmails(account: EmailAccountConfig, limit = 50): Promise<SyncedEmail[]> {
+export async function fetchMailboxMessages(
+  account: EmailAccountConfig,
+  options: MailboxFetchOptions = {},
+): Promise<MailboxFetchResult> {
   const { default: imaps } = await import('imap-simple');
   const config = getImapConfig(account);
+  const mailbox = options.mailbox?.trim() || 'INBOX';
+  const limit = Math.min(100, Math.max(1, options.limit ?? 50));
+  const requestedAfterUid = Math.max(0, options.afterUid ?? 0);
 
   const connection = await imaps.connect(config);
 
   try {
-    await connection.openBox('INBOX');
+    const box = await connection.openBox(mailbox);
+    const uidValidity = String(box.uidvalidity ?? 'unknown');
+    const cursorReset = Boolean(
+      options.expectedUidValidity
+      && options.expectedUidValidity !== uidValidity,
+    );
+    const afterUid = cursorReset ? 0 : requestedAfterUid;
 
-    const searchCriteria = ['UNSEEN'];
+    const searchCriteria = afterUid > 0
+      ? [['UID', `${afterUid + 1}:*`]]
+      : ['ALL'];
     const fetchOptions = {
-      bodies: ['HEADER', 'TEXT'],
+      bodies: [''],
       struct: true,
+      markSeen: false,
     };
 
     const messages = await connection.search(searchCriteria, fetchOptions);
     const syncedEmails: SyncedEmail[] = [];
+    const orderedMessages = [...messages]
+      .filter((message) => Number(message.attributes?.uid) > afterUid)
+      .sort((left, right) => Number(left.attributes.uid) - Number(right.attributes.uid))
+      .slice(0, limit);
 
-    for (const message of messages.slice(0, limit)) {
-      const headerPart = message.parts.find((p: { which: string }) => p.which === 'HEADER');
-      const textPart = message.parts.find((p: { which: string }) => p.which === 'TEXT');
+    for (const message of orderedMessages) {
+      const rawPart = message.parts.find((part: { which: string }) => part.which === '');
+      if (!rawPart) continue;
 
-      if (!headerPart || !textPart) continue;
-
-      const headerBody = (headerPart.body as { subject?: string[]; from?: string[]; date?: string[] }) || {};
-      const textBody = typeof textPart.body === 'string' ? textPart.body : String(textPart.body ?? '');
-      const raw = `Subject: ${headerBody.subject?.[0] || ''}\nFrom: ${headerBody.from?.[0] || ''}\nDate: ${headerBody.date?.[0] || ''}\n\n${textBody}`;
+      const raw = Buffer.isBuffer(rawPart.body)
+        ? rawPart.body
+        : Buffer.from(String(rawPart.body ?? ''), 'utf8');
 
       const parsed: ParsedMail = await simpleParser(raw);
 
@@ -140,19 +175,26 @@ export async function syncEmails(account: EmailAccountConfig, limit = 50): Promi
       }
 
       syncedEmails.push({
+        uid: Number(message.attributes.uid),
+        uidValidity,
+        mailbox,
+        messageId: parsed.messageId?.trim() || null,
         from: fromAddress,
         fromName,
         subject: parsed.subject || '(无主题)',
         body: parsed.text || parsed.html || '',
         receivedAt: parsed.date || new Date(),
         attachments,
-        rawHeaders: JSON.stringify(headerPart.body),
+        rawHeaders: raw.subarray(0, Math.max(0, raw.indexOf('\r\n\r\n')) || Math.min(raw.length, 64 * 1024)).toString('utf8'),
       });
-
-      await connection.addFlags(message.attributes.uid, ['\\Seen']);
     }
 
-    return syncedEmails;
+    return {
+      emails: syncedEmails,
+      uidValidity,
+      highestUid: syncedEmails.reduce((highest, email) => Math.max(highest, email.uid), afterUid),
+      cursorReset,
+    };
   } finally {
     connection.end();
   }
@@ -193,41 +235,4 @@ export async function autoClassifyEmail(subject: string, body: string): Promise<
   }
 
   return 'STANDARD';
-}
-
-export async function saveSyncedEmails(accountId: string, emails: SyncedEmail[]): Promise<number> {
-  let savedCount = 0;
-
-  for (const email of emails) {
-    const existing = await prisma.email.findFirst({
-      where: {
-        accountId,
-        subject: email.subject,
-        from: email.from,
-        receivedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-      },
-    });
-
-    if (existing) continue;
-
-    const emailType = await autoClassifyEmail(email.subject, email.body);
-
-    await prisma.email.create({
-      data: {
-        from: email.from,
-        fromName: email.fromName,
-        subject: email.subject,
-        body: email.body,
-        type: emailType,
-        isRead: false,
-        accountId,
-        attachments: email.attachments.join(','),
-        receivedAt: email.receivedAt,
-      },
-    });
-
-    savedCount++;
-  }
-
-  return savedCount;
 }

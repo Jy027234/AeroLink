@@ -9,6 +9,7 @@ const runtime = startWorker({
   webhookIntervalMs: intervalFromEnv('WORKER_WEBHOOK_INTERVAL_MS', 30_000),
   outboxIntervalMs: intervalFromEnv('WORKER_OUTBOX_INTERVAL_MS', 5_000),
   idempotencyIntervalMs: intervalFromEnv('WORKER_IDEMPOTENCY_INTERVAL_MS', 6 * 60 * 60 * 1000),
+  emailSyncIntervalMs: intervalFromEnv('WORKER_EMAIL_SYNC_INTERVAL_MS', 30_000),
   shutdownTimeoutMs: intervalFromEnv('WORKER_SHUTDOWN_TIMEOUT_MS', 30_000),
 });
 

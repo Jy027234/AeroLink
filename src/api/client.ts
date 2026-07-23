@@ -34,7 +34,7 @@ import type {
 } from '@/types';
 import type { CapabilitySnapshot } from '@/lib/capabilities';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 type ApiRecord = Record<string, unknown>;
 type ApiPayload = object;
@@ -2003,13 +2003,43 @@ export const notificationPreferenceApi = {
 };
 
 // ===== Email API =====
+export interface EmailListResult {
+  success: true;
+  data: Email[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+  summary: {
+    total: number;
+    aog: number;
+    standard: number;
+    inquiry: number;
+    unread: number;
+    spam: number;
+  };
+}
+
 export const emailApi = {
-  getAll: async (filters?: { type?: string; isRead?: boolean }) => {
+  getAll: async (filters?: {
+    type?: string;
+    isRead?: boolean;
+    processingStatus?: string;
+    excludeSpam?: boolean;
+    page?: number;
+    limit?: number;
+  }) => {
     const params = new URLSearchParams();
     if (filters?.type) params.append('type', filters.type);
     if (filters?.isRead !== undefined) params.append('isRead', String(filters.isRead));
+    if (filters?.processingStatus) params.append('processingStatus', filters.processingStatus);
+    if (filters?.excludeSpam !== undefined) params.append('excludeSpam', String(filters.excludeSpam));
+    if (filters?.page) params.append('page', String(filters.page));
+    if (filters?.limit) params.append('limit', String(filters.limit));
     const query = params.toString();
-    return request<Email[]>(`/emails${query ? `?${query}` : ''}`);
+    return requestEnvelope<EmailListResult>(`/emails${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string) => {
@@ -2017,15 +2047,21 @@ export const emailApi = {
   },
 
   markAsRead: async (id: string) => {
-    return request<ApiRecord>(`/emails/${id}/read`, {
+    return request<Email>(`/emails/${id}/read`, {
       method: 'PATCH',
     });
   },
 
   classify: async (id: string, type: string) => {
-    return request<ApiRecord>(`/emails/${id}/classify`, {
+    return request<Email>(`/emails/${id}/classify`, {
       method: 'PATCH',
       body: JSON.stringify({ type }),
+    });
+  },
+
+  discard: async (id: string) => {
+    return request<Email>(`/emails/${id}/discard`, {
+      method: 'PATCH',
     });
   },
 };

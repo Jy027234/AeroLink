@@ -30,6 +30,10 @@ export interface Email {
   type: EmailType;
   isRead: boolean;
   attachments?: string[];
+  processingStatus?: 'pending' | 'processed' | 'discarded' | 'failed';
+  processedAt?: string | null;
+  discardedAt?: string | null;
+  rfqId?: string | null;
 }
 
 // 需求单 (RFQ)

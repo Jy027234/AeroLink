@@ -15,6 +15,7 @@ declare module 'mailparser' {
     subject?: string;
     text?: string;
     html?: string;
+    messageId?: string;
     date?: Date;
     attachments?: Attachment[];
   }
@@ -30,6 +31,10 @@ declare module 'imap-simple' {
 
   interface MessageAttributes {
     uid: number;
+  }
+
+  interface Mailbox {
+    uidvalidity?: number | string;
   }
 
   interface Message {
@@ -50,8 +55,8 @@ declare module 'imap-simple' {
   }
 
   interface ImapSimple {
-    openBox(boxName: string): Promise<void>;
-    search(criteria: string[], fetchOptions: unknown): Promise<Message[]>;
+    openBox(boxName: string): Promise<Mailbox>;
+    search(criteria: Array<string | string[]>, fetchOptions: unknown): Promise<Message[]>;
     addFlags(uid: number, flags: string[]): Promise<void>;
     closeBox(autoExpunge: boolean): Promise<void>;
     end(): void;

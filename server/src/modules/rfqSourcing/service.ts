@@ -34,6 +34,18 @@ export async function createRfqAggregate(
     version: created.version,
   });
 
+  if (created.emailId) {
+    await tx.email.update({
+      where: { id: created.emailId },
+      data: {
+        processingStatus: 'PROCESSED',
+        processedAt: new Date(),
+        discardedAt: null,
+        isRead: true,
+      },
+    });
+  }
+
   return created;
 }
 

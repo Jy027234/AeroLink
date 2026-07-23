@@ -82,7 +82,7 @@ interface PayloadTemplate {
   updatedAt: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 const TEST_PAYLOAD_TEMPLATES_KEY = 'webhook_test_payload_templates';
 const DLQ_FAILURE_REASONS: WebhookFailureReason[] = ['4xx', '5xx', 'timeout', 'connection_error', 'other'];
 

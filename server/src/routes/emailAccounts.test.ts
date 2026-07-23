@@ -26,8 +26,9 @@ describe('Email account routes integration', () => {
     vi.doMock('../lib/emailService.js', () => ({
       testImapConnection: vi.fn(),
       testSmtpConnection: vi.fn(),
-      syncEmails: vi.fn(),
-      saveSyncedEmails: vi.fn(),
+    }));
+    vi.doMock('../lib/inboundEmailSyncService.js', () => ({
+      syncEmailAccount: vi.fn(),
     }));
     vi.doMock('../lib/crypto.js', () => ({
       encrypt: vi.fn((value: string) => value),
