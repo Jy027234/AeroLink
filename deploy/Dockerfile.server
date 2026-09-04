@@ -6,8 +6,9 @@ ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
 ARG PRISMA_SCHEMA_PATH=prisma/schema.prisma
 ENV PRISMA_SCHEMA_PATH=${PRISMA_SCHEMA_PATH}
 
-# Tencent Cloud hosts can fetch Debian packages reliably from the regional mirror.
-ARG APT_MIRROR=https://mirrors.cloud.tencent.com/debian
+# The slim base installs its CA bundle in this layer, so bootstrap from the
+# Tencent mirror over HTTP; APT still verifies Debian's signed package metadata.
+ARG APT_MIRROR=http://mirrors.cloud.tencent.com/debian
 
 RUN sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
   && apt-get update \
