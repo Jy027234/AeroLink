@@ -20,6 +20,7 @@ function createActiveUser(overrides: Record<string, unknown> = {}) {
 }
 
 function createSession(overrides: Record<string, unknown> = {}) {
+  const now = Date.now();
   return {
     id: 'session-1',
     userId: 'u1',
@@ -27,9 +28,9 @@ function createSession(overrides: Record<string, unknown> = {}) {
     deviceName: 'Chrome on Windows',
     ipAddress: '127.0.0.1',
     userAgent: 'test-agent',
-    createdAt: new Date('2026-07-17T00:00:00.000Z'),
-    lastSeenAt: new Date('2026-07-17T00:01:00.000Z'),
-    expiresAt: new Date('2026-07-24T00:00:00.000Z'),
+    createdAt: new Date(now - 60_000),
+    lastSeenAt: new Date(now - 30_000),
+    expiresAt: new Date(now + 7 * 24 * 60 * 60 * 1000),
     revokedAt: null,
     revokedReason: null,
     ...overrides,
