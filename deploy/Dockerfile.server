@@ -1,14 +1,6 @@
 FROM node:22-bookworm-slim
 
 ENV NODE_ENV=production
-ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
-# Downloading Chrome from Google's CDN is unreliable from some cloud regions.
-# Use Debian Chromium from the configured Tencent APT mirror instead.
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-
-ARG PRISMA_SCHEMA_PATH=prisma/schema.prisma
-ENV PRISMA_SCHEMA_PATH=${PRISMA_SCHEMA_PATH}
 
 # The slim base installs its CA bundle in this layer, so bootstrap from the
 # Tencent mirror over HTTP; APT still verifies Debian's signed package metadata.
@@ -54,6 +46,20 @@ RUN sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g" /etc/apt/sources.lis
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Downloading Chrome from Google's CDN is unreliable from some cloud regions.
+# Use Debian Chromium from the configured Tencent APT mirror instead.
+ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Prisma verifies downloaded engine checksums. Use the reachable mirror during
+# image builds so the database client remains reproducibly installable in CN.
+ARG PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
+ENV PRISMA_ENGINES_MIRROR=${PRISMA_ENGINES_MIRROR}
+
+ARG PRISMA_SCHEMA_PATH=prisma/schema.prisma
+ENV PRISMA_SCHEMA_PATH=${PRISMA_SCHEMA_PATH}
 
 COPY server/package*.json ./
 COPY server/prisma ./prisma
