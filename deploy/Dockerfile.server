@@ -6,7 +6,11 @@ ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
 ARG PRISMA_SCHEMA_PATH=prisma/schema.prisma
 ENV PRISMA_SCHEMA_PATH=${PRISMA_SCHEMA_PATH}
 
-RUN apt-get update \
+# Tencent Cloud hosts can fetch Debian packages reliably from the regional mirror.
+ARG APT_MIRROR=https://mirrors.cloud.tencent.com/debian
+
+RUN sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+  && apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     dumb-init \
