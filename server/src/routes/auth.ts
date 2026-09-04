@@ -21,9 +21,13 @@ import prisma from '../lib/prisma.js';
 const router = Router();
 const PASSWORD_ASSISTANCE_MESSAGE = '如果该邮箱对应账户存在，系统已发送后续操作邮件，请注意查收。如未收到，请联系管理员。';
 const REFRESH_COOKIE_NAME = 'aerolink_refresh_token';
+// HTTP access is permitted only for explicitly configured temporary trials.
+// Keep the refresh cookie secure by default, including every normal production
+// deployment, and relax it only alongside REQUIRE_SECURE_ORIGIN=false.
+const requiresSecureOrigin = process.env.REQUIRE_SECURE_ORIGIN !== 'false';
 const refreshCookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: process.env.NODE_ENV === 'production' && requiresSecureOrigin,
   sameSite: 'lax' as const,
   maxAge: 7 * 24 * 60 * 60 * 1000,
   path: '/api/auth',

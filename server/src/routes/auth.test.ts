@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import jwt from 'jsonwebtoken';
@@ -39,6 +39,8 @@ function createSession(overrides: Record<string, unknown> = {}) {
 
 describe('Auth routes integration', () => {
   let app: express.Application;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalRequireSecureOrigin = process.env.REQUIRE_SECURE_ORIGIN;
   let prismaMock: {
     user: {
       findUnique: ReturnType<typeof vi.fn>;
@@ -64,9 +66,7 @@ describe('Auth routes integration', () => {
     sendPasswordResetEmailToUser: ReturnType<typeof vi.fn>;
   };
 
-  beforeEach(async () => {
-    process.env.JWT_SECRET = 'test-jwt-secret';
-    process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
+  async function initializeApp() {
     vi.resetModules();
     prismaMock = {
       user: {
@@ -109,6 +109,27 @@ describe('Auth routes integration', () => {
     app.use(express.json());
     app.use('/api/auth', authRouter);
     app.use(eh);
+  }
+
+  beforeEach(async () => {
+    process.env.NODE_ENV = 'test';
+    delete process.env.REQUIRE_SECURE_ORIGIN;
+    process.env.JWT_SECRET = 'test-jwt-secret';
+    process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
+    await initializeApp();
+  });
+
+  afterEach(() => {
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalRequireSecureOrigin === undefined) {
+      delete process.env.REQUIRE_SECURE_ORIGIN;
+    } else {
+      process.env.REQUIRE_SECURE_ORIGIN = originalRequireSecureOrigin;
+    }
   });
 
   it('should reject invalid email format', async () => {
@@ -166,6 +187,43 @@ describe('Auth routes integration', () => {
     expect(prismaMock.securityEvent.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ type: 'LOGIN_SUCCESS', sessionId: expect.any(String) }),
     }));
+  });
+
+  it('uses a Secure refresh cookie in production unless explicit HTTP trial mode is enabled', async () => {
+    const password = 'Password123!';
+    const configureSuccessfulLogin = async () => {
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'active.user@example.com',
+        name: 'Active User',
+        password: await bcrypt.hash(password, 10),
+        role: 'SALES',
+        department: 'Sales',
+        avatar: null,
+        isActive: true,
+        tokenVersion: 0,
+      });
+      prismaMock.user.update.mockResolvedValue({ id: 'u1' });
+    };
+    const login = () => request(app)
+      .post('/api/auth/login')
+      .send({ email: 'active.user@example.com', password });
+    const hasSecureFlag = (cookies: string[]) => cookies.some((value) => /(?:^|;\s*)Secure(?:;|$)/.test(value));
+
+    process.env.NODE_ENV = 'production';
+    delete process.env.REQUIRE_SECURE_ORIGIN;
+    await initializeApp();
+    await configureSuccessfulLogin();
+    const productionResponse = await login();
+    expect(productionResponse.status).toBe(200);
+    expect(hasSecureFlag(([] as string[]).concat(productionResponse.headers['set-cookie'] || []))).toBe(true);
+
+    process.env.REQUIRE_SECURE_ORIGIN = 'false';
+    await initializeApp();
+    await configureSuccessfulLogin();
+    const httpTrialResponse = await login();
+    expect(httpTrialResponse.status).toBe(200);
+    expect(hasSecureFlag(([] as string[]).concat(httpTrialResponse.headers['set-cookie'] || []))).toBe(false);
   });
 
   it('should reject missing refresh token', async () => {

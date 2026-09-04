@@ -2,6 +2,10 @@ FROM node:22-bookworm-slim
 
 ENV NODE_ENV=production
 ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
+# Downloading Chrome from Google's CDN is unreliable from some cloud regions.
+# Use Debian Chromium from the configured Tencent APT mirror instead.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 ARG PRISMA_SCHEMA_PATH=prisma/schema.prisma
 ENV PRISMA_SCHEMA_PATH=${PRISMA_SCHEMA_PATH}
@@ -14,6 +18,7 @@ RUN sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g" /etc/apt/sources.lis
   && apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
+    chromium \
     dumb-init \
     fonts-liberation \
     fonts-noto-cjk \
@@ -54,7 +59,6 @@ COPY server/package*.json ./
 COPY server/prisma ./prisma
 
 RUN npm ci --include=dev \
-  && npx puppeteer browsers install chrome \
   && npx prisma generate --schema "${PRISMA_SCHEMA_PATH}"
 
 COPY server/ ./
