@@ -114,7 +114,7 @@ export const zhCN: LocaleDict = {
     weeklyDealValue: '本周成交额',
     customerFollowUpAlerts: '客户跟进提醒',
     pendingFollowUp: '待跟进',
-    allCustomersFollowed: '所有客户都已跟进',
+    noCustomerFollowUpAlerts: '暂无待跟进客户',
     quotePrefix: '报价',
     followUp: '跟进',
     inventorySufficient: '库存充足',

@@ -152,7 +152,7 @@ function FunnelStage({ stage, count, amount, isActive, isLast }: FunnelStageProp
 }
 
 export function Dashboard() {
-  const { customerAlerts, setCustomerAlerts, setInventoryAlerts } = useDashboardStore();
+  const { customerAlerts } = useDashboardStore();
   const setCurrentPage = useUIStore((state) => state.setCurrentPage);
   const setInventorySearchPreset = useUIStore((state) => state.setInventorySearchPreset);
   const { data: stats, loading: statsLoading, error: statsError } = useDashboardStats();
@@ -179,18 +179,6 @@ export function Dashboard() {
       return shelfLifeWarning || hoursWarning || cyclesWarning;
     });
   }, [inventory]);
-
-  // 初始化提醒数据
-  useEffect(() => {
-    setCustomerAlerts([
-      { customerId: 'c002', customerName: '海南航空', daysSinceQuote: 3, quoteNumber: 'QT-20260325-003' },
-      { customerId: 'c004', customerName: '厦门航空', daysSinceQuote: 5, quoteNumber: 'QT-20260323-002' },
-    ]);
-    setInventoryAlerts([
-      { partNumber: '2341-123-050', currentStock: 2, safetyStock: 5, warehouse: '北京主仓' },
-      { partNumber: '5678-901-234', currentStock: 1, safetyStock: 3, warehouse: '广州分仓' },
-    ]);
-  }, [setCustomerAlerts, setInventoryAlerts]);
 
   if (statsLoading || funnelLoading) {
     return (
@@ -282,7 +270,7 @@ export function Dashboard() {
               <div className="text-center py-12 text-gray-500">
               <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                 <CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500" />
-                <p>{t('dashboard.allCustomersFollowed')}</p>
+                <p>{t('dashboard.noCustomerFollowUpAlerts')}</p>
               </div>
             ) : (
               <div className="space-y-3">

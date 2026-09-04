@@ -102,7 +102,7 @@ export const en: LocaleDict = {
     weeklyDealValue: 'Weekly Deal Value',
     customerFollowUpAlerts: 'Customer Follow-up Alerts',
     pendingFollowUp: 'pending follow-up',
-    allCustomersFollowed: 'All customers have been followed up',
+    noCustomerFollowUpAlerts: 'No customers require follow-up',
     quotePrefix: 'Quote',
     followUp: 'Follow Up',
     inventorySufficient: 'Inventory is sufficient',
