@@ -132,6 +132,7 @@ describe('D13 return guards', () => {
         findFirst: vi.fn(),
         findMany: vi.fn().mockResolvedValue([{
           id: 'hold-for-aa',
+          quantity: 1,
           status: 'RELEASED',
           returnTransactionId: 'return-aa',
           returnTransaction: { id: 'return-aa', type: 'RETURN', inventoryDetailId: 'detail-1', quantity: 1 },
