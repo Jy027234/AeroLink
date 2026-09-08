@@ -3,6 +3,8 @@ import {
   getCapabilitiesForActor,
   hasCapability,
   normalizeRole,
+  CAPABILITY_RESOURCES,
+  CAPABILITY_ACTIONS,
 } from './capabilityPolicy.js';
 
 describe('capability policy', () => {
@@ -11,7 +13,7 @@ describe('capability policy', () => {
 
     expect(hasCapability(actor, 'webhook', 'delete')).toBe(true);
     expect(hasCapability(actor, 'session', 'manage')).toBe(true);
-    expect(getCapabilitiesForActor(actor)).toHaveLength(29 * 15);
+    expect(getCapabilitiesForActor(actor)).toHaveLength(CAPABILITY_RESOURCES.length * CAPABILITY_ACTIONS.length);
   });
 
   it('limits sales transaction access to resources they own', () => {
@@ -72,5 +74,27 @@ describe('capability policy', () => {
     expect(normalizeRole('GENERAL_MANAGER')).toBe('gm');
     expect(normalizeRole('quality-manager')).toBe('quality_manager');
     expect(normalizeRole('unknown-role')).toBe('viewer');
+  });
+
+  it('separates procurement operations, financial recording and quality reads', () => {
+    const manager = { id: 'manager', role: 'MANAGER', department: 'Sales' };
+    const finance = { id: 'finance', role: 'FINANCE' };
+    const quality = { id: 'quality', role: 'QUALITY_MANAGER' };
+    const ownedOrder = { ownerId: 'sales', department: 'Sales' };
+    expect(hasCapability(manager, 'purchase_commitment', 'create', ownedOrder)).toBe(true);
+    expect(hasCapability(manager, 'purchase_commitment', 'create', { ownerId: 'other', department: 'Other' })).toBe(false);
+    expect(hasCapability(manager, 'settlement', 'create', ownedOrder)).toBe(false);
+    expect(hasCapability(finance, 'purchase_commitment', 'approve')).toBe(true);
+    expect(hasCapability(finance, 'purchase_commitment', 'create')).toBe(false);
+    expect(hasCapability(finance, 'settlement', 'create')).toBe(true);
+    expect(hasCapability(finance, 'settlement', 'reconcile')).toBe(true);
+    expect(hasCapability(quality, 'purchase_commitment', 'read')).toBe(true);
+    expect(hasCapability(quality, 'purchase_commitment', 'view_cost')).toBe(false);
+    expect(hasCapability(quality, 'settlement', 'read')).toBe(false);
+    const sales = { id: 'sales', role: 'SALES' };
+    expect(hasCapability(sales, 'settlement', 'read', ownedOrder)).toBe(true);
+    expect(hasCapability(sales, 'settlement', 'read', { ownerId: 'other' })).toBe(false);
+    expect(hasCapability(sales, 'purchase_commitment', 'view_cost', ownedOrder)).toBe(false);
+    expect(hasCapability(sales, 'settlement', 'view_cost', ownedOrder)).toBe(false);
   });
 });
