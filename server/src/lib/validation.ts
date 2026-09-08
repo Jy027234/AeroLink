@@ -35,35 +35,7 @@ export function validatePasswordStrength(password: string): { valid: boolean; me
   return { valid: true, message: '密码强度符合要求' };
 }
 
-export const rfqCreateSchema = z.object({
-  lines: z.never({ invalid_type_error: '多行交易正在迁移，当前入口仅接受单行需求' }).optional(),
-  customerId: z.string().min(1, '客户ID不能为空'),
-  partNumber: z.string().min(1, '件号不能为空'),
-  quantity: z.number().int().min(1, '数量必须大于0'),
-  uom: z.string().optional().default('EA'),
-  conditionCode: z.string().optional().default('NE'),
-  description: z.string().optional(),
-  serialNumber: z.string().optional(),
-  batchNumber: z.string().optional(),
-  ataChapter: z.string().optional(),
-  aircraftType: z.string().optional(),
-  aircraftModel: z.string().optional(),
-  alternatePartNumbers: z.union([z.string(), z.array(z.string())]).optional().transform((v) => {
-    if (Array.isArray(v)) return JSON.stringify(v);
-    return v;
-  }),
-  targetPrice: z.number().optional(),
-  targetPriceCurrency: z.string().optional().default('USD'),
-  certificateRequired: z.boolean().optional().default(true),
-  certificateType: z.string().optional(),
-  requiredDate: z.string().optional(),
-  responseDeadline: z.string().optional(),
-  leadTimeDays: z.number().int().optional(),
-  urgency: z.enum(['AOG', 'URGENT', 'STANDARD']).optional().default('STANDARD'),
-  urgencyJustification: z.string().optional(),
-  notes: z.string().optional(),
-  emailId: z.string().optional(),
-});
+export { rfqCreateSchema, rfqUpdateSchema } from '../modules/rfqSourcing/index.js';
 
 const stateTransitionMetadataSchema = {
   version: z.number().int().positive('状态版本必须为正整数').optional(),
@@ -85,7 +57,7 @@ export const rfqStatusUpdateSchema = z.object({
   ...stateTransitionMetadataSchema,
 });
 
-export const quotationCreateSchema = z.object({
+const legacyQuotationCreateSchema = z.object({
   rfqId: z.string().min(1, 'RFQ ID不能为空'),
   customerId: z.string().min(1, '客户ID不能为空'),
   partNumber: z.string().min(1, '件号不能为空'),
@@ -141,6 +113,18 @@ export const quotationCreateSchema = z.object({
   }
 });
 
+const quotationLineCreateSchema = legacyQuotationCreateSchema.innerType().pick({
+  partNumber: true, quantity: true, unitPrice: true, costPrice: true, costSourceType: true, costSourceId: true, costSourceReason: true,
+}).extend({ rfqLineId: z.string().min(1) }).strict().superRefine((data, ctx) => {
+  if (data.costSourceType === 'MANUAL' ? !data.costSourceReason || !!data.costSourceId : !data.costSourceId || !!data.costSourceReason) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceType'], message: '每行必须明确有效成本来源，人工成本需要原因，引用来源需要 ID' });
+  }
+});
+const multiLineQuotationCreateSchema = legacyQuotationCreateSchema.innerType().omit({
+  partNumber: true, quantity: true, unitPrice: true, costPrice: true, costSourceType: true, costSourceId: true, costSourceReason: true, lines: true,
+}).extend({ lines: z.array(quotationLineCreateSchema).min(1).max(100) }).strict();
+export const quotationCreateSchema = z.union([legacyQuotationCreateSchema, multiLineQuotationCreateSchema]);
+
 export const quotationSubmitSchema = z.object({
   ...stateTransitionMetadataSchema,
 });
@@ -186,6 +170,7 @@ export const quotationWithdrawSchema = z.object({
 });
 
 export const quotationAcceptSchema = z.object({
+  lines: z.array(z.object({ quotationLineId: z.string().min(1), quantity: z.number().int().positive() }).strict()).min(1).max(100).optional(),
   ...stateTransitionMetadataSchema,
   poNumber: z.string().optional(),
   deliveryDate: z.string().optional(),

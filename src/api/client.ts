@@ -347,6 +347,7 @@ function deserializeAgentTask(task: RuntimeTaskPayload): AgentTask {
 export interface SupplierQuoteItem {
   id: string;
   rfqId: string | null;
+  rfqLineId?: string | null;
   inquiryId: string | null;
   partNumber: string;
   description: string | null;
@@ -1381,6 +1382,67 @@ export const rfqApi = {
   } & ControlledListExportOptions = {}) => requestCsv('/rfqs/export.csv', filters),
 };
 
+export type QuotationCostSourceType = 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL';
+
+export interface MultiLineQuotationLineInput {
+  rfqLineId: string;
+  partNumber: string;
+  quantity: number;
+  unitPrice: number;
+  costPrice: number;
+  costSourceType: QuotationCostSourceType;
+  costSourceId?: string;
+  costSourceReason?: string;
+}
+
+export interface MultiLineQuotationCreateInput {
+  rfqId: string;
+  customerId: string;
+  lines: MultiLineQuotationLineInput[];
+  currency: 'USD';
+  certificateFiles?: string[];
+  template?: string;
+  validityDays?: number;
+  saleType?: 'Sale';
+  shipToId?: string;
+  shipForId?: string;
+  incoterm?: string;
+  incotermLocation?: string;
+  leadTimeDays?: number;
+  leadTimeBasis?: string;
+  moq?: number;
+  mpq?: number;
+  priceBasis?: string;
+  taxIncluded?: boolean;
+  taxRate?: number;
+  warrantyDays?: number;
+  warrantyTerms?: string;
+  packagingRequirement?: string;
+  shippingMethod?: string;
+  ccRecipients?: string[];
+  commonNote?: string;
+  eSignature?: string;
+  eSignatureStatus?: string;
+  countryOfOrigin?: string;
+  hsCode?: string;
+  eccn?: string;
+  dualUse?: boolean;
+}
+
+export interface MultiLineQuotationAcceptInput {
+  lines: Array<{
+    quotationLineId: string;
+    quantity: number;
+  }>;
+  version: number;
+  poNumber?: string;
+  deliveryDate?: string;
+  templateId?: string;
+  confirmationNote?: string;
+  reasonCode?: string;
+  reason?: string;
+}
+
 // ===== Quotation API =====
 export const quotationApi = {
   getAll: async (filters?: {
@@ -1407,6 +1469,17 @@ export const quotationApi = {
   },
 
   create: async (data: ApiPayload) => {
+    return request<Quotation>('/quotations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * D10 line-first quotation creation. Keep this method separate from the
+   * legacy single-row create adapter until the server contract is enabled.
+   */
+  createMultiLine: async (data: MultiLineQuotationCreateInput) => {
     return request<Quotation>('/quotations', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -1445,6 +1518,14 @@ export const quotationApi = {
     return request<ApiRecord>(`/quotations/${id}/accept`, {
       method: 'POST',
       body: JSON.stringify(data || {}),
+    });
+  },
+
+  /** Accept selected quantities for D10 quotation lines. */
+  acceptLines: async (id: string, data: MultiLineQuotationAcceptInput) => {
+    return request<ApiRecord>(`/quotations/${id}/accept`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   },
 

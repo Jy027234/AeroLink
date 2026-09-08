@@ -580,6 +580,7 @@ model EmailSyncCursor {
 }
 
 model RFQ {
+  lineItemsMode Boolean @default(false)
   id                String   @id @default(uuid())
   rfqNumber         String   @unique
   emailId           String?  @unique
@@ -623,6 +624,9 @@ model RFQ {
 }
 
 model RfqLine {
+  ataChapter           String?
+  aircraftType         String?
+  aircraftModel        String?
   id                   String   @id @default(uuid())
   rfqId                String
   lineNo               Int
@@ -757,6 +761,7 @@ model SupplierFollowUpLog {
 }
 
 model Quotation {
+  lineItemsMode Boolean @default(false)
   id              String   @id @default(uuid())
   quoteNumber     String   @unique
   rfqId           String
@@ -872,6 +877,11 @@ model Quotation {
 }
 
 model QuotationLine {
+  costSourceType         String?
+  costSourceId           String?
+  costSourceReason       String?
+  costSourceSnapshotJson String?
+  costSourceCapturedAt   DateTime?
   id                    String   @id @default(uuid())
   quotationId           String
   lineNo                Int
@@ -927,11 +937,12 @@ model Approval {
 }
 
 model Order {
+  lineItemsMode Boolean @default(false)
   id              String   @id @default(uuid())
   orderNumber     String   @unique
   soNumber        String   @unique
   poNumber        String?
-  quotationId     String   @unique
+  quotationId     String
   customerId      String
   partNumber      String
   quantity        Int
@@ -1015,6 +1026,7 @@ model Order {
 
   @@index([status, createdAt])
   @@map("orders")
+  @@index([quotationId])
 }
 
 model OrderLine {

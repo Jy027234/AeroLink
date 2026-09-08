@@ -9,7 +9,11 @@ export function applyCommercialCostContract(core) {
     { properties: { costSourceType: { const: 'MANUAL' }, costSourceId: false, costSourceReason: { type: 'string', minLength: 1, maxLength: 1000 } }, required: ['costSourceType', 'costSourceReason'] },
     { properties: { costSourceType: { enum: ['SUPPLIER_QUOTE', 'INVENTORY_DETAIL'] }, costSourceId: { type: 'string', minLength: 1 } }, required: ['costSourceType', 'costSourceId'] },
   ];
-  const create = core.schemas.QuotationCreateRequest;
+  // QuotationCreateRequest is a strict legacy/modern union. Cost-source
+  // fields belong to the legacy scalar branch here; modern quotations carry
+  // the same proof on each QuotationLineCreateRequest instead.
+  const create = core.schemas.QuotationLegacyCreateRequest ?? core.schemas.QuotationCreateRequest;
+  if (!create?.properties) throw new Error('Quotation legacy create schema must expose properties before applying cost contract');
   Object.assign(create.properties, sourceFields);
   create.required = [...new Set([...(create.required ?? []), 'costSourceType'])];
   create.allOf = [{ oneOf: choices }];

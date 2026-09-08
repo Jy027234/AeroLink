@@ -1,3 +1,4 @@
 export * from './service.js';
 export * from './repository.js';
-export { legacyRfqLineData } from './legacyLine.js';
+export { legacyRfqLineData, rfqLineData } from './legacyLine.js';
+export * from './validation.js';

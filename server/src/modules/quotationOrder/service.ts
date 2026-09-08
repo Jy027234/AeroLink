@@ -46,6 +46,8 @@ import {
   syncQuotationLineSource,
 } from '../../lib/transactionLineService.js';
 
+import { createLineQuotation, loadLineQuotation, submitLineQuotation, approveLineQuotation, acceptLineQuotation, assertLineQuotationCommercialTerms, type LineQuoteCreateInput } from './lineService.js';
+
 export { createInitialStatusHistory, transitionOrderStatus, transitionQuotationStatus, transitionRfqStatus };
 
 export function buildSalesOrderNumber() {
@@ -57,7 +59,7 @@ type QuotationRfqAccess = {
   creator?: { department?: string | null } | null;
 };
 
-type CreateQuotationArgs = {
+type LegacyCreateQuotationArgs = {
   tx: Prisma.TransactionClient;
   actorId: string;
   rfqId: string;
@@ -66,6 +68,7 @@ type CreateQuotationArgs = {
   quantity: number;
   unitPrice: number;
   costPrice: number;
+  lines?: never;
   currency?: string;
   costSourceType?: string;
   costSourceId?: string;
@@ -100,6 +103,11 @@ type CreateQuotationArgs = {
   authorizeRfq?: (rfq: QuotationRfqAccess) => void;
 };
 
+type CreateQuotationArgs = LegacyCreateQuotationArgs | (LineQuoteCreateInput & {
+  tx: Prisma.TransactionClient; actorId: string;
+  authorizeRfq?: (rfq: QuotationRfqAccess) => void;
+});
+
 function quotationStatus(quotation: Pick<Quotation, 'status' | 'statusEnum'>) {
   return preferredQuotationStatus(quotation.statusEnum, quotation.status);
 }
@@ -119,6 +127,10 @@ function quotationTotalPrice(quotation: Pick<Quotation, 'totalPrice' | 'totalPri
  * not depend on Express or actor request objects.
  */
 export async function createQuotationAggregate(args: CreateQuotationArgs) {
+  if (args.lines) return createLineQuotation({ tx: args.tx, actorId: args.actorId,
+    input: args,
+    authorizeRfq: rfq => args.authorizeRfq?.(rfq),
+  });
   assertSupportedSaleType(args.saleType);
   const relatedRfq = args.rfqId
     ? await args.tx.rFQ.findUnique({
@@ -132,6 +144,9 @@ export async function createQuotationAggregate(args: CreateQuotationArgs) {
   }
   if (!relatedRfq) {
     throw new AppError('关联 RFQ 不存在，不能创建报价', 404, 'RESOURCE_NOT_FOUND');
+  }
+  if (relatedRfq.lineItemsMode) {
+    throw new AppError('逐行需求必须使用明确需求行创建报价', 409, 'RESOURCE_CONFLICT');
   }
 
   const isAog = relatedRfq?.urgency.toUpperCase() === 'AOG';
@@ -317,6 +332,10 @@ export async function submitQuotationAggregate(args: {
   });
   if (!currentQuotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(currentQuotation);
+  if (currentQuotation.lineItemsMode) {
+    const result = await submitLineQuotation(args.tx, await loadLineQuotation(args.tx, currentQuotation.id), args.actorId, args.expectedVersion);
+    return { ...result, isNoop: false };
+  }
 
   const currentQuotationStatus = quotationStatus(currentQuotation);
   assertQuotationTransition(currentQuotationStatus, 'PENDING_APPROVAL');
@@ -379,6 +398,10 @@ export async function approveQuotationAggregate(args: {
   });
   if (!quotationWithRfq) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(quotationWithRfq);
+  if (quotationWithRfq.lineItemsMode) {
+    if (args.costSourceType || args.costSourceId || args.costSourceReason) throw new AppError('多行报价必须逐行维护成本来源', 409, 'RESOURCE_CONFLICT');
+    return approveLineQuotation({ tx: args.tx, quotation: await loadLineQuotation(args.tx, quotationWithRfq.id), actorId: args.actorId, actorRole: args.actorRole, action: args.action, version: args.expectedVersion, comment: args.comment });
+  }
 
   const totalPrice = quotationTotalPrice(quotationWithRfq);
   if (args.action === 'approve') assertSupportedSaleType(quotationWithRfq.saleType);
@@ -544,19 +567,22 @@ export async function sendQuotationAggregate(args: {
   if (!['APPROVED', 'SENT'].includes(currentQuotationStatus)) {
     throw new AppError('只有已审批报价才能发送给客户', 400, 'BAD_REQUEST');
   }
-  assertQuotationCostSourceSnapshot(quotation);
-  assertQuotationCommercialTerms(quotation);
+  if (quotation.lineItemsMode) assertLineQuotationCommercialTerms(await loadLineQuotation(args.tx, quotation.id));
+  else { assertQuotationCostSourceSnapshot(quotation); assertQuotationCommercialTerms(quotation); }
   if (!quotation.customer.email) {
     throw new AppError('客户未配置邮箱地址，无法发送报价', 400, 'BAD_REQUEST');
   }
 
   const account = await args.getDefaultOutboundAccount(args.tx);
   const subject = args.subject || `Quotation ${quotation.quoteNumber} - ${quotation.partNumber}`;
+  const lineDescription = quotation.lineItemsMode
+    ? (await loadLineQuotation(args.tx, quotation.id)).lines.map(line => `${line.partNumber} × ${line.quantity}: USD ${line.lineTotal}`).join('\n')
+    : `数量：${quotation.quantity}`;
   const plainBody = args.message || [
     `${quotation.customer.contactName || quotation.customer.name} 您好，`,
     '',
     `附件为报价单 ${quotation.quoteNumber}，对应件号 ${quotation.partNumber}。`,
-    `数量：${quotation.quantity}`,
+    lineDescription,
     `总价：USD ${quotationTotalPrice(quotation).toLocaleString('en-US')}`,
     `销售类型：${quotation.saleType || 'Sale'}`,
     `贸易术语：${quotation.incoterm || '-'} ${quotation.incotermLocation || ''}`,
@@ -620,6 +646,7 @@ export async function acceptQuotationAggregate(args: {
   reasonCode?: string;
   reason?: string;
   expectedVersion?: number;
+  lines?: Array<{ quotationLineId: string; quantity: number }>;
   authorize?: QuotationAuthorization;
   createOrder?: typeof createOrderFromQuotation;
   ensureContractDocument: EnsureContractDocument;
@@ -635,6 +662,16 @@ export async function acceptQuotationAggregate(args: {
   });
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(quotation);
+  if (quotation.lineItemsMode) {
+    if (!args.lines || args.expectedVersion === undefined) throw new AppError('多行报价成交必须提供 version 和明确行数量', 400, 'BAD_REQUEST');
+    const result = await acceptLineQuotation({ ...args, quotation: await loadLineQuotation(args.tx, quotation.id), version: args.expectedVersion, lines: args.lines });
+    const generatedDocument = await args.ensureContractDocument({ quotation: result.quotation, customer: quotation.customer, order: result.order, templateId: args.templateId, generatedById: args.actorId, tx: args.tx });
+    await enqueueBusinessEvent(args.tx, { eventType: 'order.created', aggregateType: 'ORDER', aggregateId: result.order.id,
+      data: { orderId: result.order.id, quotationId: quotation.id, version: result.order.version },
+      socket: { room: SocketRooms.ORDERS, event: SocketEvents.ORDER_CREATED }, createdById: args.actorId });
+    return { ...result, generatedDocument, isNewOrder: true, wasAlreadyAccepted: false };
+  }
+  if (args.lines) throw new AppError('单行兼容报价不接受多行成交参数', 400, 'BAD_REQUEST');
 
   const currentQuotationStatus = quotationStatus(quotation);
   if (currentQuotationStatus === 'WITHDRAWN') {
@@ -794,11 +831,12 @@ export async function createOrderAggregate(args: {
   });
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(quotation);
+  if (quotation.lineItemsMode) throw new AppError('请从报价登记逐行客户接受以创建订单', 409, 'RESOURCE_CONFLICT');
   if (quotation.customerId !== args.customerId) {
     throw new AppError('订单客户与报价客户不一致', 400, 'BAD_REQUEST');
   }
 
-  const existingOrder = await args.tx.order.findUnique({
+  const existingOrder = await args.tx.order.findFirst({
     where: { quotationId: args.quotationId },
     include: { customer: true },
   });
@@ -1198,6 +1236,8 @@ export function mapOrderResponse(order: Order & { customer: Customer }) {
   return {
     id: order.id,
     orderNumber: order.orderNumber,
+    lineItemsMode: order.lineItemsMode,
+    ...('lines' in order ? { lines: order.lines } : {}),
     soNumber: order.soNumber,
     poNumber: order.poNumber,
     quotationId: order.quotationId,

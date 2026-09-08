@@ -1,6 +1,7 @@
 import { normalizeOptionalMoney } from '../../lib/money.js';
 
-type LegacyDemand = {
+export type RfqLineInput = {
+  id?: string;
   partNumber: string;
   quantity: number;
   uom?: string | null;
@@ -15,12 +16,15 @@ type LegacyDemand = {
   leadTimeDays?: number | null;
   targetPrice?: number | null;
   targetPriceCurrency?: string;
+  ataChapter?: string | null;
+  aircraftType?: string | null;
+  aircraftModel?: string | null;
 };
 
 /** Exact compatibility projection. Never infer a source relationship from part number. */
-export function legacyRfqLineData(data: LegacyDemand) {
+export function rfqLineData(data: RfqLineInput, lineNo = 1) {
   return {
-    lineNo: 1,
+    lineNo,
     partNumber: data.partNumber,
     quantity: data.quantity,
     uom: data.uom ?? 'EA',
@@ -35,12 +39,19 @@ export function legacyRfqLineData(data: LegacyDemand) {
     leadTimeDays: data.leadTimeDays ?? null,
     targetPriceDecimal: normalizeOptionalMoney(data.targetPrice),
     targetPriceCurrency: data.targetPriceCurrency ?? 'USD',
+    ataChapter: data.ataChapter ?? null,
+    aircraftType: data.aircraftType ?? null,
+    aircraftModel: data.aircraftModel ?? null,
   };
+}
+
+export function legacyRfqLineData(data: RfqLineInput) {
+  return rfqLineData(data, 1);
 }
 
 export const legacyRfqLineFields = [
   'partNumber', 'quantity', 'uom', 'conditionCode', 'description', 'serialNumber', 'batchNumber',
-  'alternatePartNumbers', 'certificateRequired', 'certificateType', 'requiredDate', 'leadTimeDays',
+  'ataChapter', 'aircraftType', 'aircraftModel', 'alternatePartNumbers', 'certificateRequired', 'certificateType', 'requiredDate', 'leadTimeDays',
   'targetPrice', 'targetPriceCurrency',
 ] as const;
 

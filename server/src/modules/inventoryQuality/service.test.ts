@@ -139,7 +139,7 @@ describe('inventoryQuality service policy', () => {
         findUnique: vi.fn().mockResolvedValue(quotation),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
-      order: { findUnique: vi.fn().mockResolvedValue(null) },
+      order: { findFirst: vi.fn().mockResolvedValue(null) },
       rfqLine: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },
       supplierQuote: { findUnique: vi.fn().mockResolvedValue(null) },
       quotationLine: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },

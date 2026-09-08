@@ -205,6 +205,46 @@ function RFQDetailDialog({
             </div>
           </div>
 
+          {rfq.lines && rfq.lines.length > 0 && (
+            <div className="p-4 border rounded-lg space-y-3" data-testid="rfq-line-list">
+              <div className="flex items-center justify-between">
+                <p className="font-medium">{tx('需求行', 'Demand lines')}</p>
+                <Badge variant="outline">{rfq.lines.length}</Badge>
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{tx('行号', 'Line')}</TableHead>
+                      <TableHead>{tx('件号', 'Part number')}</TableHead>
+                      <TableHead>{tx('数量', 'Quantity')}</TableHead>
+                      <TableHead>{tx('条件', 'Condition')}</TableHead>
+                      <TableHead>{tx('需求日期', 'Required date')}</TableHead>
+                      <TableHead>{tx('状态', 'Status')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rfq.lines.map((line) => (
+                      <TableRow key={line.id} data-testid={`rfq-line-${line.lineNo}`}>
+                        <TableCell>{line.lineNo}</TableCell>
+                        <TableCell className="font-mono font-medium">
+                          <div>{line.partNumber}</div>
+                          {line.alternatePartNumbers?.length ? (
+                            <div className="text-xs text-gray-500">{tx('替代', 'Alt')}: {line.alternatePartNumbers.join(', ')}</div>
+                          ) : null}
+                        </TableCell>
+                        <TableCell>{line.quantity} {line.uom || 'EA'}</TableCell>
+                        <TableCell>{line.conditionCode || 'NE'}</TableCell>
+                        <TableCell>{line.requiredDate}</TableCell>
+                        <TableCell><Badge variant="outline">{line.status}</Badge></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
           {/* 分类信息 */}
           <div className="p-4 border rounded-lg">
             <div className="flex items-center gap-2 mb-2">
@@ -381,6 +421,72 @@ function RFQDetailDialog({
   );
 }
 
+type RfqFormLine = {
+  id?: string;
+  partNumber: string;
+  quantity: number;
+  uom: string;
+  conditionCode: ConditionCode;
+  description: string;
+  serialNumber: string;
+  batchNumber: string;
+  ataChapter: string;
+  aircraftType: string;
+  aircraftModel: string;
+  alternatePartNumbers: string;
+  targetPrice: string;
+  targetPriceCurrency: string;
+  certificateRequired: boolean;
+  certificateType: string;
+  requiredDate: string;
+  leadTimeDays: string;
+};
+
+function emptyRfqFormLine(): RfqFormLine {
+  return {
+    partNumber: '',
+    quantity: 1,
+    uom: 'EA',
+    conditionCode: 'NE',
+    description: '',
+    serialNumber: '',
+    batchNumber: '',
+    ataChapter: '',
+    aircraftType: '',
+    aircraftModel: '',
+    alternatePartNumbers: '',
+    targetPrice: '',
+    targetPriceCurrency: 'USD',
+    certificateRequired: true,
+    certificateType: '',
+    requiredDate: '',
+    leadTimeDays: '',
+  };
+}
+
+function rfqLineToFormLine(line: NonNullable<RFQ['lines']>[number]): RfqFormLine {
+  return {
+    id: line.id,
+    partNumber: line.partNumber,
+    quantity: line.quantity,
+    uom: line.uom || 'EA',
+    conditionCode: (line.conditionCode || 'NE') as ConditionCode,
+    description: line.description || '',
+    serialNumber: line.serialNumber || '',
+    batchNumber: line.batchNumber || '',
+    ataChapter: line.ataChapter || '',
+    aircraftType: line.aircraftType || '',
+    aircraftModel: line.aircraftModel || '',
+    alternatePartNumbers: line.alternatePartNumbers?.join(', ') || '',
+    targetPrice: line.targetPriceDecimal || '',
+    targetPriceCurrency: line.targetPriceCurrency || 'USD',
+    certificateRequired: line.certificateRequired ?? true,
+    certificateType: line.certificateType || '',
+    requiredDate: line.requiredDate,
+    leadTimeDays: line.leadTimeDays === null || line.leadTimeDays === undefined ? '' : String(line.leadTimeDays),
+  };
+}
+
 function RFQFormDialog({
   rfq,
   isOpen,
@@ -420,6 +526,8 @@ function RFQFormDialog({
     urgencyJustification: '',
     notes: '',
   });
+  const [multiLine, setMultiLine] = useState(false);
+  const [lineForms, setLineForms] = useState<RfqFormLine[]>([]);
 
   const [ipcFilled, setIpcFilled] = useState(false);
   const [ipcWarning, setIpcWarning] = useState('');
@@ -513,6 +621,8 @@ function RFQFormDialog({
       userEditedFields.current.clear();
       setIpcFilled(false);
       setIpcWarning('');
+      setMultiLine((rfq.lines?.length ?? 0) > 1);
+      setLineForms(rfq.lines?.map(rfqLineToFormLine) ?? []);
     } else {
       setForm({
         customerId: '',
@@ -541,6 +651,8 @@ function RFQFormDialog({
       userEditedFields.current.clear();
       setIpcFilled(false);
       setIpcWarning('');
+      setMultiLine(false);
+      setLineForms([]);
     }
   }, [rfq]);
 
@@ -550,6 +662,39 @@ function RFQFormDialog({
   };
 
   const handleSubmit = () => {
+    if (multiLine) {
+      const lines = lineForms.map((line) => ({
+        ...(rfq && line.id ? { id: line.id } : {}),
+        partNumber: line.partNumber.trim(),
+        quantity: Number(line.quantity),
+        uom: line.uom,
+        conditionCode: line.conditionCode,
+        description: line.description || undefined,
+        serialNumber: line.serialNumber || undefined,
+        batchNumber: line.batchNumber || undefined,
+        ataChapter: line.ataChapter || undefined,
+        aircraftType: line.aircraftType || undefined,
+        aircraftModel: line.aircraftModel || undefined,
+        alternatePartNumbers: line.alternatePartNumbers
+          ? line.alternatePartNumbers.split(',').map((value) => value.trim()).filter(Boolean)
+          : undefined,
+        targetPrice: line.targetPrice ? Number(line.targetPrice) : undefined,
+        targetPriceCurrency: line.targetPriceCurrency,
+        certificateRequired: line.certificateRequired,
+        certificateType: line.certificateType || undefined,
+        requiredDate: line.requiredDate,
+        leadTimeDays: line.leadTimeDays ? Number(line.leadTimeDays) : undefined,
+      }));
+      onSave({
+        customerId: form.customerId,
+        responseDeadline: form.responseDeadline || undefined,
+        urgency: form.urgency.toUpperCase(),
+        urgencyJustification: form.urgencyJustification || undefined,
+        notes: form.notes || undefined,
+        lines,
+      });
+      return;
+    }
     const payload: Record<string, unknown> = {
       customerId: form.customerId,
       partNumber: form.partNumber,
@@ -580,7 +725,42 @@ function RFQFormDialog({
   };
 
   const isAOG = form.urgency === 'aog';
-  const canSubmit = form.customerId && form.partNumber && form.quantity > 0 && form.requiredDate && (!isAOG || form.urgencyJustification.trim());
+  const lineFormsValid = lineForms.length > 0 && lineForms.every((line) =>
+    line.partNumber.trim().length > 0 && line.quantity > 0 && line.requiredDate,
+  );
+  const canSubmit = form.customerId
+    && (multiLine ? lineFormsValid : Boolean(form.partNumber && form.quantity > 0 && form.requiredDate))
+    && (!isAOG || form.urgencyJustification.trim());
+  const formAsLine = (): RfqFormLine => ({
+    partNumber: form.partNumber,
+    quantity: Number(form.quantity),
+    uom: form.uom,
+    conditionCode: form.conditionCode as ConditionCode,
+    description: form.description,
+    serialNumber: form.serialNumber,
+    batchNumber: form.batchNumber,
+    ataChapter: form.ataChapter,
+    aircraftType: form.aircraftType,
+    aircraftModel: form.aircraftModel,
+    alternatePartNumbers: form.alternatePartNumbers,
+    targetPrice: form.targetPrice,
+    targetPriceCurrency: form.targetPriceCurrency,
+    certificateRequired: form.certificateRequired,
+    certificateType: form.certificateType,
+    requiredDate: form.requiredDate,
+    leadTimeDays: form.leadTimeDays,
+  });
+  const updateLine = <K extends keyof RfqFormLine>(index: number, field: K, value: RfqFormLine[K]) => {
+    setLineForms((previous) => previous.map((line, lineIndex) => (
+      lineIndex === index ? { ...line, [field]: value } : line
+    )));
+  };
+  const toggleMultiLine = () => {
+    if (!multiLine) {
+      setLineForms((previous) => previous.length > 0 ? previous : [formAsLine()]);
+    }
+    setMultiLine((previous) => !previous);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -592,6 +772,116 @@ function RFQFormDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          <div className="flex items-center justify-between rounded-lg border bg-gray-50 p-3">
+            <div>
+              <p className="font-medium">{tx('多行需求', 'Multiple demand lines')}</p>
+              <p className="text-xs text-gray-500">
+                {tx('每行保留独立件号、数量、日期和替代件号；询价时可按行选择。', 'Keep part, quantity, date and alternates per line; sourcing can select lines independently.')}
+              </p>
+            </div>
+            <Button type="button" variant={multiLine ? 'default' : 'outline'} onClick={toggleMultiLine}>
+              {multiLine ? tx('使用多行', 'Multi-line enabled') : tx('启用多行', 'Enable multi-line')}
+            </Button>
+          </div>
+
+          {multiLine ? (
+            <div className="space-y-4" data-testid="rfq-multi-line-editor">
+              {lineForms.map((line, index) => (
+                <div key={line.id || `new-line-${index}`} className="space-y-4 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">{tx(`需求行 ${index + 1}`, `Demand line ${index + 1}`)}</h4>
+                    {lineForms.length > 1 && (
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setLineForms((previous) => previous.filter((_, lineIndex) => lineIndex !== index))}>
+                        <XCircle className="mr-1 h-4 w-4" />
+                        {tx('删除', 'Remove')}
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>{tx('件号', 'Part Number')} *</Label>
+                      <Input value={line.partNumber} onChange={(event) => updateLine(index, 'partNumber', event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{tx('数量', 'Quantity')} *</Label>
+                      <Input type="number" min={1} value={line.quantity} onChange={(event) => updateLine(index, 'quantity', Number(event.target.value))} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>{tx('计量单位', 'UOM')}</Label>
+                      <Select value={line.uom} onValueChange={(value) => updateLine(index, 'uom', value)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="EA">EA</SelectItem>
+                          <SelectItem value="PCS">PCS</SelectItem>
+                          <SelectItem value="SET">SET</SelectItem>
+                          <SelectItem value="KG">KG</SelectItem>
+                          <SelectItem value="LB">LB</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{tx('状态代码', 'Condition Code')}</Label>
+                      <Select value={line.conditionCode} onValueChange={(value) => updateLine(index, 'conditionCode', value as ConditionCode)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(['NE', 'NS', 'OH', 'SV', 'AR', 'FN', 'RP'] as ConditionCode[]).map((condition) => <SelectItem key={condition} value={condition}>{condition}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>{tx('航材描述', 'Description')}</Label>
+                    <Textarea value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} rows={2} />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2"><Label>{tx('序号', 'Serial Number')}</Label><Input value={line.serialNumber} onChange={(event) => updateLine(index, 'serialNumber', event.target.value)} /></div>
+                    <div className="space-y-2"><Label>{tx('批次号', 'Batch Number')}</Label><Input value={line.batchNumber} onChange={(event) => updateLine(index, 'batchNumber', event.target.value)} /></div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2"><Label>{tx('ATA章节', 'ATA Chapter')}</Label><Input value={line.ataChapter} onChange={(event) => updateLine(index, 'ataChapter', event.target.value)} /></div>
+                    <div className="space-y-2"><Label>{tx('机型', 'Aircraft Type')}</Label><Input value={line.aircraftType} onChange={(event) => updateLine(index, 'aircraftType', event.target.value)} /></div>
+                    <div className="space-y-2"><Label>{tx('具体机型', 'Aircraft Model')}</Label><Input value={line.aircraftModel} onChange={(event) => updateLine(index, 'aircraftModel', event.target.value)} /></div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2"><Label>{tx('可互换件号', 'Alternate Part Numbers')}</Label><Input value={line.alternatePartNumbers} onChange={(event) => updateLine(index, 'alternatePartNumbers', event.target.value)} placeholder="PN-123, PN-456" /></div>
+                    <div className="space-y-2"><Label>{tx('需求日期', 'Required Date')} *</Label><Input type="date" value={line.requiredDate} onChange={(event) => updateLine(index, 'requiredDate', event.target.value)} /></div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2"><Label>{tx('目标价格', 'Target Price')}</Label><Input type="number" min={0} value={line.targetPrice} onChange={(event) => updateLine(index, 'targetPrice', event.target.value)} /></div>
+                    <div className="space-y-2"><Label>{tx('货币', 'Currency')}</Label><Select value={line.targetPriceCurrency} onValueChange={(value) => updateLine(index, 'targetPriceCurrency', value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="USD">USD</SelectItem><SelectItem value="EUR">EUR</SelectItem><SelectItem value="CNY">CNY</SelectItem></SelectContent></Select></div>
+                    <div className="space-y-2"><Label>{tx('期望交货天数', 'Lead Time (Days)')}</Label><Input type="number" min={0} value={line.leadTimeDays} onChange={(event) => updateLine(index, 'leadTimeDays', event.target.value)} /></div>
+                  </div>
+
+                  <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-2"><Checkbox id={`line-cert-${index}`} checked={line.certificateRequired} onCheckedChange={(value) => updateLine(index, 'certificateRequired', !!value)} /><Label htmlFor={`line-cert-${index}`} className="cursor-pointer">{tx('需要证书', 'Certificate Required')}</Label></div>
+                    {line.certificateRequired && <div className="flex-1 space-y-2"><Label>{tx('证书类型', 'Certificate Type')}</Label><Select value={line.certificateType} onValueChange={(value) => updateLine(index, 'certificateType', value)}><SelectTrigger><SelectValue placeholder={tx('选择证书类型', 'Select Type')} /></SelectTrigger><SelectContent><SelectItem value="AAC-038">AAC-038</SelectItem><SelectItem value="FAA-8130-3">FAA-8130-3</SelectItem><SelectItem value="EASA-Form-1">EASA-Form-1</SelectItem><SelectItem value="COC">COC</SelectItem><SelectItem value="NONE">NONE</SelectItem></SelectContent></Select></div>}
+                  </div>
+                </div>
+              ))}
+              <Button type="button" variant="outline" onClick={() => setLineForms((previous) => [...previous, emptyRfqFormLine()])}>
+                <Plus className="mr-1 h-4 w-4" />
+                {tx('添加需求行', 'Add demand line')}
+              </Button>
+              <div className="space-y-4 rounded-lg border bg-gray-50 p-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2"><Label>{tx('报价截止日期', 'Response Deadline')}</Label><Input type="date" value={form.responseDeadline} onChange={(event) => updateField('responseDeadline', event.target.value)} /></div>
+                  <div className="space-y-2"><Label>{tx('紧急度', 'Urgency')}</Label><Select value={form.urgency} onValueChange={(value) => updateField('urgency', value as UrgencyLevel)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="standard">{tx('标准', 'Standard')}</SelectItem><SelectItem value="urgent">{tx('紧急', 'Urgent')}</SelectItem><SelectItem value="aog">{tx('AOG紧急', 'AOG Urgent')}</SelectItem></SelectContent></Select></div>
+                </div>
+                {isAOG && <div className="space-y-2"><Label>{tx('紧急理由', 'Urgency Justification')} *</Label><Textarea value={form.urgencyJustification} onChange={(event) => updateField('urgencyJustification', event.target.value)} rows={2} /></div>}
+                <div className="space-y-2"><Label>{tx('备注', 'Notes')}</Label><Textarea value={form.notes} onChange={(event) => updateField('notes', event.target.value)} rows={2} /></div>
+              </div>
+            </div>
+          ) : (
+          <>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>{tx('客户', 'Customer')} *</Label>
@@ -856,8 +1146,10 @@ function RFQFormDialog({
               onChange={(e) => updateField('notes', e.target.value)}
               rows={2}
             />
-          </div>
-        </div>
+           </div>
+           </>
+          )}
+         </div>
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>
@@ -917,6 +1209,7 @@ export function RFQManagement() {
       return (
         rfq.rfqNumber.toLowerCase().includes(query) ||
         rfq.partNumber.toLowerCase().includes(query) ||
+        rfq.lines?.some(line => line.status !== 'CANCELLED' && line.partNumber.toLowerCase().includes(query)) ||
         rfq.customerName.toLowerCase().includes(query)
       );
     }

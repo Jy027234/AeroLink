@@ -698,6 +698,27 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
           </div>
 
           {/* Part information */}
+          {activeOrder?.lineItemsMode ? (
+            <div className="space-y-3 rounded-lg border p-4">
+              <p className="font-semibold">{tx('本订单成交明细', 'Accepted lines in this order')}</p>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader><TableRow>
+                    <TableHead>{tx('件号', 'Part')}</TableHead><TableHead>{tx('数量', 'Quantity')}</TableHead>
+                    <TableHead>{tx('单价 USD', 'Unit price USD')}</TableHead><TableHead>{tx('行金额 USD', 'Line total USD')}</TableHead>
+                    <TableHead>{tx('已出库', 'Outbound')}</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>{activeOrder.lines?.map(line => <TableRow key={line.id}>
+                    <TableCell className="font-mono">{line.partNumber}</TableCell><TableCell>{line.quantity} {line.uom}</TableCell>
+                    <TableCell>{Number(line.unitPrice).toLocaleString(undefined, { maximumFractionDigits: 4 })}</TableCell>
+                    <TableCell>{Number(line.lineTotal).toLocaleString(undefined, { maximumFractionDigits: 4 })}</TableCell>
+                    <TableCell>{line.outboundQuantity} / {line.quantity}</TableCell>
+                  </TableRow>)}</TableBody>
+                </Table>
+              </div>
+              <p className="text-sm text-amber-800">{tx('逐行库存分配和质量出库尚未开放，当前订单可核对成交明细与合同。', 'Line allocation and quality outbound are not available yet. Review the accepted lines and contract here.')}</p>
+            </div>
+          ) : (
           <div className="p-4 border rounded-lg">
             <div className="flex items-center justify-between">
               <div>
@@ -710,9 +731,10 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
               </div>
             </div>
           </div>
+          )}
 
           {/* Inventory Binding - Phase 4 + Phase 5 Outbound Management */}
-          {activeOrder && can('inventory.manage') && !activeOrder.inventoryDetailId && ['so_created', 'po_created'].includes(activeOrder.status) && (
+          {activeOrder && !activeOrder.lineItemsMode && can('inventory.manage') && !activeOrder.inventoryDetailId && ['so_created', 'po_created'].includes(activeOrder.status) && (
             <div className="space-y-3 rounded-lg border border-dashed p-4">
               <div>
                 <h4 className="flex items-center gap-2 font-medium">
@@ -730,7 +752,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
             </div>
           )}
 
-          {(activeOrder?.inventoryDetailId || activeOrder?.serialNumber || activeOrder?.batchNumber) && (
+          {!activeOrder?.lineItemsMode && (activeOrder?.inventoryDetailId || activeOrder?.serialNumber || activeOrder?.batchNumber) && (
             <div className="p-4 border rounded-lg space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="font-medium flex items-center gap-2">
@@ -1283,6 +1305,7 @@ export function Orders() {
   const filteredOrders = ordersList.filter((order) => {
     if (searchQuery && !order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) &&
         !order.partNumber.toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !order.lines?.some(line => line.partNumber.toLowerCase().includes(searchQuery.toLowerCase())) &&
         !order.customerName.toLowerCase().includes(searchQuery.toLowerCase())) {
       return false;
     }
@@ -1476,11 +1499,11 @@ export function Orders() {
                       <TableRow key={order.id} className="hover:bg-gray-50">
                         <TableCell className="font-mono font-medium">{order.orderNumber}</TableCell>
                         <TableCell>{order.customerName}</TableCell>
-                        <TableCell className="font-mono">{order.partNumber}</TableCell>
+                        <TableCell className="font-mono">{order.lineItemsMode ? order.lines?.map(line => line.partNumber).join(' / ') : order.partNumber}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{order.saleType ? tx(order.saleType === 'Sale' ? '销售' : order.saleType === 'Exchange' ? '交换' : order.saleType === 'Loan' ? '借用' : order.saleType === 'Consign' ? '寄售' : order.saleType === 'Repair' ? '维修' : order.saleType, order.saleType) : tx('销售', 'Sale')}</Badge>
                         </TableCell>
-                        <TableCell>{order.quantity}</TableCell>
+                        <TableCell>{order.lineItemsMode ? order.lines?.map(line => `${line.quantity} ${line.uom}`).join(' / ') : order.quantity}</TableCell>
                         <TableCell className="font-semibold">
                           ${order.totalAmount.toLocaleString()}
                         </TableCell>

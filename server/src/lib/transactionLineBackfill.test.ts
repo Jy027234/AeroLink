@@ -94,6 +94,22 @@ describe('transaction line backfill plan', () => {
     expect(input.quotations[0].totalPriceDecimal).toBe('99.0000');
   });
 
+  it('skips modern lineItemsMode records without manufacturing compatibility lines', () => {
+    const input = fixture();
+    input.rfqs[0].lineItemsMode = true;
+    input.quotations[0].lineItemsMode = true;
+    input.orders[0].lineItemsMode = true;
+
+    const plan = buildTransactionLineBackfillPlan(input);
+    expect(plan.status).toBe('READY');
+    expect(plan.rfqLines).toEqual([]);
+    expect(plan.quotationLines).toEqual([]);
+    expect(plan.orderLines).toEqual([]);
+    expect(plan.inquiryItemLinks).toEqual([]);
+    expect(plan.supplierQuoteLinks).toEqual([]);
+    expect(plan.skippedModern).toEqual({ rfqs: 1, quotations: 1, orders: 1 });
+  });
+
   it('preserves non-USD RFQ target-price currency as a review, while commercial lines stay USD-only', () => {
     const input = fixture();
     input.rfqs[0].targetPriceCurrency = 'EUR';

@@ -164,6 +164,7 @@ export async function reserveInventoryForQuotation(
 
   if (!detail) throw new AppError('库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+  if (quotation.lineItemsMode) throw new AppError('多行报价需要行级数量分配，暂不能使用旧整单库存接口', 409, 'RESOURCE_CONFLICT');
   if (!RESERVABLE_QUOTATION_STATUSES.has(quotation.status)) {
     throw new AppError('只有已审批、已发送或已接受的报价可以预留库存', 409, 'INVALID_STATE_TRANSITION');
   }
@@ -184,7 +185,7 @@ export async function reserveInventoryForQuotation(
     throw new AppError('库存数量不足', 409, 'RESOURCE_CONFLICT');
   }
 
-  const order = await tx.order.findUnique({ where: { quotationId: quotation.id } });
+  const order = await tx.order.findFirst({ where: { quotationId: quotation.id } });
   if (order) {
     assertPartNumberMatches(detail.inventoryItem.partNumber, order.partNumber, '订单');
     if (!OUTBOUND_ORDER_STATUSES.has(order.status)) {
@@ -309,6 +310,7 @@ export async function releaseInventoryReservation(
 ) {
   const quotation = await tx.quotation.findUnique({ where: { id: args.quotationId } });
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+  if (quotation.lineItemsMode) throw new AppError('多行报价需要行级数量分配，暂不能使用旧整单库存接口', 409, 'RESOURCE_CONFLICT');
   if (!['APPROVED', 'SENT'].includes(quotation.status)) {
     throw new AppError('当前报价状态不能释放库存预留', 409, 'INVALID_STATE_TRANSITION');
   }
@@ -321,7 +323,7 @@ export async function releaseInventoryReservation(
       where: { id: quotation.inventoryDetailId },
       include: { inventoryItem: true },
     }),
-    tx.order.findUnique({ where: { quotationId: quotation.id } }),
+    tx.order.findFirst({ where: { quotationId: quotation.id } }),
   ]);
   if (!detail) throw new AppError('预留库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
   if (existingOrder) throw new AppError('报价已生成订单，不能直接释放库存预留', 409, 'INVALID_STATE_TRANSITION');
@@ -418,6 +420,7 @@ export async function outboundInventoryForOrder(
 
   if (!detail) throw new AppError('库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
   if (!order) throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
+  if (order.lineItemsMode) throw new AppError('多行订单需要行级质量审核与出库，暂不能使用旧整单库存接口', 409, 'RESOURCE_CONFLICT');
   if (!OUTBOUND_ORDER_STATUSES.has(order.status)) {
     throw new AppError('当前订单状态不能执行出库', 409, 'INVALID_STATE_TRANSITION');
   }

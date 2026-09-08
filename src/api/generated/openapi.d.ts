@@ -7254,6 +7254,7 @@ export interface components {
             version?: number;
             reasonCode?: string;
         };
+        /** @description Legacy acceptance remains scalar. Modern quotation acceptance requires an optimistic-lock version and explicit line quantities. */
         QuotationAcceptRequest: {
             poNumber?: string;
             /** Format: date */
@@ -7263,7 +7264,13 @@ export interface components {
             version?: number;
             reasonCode?: string;
             reason?: string;
-        };
+            lines?: components["schemas"]["QuotationAcceptanceLine"][];
+        } & ({
+            lines?: never;
+        } | {
+            version: number;
+            lines: components["schemas"]["QuotationAcceptanceLine"][];
+        });
         InventoryArrayEnvelope: {
             /** @constant */
             success: true;
@@ -7333,6 +7340,9 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             createdBy: string;
+            /** @description True when the RFQ contains more than one authoritative demand line. */
+            readonly lineItemsMode?: boolean;
+            /** @description Authoritative demand lines ordered by lineNo. */
             readonly lines?: components["schemas"]["RfqLine"][];
         } & {
             [key: string]: unknown;
@@ -7355,80 +7365,10 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        RfqCreateRequest: {
-            customerId: string;
-            partNumber: string;
-            quantity: number;
-            /** @default EA */
-            uom: string;
-            /** @default NE */
-            conditionCode: string;
-            description?: string;
-            serialNumber?: string;
-            batchNumber?: string;
-            ataChapter?: string;
-            aircraftType?: string;
-            aircraftModel?: string;
-            alternatePartNumbers?: string[] | string;
-            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
-            targetPrice?: number | string;
-            /** @default USD */
-            targetPriceCurrency: string;
-            /** @default true */
-            certificateRequired: boolean;
-            certificateType?: string;
-            /** Format: date */
-            requiredDate?: string;
-            /** Format: date */
-            responseDeadline?: string;
-            leadTimeDays?: number;
-            /**
-             * @default STANDARD
-             * @enum {string}
-             */
-            urgency: "AOG" | "URGENT" | "STANDARD";
-            urgencyJustification?: string;
-            notes?: string;
-            emailId?: string;
-            lines?: never;
-        };
-        RfqUpdateRequest: {
-            customerId?: string;
-            partNumber?: string;
-            quantity?: number;
-            /** @default EA */
-            uom: string;
-            /** @default NE */
-            conditionCode: string;
-            description?: string;
-            serialNumber?: string;
-            batchNumber?: string;
-            ataChapter?: string;
-            aircraftType?: string;
-            aircraftModel?: string;
-            alternatePartNumbers?: string[] | string;
-            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
-            targetPrice?: number | string;
-            /** @default USD */
-            targetPriceCurrency: string;
-            /** @default true */
-            certificateRequired: boolean;
-            certificateType?: string;
-            /** Format: date */
-            requiredDate?: string;
-            /** Format: date */
-            responseDeadline?: string;
-            leadTimeDays?: number;
-            /**
-             * @default STANDARD
-             * @enum {string}
-             */
-            urgency: "AOG" | "URGENT" | "STANDARD";
-            urgencyJustification?: string;
-            notes?: string;
-            emailId?: string;
-            lines?: never;
-        };
+        /** @description Legacy scalar RFQ creation or strict modern multi-line creation. Demand header fields cannot be mixed with lines. */
+        RfqCreateRequest: components["schemas"]["RfqLegacyCreateRequest"] | components["schemas"]["RfqMultiLineCreateRequest"];
+        /** @description Legacy scalar RFQ patch or a complete strict line collection. Demand header fields cannot be mixed with lines. */
+        RfqUpdateRequest: components["schemas"]["RfqLegacyUpdateRequest"] | components["schemas"]["RfqMultiLineUpdateRequest"];
         RfqStatusUpdateRequest: {
             status: string;
             version?: number;
@@ -7488,6 +7428,10 @@ export interface components {
             currency?: string;
             /** @description True for an approved quotation whose latest approval does not cover the current policy and commercial terms. An authorised independent approver must review it again. */
             readonly requiresReapproval?: boolean;
+            /** @description True when quotation line facts are authoritative. */
+            readonly lineItemsMode?: boolean;
+            /** @description Authoritative quotation lines ordered by lineNo; sensitive cost fields follow quotation.view_cost. */
+            readonly lines?: components["schemas"]["QuotationLine"][];
             /** @enum {string|null} */
             readonly costSourceType?: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL" | null;
             readonly costSourceId?: string | null;
@@ -7517,66 +7461,8 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** @description USD sale quotation with an explicit, verifiable cost source. Supplier or inventory source identity, quantity and price are validated server-side; manual cost requires a reason. */
-        QuotationCreateRequest: {
-            rfqId: string;
-            customerId: string;
-            partNumber: string;
-            quantity: number;
-            unitPrice: number;
-            costPrice: number;
-            certificateFiles?: string[];
-            template?: string;
-            validityDays?: number;
-            /** @enum {string} */
-            saleType?: "Sale";
-            shipToId?: string;
-            shipForId?: string;
-            incoterm?: string;
-            incotermLocation?: string;
-            leadTimeDays?: number;
-            leadTimeBasis?: string;
-            moq?: number;
-            mpq?: number;
-            priceBasis?: string;
-            /** @default true */
-            taxIncluded: boolean;
-            taxRate?: number;
-            /** @default 90 */
-            warrantyDays: number;
-            warrantyTerms?: string;
-            packagingRequirement?: string;
-            shippingMethod?: string;
-            ccRecipients?: string[] | string;
-            commonNote?: string;
-            eSignature?: string;
-            /** @default Unsigned */
-            eSignatureStatus: string;
-            countryOfOrigin?: string;
-            hsCode?: string;
-            eccn?: string;
-            /** @default false */
-            dualUse: boolean;
-            /**
-             * @default USD
-             * @enum {string}
-             */
-            currency: "USD";
-            lines?: never;
-            /** @enum {string} */
-            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL";
-            costSourceId?: string;
-            costSourceReason?: string;
-        } & ({
-            /** @constant */
-            costSourceType: "MANUAL";
-            costSourceId?: never;
-            costSourceReason: string;
-        } | {
-            /** @enum {unknown} */
-            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL";
-            costSourceId: string;
-        });
+        /** @description Legacy scalar quotation or strict USD modern multi-line quotation. Commercial demand and cost facts live on lines in modern mode. */
+        QuotationCreateRequest: components["schemas"]["QuotationLegacyCreateRequest"] | components["schemas"]["QuotationMultiLineCreateRequest"];
         QuotationUpdateRequest: {
             rfqId?: string;
             customerId?: string;
@@ -7670,6 +7556,10 @@ export interface components {
             exchangeCoreDueDate?: string;
             eSignatureCustomer?: string;
             eSignatureSupplier?: string;
+            /** @description True when order line facts are authoritative. */
+            readonly lineItemsMode?: boolean;
+            /** @description Authoritative order lines ordered by lineNo. */
+            readonly lines?: components["schemas"]["OrderLine"][];
         } & {
             [key: string]: unknown;
         };
@@ -7732,7 +7622,6 @@ export interface components {
             exchangeCoreDueDate?: string;
             eSignatureCustomer?: string;
             eSignatureSupplier?: string;
-            lines?: never;
         };
         OrderUpdateRequest: {
             quotationId?: string;
@@ -11247,6 +11136,9 @@ export interface components {
             description?: string | null;
             serialNumber?: string | null;
             batchNumber?: string | null;
+            ataChapter?: string | null;
+            aircraftType?: string | null;
+            aircraftModel?: string | null;
             alternatePartNumbers?: string[];
             certificateRequired: boolean;
             certificateType?: string | null;
@@ -11261,6 +11153,347 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        RfqLineCreateRequest: {
+            partNumber: string;
+            quantity: number;
+            /** @default EA */
+            uom: string;
+            /** @default NE */
+            conditionCode: string;
+            description?: string;
+            serialNumber?: string;
+            batchNumber?: string;
+            ataChapter?: string;
+            aircraftType?: string;
+            aircraftModel?: string;
+            alternatePartNumbers?: string[] | string;
+            targetPrice?: number;
+            /** @default USD */
+            targetPriceCurrency: string;
+            /** @default true */
+            certificateRequired: boolean;
+            certificateType?: string;
+            /** Format: date */
+            requiredDate: string;
+            leadTimeDays?: number;
+        };
+        RfqLineUpdateRequest: {
+            id?: string;
+            partNumber: string;
+            quantity: number;
+            /** @default EA */
+            uom: string;
+            /** @default NE */
+            conditionCode: string;
+            description?: string;
+            serialNumber?: string;
+            batchNumber?: string;
+            ataChapter?: string;
+            aircraftType?: string;
+            aircraftModel?: string;
+            alternatePartNumbers?: string[] | string;
+            targetPrice?: number;
+            /** @default USD */
+            targetPriceCurrency: string;
+            /** @default true */
+            certificateRequired: boolean;
+            certificateType?: string;
+            /** Format: date */
+            requiredDate: string;
+            leadTimeDays?: number;
+        };
+        RfqLegacyCreateRequest: {
+            customerId: string;
+            partNumber: string;
+            quantity: number;
+            /** @default EA */
+            uom: string;
+            /** @default NE */
+            conditionCode: string;
+            description?: string;
+            serialNumber?: string;
+            batchNumber?: string;
+            ataChapter?: string;
+            aircraftType?: string;
+            aircraftModel?: string;
+            alternatePartNumbers?: string[] | string;
+            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
+            targetPrice?: number | string;
+            /** @default USD */
+            targetPriceCurrency: string;
+            /** @default true */
+            certificateRequired: boolean;
+            certificateType?: string;
+            /** Format: date */
+            requiredDate?: string;
+            /** Format: date */
+            responseDeadline?: string;
+            leadTimeDays?: number;
+            /**
+             * @default STANDARD
+             * @enum {string}
+             */
+            urgency: "AOG" | "URGENT" | "STANDARD";
+            urgencyJustification?: string;
+            notes?: string;
+            emailId?: string;
+        };
+        RfqLegacyUpdateRequest: {
+            customerId?: string;
+            partNumber?: string;
+            quantity?: number;
+            /** @default EA */
+            uom: string;
+            /** @default NE */
+            conditionCode: string;
+            description?: string;
+            serialNumber?: string;
+            batchNumber?: string;
+            ataChapter?: string;
+            aircraftType?: string;
+            aircraftModel?: string;
+            alternatePartNumbers?: string[] | string;
+            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
+            targetPrice?: number | string;
+            /** @default USD */
+            targetPriceCurrency: string;
+            /** @default true */
+            certificateRequired: boolean;
+            certificateType?: string;
+            /** Format: date */
+            requiredDate?: string;
+            /** Format: date */
+            responseDeadline?: string;
+            leadTimeDays?: number;
+            /**
+             * @default STANDARD
+             * @enum {string}
+             */
+            urgency: "AOG" | "URGENT" | "STANDARD";
+            urgencyJustification?: string;
+            notes?: string;
+            emailId?: string;
+        };
+        RfqMultiLineCreateRequest: {
+            customerId: string;
+            /** Format: date */
+            responseDeadline?: string;
+            /**
+             * @default STANDARD
+             * @enum {string}
+             */
+            urgency: "AOG" | "URGENT" | "STANDARD";
+            urgencyJustification?: string;
+            notes?: string;
+            emailId?: string;
+            lines: components["schemas"]["RfqLineCreateRequest"][];
+        };
+        RfqMultiLineUpdateRequest: {
+            customerId?: string;
+            /** Format: date */
+            responseDeadline?: string;
+            /**
+             * @default STANDARD
+             * @enum {string}
+             */
+            urgency: "AOG" | "URGENT" | "STANDARD";
+            urgencyJustification?: string;
+            notes?: string;
+            emailId?: string;
+            lines: components["schemas"]["RfqLineUpdateRequest"][];
+        };
+        QuotationLine: {
+            id: string;
+            quotationId: string;
+            lineNo: number;
+            rfqLineId: string;
+            readonly sourceSupplierQuoteId?: string | null;
+            partNumber: string;
+            description?: string | null;
+            uom: string;
+            quantity: number;
+            /** @description Decimal unit price serialized as a string. */
+            unitPrice: string;
+            /** @description Omitted unless quotation.view_cost is granted. */
+            readonly costPrice?: string;
+            /** @description Decimal line total serialized as a string. */
+            lineTotal: string;
+            /** @description Omitted unless quotation.view_cost is granted. */
+            readonly marginAmount?: string;
+            /** @description Omitted unless quotation.view_cost is granted. */
+            readonly marginPercent?: string;
+            currency: string;
+            /** @enum {string|null} */
+            readonly costSourceType?: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL" | null;
+            readonly costSourceId?: string | null;
+            readonly costSourceReason?: string | null;
+            /** @description Omitted unless quotation.view_cost is granted. */
+            readonly costSourceSnapshotJson?: string | null;
+            /** Format: date-time */
+            readonly costSourceCapturedAt?: string | null;
+            acceptedQuantity: number;
+            reservedQuantity: number;
+            inventoryDetailId?: string | null;
+            serialNumber?: string | null;
+            batchNumber?: string | null;
+            status: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        OrderLine: {
+            id: string;
+            orderId: string;
+            lineNo: number;
+            quotationLineId: string;
+            partNumber: string;
+            uom: string;
+            quantity: number;
+            /** @description Decimal unit price serialized as a string. */
+            unitPrice: string;
+            /** @description Decimal line total serialized as a string. */
+            lineTotal: string;
+            currency: string;
+            outboundQuantity: number;
+            outboundStatus: string;
+            inventoryDetailId?: string | null;
+            serialNumber?: string | null;
+            batchNumber?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description USD sale quotation with an explicit, verifiable cost source. Supplier or inventory source identity, quantity and price are validated server-side; manual cost requires a reason. */
+        QuotationLegacyCreateRequest: {
+            rfqId: string;
+            customerId: string;
+            partNumber: string;
+            quantity: number;
+            unitPrice: number;
+            costPrice: number;
+            certificateFiles?: string[];
+            template?: string;
+            validityDays?: number;
+            /** @enum {string} */
+            saleType?: "Sale";
+            shipToId?: string;
+            shipForId?: string;
+            incoterm?: string;
+            incotermLocation?: string;
+            leadTimeDays?: number;
+            leadTimeBasis?: string;
+            moq?: number;
+            mpq?: number;
+            priceBasis?: string;
+            /** @default true */
+            taxIncluded: boolean;
+            taxRate?: number;
+            /** @default 90 */
+            warrantyDays: number;
+            warrantyTerms?: string;
+            packagingRequirement?: string;
+            shippingMethod?: string;
+            ccRecipients?: string[] | string;
+            commonNote?: string;
+            eSignature?: string;
+            /** @default Unsigned */
+            eSignatureStatus: string;
+            countryOfOrigin?: string;
+            hsCode?: string;
+            eccn?: string;
+            /** @default false */
+            dualUse: boolean;
+            /**
+             * @default USD
+             * @enum {string}
+             */
+            currency: "USD";
+            /** @enum {string} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL";
+            costSourceId?: string;
+            costSourceReason?: string;
+        } & ({
+            /** @constant */
+            costSourceType: "MANUAL";
+            costSourceId?: never;
+            costSourceReason: string;
+        } | {
+            /** @enum {unknown} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL";
+            costSourceId: string;
+        });
+        QuotationLineCreateRequest: {
+            rfqLineId: string;
+            partNumber: string;
+            quantity: number;
+            unitPrice: number;
+            costPrice: number;
+            /** @enum {string} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL";
+            costSourceId?: string;
+            costSourceReason?: string;
+        } & ({
+            /** @constant */
+            costSourceType: "MANUAL";
+            costSourceId?: never;
+            costSourceReason: string;
+        } | {
+            /** @enum {unknown} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL";
+            costSourceId: string;
+        });
+        QuotationMultiLineCreateRequest: {
+            rfqId: string;
+            customerId: string;
+            certificateFiles?: string[];
+            template?: string;
+            validityDays?: number;
+            /**
+             * @default Sale
+             * @enum {string}
+             */
+            saleType: "Sale";
+            shipToId?: string;
+            shipForId?: string;
+            incoterm?: string;
+            incotermLocation?: string;
+            leadTimeDays?: number;
+            leadTimeBasis?: string;
+            moq?: number;
+            mpq?: number;
+            priceBasis?: string;
+            /** @default true */
+            taxIncluded: boolean;
+            taxRate?: number;
+            /** @default 90 */
+            warrantyDays: number;
+            warrantyTerms?: string;
+            packagingRequirement?: string;
+            shippingMethod?: string;
+            ccRecipients?: string[] | string;
+            commonNote?: string;
+            eSignature?: string;
+            /** @default Unsigned */
+            eSignatureStatus: string;
+            countryOfOrigin?: string;
+            hsCode?: string;
+            eccn?: string;
+            /** @default false */
+            dualUse: boolean;
+            /**
+             * @default USD
+             * @constant
+             * @enum {string}
+             */
+            currency: "USD";
+            lines: components["schemas"]["QuotationLineCreateRequest"][];
+        };
+        QuotationAcceptanceLine: {
+            quotationLineId: string;
+            quantity: number;
         };
     };
     responses: {

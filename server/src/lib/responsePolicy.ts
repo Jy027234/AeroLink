@@ -16,6 +16,12 @@ const quotationCostFields = [
   'costPrice',
   'costPriceDecimal',
   'margin',
+  'marginAmount',
+  'marginPercent',
+  'costTotal',
+  'costTotalDecimal',
+  'totalCost',
+  'totalCostDecimal',
   // Cost-source identity and audit payload can reveal supplier pricing or
   // inventory cost even when the derived cost fields are removed.
   'costSourceType',
@@ -54,6 +60,21 @@ function omitFields<T>(value: T, fields: readonly string[]): T {
   return projected as T;
 }
 
+function omitFieldsRecursively<T>(value: T, fields: readonly string[]): T {
+  if (value instanceof Date) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => omitFieldsRecursively(item, fields)) as T;
+  }
+  if (!isRecord(value)) return value;
+
+  const projected: RecordValue = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (fields.includes(key)) continue;
+    projected[key] = omitFieldsRecursively(nested, fields);
+  }
+  return projected as T;
+}
+
 export function canViewQuotationCost(
   actor: CapabilityActor,
   resource: ResponseResourceContext,
@@ -78,7 +99,7 @@ export function projectQuotationCost<T>(
   actor: CapabilityActor,
   resource: ResponseResourceContext,
 ): T {
-  return canViewQuotationCost(actor, resource) ? value : omitFields(value, quotationCostFields);
+  return canViewQuotationCost(actor, resource) ? value : omitFieldsRecursively(value, quotationCostFields);
 }
 
 /**
@@ -122,7 +143,7 @@ export function projectOrderCost<T>(
   actor: CapabilityActor,
   resource: ResponseResourceContext,
 ): T {
-  return canViewOrderCost(actor, resource) ? value : omitFields(value, orderCostFields);
+  return canViewOrderCost(actor, resource) ? value : omitFieldsRecursively(value, orderCostFields);
 }
 
 /**
@@ -166,7 +187,7 @@ export function projectOrderResponse<T>(
 
   const result = { ...(projected as RecordValue) };
   if (isRecord(result.quotation)) {
-    result.quotation = projectQuotationCost(result.quotation, actor, resource);
+    result.quotation = projectQuotationResponse(result.quotation, actor, resource);
   }
   return result as T;
 }

@@ -70,7 +70,7 @@ function createTx(options: { qLines?: unknown[]; orders?: unknown[]; oLines?: un
       update: vi.fn().mockImplementation(async ({ where, data }) => { const current = state.qLines.find(line => line.id === where.id); Object.assign(current, data); return current; }),
     },
     order: {
-      findUnique: vi.fn().mockImplementation(async () => state.orders[0] ?? null),
+      findFirst: vi.fn().mockImplementation(async () => state.orders[0] ?? null),
     },
     orderLine: {
       findMany: vi.fn().mockImplementation(async () => state.oLines),

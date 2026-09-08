@@ -28,6 +28,7 @@ export async function getFulfillmentReviewContext(tx: Prisma.TransactionClient, 
     include: { quotation: { include: { rfq: true, creator: { select: { department: true } } } } },
   });
   if (!order) throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
+  if (order.lineItemsMode) throw new AppError('多行订单须使用行级实物分配与质量审核，整单审核入口尚不适用', 409, 'QUALITY_REVIEW_REQUIRED');
   if (!order.inventoryDetailId) throw new AppError('请先为订单预留库存', 409, 'QUALITY_REVIEW_REQUIRED');
   const detail = await tx.inventoryDetail.findUnique({
     where: { id: order.inventoryDetailId }, include: { inventoryItem: true },

@@ -73,6 +73,7 @@ export interface RFQ {
   createdAt: string;
   createdBy: string;
   notes?: string;
+  lineItemsMode?: boolean;
   partCategory?: PartCategory;
   trackingType?: TrackingType;
   lines?: RfqLine[];
@@ -89,6 +90,9 @@ export interface RfqLine {
   description?: string | null;
   serialNumber?: string | null;
   batchNumber?: string | null;
+  ataChapter?: string | null;
+  aircraftType?: string | null;
+  aircraftModel?: string | null;
   alternatePartNumbers?: string[];
   certificateRequired: boolean;
   certificateType?: string | null;
@@ -439,6 +443,38 @@ export type QuoteTemplate = 'standard' | 'aog' | 'rfp';
 export type SaleType = 'Sale' | 'Exchange' | 'Loan' | 'Consign' | 'Repair';
 export type Incoterm = 'EXW' | 'FCA' | 'CPT' | 'CIP' | 'DAP' | 'DPU' | 'DDP' | 'FAS' | 'FOB' | 'CFR' | 'CIF';
 
+/**
+ * Authoritative commercial facts for a line-first quotation. Decimal fields
+ * may arrive as strings from the generated API projection; callers should
+ * convert them before arithmetic rather than treating the legacy header as a
+ * fallback fact.
+ */
+export interface QuotationLine {
+  id: string;
+  quotationId?: string;
+  lineNo: number;
+  rfqLineId: string;
+  partNumber: string;
+  description?: string | null;
+  uom?: string;
+  quantity: number;
+  unitPrice: number | string;
+  costPrice?: number | string | null;
+  lineTotal: number | string;
+  currency?: string;
+  acceptedQuantity: number;
+  reservedQuantity: number;
+  inventoryDetailId?: string | null;
+  serialNumber?: string | null;
+  batchNumber?: string | null;
+  status?: string;
+  costSourceType?: 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL' | null;
+  costSourceId?: string | null;
+  costSourceReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Quotation {
   id: string;
   quoteNumber: string;
@@ -516,6 +552,9 @@ export interface Quotation {
   expiryDate: string;
   // AOG 快速审批
   rfqUrgency?: string;
+  /** Modern line-first quotations keep commercial facts on lines. */
+  lineItemsMode?: boolean;
+  lines?: QuotationLine[];
   // Phase 4: 库存明细绑定
   inventoryDetailId?: string;
   serialNumber?: string;
@@ -584,6 +623,12 @@ export type OrderStatus =
   | 'completed';
 
 export interface Order {
+  lineItemsMode?: boolean;
+  lines?: Array<{
+    id: string; lineNo: number; quotationLineId: string; partNumber: string;
+    quantity: number; uom: string; unitPrice: string | number; lineTotal: string | number;
+    currency: string; outboundQuantity: number; outboundStatus: string;
+  }>;
   id: string;
   orderNumber: string;
   soNumber: string;

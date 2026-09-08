@@ -49,7 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAcceptQuotation, useApproveQuotation, useCreateQuotation, useQuotation, useQuotations, useSendQuotation, useWithdrawQuotation } from '@/features/quotations';
+import { useAcceptQuotation, useApproveQuotation, useCreateQuotation, useQuotation, useQuotations, useSendQuotation, useSubmitQuotation, useWithdrawQuotation } from '@/features/quotations';
 import { useRFQs } from '@/features/rfqs';
 import { useDispatchNotification, useDocumentTemplates } from '@/features/integrations';
 import { documentApi, quotationApi } from '@/api/client';
@@ -60,8 +60,10 @@ import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { downloadBlob } from '@/lib/downloadBlob';
 import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
-import type { DocumentTemplate, Quotation, QuoteStatus, SaleType, Incoterm } from '@/types';
+import type { DocumentTemplate, Quotation, QuotationLine, QuoteStatus, SaleType, Incoterm } from '@/types';
 import { CostSourceFields } from './CostSourceFields';
+import { LineQuotationComposer, type LineQuotationDraft } from './LineQuotationComposer';
+import { createLineQuotationDrafts } from './lineQuotationComposerModel';
 
 const statusConfig: Record<QuoteStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
   draft: { label: 'Draft', color: 'text-gray-600', bgColor: 'bg-gray-50', icon: FileText },
@@ -73,6 +75,48 @@ const statusConfig: Record<QuoteStatus, { label: string; color: string; bgColor:
   withdrawn: { label: 'Withdrawn', color: 'text-red-700', bgColor: 'bg-red-50', icon: XCircle },
   expired: { label: 'Expired', color: 'text-gray-500', bgColor: 'bg-gray-100', icon: Calendar },
 };
+
+function numeric(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+const quoteMoneyFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
+function formatQuoteMoney(value: number) {
+  return quoteMoneyFormatter.format(value);
+}
+
+function lineAcceptedQuantity(line: QuotationLine) {
+  const accepted = numeric(line.acceptedQuantity);
+  return accepted === null ? 0 : Math.max(0, accepted);
+}
+
+function lineRemainingQuantity(line: QuotationLine) {
+  return Math.max(0, line.quantity - lineAcceptedQuantity(line));
+}
+
+function lineDisplayTotal(line: QuotationLine) {
+  const total = numeric(line.lineTotal);
+  if (total !== null) return total;
+  const unitPrice = numeric(line.unitPrice);
+  return unitPrice === null ? null : unitPrice * line.quantity;
+}
+
+function lineDisplayUnitPrice(line: QuotationLine) {
+  return numeric(line.unitPrice);
+}
+
+function isModernQuotation(quote: Quotation) {
+  // The explicit mode flag is the protocol switch. Legacy quotations may
+  // include a single compatibility line in detail responses, so line count
+  // alone must never route them through line-level acceptance.
+  return quote.lineItemsMode === true;
+}
 
 function QuoteStatusBadge({ status }: { status: QuoteStatus }) {
   const config = statusConfig[status];
@@ -132,7 +176,7 @@ function QuoteDetailDialog({
   const canViewCost = can('quotation.view_cost');
   const canConfirmCustomer = (activeQuote.status === 'sent' || activeQuote.status === 'approved') && can('quotation.accept');
   const canWithdraw = activeQuote.status === 'sent' && can('quotation.withdraw');
-  const canDownloadContract = activeQuote.status === 'accepted' && !!activeQuote.contractDocumentId;
+  const canDownloadContract = !!activeQuote.contractDocumentId && (activeQuote.status === 'accepted' || !!activeQuote.orderId);
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
@@ -177,27 +221,72 @@ function QuoteDetailDialog({
             <QuoteStatusBadge status={activeQuote.status} />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 border rounded-lg">
-              <p className="text-xs text-gray-400">{tx('料号', 'Part Number')}</p>
-              <p className="font-mono font-semibold text-lg">{activeQuote.partNumber}</p>
+          {isModernQuotation(activeQuote) ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">{tx('报价明细行', 'Quotation Lines')}</h3>
+                <span className="text-sm text-gray-500">{activeQuote.lines?.length ?? 0} {tx('行', 'lines')}</span>
+              </div>
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{tx('件号', 'Part Number')}</TableHead>
+                      <TableHead>{tx('报价数量', 'Quoted')}</TableHead>
+                      <TableHead>{tx('已成交', 'Accepted')}</TableHead>
+                      <TableHead>{tx('剩余', 'Remaining')}</TableHead>
+                      <TableHead>{tx('单价', 'Unit Price')}</TableHead>
+                      <TableHead>{tx('行合计', 'Line Total')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(activeQuote.lines ?? []).map((line) => {
+                      const unitPrice = lineDisplayUnitPrice(line);
+                      const total = lineDisplayTotal(line);
+                      return (
+                        <TableRow key={line.id}>
+                          <TableCell>
+                            <div className="font-mono font-medium">#{line.lineNo} · {line.partNumber}</div>
+                          </TableCell>
+                          <TableCell>{line.quantity} {line.uom || 'EA'}</TableCell>
+                          <TableCell>{lineAcceptedQuantity(line)} {line.uom || 'EA'}</TableCell>
+                          <TableCell>{lineRemainingQuantity(line)} {line.uom || 'EA'}</TableCell>
+                          <TableCell>{unitPrice === null ? '—' : `$${formatQuoteMoney(unitPrice)}`}</TableCell>
+                          <TableCell>{total === null ? '—' : `$${formatQuoteMoney(total)}`}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-blue-50 p-4">
+                <span className="text-gray-600">{tx('报价总价', 'Quote Total')}</span>
+                <span className="text-xl font-bold text-blue-600">${formatQuoteMoney(activeQuote.totalPrice)}</span>
+              </div>
             </div>
-            <div className="p-4 border rounded-lg">
-              <p className="text-xs text-gray-400">{tx('数量', 'Quantity')}</p>
-              <p className="font-semibold text-lg">{activeQuote.quantity} EA</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 border rounded-lg">
+                <p className="text-xs text-gray-400">{tx('料号', 'Part Number')}</p>
+                <p className="font-mono font-semibold text-lg">{activeQuote.partNumber}</p>
+              </div>
+              <div className="p-4 border rounded-lg">
+                <p className="text-xs text-gray-400">{tx('数量', 'Quantity')}</p>
+                <p className="font-semibold text-lg">{activeQuote.quantity} EA</p>
+              </div>
+              <div className="p-4 border rounded-lg">
+                <p className="text-xs text-gray-400">{tx('单价', 'Unit Price')}</p>
+                <p className="font-semibold text-lg">${activeQuote.unitPrice.toLocaleString()}</p>
+              </div>
+              <div className="p-4 border rounded-lg bg-blue-50">
+                <p className="text-xs text-gray-400">{tx('总价', 'Total Price')}</p>
+                <p className="font-bold text-xl text-blue-600">${activeQuote.totalPrice.toLocaleString()}</p>
+              </div>
             </div>
-            <div className="p-4 border rounded-lg">
-              <p className="text-xs text-gray-400">{tx('单价', 'Unit Price')}</p>
-              <p className="font-semibold text-lg">${activeQuote.unitPrice.toLocaleString()}</p>
-            </div>
-            <div className="p-4 border rounded-lg bg-blue-50">
-              <p className="text-xs text-gray-400">{tx('总价', 'Total Price')}</p>
-              <p className="font-bold text-xl text-blue-600">${activeQuote.totalPrice.toLocaleString()}</p>
-            </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
-            {canViewCost && (
+            {canViewCost && !isModernQuotation(activeQuote) && (
               <>
                 <div className="flex justify-between">
                   <span className="text-sm text-gray-500">{tx('成本价', 'Cost Price')}</span>
@@ -426,12 +515,17 @@ function CreateQuoteDialog({
     ccRecipients: '',
     commonNote: '',
   });
+  const [lineDrafts, setLineDrafts] = useState<LineQuotationDraft[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const selectedRfq = rfqs?.find((r) => r.id === formData.rfqId);
   const isAog = selectedRfq?.urgency === 'aog';
+  const isModernRfq = selectedRfq?.lineItemsMode === true;
 
   const totalPrice = formData.quantity * formData.unitPrice;
+  const displayTotal = isModernRfq
+    ? lineDrafts.reduce((sum, line) => sum + Math.max(0, line.quantity) * Math.max(0, line.unitPrice), 0)
+    : totalPrice;
 
   const handleRfqChange = (rfqId: string) => {
     const rfq = rfqs?.find((r) => r.id === rfqId);
@@ -447,20 +541,77 @@ function CreateQuoteDialog({
         costSourceReason: '',
         validityDays: rfq.urgency === 'aog' ? 1 : prev.validityDays,
       }));
+      setLineDrafts(createLineQuotationDrafts(rfq));
     } else {
       setFormData((prev) => ({ ...prev, rfqId }));
+      setLineDrafts([]);
     }
   };
 
   const handleSubmit = async () => {
-    if (!formData.rfqId || !formData.customerName || !formData.partNumber || formData.quantity <= 0 || formData.unitPrice <= 0
-      || (formData.costSourceType === 'MANUAL' && !formData.costSourceReason.trim())
-      || (formData.costSourceType !== 'MANUAL' && !formData.costSourceId.trim())) {
-      toast.error(tx('请填写所有必填字段（RFQ、客户、件号、数量、单价）。', 'Please fill in all required fields (RFQ, Customer, Part Number, Quantity, Unit Price).'));
+    const invalidModernLine = lineDrafts.some((draft) => {
+      const rfqLine = selectedRfq?.lines?.find((line) => line.id === draft.rfqLineId);
+      if (!rfqLine || rfqLine.status !== 'OPEN') return true;
+      return draft.partNumber !== rfqLine.partNumber
+        || draft.quantity <= 0
+        || draft.quantity > rfqLine.quantity
+        || draft.unitPrice <= 0
+        || draft.costPrice < 0
+        || (draft.costSourceType === 'MANUAL' ? !draft.costSourceReason.trim() : !draft.costSourceId.trim());
+    });
+    const invalidForm = isModernRfq
+      ? !selectedRfq?.customerId || !formData.customerName || lineDrafts.length === 0 || invalidModernLine
+      : !formData.rfqId || !formData.customerName || !formData.partNumber || formData.quantity <= 0 || formData.unitPrice <= 0
+        || (formData.costSourceType === 'MANUAL' && !formData.costSourceReason.trim())
+        || (formData.costSourceType !== 'MANUAL' && !formData.costSourceId.trim());
+    if (invalidForm) {
+      toast.error(isModernRfq
+        ? tx('请至少选择一条可报价明细，并完整填写每行的数量、单价和成本来源。', 'Select at least one open RFQ line and complete its quantity, price, and cost source.')
+        : tx('请填写所有必填字段（RFQ、客户、件号、数量、单价）。', 'Please fill in all required fields (RFQ, Customer, Part Number, Quantity, Unit Price).'));
       return;
     }
     setIsSubmitting(true);
     try {
+      if (isModernRfq && selectedRfq) {
+        const modernPayload = {
+          rfqId: selectedRfq.id,
+          customerId: selectedRfq.customerId,
+          lines: lineDrafts.map((line) => ({
+            rfqLineId: line.rfqLineId,
+            partNumber: line.partNumber,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            costPrice: line.costPrice,
+            costSourceType: line.costSourceType,
+            ...(line.costSourceType === 'MANUAL'
+              ? { costSourceReason: line.costSourceReason.trim() }
+              : { costSourceId: line.costSourceId.trim() }),
+          })),
+          currency: 'USD' as const,
+          validityDays: formData.validityDays,
+          saleType: 'Sale' as const,
+          incoterm: formData.incoterm || undefined,
+          incotermLocation: formData.incotermLocation || undefined,
+          leadTimeDays: formData.leadTimeDays || undefined,
+          leadTimeBasis: formData.leadTimeBasis || undefined,
+          moq: formData.moq || undefined,
+          mpq: formData.mpq || undefined,
+          priceBasis: formData.priceBasis || undefined,
+          taxIncluded: formData.taxIncluded,
+          taxRate: formData.taxRate || undefined,
+          warrantyDays: formData.warrantyDays,
+          warrantyTerms: formData.warrantyTerms || undefined,
+          packagingRequirement: formData.packagingRequirement || undefined,
+          shippingMethod: formData.shippingMethod || undefined,
+          countryOfOrigin: formData.countryOfOrigin || undefined,
+          hsCode: formData.hsCode || undefined,
+          eccn: formData.eccn || undefined,
+          dualUse: formData.dualUse,
+          ccRecipients: formData.ccRecipients ? formData.ccRecipients.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
+          commonNote: formData.commonNote || undefined,
+        };
+        await quotationApi.createMultiLine(modernPayload);
+      } else {
       await createQuotation({
         rfqId: formData.rfqId,
         customerId: formData.customerId || 'c001',
@@ -499,7 +650,10 @@ function CreateQuoteDialog({
         ccRecipients: formData.ccRecipients ? formData.ccRecipients.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
         commonNote: formData.commonNote || undefined,
       });
-      toast.success(tx('报价单创建成功。', 'Quote created successfully.'));
+      }
+      toast.success(isModernRfq
+        ? tx('多行报价草稿已创建，请从列表提交审批。', 'Multi-line quote draft created. Submit it for approval from the list.')
+        : tx('报价单创建成功。', 'Quote created successfully.'));
       onClose();
       onCreated();
     } catch (error) {
@@ -512,11 +666,11 @@ function CreateQuoteDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Plus className="w-5 h-5" />
-            {tx('创建报价单', 'Create Quote')}
+            {tx(isModernRfq ? '创建报价草稿' : '创建报价单', isModernRfq ? 'Create Quote Draft' : 'Create Quote')}
           </DialogTitle>
           <DialogDescription className="sr-only">{tx('创建新的报价单', 'Create a new quote')}</DialogDescription>
         </DialogHeader>
@@ -531,7 +685,7 @@ function CreateQuoteDialog({
               <SelectContent>
                 {rfqs?.map((rfq) => (
                   <SelectItem key={rfq.id} value={rfq.id}>
-                    {rfq.rfqNumber} · {rfq.partNumber} · {rfq.customerName} {rfq.urgency === 'aog' ? '(AOG)' : ''}
+                    {rfq.rfqNumber} · {rfq.lines?.length ? `${rfq.lines.length} lines` : rfq.partNumber} · {rfq.customerName} {rfq.urgency === 'aog' ? '(AOG)' : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -543,7 +697,7 @@ function CreateQuoteDialog({
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <div>
                 <p className="font-medium">{tx('AOG 快速通道', 'AOG Fast Track')}</p>
-                <p>{tx('有效期自动设为 1 天，并行审批 manager + gm', 'Validity auto-set to 1 day, parallel approval by manager + gm')}</p>
+                <p>{tx('有效期自动设为 1 天；审批按报价总额分级，创建者不能自批。', 'Validity auto-set to 1 day; approval is tiered by quote total and the creator cannot self-approve.')}</p>
               </div>
             </div>
           )}
@@ -555,67 +709,82 @@ function CreateQuoteDialog({
                 value={formData.customerName}
                 onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
                 placeholder={tx('输入客户名称', 'Enter customer name')}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{tx('件号 *', 'Part Number *')}</Label>
-              <Input
-                value={formData.partNumber}
-                onChange={(e) => setFormData({ ...formData, partNumber: e.target.value, costSourceId: '' })}
-                placeholder={tx('输入件号', 'Enter part number')}
+                readOnly={isModernRfq}
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label>{tx('数量 *', 'Quantity *')}</Label>
-              <Input
-                type="number"
-                min={1}
-                value={formData.quantity}
-                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0, costSourceId: '' })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{tx('单价 *', 'Unit Price *')}</Label>
-              <Input
-                type="number"
-                min={0}
-                value={formData.unitPrice}
-                onChange={(e) => setFormData({ ...formData, unitPrice: parseFloat(e.target.value) || 0 })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{tx('成本价', 'Cost Price')}</Label>
-              <Input
-                type="number"
-                min={0}
-                value={formData.costPrice}
-                readOnly={formData.costSourceType !== 'MANUAL'}
-                onChange={(e) => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })}
-              />
-            </div>
-          </div>
-
-          <CostSourceFields
-            active={isOpen}
-            value={formData}
-            rfqId={formData.rfqId}
-            partNumber={formData.partNumber}
-            quantity={formData.quantity}
-            onChange={(source, unitCost) => setFormData(previous => ({ ...previous, ...source, ...(unitCost !== undefined ? { costPrice: unitCost } : {}) }))}
-          />
-
-          {/* AI 价格推荐 */}
-          {formData.partNumber && formData.quantity > 0 && (
-            <PriceRecommendationPanel
-              partNumber={formData.partNumber}
-              quantity={formData.quantity}
-              customerId={formData.customerId}
-              proposedPrice={formData.unitPrice > 0 ? formData.unitPrice : undefined}
-              onApplyPrice={(price) => setFormData((prev) => ({ ...prev, unitPrice: price }))}
+          {isModernRfq ? (
+            <LineQuotationComposer
+              rfq={selectedRfq}
+              value={lineDrafts}
+              onChange={setLineDrafts}
+              disabled={isSubmitting}
             />
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{tx('件号 *', 'Part Number *')}</Label>
+                  <Input
+                    value={formData.partNumber}
+                    onChange={(e) => setFormData({ ...formData, partNumber: e.target.value, costSourceId: '' })}
+                    placeholder={tx('输入件号', 'Enter part number')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{tx('数量 *', 'Quantity *')}</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={formData.quantity}
+                    onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0, costSourceId: '' })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{tx('单价 *', 'Unit Price *')}</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={formData.unitPrice}
+                    onChange={(e) => setFormData({ ...formData, unitPrice: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{tx('成本价', 'Cost Price')}</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={formData.costPrice}
+                    readOnly={formData.costSourceType !== 'MANUAL'}
+                    onChange={(e) => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+
+              <CostSourceFields
+                active={isOpen}
+                value={formData}
+                rfqId={formData.rfqId}
+                partNumber={formData.partNumber}
+                quantity={formData.quantity}
+                onChange={(source, unitCost) => setFormData(previous => ({ ...previous, ...source, ...(unitCost !== undefined ? { costPrice: unitCost } : {}) }))}
+              />
+
+              {/* AI 价格推荐 */}
+              {formData.partNumber && formData.quantity > 0 && (
+                <PriceRecommendationPanel
+                  partNumber={formData.partNumber}
+                  quantity={formData.quantity}
+                  customerId={formData.customerId}
+                  proposedPrice={formData.unitPrice > 0 ? formData.unitPrice : undefined}
+                  onApplyPrice={(price) => setFormData((prev) => ({ ...prev, unitPrice: price }))}
+                />
+              )}
+            </>
           )}
 
           <div className="grid grid-cols-2 gap-4">
@@ -872,10 +1041,10 @@ function CreateQuoteDialog({
 
           <div className="p-4 bg-blue-50 rounded-lg">
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">{tx('报价合计', 'Quote Total')}</span>
-              <span className="text-2xl font-bold text-blue-600">${totalPrice.toLocaleString()}</span>
+              <span className="text-gray-600">{tx(isModernRfq ? '展示合计（USD）' : '报价合计', isModernRfq ? 'Display Total (USD)' : 'Quote Total')}</span>
+              <span className="text-2xl font-bold text-blue-600">${isModernRfq ? formatQuoteMoney(displayTotal) : displayTotal.toLocaleString()}</span>
             </div>
-            {formData.costPrice > 0 && (
+            {!isModernRfq && formData.costPrice > 0 && (
               <div className="flex justify-between items-center mt-2">
                 <span className="text-gray-600">{tx('预估毛利率', 'Estimated Margin')}</span>
                 <span className={cn(
@@ -938,13 +1107,12 @@ function ApprovalDialog({
 
   const isAog = quote.rfqUrgency === 'aog';
   const isReapproval = quote.status === 'approved' && quote.requiresReapproval === true;
-  const needsSourceRepair = !quote.costSourceType;
+  const needsSourceRepair = !isModernQuotation(quote) && !quote.costSourceType;
   const sourceRepairReady = costSourceType === 'MANUAL'
     ? costSourceReason.trim().length > 0
     : costSourceId.trim().length > 0;
 
   const getApprovalLevel = () => {
-    if (isAog) return { level: tx('AOG 快速审批（manager / gm 任一通过）', 'AOG Fast Track (manager or gm)'), color: 'text-red-600' };
     if (quote.totalPrice > 50000) return { level: tx('总经理', 'General Manager'), color: 'text-red-600' };
     if (quote.totalPrice > 5000) return { level: tx('财务+经理', 'Finance + Manager'), color: 'text-yellow-600' };
     return { level: tx('销售经理', 'Sales Manager'), color: 'text-green-600' };
@@ -969,39 +1137,60 @@ function ApprovalDialog({
               </div>
               <QuoteStatusBadge status={quote.status} />
             </div>
-            <div className="grid grid-cols-2 gap-4 mt-4">
-              <div>
-                <p className="text-xs text-gray-400">{tx('料号', 'Part Number')}</p>
-                <p className="font-mono">{quote.partNumber}</p>
+            {isModernQuotation(quote) ? (
+              <div className="mt-4 space-y-2 border-t pt-4">
+                <p className="text-sm font-medium">{tx('报价明细行（按总额审批）', 'Quotation lines (approval is based on total)')}</p>
+                {(quote.lines ?? []).map((line) => {
+                  const total = lineDisplayTotal(line);
+                  return (
+                    <div key={line.id} className="flex items-center justify-between text-sm">
+                      <span className="font-mono">{line.partNumber} × {line.quantity}</span>
+                      <span>{total === null ? '—' : `$${formatQuoteMoney(total)}`}</span>
+                    </div>
+                  );
+                })}
+                <div className="flex justify-between border-t pt-2 font-semibold">
+                  <span>{tx('总价', 'Total Price')}</span>
+                  <span>${formatQuoteMoney(quote.totalPrice)}</span>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-gray-400">{tx('数量', 'Quantity')}</p>
-                <p>{quote.quantity} EA</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">{tx('单价', 'Unit Price')}</p>
-                <p className="font-semibold">${quote.unitPrice.toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">{tx('总价', 'Total Price')}</p>
-                <p className="font-semibold text-lg">${quote.totalPrice.toLocaleString()}</p>
-              </div>
-            </div>
-            <div className="mt-4 pt-4 border-t">
-              <div className="flex justify-between">
-                <span className="text-sm text-gray-500">{tx('成本价', 'Cost Price')}</span>
-                <span className="font-mono">${quote.costPrice.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between mt-1">
-                <span className="text-sm text-gray-500">{tx('利润率', 'Margin')}</span>
-                <span className={cn(
-                  'font-semibold',
-                  quote.margin >= 20 ? 'text-green-600' : quote.margin >= 15 ? 'text-yellow-600' : 'text-red-600'
-                )}>
-                  {quote.margin.toFixed(1)}%
-                </span>
-              </div>
-            </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <p className="text-xs text-gray-400">{tx('料号', 'Part Number')}</p>
+                    <p className="font-mono">{quote.partNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">{tx('数量', 'Quantity')}</p>
+                    <p>{quote.quantity} EA</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">{tx('单价', 'Unit Price')}</p>
+                    <p className="font-semibold">${quote.unitPrice.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">{tx('总价', 'Total Price')}</p>
+                    <p className="font-semibold text-lg">${quote.totalPrice.toLocaleString()}</p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-4 border-t">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">{tx('成本价', 'Cost Price')}</span>
+                    <span className="font-mono">${quote.costPrice.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-sm text-gray-500">{tx('利润率', 'Margin')}</span>
+                    <span className={cn(
+                      'font-semibold',
+                      quote.margin >= 20 ? 'text-green-600' : quote.margin >= 15 ? 'text-yellow-600' : 'text-red-600'
+                    )}>
+                      {quote.margin.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className={cn(
@@ -1087,7 +1276,7 @@ function ApprovalDialog({
 }
 
 function ConvertToOrderDialog({
-  quote,
+  quote: initialQuote,
   isOpen,
   onClose,
   templates,
@@ -1104,8 +1293,11 @@ function ConvertToOrderDialog({
   const [deliveryDate, setDeliveryDate] = useState(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
   const [confirmationNote, setConfirmationNote] = useState('');
   const [templateId, setTemplateId] = useState(defaultTemplateId);
+  const [acceptedQuantities, setAcceptedQuantities] = useState<Record<string, number>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { accept } = useAcceptQuotation();
+  const detailQuery = useQuotation(isOpen && initialQuote ? initialQuote.id : '');
+  const quote = detailQuery.data?.id === initialQuote?.id ? detailQuery.data : initialQuote;
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
 
@@ -1113,18 +1305,53 @@ function ConvertToOrderDialog({
     setTemplateId(defaultTemplateId);
   }, [defaultTemplateId]);
 
+  useEffect(() => {
+    if (!quote || !isModernQuotation(quote)) {
+      setAcceptedQuantities({});
+      return;
+    }
+    setAcceptedQuantities(Object.fromEntries((quote.lines ?? []).map((line) => [line.id, lineRemainingQuantity(line)])));
+  }, [quote]);
+
   if (!quote) return null;
 
+  const modernQuote = isModernQuotation(quote);
+  const quoteLines = quote.lines ?? [];
+  const selectedLineAcceptances = quoteLines
+    .map((line) => ({
+      quotationLineId: line.id,
+      quantity: Math.max(0, Math.min(lineRemainingQuantity(line), acceptedQuantities[line.id] ?? 0)),
+    }))
+    .filter((line) => line.quantity > 0);
+  const selectedAmount = quoteLines.reduce((sum, line) => {
+    const unitPrice = lineDisplayUnitPrice(line);
+    const quantity = Math.max(0, Math.min(lineRemainingQuantity(line), acceptedQuantities[line.id] ?? 0));
+    return unitPrice === null ? sum : sum + unitPrice * quantity;
+  }, 0);
+
   const handleSubmit = async () => {
+    if (modernQuote && (quoteLines.length === 0 || selectedLineAcceptances.length === 0)) {
+      toast.error(tx('请至少填写一条剩余数量大于 0 的报价行。', 'Enter an acceptance quantity for at least one quotation line with remaining quantity.'));
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const result = await accept(quote.id, {
-        poNumber,
-        deliveryDate,
-        templateId: templateId || undefined,
-        confirmationNote: confirmationNote || undefined,
-        version: quote.version,
-      });
+      const result = modernQuote
+        ? await quotationApi.acceptLines(quote.id, {
+          lines: selectedLineAcceptances,
+          version: quote.version,
+          poNumber,
+          deliveryDate,
+          templateId: templateId || undefined,
+          confirmationNote: confirmationNote || undefined,
+        })
+        : await accept(quote.id, {
+          poNumber,
+          deliveryDate,
+          templateId: templateId || undefined,
+          confirmationNote: confirmationNote || undefined,
+          version: quote.version,
+        });
 
       if ((result as { contractDocumentId?: string }).contractDocumentId) {
         const blob = await documentApi.getPdfBlob((result as { contractDocumentId: string }).contractDocumentId);
@@ -1161,11 +1388,40 @@ function ConvertToOrderDialog({
         <div className="space-y-4 py-4">
           <div className="p-4 bg-blue-50 rounded-lg">
             <p className="font-mono font-semibold">{quote.quoteNumber}</p>
-            <p className="text-sm text-gray-500">
-              {quote.customerName} · {quote.partNumber} · {quote.quantity} EA
-            </p>
+            {modernQuote ? (
+              <div className="mt-2 space-y-2 text-sm text-gray-600">
+                {quoteLines.map((line) => {
+                  const remaining = lineRemainingQuantity(line);
+                  const selected = Math.max(0, Math.min(remaining, acceptedQuantities[line.id] ?? 0));
+                  return (
+                    <div key={line.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3">
+                      <span className="font-mono">{line.partNumber}</span>
+                      <span>{tx('剩余', 'Remaining')}: {remaining}</span>
+                      <Input
+                        aria-label={`${line.partNumber} ${tx('接受数量', 'Acceptance quantity')}`}
+                        className="h-8 w-24 bg-white"
+                        type="number"
+                        min={0}
+                        max={remaining}
+                        step={1}
+                        value={selected}
+                        onChange={(event) => {
+                          const parsed = Number.parseInt(event.target.value, 10);
+                          const quantity = Number.isFinite(parsed) ? Math.min(remaining, Math.max(0, parsed)) : 0;
+                          setAcceptedQuantities((previous) => ({ ...previous, [line.id]: quantity }));
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">
+                {quote.customerName} · {quote.partNumber} · {quote.quantity} EA
+              </p>
+            )}
             <p className="text-lg font-bold text-blue-600 mt-2">
-              {tx('确认金额', 'Confirmed Amount')}: ${quote.totalPrice.toLocaleString()}
+              {tx('确认金额', 'Confirmed Amount')}: ${modernQuote ? formatQuoteMoney(selectedAmount) : quote.totalPrice.toLocaleString()}
             </p>
           </div>
 
@@ -1446,6 +1702,7 @@ export function Quotations() {
   });
   const { data: contractTemplates } = useDocumentTemplates('ORDER_CONTRACT');
   const { approve: approveQuote } = useApproveQuotation();
+  const { submit: submitQuotation, loading: submittingQuotation } = useSubmitQuotation();
   const { mutate: dispatchNotification } = useDispatchNotification();
   const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
@@ -1459,9 +1716,12 @@ export function Quotations() {
   const availableTemplates = contractTemplates || [];
 
   const filteredQuotes = quotesList.filter((quote) => {
-    if (searchQuery && !quote.quoteNumber.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !quote.partNumber.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !quote.customerName.toLowerCase().includes(searchQuery.toLowerCase())) {
+    const normalizedSearch = searchQuery.toLowerCase();
+    const matchesLinePartNumber = quote.lines?.some((line) => line.partNumber.toLowerCase().includes(normalizedSearch)) ?? false;
+    if (searchQuery && !quote.quoteNumber.toLowerCase().includes(normalizedSearch) &&
+        !quote.partNumber.toLowerCase().includes(normalizedSearch) &&
+        !quote.customerName.toLowerCase().includes(normalizedSearch) &&
+        !matchesLinePartNumber) {
       return false;
     }
     if (activeTab === 'all') return true;
@@ -1529,6 +1789,17 @@ export function Quotations() {
   const handleSend = async (quote: Quotation) => {
     setSelectedQuote(quote);
     setIsSendOpen(true);
+  };
+
+  const handleSubmitForApproval = async (quote: Quotation) => {
+    try {
+      await submitQuotation(quote.id, quote.version);
+      toast.success(tx('报价已提交审批。', 'Quote submitted for approval.'));
+      await refetchQuotes();
+    } catch (error) {
+      console.error('Failed to submit quote for approval:', error);
+      toast.error(tx('提交审批失败，报价仍保留为草稿。', 'Failed to submit for approval; the quote remains a draft.'));
+    }
   };
 
   const handleConvertToOrder = (quote: Quotation) => {
@@ -1822,6 +2093,19 @@ export function Quotations() {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
+                              {(quote.status === 'draft' || quote.status === 'rejected') && can('quotation.transition') && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  title={tx('提交审批', 'Submit for approval')}
+                                  aria-label={tx('提交审批', 'Submit for approval')}
+                                  disabled={submittingQuotation}
+                                  onClick={() => void handleSubmitForApproval(quote)}
+                                >
+                                  <Send className="w-4 h-4 text-blue-600" />
+                                </Button>
+                              )}
                               {(quote.status === 'pending_approval' || (quote.status === 'approved' && quote.requiresReapproval === true)) && can('quotation.approve') && (
                                 <Button
                                   variant="ghost"

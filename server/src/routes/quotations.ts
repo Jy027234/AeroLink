@@ -40,6 +40,7 @@ import {
   canViewQuotationCost,
   projectQuotationResponse,
 } from '../lib/responsePolicy.js';
+import { hasCurrentLineQuotationApproval } from '../modules/quotationOrder/index.js';
 import { hasCurrentQuotationApproval } from '../lib/quotationApprovalPolicy.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import prisma from '../lib/prisma.js';
@@ -108,6 +109,7 @@ function buildQuotationListWhere(
       OR: [
         { quoteNumber: { contains: searchValue, mode: 'insensitive' } },
         { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { lines: { some: { partNumber: { contains: searchValue, mode: 'insensitive' } } } },
         { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
       ],
     });
@@ -330,6 +332,7 @@ router.get(
       quotationRepository.findMany({
         where,
         include: {
+          lines: { orderBy: { lineNo: 'asc' } },
           customer: true,
           creator: { select: { id: true, name: true, department: true } },
           approver: { select: { id: true, name: true } },
@@ -402,6 +405,8 @@ router.get(
         return projectQuotationResponse({
           id: q.id,
           quoteNumber: q.quoteNumber,
+          lineItemsMode: q.lineItemsMode,
+          lines: q.lines,
           rfqId: q.rfqId,
           customerId: q.customerId,
           customerName: q.customer.name,
@@ -417,7 +422,7 @@ router.get(
           certificateFiles: q.certificateFiles?.split(',').filter(Boolean) || [],
           template: q.template.toLowerCase(),
           status: quotationStatus(q).toLowerCase(),
-          requiresReapproval: quotationStatus(q) === 'APPROVED' && !hasCurrentQuotationApproval(q),
+          requiresReapproval: quotationStatus(q) === 'APPROVED' && !(q.lineItemsMode ? hasCurrentLineQuotationApproval(q) : hasCurrentQuotationApproval(q)),
           version: q.version,
           validityDays: q.validityDays,
           saleType: q.saleType,
@@ -488,6 +493,8 @@ router.get(
       where: buildQuotationListWhere(query, (req as AuthRequest).user!),
       select: {
         quoteNumber: true,
+        lineItemsMode: true,
+        lines: { orderBy: { lineNo: 'asc' }, select: { lineNo: true, partNumber: true, quantity: true, uom: true, unitPrice: true, lineTotal: true, acceptedQuantity: true } },
         partNumber: true,
         quantity: true,
         unitPrice: true,
@@ -519,9 +526,10 @@ router.get(
       [
         { header: '报价编号', value: (quotation) => quotation.quoteNumber },
         { header: '客户', value: (quotation) => quotation.customer.name },
-        { header: '件号', value: (quotation) => quotation.partNumber },
-        { header: '数量', value: (quotation) => quotation.quantity },
-        { header: '单价', value: (quotation) => preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0 },
+        { header: '件号', value: (quotation) => quotation.lineItemsMode ? null : quotation.partNumber },
+        { header: '数量', value: (quotation) => quotation.lineItemsMode ? null : quotation.quantity },
+        { header: '单价', value: (quotation) => quotation.lineItemsMode ? null : preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0 },
+        { header: '报价行明细', value: (quotation) => quotation.lineItemsMode ? JSON.stringify(quotation.lines) : null },
         { header: '总价', value: (quotation) => preferredMoneyValue(quotation.totalPriceDecimal, quotation.totalPrice) ?? 0 },
         { header: '币种', value: (quotation) => quotation.currency },
         { header: '状态', value: (quotation) => quotationStatus(quotation).toLowerCase() },
@@ -577,12 +585,13 @@ router.get(
     const quotation = await quotationRepository.findUnique({
       where: { id: req.params.id },
       include: {
+        lines: { orderBy: { lineNo: 'asc' } },
         customer: true,
         creator: { select: { id: true, name: true, department: true } },
         approver: { select: { id: true, name: true } },
         rfq: true,
-        approvals: { include: { approver: true } },
-        orders: { include: { customer: true } },
+        approvals: { orderBy: { createdAt: 'desc' }, include: { approver: true } },
+        orders: { include: { customer: true, lines: { orderBy: { lineNo: 'asc' } } } },
         generatedDocuments: {
           orderBy: { generatedAt: 'desc' },
           include: { template: true },
@@ -635,7 +644,7 @@ router.get(
         customerEmail: quotation.customer.email,
         customerContactName: quotation.customer.contactName,
         rfqUrgency: quotation.rfq?.urgency?.toLowerCase(),
-        requiresReapproval: quotationStatus(quotation) === 'APPROVED' && !hasCurrentQuotationApproval(quotation),
+        requiresReapproval: quotationStatus(quotation) === 'APPROVED' && !(quotation.lineItemsMode ? hasCurrentLineQuotationApproval(quotation) : hasCurrentQuotationApproval(quotation)),
         contractDocumentId: quotation.generatedDocuments.find((doc) => doc.documentType === ORDER_CONTRACT_DOCUMENT_TYPE)?.id,
         contractDocumentTitle: quotation.generatedDocuments.find((doc) => doc.documentType === ORDER_CONTRACT_DOCUMENT_TYPE)?.title,
         outboundEmails: quotation.outboundEmails.map((email) => ({
@@ -684,6 +693,8 @@ router.post(
           payload: {
             id: quotation.id,
             quoteNumber: quotation.quoteNumber,
+            lineItemsMode: quotation.lineItemsMode,
+            ...('lines' in quotation ? { lines: quotation.lines } : {}),
             customerName: quotation.customer.name,
             status: quotationStatus(quotation).toLowerCase(),
             version: quotation.version,
@@ -967,6 +978,7 @@ router.post(
           reasonCode: req.body.reasonCode,
           reason: req.body.reason,
           expectedVersion: req.body.version,
+          lines: req.body.lines,
           authorize: (quotation) => {
             mutationScope = quotation;
             assertQuotationAccess(actor, 'accept', quotation);
@@ -1025,6 +1037,7 @@ router.get(
     const quotation = await quotationRepository.findUnique({
       where: { id: req.params.id },
       include: {
+        lines: { orderBy: { lineNo: 'asc' } },
         customer: true,
         creator: { select: { department: true } },
       },
@@ -1037,6 +1050,8 @@ router.get(
     assertQuotationAccess(actor, 'read', quotation);
 
     const pdfBuffer = await generateQuotationPDF({
+      lineItemsMode: quotation.lineItemsMode,
+      lines: quotation.lineItemsMode ? quotation.lines.map(line => ({ ...line, unitPrice: Number(line.unitPrice), costPrice: Number(line.costPrice), lineTotal: Number(line.lineTotal) })) : undefined,
       quoteNumber: quotation.quoteNumber,
       customerName: quotation.customer.name,
       partNumber: quotation.partNumber,

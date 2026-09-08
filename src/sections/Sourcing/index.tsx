@@ -215,6 +215,7 @@ export function Sourcing() {
 
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
   const [selectedRFQs, setSelectedRFQs] = useState<string[]>([]);
+  const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
   const [isInquiryDialogOpen, setIsInquiryDialogOpen] = useState(false);
   const [inquiryNote, setInquiryNote] = useState('');
   const [isAOG, setIsAOG] = useState(false);
@@ -244,6 +245,7 @@ export function Sourcing() {
       result = result.filter((r) =>
         r.rfqNumber.toLowerCase().includes(q) ||
         r.partNumber.toLowerCase().includes(q) ||
+        r.lines?.some((line) => line.status !== 'CANCELLED' && line.partNumber.toLowerCase().includes(q)) ||
         r.customerName.toLowerCase().includes(q)
       );
     }
@@ -279,6 +281,12 @@ export function Sourcing() {
   const selectedRFQ = selectedRFQs.length > 0
     ? pendingRFQs.find((r) => r.id === selectedRFQs[0]) ?? null
     : null;
+  const selectedLines = selectedRFQ?.lines?.filter((line) => line.status !== 'CANCELLED') ?? [];
+  const inquiryLineIds = selectedLineIds.length > 0
+    ? selectedLineIds
+    : selectedLines.length === 1
+      ? [selectedLines[0].id]
+      : [];
 
   // Filtered suppliers
   const filteredSuppliers = useMemo(() => {
@@ -292,11 +300,14 @@ export function Sourcing() {
   }, [suppliers, supplierSearch]);
 
   const toggleRFQ = (rfqId: string) => {
+    const nextRfq = pendingRFQs.find((rfq) => rfq.id === rfqId);
     setSelectedRFQs((prev) =>
       prev.includes(rfqId)
         ? prev.filter((id) => id !== rfqId)
         : [rfqId] // single-select for now, can extend to multi
     );
+    setSelectedLineIds(nextRfq?.lines?.length === 1 && nextRfq.lines[0].status !== 'CANCELLED' ? [nextRfq.lines[0].id] : []);
+    setSelectedSuppliers([]);
   };
 
   const toggleSupplier = (supplierId: string) => {
@@ -308,10 +319,11 @@ export function Sourcing() {
   };
 
   const handleCreateInquiry = async () => {
-    if (selectedSuppliers.length === 0 || !selectedRFQ) return;
+    if (selectedSuppliers.length === 0 || !selectedRFQ || inquiryLineIds.length === 0) return;
 
     const result = await createInquiry({
       rfqId: selectedRFQ.id,
+      lineIds: inquiryLineIds,
       supplierIds: selectedSuppliers,
       isAOG: isAOG || selectedRFQ.urgency === 'aog',
       notes: inquiryNote || undefined,
@@ -320,6 +332,7 @@ export function Sourcing() {
     if (result) {
       setIsInquiryDialogOpen(false);
       setSelectedSuppliers([]);
+      setSelectedLineIds([]);
       setInquiryNote('');
       setIsAOG(false);
       toast.success(tx(`已建立 ${result.length} 份待发送询价，请人工核对并联系供应商。`, `${result.length} inquiry drafts created. Review them and contact the suppliers.`));
@@ -433,6 +446,7 @@ export function Sourcing() {
                       <TableHead>{tx('需求单号', 'RFQ Number')}</TableHead>
                       <TableHead>{tx('客户', 'Customer')}</TableHead>
                       <TableHead>{tx('件号', 'Part Number')}</TableHead>
+                      <TableHead>{tx('需求行', 'Lines')}</TableHead>
                       <TableHead>{tx('数量', 'Qty')}</TableHead>
                       <TableHead>{tx('紧急程度', 'Urgency')}</TableHead>
                       <TableHead>{tx('需求日期', 'Required Date')}</TableHead>
@@ -459,6 +473,7 @@ export function Sourcing() {
                         <TableCell className="font-mono font-medium">{rfq.rfqNumber}</TableCell>
                         <TableCell>{rfq.customerName}</TableCell>
                         <TableCell className="font-mono">{rfq.partNumber}</TableCell>
+                        <TableCell>{rfq.lines && rfq.lines.length > 1 ? <Badge variant="outline">{rfq.lines.length}</Badge> : '1'}</TableCell>
                         <TableCell>{rfq.quantity}</TableCell>
                         <TableCell>{urgencyBadge(rfq.urgency)}</TableCell>
                         <TableCell>{rfq.requiredDate}</TableCell>
@@ -501,6 +516,41 @@ export function Sourcing() {
           )}
         </CardContent>
       </Card>
+
+      {/* Demand line selection */}
+      {selectedRFQ && selectedLines.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5 text-brand-primary" />
+              {tx('选择需求行', 'Select demand lines')}
+              <span className="text-sm font-normal text-gray-500">({inquiryLineIds.length} {tx('已选', 'selected')})</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {selectedLines.map((line) => {
+              const checked = inquiryLineIds.includes(line.id);
+              return (
+                <label key={line.id} className={cn('flex cursor-pointer items-center justify-between rounded border p-3', checked && 'border-brand-primary bg-blue-50')}>
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(value) => setSelectedLineIds((previous) => value ? [...new Set([...previous, line.id])] : previous.filter((id) => id !== line.id))}
+                    />
+                    <span className="font-medium">{tx(`行 ${line.lineNo}`, `Line ${line.lineNo}`)}</span>
+                    <span className="font-mono">{line.partNumber}</span>
+                    <span className="text-sm text-gray-500">{line.quantity} {line.uom || 'EA'}</span>
+                  </div>
+                  <span className="text-sm text-gray-500">{line.requiredDate}</span>
+                </label>
+              );
+            })}
+            {selectedLines.length > 1 && inquiryLineIds.length === 0 && (
+              <p className="text-sm text-amber-700">{tx('请选择至少一条需求行后建立询价草稿。', 'Select at least one demand line before creating inquiry drafts.')}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Inventory match results */}
       {selectedRFQ && (
@@ -557,6 +607,7 @@ export function Sourcing() {
               {selectedSuppliers.length > 0 && (
                 <Button
                   onClick={() => setIsInquiryDialogOpen(true)}
+                  disabled={inquiryLineIds.length === 0}
                   className="bg-brand-primary hover:bg-brand-primary-hover"
                 >
                   <Send className="w-4 h-4 mr-1" />
@@ -616,6 +667,14 @@ export function Sourcing() {
                 <p><span className="text-gray-500">{tx('数量', 'Quantity')}:</span> {selectedRFQ?.quantity} {tx('件', 'EA')}</p>
                 <p><span className="text-gray-500">{tx('需求日期', 'Required date')}:</span> {selectedRFQ?.requiredDate}</p>
               </div>
+              {selectedLines.length > 0 && (
+                <div className="mt-3 border-t pt-2 text-sm">
+                  <p className="font-medium">{tx('将询价的需求行', 'Demand lines included')}</p>
+                  <ul className="mt-1 list-inside list-disc text-gray-600">
+                    {selectedLines.filter((line) => inquiryLineIds.includes(line.id)).map((line) => <li key={line.id}>{tx(`行 ${line.lineNo}`, `Line ${line.lineNo}`)} · {line.partNumber} · {line.quantity} {line.uom || 'EA'}</li>)}
+                  </ul>
+                </div>
+              )}
             </div>
 
             <div>

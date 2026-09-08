@@ -9,12 +9,22 @@ type Operation = {
   'x-aerolink-contract-status'?: string;
 };
 
+type Schema = {
+  $ref?: string;
+  required?: string[];
+  properties?: Record<string, any>;
+  oneOf?: Schema[];
+  allOf?: Schema[];
+  items?: Schema;
+  additionalProperties?: boolean | Schema;
+};
+
 type Contract = {
   paths: Record<string, Record<string, Operation>>;
   components: {
     requestBodies: Record<string, unknown>;
     responses: Record<string, { headers: Record<string, unknown> }>;
-    schemas: Record<string, { required?: string[]; properties?: Record<string, unknown> }>;
+    schemas: Record<string, Schema>;
   };
 };
 
@@ -24,6 +34,25 @@ const contract = JSON.parse(
 
 function operation(method: string, routePath: string) {
   return contract.paths[routePath]?.[method.toLowerCase()];
+}
+
+function resolveSchema(schema: Schema): Schema {
+  if (!schema.$ref) return schema;
+  const name = schema.$ref.split('/').pop();
+  if (!name || !contract.components.schemas[name]) {
+    throw new Error(`Unknown schema reference: ${schema.$ref}`);
+  }
+  return contract.components.schemas[name];
+}
+
+function schemaBranches(name: string): Schema[] {
+  const schema = resolveSchema(contract.components.schemas[name]);
+  return schema.oneOf?.map(resolveSchema) ?? [schema];
+}
+
+function costSourceBranches(schema: Schema): Schema[] {
+  const rules = schema.allOf?.find((item) => item.oneOf);
+  return rules?.oneOf?.map(resolveSchema) ?? [];
 }
 
 describe('OpenAPI representative contract invariants', () => {
@@ -104,7 +133,11 @@ describe('OpenAPI representative contract invariants', () => {
       expect(create.requestBody).toEqual({ $ref: `#/components/requestBodies/${resource}Create` });
       expect(create.responses['201']).toEqual({ $ref: `#/components/responses/${resource}` });
       expect(contract.components.schemas[resource].required).toBeDefined();
-      expect(contract.components.schemas[requestSchema].properties).toBeDefined();
+      const requestBranches = schemaBranches(requestSchema);
+      expect(requestBranches.length).toBeGreaterThan(0);
+      for (const requestBranch of requestBranches) {
+        expect(requestBranch.properties).toBeDefined();
+      }
     }
   });
 
@@ -415,7 +448,56 @@ describe('OpenAPI representative contract invariants', () => {
     expect(schema.required).toEqual(expect.arrayContaining(['snapshotHash', 'quantity', 'checks', 'reason', 'evidenceIds']));
     expect(schema.properties).not.toHaveProperty('reviewedById');
     expect(schema.properties).not.toHaveProperty('reviewedAt');
-    expect(contract.components.schemas.QuotationCreateRequest.properties.currency.enum).toEqual(['USD']);
+    const quotationCreate = contract.components.schemas.QuotationCreateRequest;
+    expect(quotationCreate.oneOf).toHaveLength(2);
+    const quotationBranches = schemaBranches('QuotationCreateRequest');
+    const legacy = quotationBranches.find((branch) => branch.properties?.partNumber);
+    const modern = quotationBranches.find((branch) => branch.properties?.lines);
+    if (!legacy || !modern) {
+      throw new Error('QuotationCreateRequest must expose legacy and modern branches');
+    }
+
+    // Both accepted request variants are USD-only. The modern branch also
+    // pins the value with const so callers cannot omit the mode's currency.
+    expect(legacy.properties?.currency).toMatchObject({ enum: ['USD'] });
+    expect(modern.properties?.currency).toMatchObject({ enum: ['USD'], const: 'USD' });
+
+    // Legacy requests keep scalar commercial facts and their cost evidence at
+    // the top level. A line-first request must carry those facts only inside
+    // its required lines array.
+    expect(legacy.required).toEqual(expect.arrayContaining([
+      'rfqId', 'customerId', 'partNumber', 'quantity', 'unitPrice', 'costPrice', 'costSourceType',
+    ]));
+    expect(legacy.properties).not.toHaveProperty('lines');
+    expect(modern.required).toEqual(expect.arrayContaining(['rfqId', 'customerId', 'currency', 'lines']));
+    expect(modern.properties).not.toHaveProperty('partNumber');
+    expect(modern.properties).not.toHaveProperty('quantity');
+    expect(modern.properties).not.toHaveProperty('unitPrice');
+    expect(modern.properties).not.toHaveProperty('costPrice');
+    expect(modern.properties).not.toHaveProperty('costSourceType');
+
+    const lineArray = modern.properties?.lines as Schema;
+    const line = resolveSchema(lineArray.items as Schema);
+    expect(line.required).toEqual(expect.arrayContaining([
+      'rfqLineId', 'partNumber', 'quantity', 'unitPrice', 'costPrice', 'costSourceType',
+    ]));
+    expect(line.properties).toHaveProperty('costSourceType');
+
+    const legacyCostRules = costSourceBranches(legacy);
+    const lineCostRules = costSourceBranches(line);
+    expect(legacyCostRules).toHaveLength(2);
+    expect(lineCostRules).toHaveLength(2);
+    for (const rule of [...legacyCostRules, ...lineCostRules]) {
+      expect(rule.required).toEqual(expect.arrayContaining(['costSourceType']));
+    }
+    expect(legacyCostRules.find((rule) => rule.properties?.costSourceType?.const === 'MANUAL')?.required)
+      .toEqual(expect.arrayContaining(['costSourceReason']));
+    expect(lineCostRules.find((rule) => rule.properties?.costSourceType?.const === 'MANUAL')?.required)
+      .toEqual(expect.arrayContaining(['costSourceReason']));
+    expect(legacyCostRules.find((rule) => rule.properties?.costSourceType?.enum)?.required)
+      .toEqual(expect.arrayContaining(['costSourceId']));
+    expect(lineCostRules.find((rule) => rule.properties?.costSourceType?.enum)?.required)
+      .toEqual(expect.arrayContaining(['costSourceId']));
   });
 
   it('contracts bounded AI assistance requests and response shapes', () => {

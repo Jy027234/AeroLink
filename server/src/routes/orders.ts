@@ -98,6 +98,7 @@ function buildOrderListWhere(
       OR: [
         { orderNumber: { contains: searchValue, mode: 'insensitive' } },
         { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { lines: { some: { partNumber: { contains: searchValue, mode: 'insensitive' } } } },
         { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
       ],
     });
@@ -301,6 +302,7 @@ router.get(
       orderRepository.findMany({
         where,
         include: {
+          lines: { orderBy: { lineNo: 'asc' } },
           customer: true,
           quotation: {
             select: {
@@ -353,6 +355,8 @@ router.get(
         return projectOrderResponse({
           id: o.id,
           orderNumber: o.orderNumber,
+          lineItemsMode: o.lineItemsMode,
+          lines: o.lines,
           soNumber: o.soNumber,
           poNumber: o.poNumber,
           quotationId: o.quotationId,
@@ -425,6 +429,8 @@ router.get(
       where: buildOrderListWhere(query, (req as AuthRequest).user!),
       select: {
         orderNumber: true,
+        lineItemsMode: true,
+        lines: { orderBy: { lineNo: 'asc' }, select: { lineNo: true, partNumber: true, quantity: true, uom: true, unitPrice: true, lineTotal: true, outboundQuantity: true } },
         soNumber: true,
         poNumber: true,
         partNumber: true,
@@ -456,8 +462,9 @@ router.get(
         { header: '销售订单号', value: (order) => order.soNumber },
         { header: '客户采购单号', value: (order) => order.poNumber },
         { header: '客户', value: (order) => order.customer.name },
-        { header: '件号', value: (order) => order.partNumber },
-        { header: '数量', value: (order) => order.quantity },
+        { header: '件号', value: (order) => order.lineItemsMode ? null : order.partNumber },
+        { header: '数量', value: (order) => order.lineItemsMode ? null : order.quantity },
+        { header: '订单行明细', value: (order) => order.lineItemsMode ? JSON.stringify(order.lines) : null },
         { header: '金额', value: (order) => preferredMoneyValue(order.totalAmountDecimal, order.totalAmount) ?? 0 },
         { header: '状态', value: (order) => orderStatus(order).toLowerCase() },
         { header: '交付日期', value: (order) => order.deliveryDate },
@@ -515,6 +522,7 @@ router.get(
     const order = await orderRepository.findUnique({
       where: { id: req.params.id },
       include: {
+        lines: { orderBy: { lineNo: 'asc' } },
         customer: true,
         quotation: { include: { creator: { select: { department: true } } } },
         tracking: { include: { events: true } },
@@ -656,7 +664,7 @@ router.post(
       // request won the unique constraint, return its committed order instead
       // of reporting a false conflict to a retrying caller.
       const [concurrentOrder, currentQuotation] = await Promise.all([
-        orderRepository.findUnique({ where: { quotationId }, include: { customer: true } }),
+        orderRepository.findFirst({ where: { quotationId, lineItemsMode: false }, include: { customer: true } }),
         quotationRepository.findUnique({
           where: { id: quotationId },
           include: {
@@ -930,6 +938,7 @@ router.get(
     const order = await orderRepository.findUnique({
       where: { id: req.params.id },
       include: {
+        lines: { orderBy: { lineNo: 'asc' } },
         customer: true,
         quotation: {
           select: {

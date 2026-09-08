@@ -103,4 +103,137 @@ describe('transaction line reconciliation', () => {
       'SOURCE_QUOTE_HEADER_MISMATCH',
     ]));
   });
+
+  function modernFixture(): TransactionLineReconciliationInput {
+    const modernDemand = (id: string, lineNo: number, partNumber: string, quantity: number) => ({
+      ...demandTerms,
+      id,
+      rfqId: 'modern-rfq',
+      lineNo,
+      partNumber,
+      quantity,
+      uom: 'EA',
+      conditionCode: 'NE',
+      targetPriceDecimal: '10.0000',
+      targetPriceCurrency: 'USD',
+    });
+    const manualSnapshot = (partNumber: string, quantity: number, costPrice: number, reason: string) => JSON.stringify({
+      type: 'MANUAL', id: null, currency: 'USD', costPrice, partNumber, quantity,
+      status: null, supplierId: null, capturedAt: '2026-09-08T00:00:00.000Z', reason,
+    });
+    const quotationLines = [
+      {
+        ...identity,
+        id: 'modern-ql1', quotationId: 'modern-q', lineNo: 1, rfqLineId: 'modern-rl1', sourceSupplierQuoteId: null,
+        partNumber: 'P1', quantity: 2, unitPrice: '10.0000', costPrice: '6.0000', lineTotal: '20.0000',
+        marginAmount: '8.0000', marginPercent: '40.0000', currency: 'USD', acceptedQuantity: 1, reservedQuantity: 2,
+        costSourceType: 'MANUAL', costSourceId: null, costSourceReason: 'line cost sheet',
+        costSourceSnapshotJson: manualSnapshot('P1', 2, 6, 'line cost sheet'),
+      },
+      {
+        ...identity,
+        id: 'modern-ql2', quotationId: 'modern-q', lineNo: 2, rfqLineId: 'modern-rl2', sourceSupplierQuoteId: null,
+        partNumber: 'P2', quantity: 3, unitPrice: '20.0000', costPrice: '10.0000', lineTotal: '60.0000',
+        marginAmount: '30.0000', marginPercent: '50.0000', currency: 'USD', acceptedQuantity: 2, reservedQuantity: 0,
+        costSourceType: 'MANUAL', costSourceId: null, costSourceReason: 'line cost sheet',
+        costSourceSnapshotJson: manualSnapshot('P2', 3, 10, 'line cost sheet'),
+      },
+    ];
+    const orderLines = [
+      {
+        ...identity,
+        id: 'modern-ol1', orderId: 'modern-o', lineNo: 1, quotationLineId: 'modern-ql1', partNumber: 'P1', quantity: 1,
+        unitPrice: '10.0000', lineTotal: '10.0000', currency: 'USD', outboundQuantity: 0, outboundStatus: 'PENDING',
+      },
+      {
+        ...identity,
+        id: 'modern-ol2', orderId: 'modern-o', lineNo: 2, quotationLineId: 'modern-ql2', partNumber: 'P2', quantity: 2,
+        unitPrice: '20.0000', lineTotal: '40.0000', currency: 'USD', outboundQuantity: 0, outboundStatus: 'PENDING',
+      },
+    ];
+    return {
+      rfqs: [{
+        ...demandTerms, id: 'modern-rfq', partNumber: 'P1', quantity: 5, uom: 'EA', conditionCode: 'NE', targetPrice: 10,
+        targetPriceCurrency: 'USD', lineItemsMode: true, lines: [
+          modernDemand('modern-rl1', 1, 'P1', 4), modernDemand('modern-rl2', 2, 'P2', 6),
+        ],
+      }],
+      inquiries: [], inquiryItems: [], supplierQuotes: [],
+      quotations: [{
+        ...identity, id: 'modern-q', lineItemsMode: true, rfqId: 'modern-rfq', partNumber: 'P1', quantity: 5,
+        unitPrice: 0, unitPriceDecimal: '0.0000', totalPrice: 80, totalPriceDecimal: '80.0000', costPrice: 0,
+        costPriceDecimal: '0.0000', currency: 'USD', reservedQuantity: 0, costSourceType: null, costSourceId: null,
+        lines: quotationLines,
+      }],
+      orders: [{
+        ...identity, id: 'modern-o', lineItemsMode: true, quotationId: 'modern-q', partNumber: 'P1', quantity: 3,
+        totalAmount: 50, totalAmountDecimal: '50.0000', outboundQuantity: 0, outboundStatus: 'PENDING', lines: orderLines,
+      }],
+    };
+  }
+
+  it('reconciles modern multi-line commercial totals and accepted quantities per line', () => {
+    const input = modernFixture();
+    expect(reconcileTransactionLines(input)).toMatchObject({ status: 'PASS', blockers: 0 });
+
+    // Reservation/partial acceptance are mutable state and must not make the
+    // immutable commercial line or cost snapshot fail reconciliation.
+    input.quotations[0].lines[0].reservedQuantity = 0;
+    expect(reconcileTransactionLines(input)).toMatchObject({ status: 'PASS', blockers: 0 });
+  });
+
+  it('blocks a modern quotation line whose supplier source points at another RFQ line', () => {
+    const input = modernFixture();
+    input.quotations[0].lines[0].sourceSupplierQuoteId = 'sq-cross-line';
+    input.quotations[0].lines[0].costSourceType = 'SUPPLIER_QUOTE';
+    input.quotations[0].lines[0].costSourceId = 'sq-cross-line';
+    input.quotations[0].lines[0].costSourceReason = null;
+    input.quotations[0].lines[0].costSourceSnapshotJson = JSON.stringify({
+      type: 'SUPPLIER_QUOTE', id: 'sq-cross-line', currency: 'USD', costPrice: 6,
+      partNumber: 'P1', quantity: 2, status: 'pending', supplierId: 'supplier-1',
+      capturedAt: '2026-09-08T00:00:00.000Z', reason: null,
+    });
+    input.supplierQuotes = [{
+      id: 'sq-cross-line', inquiryId: null, rfqId: 'modern-rfq', rfqLineId: 'modern-rl2', inquiryItemId: null,
+      supplierId: 'supplier-1', partNumber: 'P1', quantity: 2, unitPrice: 6, unitPriceDecimal: '6.0000',
+      totalPrice: 12, totalPriceDecimal: '12.0000', currency: 'USD',
+    }];
+    const report = reconcileTransactionLines(input);
+    expect(report.status).toBe('BLOCKED');
+    expect(report.issues).toContainEqual(expect.objectContaining({ code: 'SOURCE_QUOTE_MISMATCH', id: 'modern-ql1' }));
+    // A correctly linked source may change price/availability after approval.
+    // Historical line costs remain governed by the captured evidence.
+    Object.assign(input.supplierQuotes[0], {
+      rfqLineId: 'modern-rl1', quantity: 1, unitPrice: 7, unitPriceDecimal: '7.0000', totalPrice: 7, totalPriceDecimal: '7.0000',
+    });
+    expect(reconcileTransactionLines(input)).toMatchObject({ status: 'PASS', blockers: 0 });
+    const captured = JSON.parse(input.quotations[0].lines[0].costSourceSnapshotJson!);
+    input.quotations[0].lines[0].costSourceSnapshotJson = JSON.stringify({ ...captured, costPrice: 7 });
+    expect(reconcileTransactionLines(input).issues).toContainEqual(expect.objectContaining({ code: 'LINE_COST_SNAPSHOT_INVALID' }));
+  });
+
+  it('blocks a modern line whose supplier relation disagrees with its cost source projection', () => {
+    const input = modernFixture();
+    const line = input.quotations[0].lines[0];
+    line.costSourceType = 'SUPPLIER_QUOTE';
+    line.costSourceId = 'sq-cost-source';
+    line.sourceSupplierQuoteId = 'sq-relation';
+    line.costSourceReason = null;
+    line.costSourceSnapshotJson = JSON.stringify({
+      type: 'SUPPLIER_QUOTE', id: 'sq-cost-source', currency: 'USD', costPrice: 6,
+      partNumber: 'P1', quantity: 2, status: 'pending', supplierId: 'supplier-1',
+      capturedAt: '2026-09-08T00:00:00.000Z', reason: null,
+    });
+    const report = reconcileTransactionLines(input);
+    expect(report.status).toBe('BLOCKED');
+    expect(report.issues).toContainEqual(expect.objectContaining({ code: 'SOURCE_QUOTE_COST_SOURCE_MISMATCH', id: 'modern-ql1' }));
+    expect(report.issues).toContainEqual(expect.objectContaining({ code: 'LINE_COST_SNAPSHOT_INVALID', id: 'modern-ql1' }));
+  });
+
+  it('blocks modern lines without an immutable cost snapshot', () => {
+    const input = modernFixture();
+    input.quotations[0].lines[1].costSourceSnapshotJson = null;
+    const report = reconcileTransactionLines(input);
+    expect(report.issues).toContainEqual(expect.objectContaining({ code: 'MISSING_LINE_COST_SNAPSHOT', id: 'modern-ql2' }));
+  });
 });

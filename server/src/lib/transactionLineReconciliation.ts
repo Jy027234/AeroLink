@@ -1,5 +1,6 @@
 import { calculateMoneyTotal, normalizeMoney, type MoneyInput } from './money.js';
 import { isExplicitDemandPart } from './transactionLinePreflight.js';
+import { assertLineCostSnapshot } from './lineQuotationPolicy.js';
 
 export type ReconciliationIssue = {
   entity: string;
@@ -40,6 +41,7 @@ export type RfqReconciliationRow = DemandTerms & {
   targetPriceCurrency: string;
   alternatePartNumbers?: string | null;
   lines: RfqLineReconciliationRow[];
+  lineItemsMode?: boolean;
 };
 
 export type InquiryReconciliationRow = { id: string; supplierId: string; rfqId: string | null };
@@ -85,6 +87,11 @@ export type QuotationLineReconciliationRow = PhysicalIdentity & {
   currency: string;
   acceptedQuantity: number;
   reservedQuantity: number;
+  costSourceType?: string | null;
+  costSourceId?: string | null;
+  costSourceReason?: string | null;
+  costSourceSnapshotJson?: string | null;
+  costSourceCapturedAt?: Date | null;
 };
 export type QuotationReconciliationRow = PhysicalIdentity & {
   id: string;
@@ -102,6 +109,7 @@ export type QuotationReconciliationRow = PhysicalIdentity & {
   costSourceType: string | null;
   costSourceId: string | null;
   lines: QuotationLineReconciliationRow[];
+  lineItemsMode?: boolean;
 };
 
 export type OrderLineReconciliationRow = PhysicalIdentity & {
@@ -127,6 +135,7 @@ export type OrderReconciliationRow = PhysicalIdentity & {
   outboundQuantity: number;
   outboundStatus: string;
   lines: OrderLineReconciliationRow[];
+  lineItemsMode?: boolean;
 };
 
 export type TransactionLineReconciliationInput = {
@@ -181,10 +190,41 @@ export function reconcileTransactionLines(input: TransactionLineReconciliationIn
   const quotationById = new Map(input.quotations.map(row => [row.id, row]));
   const quotationLineById = new Map<string, QuotationLineReconciliationRow>();
   const supplierQuoteById = new Map(input.supplierQuotes.map(row => [row.id, row]));
+  const modernRfqIds = new Set(input.rfqs.filter(row => row.lineItemsMode).map(row => row.id));
+  const modernRfqLineIds = new Set(
+    input.rfqs.filter(row => row.lineItemsMode).flatMap(row => row.lines.map(line => line.id)),
+  );
+  const acceptedByQuotationLine = new Map<string, number>();
   const acceptedByQuotation = new Map<string, number>();
-  for (const order of input.orders) acceptedByQuotation.set(order.quotationId, (acceptedByQuotation.get(order.quotationId) ?? 0) + order.quantity);
+  for (const order of input.orders) {
+    acceptedByQuotation.set(order.quotationId, (acceptedByQuotation.get(order.quotationId) ?? 0) + order.quantity);
+    for (const line of order.lines) {
+      acceptedByQuotationLine.set(line.quotationLineId, (acceptedByQuotationLine.get(line.quotationLineId) ?? 0) + line.quantity);
+    }
+  }
 
   for (const rfq of input.rfqs) {
+    if (rfq.lineItemsMode) {
+      if (rfq.lines.length === 0) {
+        add('rfqs', rfq.id, 'MODERN_RFQ_LINES_MISSING');
+        continue;
+      }
+      const lineNumbers = new Set<number>();
+      const lineIds = new Set<string>();
+      for (const line of rfq.lines) {
+        if (lineIds.has(line.id)) add('rfqLines', line.id, 'DUPLICATE_RFQ_LINE_ID');
+        lineIds.add(line.id);
+        if (lineNumbers.has(line.lineNo)) add('rfqLines', line.id, 'DUPLICATE_RFQ_LINE_NO');
+        lineNumbers.add(line.lineNo);
+        rfqLineById.set(line.id, line);
+        if (line.rfqId !== rfq.id) add('rfqLines', line.id, 'RFQ_OWNER_MISMATCH');
+        if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0) add('rfqLines', line.id, 'INVALID_QUANTITY');
+        if (!line.partNumber.trim()) add('rfqLines', line.id, 'MISSING_PART_NUMBER');
+        if (line.targetPriceCurrency !== 'USD') add('rfqLines', line.id, 'NON_USD_TARGET', 'REVIEW');
+        if (!Number.isFinite(line.requiredDate.getTime())) add('rfqLines', line.id, 'INVALID_REQUIRED_DATE');
+      }
+      continue;
+    }
     const line = oneLine(rfq.lines, 'rfqs', rfq.id, issues);
     if (!line) continue;
     rfqLineById.set(line.id, line);
@@ -229,13 +269,19 @@ export function reconcileTransactionLines(input: TransactionLineReconciliationIn
   for (const quote of input.supplierQuotes) {
     if (quote.currency === null) add('supplierQuotes', quote.id, 'SUPPLIER_QUOTE_CURRENCY_UNREVIEWED', 'REVIEW');
     else if (quote.currency !== 'USD') add('supplierQuotes', quote.id, 'NON_USD_SUPPLIER_QUOTE');
+    if (quote.rfqId && modernRfqIds.has(quote.rfqId) && !quote.rfqLineId && rfqById.get(quote.rfqId)?.lines.length !== 1) {
+      add('supplierQuotes', quote.id, 'SUPPLIER_QUOTE_LINE_REQUIRED');
+    }
     if (quote.rfqLineId) {
       const line = rfqLineById.get(quote.rfqLineId);
       if (!line) add('supplierQuotes', quote.id, 'MISSING_RFQ_LINE');
       else {
         const rfq = rfqById.get(line.rfqId);
         if (quote.rfqId !== line.rfqId) add('supplierQuotes', quote.id, 'SUPPLIER_QUOTE_RFQ_OWNER_MISMATCH');
-        if (!rfq || !isExplicitDemandPart(rfq, quote.partNumber) || quote.quantity > line.quantity) add('supplierQuotes', quote.id, 'SUPPLIER_QUOTE_RFQ_FACT_MISMATCH');
+        const partAllowed = modernRfqLineIds.has(line.id)
+          ? isExplicitDemandPart(line, quote.partNumber)
+          : Boolean(rfq && isExplicitDemandPart(rfq, quote.partNumber));
+        if (!partAllowed || quote.quantity > line.quantity) add('supplierQuotes', quote.id, 'SUPPLIER_QUOTE_RFQ_FACT_MISMATCH');
       }
     }
     if (quote.inquiryItemId) {
@@ -262,6 +308,77 @@ export function reconcileTransactionLines(input: TransactionLineReconciliationIn
   }
 
   for (const quotation of input.quotations) {
+    if (quotation.lineItemsMode) {
+      const rfq = rfqById.get(quotation.rfqId);
+      if (!rfq) add('quotations', quotation.id, 'MISSING_RFQ');
+      if (quotation.lines.length === 0) {
+        add('quotations', quotation.id, 'MODERN_QUOTATION_LINES_MISSING');
+        continue;
+      }
+      if (quotation.currency !== 'USD') add('quotations', quotation.id, 'NON_USD_QUOTATION');
+      let quantityTotal = 0;
+      let priceTotal = normalizeMoney(0);
+      const lineNumbers = new Set<number>();
+      for (const line of quotation.lines) {
+        quotationLineById.set(line.id, line);
+        if (lineNumbers.has(line.lineNo)) add('quotationLines', line.id, 'DUPLICATE_QUOTATION_LINE_NO');
+        lineNumbers.add(line.lineNo);
+        quantityTotal += line.quantity;
+        const rfqLine = rfqLineById.get(line.rfqLineId);
+        if (line.quotationId !== quotation.id) add('quotationLines', line.id, 'QUOTATION_OWNER_MISMATCH');
+        if (!rfqLine || rfqLine.rfqId !== quotation.rfqId) add('quotationLines', line.id, 'QUOTATION_RFQ_LINE_OWNER_MISMATCH');
+        if (rfqLine && !isExplicitDemandPart(rfqLine, line.partNumber)) add('quotationLines', line.id, 'QUOTATION_PART_NOT_IN_RFQ');
+        if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0) add('quotationLines', line.id, 'INVALID_QUANTITY');
+        if (rfqLine && line.quantity > rfqLine.quantity) add('quotationLines', line.id, 'QUOTATION_QUANTITY_EXCEEDS_RFQ_LINE');
+        if (line.currency !== 'USD' || line.currency !== quotation.currency) add('quotationLines', line.id, 'NON_USD_OR_CURRENCY_MISMATCH');
+        const expectedSourceSupplierQuoteId = line.costSourceType === 'SUPPLIER_QUOTE' ? line.costSourceId : null;
+        if ((line.sourceSupplierQuoteId ?? null) !== (expectedSourceSupplierQuoteId ?? null)) {
+          add('quotationLines', line.id, 'SOURCE_QUOTE_COST_SOURCE_MISMATCH');
+        }
+        if (line.acceptedQuantity < 0 || line.acceptedQuantity > line.quantity) add('quotationLines', line.id, 'INVALID_ACCEPTED_QUANTITY');
+        if (line.reservedQuantity < 0 || line.reservedQuantity > line.quantity) add('quotationLines', line.id, 'INVALID_RESERVED_QUANTITY');
+        const accepted = acceptedByQuotationLine.get(line.id) ?? 0;
+        if (line.acceptedQuantity !== accepted) add('quotationLines', line.id, 'ACCEPTED_QUANTITY_ORDER_MISMATCH');
+        try {
+          const expectedTotal = calculateMoneyTotal(line.unitPrice, line.quantity);
+          const expectedCost = calculateMoneyTotal(line.costPrice, line.quantity);
+          const expectedMargin = normalizeMoney(expectedTotal).minus(expectedCost);
+          priceTotal = priceTotal.plus(expectedTotal);
+          if (!sameMoney(line.lineTotal, expectedTotal)) add('quotationLines', line.id, 'LINE_TOTAL_MISMATCH');
+          if (!sameMoney(line.marginAmount, expectedMargin)) add('quotationLines', line.id, 'MARGIN_AMOUNT_MISMATCH');
+          if (!sameMoney(line.marginPercent, calculatedMarginPercent(line.lineTotal, line.marginAmount))) add('quotationLines', line.id, 'MARGIN_PERCENT_MISMATCH');
+        } catch {
+          add('quotationLines', line.id, 'INVALID_AMOUNT');
+        }
+        if (!line.costSourceSnapshotJson) {
+          add('quotationLines', line.id, 'MISSING_LINE_COST_SNAPSHOT');
+        } else {
+          try {
+            assertLineCostSnapshot(line);
+          } catch {
+            add('quotationLines', line.id, 'LINE_COST_SNAPSHOT_INVALID');
+          }
+        }
+        if (line.sourceSupplierQuoteId) {
+          const source = supplierQuoteById.get(line.sourceSupplierQuoteId);
+          const sourceLineMatches = source?.rfqLineId === line.rfqLineId
+            || (source?.rfqLineId === null && rfq?.lines.length === 1 && rfq.lines[0].id === line.rfqLineId);
+          if (!source
+            || source.rfqId !== quotation.rfqId
+            || !sourceLineMatches
+            || source.partNumber !== line.partNumber) {
+            add('quotationLines', line.id, 'SOURCE_QUOTE_MISMATCH');
+          }
+        }
+      }
+      if (quantityTotal !== quotation.quantity) add('quotations', quotation.id, 'QUOTATION_QUANTITY_LINES_MISMATCH');
+      if (quotation.totalPriceDecimal === null) {
+        add('quotations', quotation.id, 'MISSING_AMOUNT_SHADOW');
+      } else if (!sameMoney(priceTotal, quotation.totalPriceDecimal)) {
+        add('quotations', quotation.id, 'QUOTATION_TOTAL_LINES_MISMATCH');
+      }
+      continue;
+    }
     const line = oneLine(quotation.lines, 'quotations', quotation.id, issues);
     if (!line) continue;
     quotationLineById.set(line.id, line);
@@ -307,6 +424,52 @@ export function reconcileTransactionLines(input: TransactionLineReconciliationIn
   }
 
   for (const order of input.orders) {
+    if (order.lineItemsMode) {
+      const quotation = quotationById.get(order.quotationId);
+      if (!quotation) add('orders', order.id, 'MISSING_QUOTATION');
+      if (order.lines.length === 0) {
+        add('orders', order.id, 'MODERN_ORDER_LINES_MISSING');
+        continue;
+      }
+      let quantityTotal = 0;
+      let amountTotal = normalizeMoney(0);
+      let outboundTotal = 0;
+      const lineNumbers = new Set<number>();
+      for (const line of order.lines) {
+        if (lineNumbers.has(line.lineNo)) add('orderLines', line.id, 'DUPLICATE_ORDER_LINE_NO');
+        lineNumbers.add(line.lineNo);
+        quantityTotal += line.quantity;
+        outboundTotal += line.outboundQuantity;
+        const quotationLine = quotationLineById.get(line.quotationLineId);
+        if (line.orderId !== order.id) add('orderLines', line.id, 'ORDER_OWNER_MISMATCH');
+        if (!quotationLine || quotationLine.quotationId !== order.quotationId) add('orderLines', line.id, 'ORDER_QUOTATION_LINE_OWNER_MISMATCH');
+        if (quotationLine && line.partNumber !== quotationLine.partNumber) add('orderLines', line.id, 'ORDER_PART_MISMATCH');
+        if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0) add('orderLines', line.id, 'INVALID_QUANTITY');
+        if (quotationLine && line.quantity > quotationLine.quantity) add('orderLines', line.id, 'ORDER_QUANTITY_EXCEEDS_QUOTATION_LINE');
+        if (line.currency !== 'USD') add('orderLines', line.id, 'NON_USD_ORDER_LINE');
+        try {
+          const expectedTotal = calculateMoneyTotal(line.unitPrice, line.quantity);
+          amountTotal = amountTotal.plus(expectedTotal);
+          if (!sameMoney(line.lineTotal, expectedTotal)) add('orderLines', line.id, 'LINE_TOTAL_MISMATCH');
+        } catch {
+          add('orderLines', line.id, 'INVALID_AMOUNT');
+        }
+        if (line.outboundQuantity < 0 || line.outboundQuantity > line.quantity) add('orderLines', line.id, 'INVALID_OUTBOUND_QUANTITY');
+        if (!['PENDING', 'PARTIAL', 'COMPLETED'].includes(line.outboundStatus)) add('orderLines', line.id, 'INVALID_OUTBOUND_STATUS');
+        const expectedOutboundStatus = line.outboundQuantity === 0 ? 'PENDING' : line.outboundQuantity === line.quantity ? 'COMPLETED' : 'PARTIAL';
+        if (line.outboundStatus !== expectedOutboundStatus) add('orderLines', line.id, 'OUTBOUND_STATUS_QUANTITY_MISMATCH');
+      }
+      if (quantityTotal !== order.quantity) add('orders', order.id, 'ORDER_QUANTITY_LINES_MISMATCH');
+      if (order.totalAmountDecimal === null) {
+        add('orders', order.id, 'MISSING_AMOUNT_SHADOW');
+      } else if (!sameMoney(amountTotal, order.totalAmountDecimal)) {
+        add('orders', order.id, 'ORDER_TOTAL_LINES_MISMATCH');
+      }
+      if (outboundTotal !== order.outboundQuantity) add('orders', order.id, 'OUTBOUND_HEADER_MISMATCH');
+      const expectedOrderOutboundStatus = outboundTotal === 0 ? 'PENDING' : outboundTotal === order.quantity ? 'COMPLETED' : 'PARTIAL';
+      if (order.outboundStatus !== expectedOrderOutboundStatus) add('orders', order.id, 'OUTBOUND_STATUS_QUANTITY_MISMATCH');
+      continue;
+    }
     const line = oneLine(order.lines, 'orders', order.id, issues);
     if (!line) continue;
     const quotation = quotationById.get(order.quotationId);

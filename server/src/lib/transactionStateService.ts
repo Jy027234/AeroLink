@@ -125,7 +125,14 @@ export async function transitionRfqStatus(tx: StateTransactionClient, transition
     throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
   }
 
-  await syncRfqLineState(tx, updated);
+  if (updated.lineItemsMode) {
+    // Terminal header transitions only settle still-open demand lines.  A
+    // completed line must not be reopened as cancelled/completed, and a line
+    // already cancelled must retain that audit state when the header moves.
+    if (['COMPLETED', 'CANCELLED'].includes(nextStatus)) {
+      await tx.rfqLine.updateMany({ where: { rfqId: updated.id, status: 'OPEN' }, data: { status: nextStatus } });
+    }
+  } else await syncRfqLineState(tx, updated);
 
   await recordStatusHistory(tx, {
     entityType: 'RFQ',
@@ -171,7 +178,14 @@ export async function transitionQuotationStatus(tx: StateTransactionClient, tran
     throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   }
 
-  await syncQuotationLineState(tx, updated);
+  if (updated.lineItemsMode) {
+    if (nextStatus === 'WITHDRAWN') {
+      // WITHDRAWN is a header-only legacy status; quotation_lines has no such
+      // database value.  Unaccepted lines are cancelled while accepted lines
+      // retain their accepted/partial-accepted state.
+      await tx.quotationLine.updateMany({ where: { quotationId: updated.id, acceptedQuantity: 0 }, data: { status: 'CANCELLED' } });
+    }
+  } else await syncQuotationLineState(tx, updated);
 
   await recordStatusHistory(tx, {
     entityType: 'QUOTATION',
@@ -217,7 +231,7 @@ export async function transitionOrderStatus(tx: StateTransactionClient, transiti
     throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
   }
 
-  await syncOrderLineState(tx, updated);
+  if (!updated.lineItemsMode) await syncOrderLineState(tx, updated);
 
   await recordStatusHistory(tx, {
     entityType: 'ORDER',

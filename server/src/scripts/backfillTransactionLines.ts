@@ -20,14 +20,14 @@ type Snapshot = {
 
 async function readSnapshot(db: DbClient): Promise<Snapshot> {
   const [rfqs, inquiries, inquiryItems, supplierQuotes, quotations, orders, rfqLines, quotationLines, orderLines] = await Promise.all([
-    db.rFQ.findMany({ select: { id: true, partNumber: true, quantity: true, uom: true, conditionCode: true, description: true, serialNumber: true, batchNumber: true, alternatePartNumbers: true, certificateRequired: true, certificateType: true, requiredDate: true, leadTimeDays: true, targetPrice: true, targetPriceCurrency: true, status: true } }),
+    db.rFQ.findMany({ select: { id: true, lineItemsMode: true, partNumber: true, quantity: true, uom: true, conditionCode: true, description: true, serialNumber: true, batchNumber: true, alternatePartNumbers: true, certificateRequired: true, certificateType: true, requiredDate: true, leadTimeDays: true, targetPrice: true, targetPriceCurrency: true, status: true } }),
     db.inquiry.findMany({ select: { id: true, supplierId: true, rfqId: true } }),
     db.inquiryItem.findMany({ select: { id: true, inquiryId: true, lineNo: true, rfqLineId: true, partNumber: true, quantity: true, requiredDate: true, certificateRequired: true } }),
     db.supplierQuote.findMany({ select: { id: true, inquiryId: true, rfqId: true, rfqLineId: true, inquiryItemId: true, supplierId: true, partNumber: true, description: true, quantity: true, unitPrice: true, unitPriceDecimal: true, totalPrice: true, totalPriceDecimal: true, currency: true, validUntil: true, status: true, isWinner: true } }),
-    db.quotation.findMany({ select: { id: true, rfqId: true, partNumber: true, quantity: true, unitPrice: true, unitPriceDecimal: true, totalPrice: true, totalPriceDecimal: true, costPrice: true, costPriceDecimal: true, currency: true, costSourceType: true, costSourceId: true, reservedQuantity: true, inventoryDetailId: true, serialNumber: true, batchNumber: true, status: true } }),
-    db.order.findMany({ select: { id: true, quotationId: true, partNumber: true, quantity: true, totalAmount: true, totalAmountDecimal: true, outboundQuantity: true, outboundStatus: true, inventoryDetailId: true, serialNumber: true, batchNumber: true } }),
+    db.quotation.findMany({ select: { id: true, lineItemsMode: true, rfqId: true, partNumber: true, quantity: true, unitPrice: true, unitPriceDecimal: true, totalPrice: true, totalPriceDecimal: true, costPrice: true, costPriceDecimal: true, currency: true, costSourceType: true, costSourceId: true, reservedQuantity: true, inventoryDetailId: true, serialNumber: true, batchNumber: true, status: true } }),
+    db.order.findMany({ select: { id: true, lineItemsMode: true, quotationId: true, partNumber: true, quantity: true, totalAmount: true, totalAmountDecimal: true, outboundQuantity: true, outboundStatus: true, inventoryDetailId: true, serialNumber: true, batchNumber: true } }),
     db.rfqLine.findMany({ select: { id: true, rfqId: true, lineNo: true, partNumber: true, quantity: true, uom: true, conditionCode: true, description: true, serialNumber: true, batchNumber: true, alternatePartNumbers: true, certificateRequired: true, certificateType: true, requiredDate: true, leadTimeDays: true, targetPriceDecimal: true, targetPriceCurrency: true, status: true } }),
-    db.quotationLine.findMany({ select: { id: true, quotationId: true, lineNo: true, rfqLineId: true, sourceSupplierQuoteId: true, partNumber: true, description: true, uom: true, quantity: true, unitPrice: true, costPrice: true, lineTotal: true, marginAmount: true, marginPercent: true, currency: true, status: true, acceptedQuantity: true, reservedQuantity: true, inventoryDetailId: true, serialNumber: true, batchNumber: true } }),
+    db.quotationLine.findMany({ select: { id: true, quotationId: true, lineNo: true, rfqLineId: true, sourceSupplierQuoteId: true, costSourceType: true, costSourceId: true, costSourceReason: true, costSourceSnapshotJson: true, costSourceCapturedAt: true, partNumber: true, description: true, uom: true, quantity: true, unitPrice: true, costPrice: true, lineTotal: true, marginAmount: true, marginPercent: true, currency: true, status: true, acceptedQuantity: true, reservedQuantity: true, inventoryDetailId: true, serialNumber: true, batchNumber: true } }),
     db.orderLine.findMany({ select: { id: true, orderId: true, lineNo: true, quotationLineId: true, partNumber: true, uom: true, quantity: true, unitPrice: true, lineTotal: true, currency: true, outboundQuantity: true, outboundStatus: true, inventoryDetailId: true, serialNumber: true, batchNumber: true } }),
   ]);
 
@@ -40,12 +40,12 @@ async function readSnapshot(db: DbClient): Promise<Snapshot> {
 
   const input: TransactionLineBackfillInput = {
     preflight: {
-      rfqs: rfqs.map(({ id, partNumber, quantity, requiredDate, certificateRequired, targetPriceCurrency, alternatePartNumbers }) => ({ id, partNumber, quantity, requiredDate, certificateRequired, targetPriceCurrency, alternatePartNumbers })),
-      inquiries: inquiries.map(({ id, supplierId }) => ({ id, supplierId })),
+      rfqs: rfqs.map(({ id, lineItemsMode, partNumber, quantity, requiredDate, certificateRequired, targetPriceCurrency, alternatePartNumbers }) => ({ id, lineItemsMode, partNumber, quantity, requiredDate, certificateRequired, targetPriceCurrency, alternatePartNumbers })),
+      inquiries: inquiries.map(({ id, supplierId, rfqId }) => ({ id, supplierId, rfqId })),
       inquiryItems: inquiryItems.map(({ id, inquiryId, partNumber, quantity, requiredDate, certificateRequired }) => ({ id, inquiryId, partNumber, quantity, requiredDate, certificateRequired })),
       supplierQuotes: supplierQuotes.map(({ id, inquiryId, rfqId, supplierId, partNumber, quantity, unitPrice, unitPriceDecimal, totalPrice, totalPriceDecimal }) => ({ id, inquiryId, rfqId, supplierId, partNumber, quantity, unitPrice, unitPriceDecimal, totalPrice, totalPriceDecimal })),
-      quotations: quotations.map(({ id, rfqId, partNumber, quantity, unitPrice, unitPriceDecimal, totalPrice, totalPriceDecimal, costPrice, costPriceDecimal, currency }) => ({ id, rfqId, partNumber, quantity, unitPrice, unitPriceDecimal, totalPrice, totalPriceDecimal, costPrice, costPriceDecimal, currency })),
-      orders: orders.map(({ id, quotationId, partNumber, quantity, totalAmount, totalAmountDecimal, outboundQuantity }) => ({ id, quotationId, partNumber, quantity, totalAmount, totalAmountDecimal, outboundQuantity })),
+      quotations: quotations.map(({ id, lineItemsMode, rfqId, partNumber, quantity, unitPrice, unitPriceDecimal, totalPrice, totalPriceDecimal, costPrice, costPriceDecimal, currency }) => ({ id, lineItemsMode, rfqId, partNumber, quantity, unitPrice, unitPriceDecimal, totalPrice, totalPriceDecimal, costPrice, costPriceDecimal, currency })),
+      orders: orders.map(({ id, lineItemsMode, quotationId, partNumber, quantity, totalAmount, totalAmountDecimal, outboundQuantity }) => ({ id, lineItemsMode, quotationId, partNumber, quantity, totalAmount, totalAmountDecimal, outboundQuantity })),
     },
     rfqs,
     inquiries,

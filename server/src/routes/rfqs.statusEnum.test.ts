@@ -8,20 +8,25 @@ describe('RFQ status enum shadows', () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    rfqCreateMock = vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
-      id: 'rfq-enum-001',
-      ...data,
-      version: 1,
-      requiredDate: new Date('2026-08-01T00:00:00.000Z'),
-      responseDeadline: null,
-      createdAt: new Date('2026-07-16T00:00:00.000Z'),
-      customer: { name: '中国国航' },
-      lines: [{
-        ...(data.lines as { create: Record<string, unknown> }).create,
-        id: 'rfq-line-001', rfqId: 'rfq-enum-001', status: 'OPEN',
-        createdAt: new Date('2026-07-16T00:00:00.000Z'), updatedAt: new Date('2026-07-16T00:00:00.000Z'),
-      }],
-    }));
+    rfqCreateMock = vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      const nestedLines = data.lines as { create?: Record<string, unknown> | Record<string, unknown>[] } | undefined;
+      const lineCreate = Array.isArray(nestedLines?.create) ? nestedLines.create[0] : nestedLines?.create;
+      return {
+        id: 'rfq-enum-001',
+        ...data,
+        version: 1,
+        requiredDate: new Date('2026-08-01T00:00:00.000Z'),
+        responseDeadline: null,
+        createdAt: new Date('2026-07-16T00:00:00.000Z'),
+        customer: { name: '中国国航' },
+        lines: [{
+          ...lineCreate,
+          id: 'rfq-line-001', rfqId: 'rfq-enum-001', status: 'OPEN',
+          requiredDate: new Date('2026-08-01T00:00:00.000Z'),
+          createdAt: new Date('2026-07-16T00:00:00.000Z'), updatedAt: new Date('2026-07-16T00:00:00.000Z'),
+        }],
+      };
+    });
     const tx = {
       rFQ: { create: rfqCreateMock },
     };

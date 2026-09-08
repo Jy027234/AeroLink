@@ -221,6 +221,7 @@ describeInquiryAcceptance('RFQ lines and inquiry provenance', () => {
     await page.locator('form button[type="submit"]').click();
     await page.waitForTimeout(1200);
     await page.goto(`${webBase}/sourcing`);
+    await page.getByPlaceholder('搜索需求单号、件号或客户...').fill(primaryRfq.partNumber);
     await expect(page.getByText(primaryRfq.partNumber, { exact: true })).toBeVisible();
 
     await page.locator('tr').filter({ hasText: primaryRfq.partNumber }).first().click();

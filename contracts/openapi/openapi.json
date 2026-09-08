@@ -1323,7 +1323,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 160
+          "line": 170
         },
         "security": [
           {
@@ -1448,7 +1448,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 354
+          "line": 364
         },
         "security": [
           {
@@ -1514,7 +1514,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 225
+          "line": 235
         },
         "security": [
           {
@@ -1681,7 +1681,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 284
+          "line": 294
         },
         "security": [
           {
@@ -1741,7 +1741,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 319
+          "line": 329
         },
         "security": [
           {
@@ -1799,7 +1799,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 456
+          "line": 468
         },
         "security": [
           {
@@ -1873,7 +1873,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 534
+          "line": 549
         },
         "security": [
           {
@@ -1947,7 +1947,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 311
+          "line": 312
         },
         "security": [
           {
@@ -2050,7 +2050,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 659
+          "line": 662
         },
         "security": [
           {
@@ -2116,7 +2116,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 476
+          "line": 478
         },
         "security": [
           {
@@ -2261,7 +2261,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 538
+          "line": 540
         },
         "security": [
           {
@@ -2321,7 +2321,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 573
+          "line": 575
         },
         "security": [
           {
@@ -2381,7 +2381,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 719
+          "line": 724
         },
         "security": [
           {
@@ -2455,7 +2455,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 769
+          "line": 774
         },
         "security": [
           {
@@ -2529,7 +2529,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 825
+          "line": 830
         },
         "security": [
           {
@@ -2603,7 +2603,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 883
+          "line": 888
         },
         "security": [
           {
@@ -2677,7 +2677,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 948
+          "line": 953
         },
         "security": [
           {
@@ -2751,7 +2751,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 1021
+          "line": 1027
         },
         "security": [
           {
@@ -2914,7 +2914,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 552
+          "line": 554
         },
         "security": [
           {
@@ -2980,7 +2980,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 413
+          "line": 414
         },
         "security": [
           {
@@ -3125,7 +3125,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 472
+          "line": 473
         },
         "security": [
           {
@@ -3185,7 +3185,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 511
+          "line": 512
         },
         "security": [
           {
@@ -3243,7 +3243,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 776
+          "line": 778
         },
         "security": [
           {
@@ -3317,7 +3317,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 722
+          "line": 724
         },
         "security": [
           {
@@ -3391,7 +3391,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 889
+          "line": 891
         },
         "security": [
           {
@@ -3451,7 +3451,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 926
+          "line": 928
         },
         "security": [
           {
@@ -30755,9 +30755,49 @@
           },
           "reason": {
             "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/QuotationAcceptanceLine"
+            }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "lines": false
+                }
+              },
+              {
+                "required": [
+                  "version",
+                  "lines"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "lines": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "items": {
+                      "$ref": "#/components/schemas/QuotationAcceptanceLine"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "Legacy acceptance remains scalar. Modern quotation acceptance requires an optimistic-lock version and explicit line quantities."
       },
       "InventoryArrayEnvelope": {
         "type": "object",
@@ -30981,9 +31021,15 @@
           "createdBy": {
             "type": "string"
           },
+          "lineItemsMode": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "True when the RFQ contains more than one authoritative demand line."
+          },
           "lines": {
             "type": "array",
             "readOnly": true,
+            "description": "Authoritative demand lines ordered by lineNo.",
             "items": {
               "$ref": "#/components/schemas/RfqLine"
             }
@@ -31034,232 +31080,26 @@
         "additionalProperties": true
       },
       "RfqCreateRequest": {
-        "type": "object",
-        "required": [
-          "customerId",
-          "partNumber",
-          "quantity"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RfqLegacyCreateRequest"
+          },
+          {
+            "$ref": "#/components/schemas/RfqMultiLineCreateRequest"
+          }
         ],
-        "properties": {
-          "customerId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "partNumber": {
-            "type": "string",
-            "minLength": 1
-          },
-          "quantity": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "uom": {
-            "type": "string",
-            "default": "EA"
-          },
-          "conditionCode": {
-            "type": "string",
-            "default": "NE"
-          },
-          "description": {
-            "type": "string"
-          },
-          "serialNumber": {
-            "type": "string"
-          },
-          "batchNumber": {
-            "type": "string"
-          },
-          "ataChapter": {
-            "type": "string"
-          },
-          "aircraftType": {
-            "type": "string"
-          },
-          "aircraftModel": {
-            "type": "string"
-          },
-          "alternatePartNumbers": {
-            "oneOf": [
-              {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              {
-                "type": "string"
-              }
-            ]
-          },
-          "targetPrice": {
-            "oneOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string"
-              }
-            ],
-            "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
-          },
-          "targetPriceCurrency": {
-            "type": "string",
-            "default": "USD"
-          },
-          "certificateRequired": {
-            "type": "boolean",
-            "default": true
-          },
-          "certificateType": {
-            "type": "string"
-          },
-          "requiredDate": {
-            "type": "string",
-            "format": "date"
-          },
-          "responseDeadline": {
-            "type": "string",
-            "format": "date"
-          },
-          "leadTimeDays": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "urgency": {
-            "type": "string",
-            "enum": [
-              "AOG",
-              "URGENT",
-              "STANDARD"
-            ],
-            "default": "STANDARD"
-          },
-          "urgencyJustification": {
-            "type": "string"
-          },
-          "notes": {
-            "type": "string"
-          },
-          "emailId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "lines": false
-        },
-        "additionalProperties": false
+        "description": "Legacy scalar RFQ creation or strict modern multi-line creation. Demand header fields cannot be mixed with lines."
       },
       "RfqUpdateRequest": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "customerId": {
-            "type": "string",
-            "minLength": 1
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RfqLegacyUpdateRequest"
           },
-          "partNumber": {
-            "type": "string",
-            "minLength": 1
-          },
-          "quantity": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "uom": {
-            "type": "string",
-            "default": "EA"
-          },
-          "conditionCode": {
-            "type": "string",
-            "default": "NE"
-          },
-          "description": {
-            "type": "string"
-          },
-          "serialNumber": {
-            "type": "string"
-          },
-          "batchNumber": {
-            "type": "string"
-          },
-          "ataChapter": {
-            "type": "string"
-          },
-          "aircraftType": {
-            "type": "string"
-          },
-          "aircraftModel": {
-            "type": "string"
-          },
-          "alternatePartNumbers": {
-            "oneOf": [
-              {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              {
-                "type": "string"
-              }
-            ]
-          },
-          "targetPrice": {
-            "oneOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string"
-              }
-            ],
-            "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
-          },
-          "targetPriceCurrency": {
-            "type": "string",
-            "default": "USD"
-          },
-          "certificateRequired": {
-            "type": "boolean",
-            "default": true
-          },
-          "certificateType": {
-            "type": "string"
-          },
-          "requiredDate": {
-            "type": "string",
-            "format": "date"
-          },
-          "responseDeadline": {
-            "type": "string",
-            "format": "date"
-          },
-          "leadTimeDays": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "urgency": {
-            "type": "string",
-            "enum": [
-              "AOG",
-              "URGENT",
-              "STANDARD"
-            ],
-            "default": "STANDARD"
-          },
-          "urgencyJustification": {
-            "type": "string"
-          },
-          "notes": {
-            "type": "string"
-          },
-          "emailId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "lines": false
-        },
-        "additionalProperties": false
+          {
+            "$ref": "#/components/schemas/RfqMultiLineUpdateRequest"
+          }
+        ],
+        "description": "Legacy scalar RFQ patch or a complete strict line collection. Demand header fields cannot be mixed with lines."
       },
       "RfqStatusUpdateRequest": {
         "type": "object",
@@ -31484,6 +31324,19 @@
             "readOnly": true,
             "description": "True for an approved quotation whose latest approval does not cover the current policy and commercial terms. An authorised independent approver must review it again."
           },
+          "lineItemsMode": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "True when quotation line facts are authoritative."
+          },
+          "lines": {
+            "type": "array",
+            "readOnly": true,
+            "description": "Authoritative quotation lines ordered by lineNo; sensitive cost fields follow quotation.view_cost.",
+            "items": {
+              "$ref": "#/components/schemas/QuotationLine"
+            }
+          },
           "costSourceType": {
             "type": [
               "string",
@@ -31573,217 +31426,15 @@
         "additionalProperties": true
       },
       "QuotationCreateRequest": {
-        "type": "object",
-        "required": [
-          "rfqId",
-          "customerId",
-          "partNumber",
-          "quantity",
-          "unitPrice",
-          "costPrice",
-          "costSourceType"
-        ],
-        "properties": {
-          "rfqId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "customerId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "partNumber": {
-            "type": "string",
-            "minLength": 1
-          },
-          "quantity": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "unitPrice": {
-            "type": "number",
-            "minimum": 0
-          },
-          "costPrice": {
-            "type": "number",
-            "minimum": 0
-          },
-          "certificateFiles": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "template": {
-            "type": "string"
-          },
-          "validityDays": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "saleType": {
-            "type": "string",
-            "enum": [
-              "Sale"
-            ]
-          },
-          "shipToId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "shipForId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "incoterm": {
-            "type": "string"
-          },
-          "incotermLocation": {
-            "type": "string"
-          },
-          "leadTimeDays": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "leadTimeBasis": {
-            "type": "string"
-          },
-          "moq": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "mpq": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "priceBasis": {
-            "type": "string"
-          },
-          "taxIncluded": {
-            "type": "boolean",
-            "default": true
-          },
-          "taxRate": {
-            "type": "number"
-          },
-          "warrantyDays": {
-            "type": "integer",
-            "minimum": 0,
-            "default": 90
-          },
-          "warrantyTerms": {
-            "type": "string"
-          },
-          "packagingRequirement": {
-            "type": "string"
-          },
-          "shippingMethod": {
-            "type": "string"
-          },
-          "ccRecipients": {
-            "oneOf": [
-              {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              {
-                "type": "string"
-              }
-            ]
-          },
-          "commonNote": {
-            "type": "string"
-          },
-          "eSignature": {
-            "type": "string"
-          },
-          "eSignatureStatus": {
-            "type": "string",
-            "default": "Unsigned"
-          },
-          "countryOfOrigin": {
-            "type": "string"
-          },
-          "hsCode": {
-            "type": "string"
-          },
-          "eccn": {
-            "type": "string"
-          },
-          "dualUse": {
-            "type": "boolean",
-            "default": false
-          },
-          "currency": {
-            "type": "string",
-            "enum": [
-              "USD"
-            ],
-            "default": "USD"
-          },
-          "lines": false,
-          "costSourceType": {
-            "type": "string",
-            "enum": [
-              "SUPPLIER_QUOTE",
-              "INVENTORY_DETAIL",
-              "MANUAL"
-            ]
-          },
-          "costSourceId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "costSourceReason": {
-            "type": "string",
-            "maxLength": 1000
-          }
-        },
-        "additionalProperties": false,
-        "allOf": [
+        "oneOf": [
           {
-            "oneOf": [
-              {
-                "properties": {
-                  "costSourceType": {
-                    "const": "MANUAL"
-                  },
-                  "costSourceId": false,
-                  "costSourceReason": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1000
-                  }
-                },
-                "required": [
-                  "costSourceType",
-                  "costSourceReason"
-                ]
-              },
-              {
-                "properties": {
-                  "costSourceType": {
-                    "enum": [
-                      "SUPPLIER_QUOTE",
-                      "INVENTORY_DETAIL"
-                    ]
-                  },
-                  "costSourceId": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "costSourceType",
-                  "costSourceId"
-                ]
-              }
-            ]
+            "$ref": "#/components/schemas/QuotationLegacyCreateRequest"
+          },
+          {
+            "$ref": "#/components/schemas/QuotationMultiLineCreateRequest"
           }
         ],
-        "description": "USD sale quotation with an explicit, verifiable cost source. Supplier or inventory source identity, quantity and price are validated server-side; manual cost requires a reason."
+        "description": "Legacy scalar quotation or strict USD modern multi-line quotation. Commercial demand and cost facts live on lines in modern mode."
       },
       "QuotationUpdateRequest": {
         "type": "object",
@@ -32118,6 +31769,19 @@
           },
           "eSignatureSupplier": {
             "type": "string"
+          },
+          "lineItemsMode": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "True when order line facts are authoritative."
+          },
+          "lines": {
+            "type": "array",
+            "readOnly": true,
+            "description": "Authoritative order lines ordered by lineNo.",
+            "items": {
+              "$ref": "#/components/schemas/OrderLine"
+            }
           }
         },
         "additionalProperties": true
@@ -32281,8 +31945,7 @@
           },
           "eSignatureSupplier": {
             "type": "string"
-          },
-          "lines": false
+          }
         },
         "additionalProperties": false
       },
@@ -44666,7 +44329,6 @@
       },
       "RfqLine": {
         "type": "object",
-        "additionalProperties": false,
         "required": [
           "id",
           "rfqId",
@@ -44684,10 +44346,12 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "rfqId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "lineNo": {
             "type": "integer",
@@ -44719,6 +44383,24 @@
             ]
           },
           "batchNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ataChapter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aircraftType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aircraftModel": {
             "type": [
               "string",
               "null"
@@ -44774,7 +44456,1234 @@
             "type": "string",
             "format": "date-time"
           }
-        }
+        },
+        "additionalProperties": false
+      },
+      "RfqLineCreateRequest": {
+        "type": "object",
+        "required": [
+          "partNumber",
+          "quantity",
+          "requiredDate"
+        ],
+        "properties": {
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "uom": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "default": "EA"
+          },
+          "conditionCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "default": "NE"
+          },
+          "description": {
+            "type": "string"
+          },
+          "serialNumber": {
+            "type": "string"
+          },
+          "batchNumber": {
+            "type": "string"
+          },
+          "ataChapter": {
+            "type": "string"
+          },
+          "aircraftType": {
+            "type": "string"
+          },
+          "aircraftModel": {
+            "type": "string"
+          },
+          "alternatePartNumbers": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "targetPrice": {
+            "type": "number",
+            "minimum": 0
+          },
+          "targetPriceCurrency": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "certificateRequired": {
+            "type": "boolean",
+            "default": true
+          },
+          "certificateType": {
+            "type": "string"
+          },
+          "requiredDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "RfqLineUpdateRequest": {
+        "type": "object",
+        "required": [
+          "partNumber",
+          "quantity",
+          "requiredDate"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "uom": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "default": "EA"
+          },
+          "conditionCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "default": "NE"
+          },
+          "description": {
+            "type": "string"
+          },
+          "serialNumber": {
+            "type": "string"
+          },
+          "batchNumber": {
+            "type": "string"
+          },
+          "ataChapter": {
+            "type": "string"
+          },
+          "aircraftType": {
+            "type": "string"
+          },
+          "aircraftModel": {
+            "type": "string"
+          },
+          "alternatePartNumbers": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "targetPrice": {
+            "type": "number",
+            "minimum": 0
+          },
+          "targetPriceCurrency": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8,
+            "default": "USD"
+          },
+          "certificateRequired": {
+            "type": "boolean",
+            "default": true
+          },
+          "certificateType": {
+            "type": "string"
+          },
+          "requiredDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "RfqLegacyCreateRequest": {
+        "type": "object",
+        "required": [
+          "customerId",
+          "partNumber",
+          "quantity"
+        ],
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "uom": {
+            "type": "string",
+            "default": "EA"
+          },
+          "conditionCode": {
+            "type": "string",
+            "default": "NE"
+          },
+          "description": {
+            "type": "string"
+          },
+          "serialNumber": {
+            "type": "string"
+          },
+          "batchNumber": {
+            "type": "string"
+          },
+          "ataChapter": {
+            "type": "string"
+          },
+          "aircraftType": {
+            "type": "string"
+          },
+          "aircraftModel": {
+            "type": "string"
+          },
+          "alternatePartNumbers": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "targetPrice": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
+          },
+          "targetPriceCurrency": {
+            "type": "string",
+            "default": "USD"
+          },
+          "certificateRequired": {
+            "type": "boolean",
+            "default": true
+          },
+          "certificateType": {
+            "type": "string"
+          },
+          "requiredDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "responseDeadline": {
+            "type": "string",
+            "format": "date"
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "urgency": {
+            "type": "string",
+            "enum": [
+              "AOG",
+              "URGENT",
+              "STANDARD"
+            ],
+            "default": "STANDARD"
+          },
+          "urgencyJustification": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "emailId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "RfqLegacyUpdateRequest": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "uom": {
+            "type": "string",
+            "default": "EA"
+          },
+          "conditionCode": {
+            "type": "string",
+            "default": "NE"
+          },
+          "description": {
+            "type": "string"
+          },
+          "serialNumber": {
+            "type": "string"
+          },
+          "batchNumber": {
+            "type": "string"
+          },
+          "ataChapter": {
+            "type": "string"
+          },
+          "aircraftType": {
+            "type": "string"
+          },
+          "aircraftModel": {
+            "type": "string"
+          },
+          "alternatePartNumbers": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "targetPrice": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
+          },
+          "targetPriceCurrency": {
+            "type": "string",
+            "default": "USD"
+          },
+          "certificateRequired": {
+            "type": "boolean",
+            "default": true
+          },
+          "certificateType": {
+            "type": "string"
+          },
+          "requiredDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "responseDeadline": {
+            "type": "string",
+            "format": "date"
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "urgency": {
+            "type": "string",
+            "enum": [
+              "AOG",
+              "URGENT",
+              "STANDARD"
+            ],
+            "default": "STANDARD"
+          },
+          "urgencyJustification": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "emailId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "RfqMultiLineCreateRequest": {
+        "type": "object",
+        "required": [
+          "customerId",
+          "lines"
+        ],
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "responseDeadline": {
+            "type": "string",
+            "format": "date"
+          },
+          "urgency": {
+            "type": "string",
+            "enum": [
+              "AOG",
+              "URGENT",
+              "STANDARD"
+            ],
+            "default": "STANDARD"
+          },
+          "urgencyJustification": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "emailId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/RfqLineCreateRequest"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RfqMultiLineUpdateRequest": {
+        "type": "object",
+        "required": [
+          "lines"
+        ],
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "responseDeadline": {
+            "type": "string",
+            "format": "date"
+          },
+          "urgency": {
+            "type": "string",
+            "enum": [
+              "AOG",
+              "URGENT",
+              "STANDARD"
+            ],
+            "default": "STANDARD"
+          },
+          "urgencyJustification": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "emailId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/RfqLineUpdateRequest"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuotationLine": {
+        "type": "object",
+        "required": [
+          "id",
+          "quotationId",
+          "lineNo",
+          "rfqLineId",
+          "partNumber",
+          "uom",
+          "quantity",
+          "unitPrice",
+          "lineTotal",
+          "currency",
+          "acceptedQuantity",
+          "reservedQuantity",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quotationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lineNo": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "rfqLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceSupplierQuoteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "partNumber": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "uom": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^-?\\d+(?:\\.\\d+)?$",
+            "description": "Decimal unit price serialized as a string."
+          },
+          "costPrice": {
+            "type": "string",
+            "pattern": "^-?\\d+(?:\\.\\d+)?$",
+            "description": "Omitted unless quotation.view_cost is granted.",
+            "readOnly": true
+          },
+          "lineTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(?:\\.\\d+)?$",
+            "description": "Decimal line total serialized as a string."
+          },
+          "marginAmount": {
+            "type": "string",
+            "pattern": "^-?\\d+(?:\\.\\d+)?$",
+            "description": "Omitted unless quotation.view_cost is granted.",
+            "readOnly": true
+          },
+          "marginPercent": {
+            "type": "string",
+            "pattern": "^-?\\d+(?:\\.\\d+)?$",
+            "description": "Omitted unless quotation.view_cost is granted.",
+            "readOnly": true
+          },
+          "currency": {
+            "type": "string"
+          },
+          "costSourceType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "SUPPLIER_QUOTE",
+              "INVENTORY_DETAIL",
+              "MANUAL",
+              null
+            ],
+            "readOnly": true
+          },
+          "costSourceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "costSourceReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "costSourceSnapshotJson": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true,
+            "description": "Omitted unless quotation.view_cost is granted."
+          },
+          "costSourceCapturedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "readOnly": true
+          },
+          "acceptedQuantity": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reservedQuantity": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inventoryDetailId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "batchNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OrderLine": {
+        "type": "object",
+        "required": [
+          "id",
+          "orderId",
+          "lineNo",
+          "quotationLineId",
+          "partNumber",
+          "uom",
+          "quantity",
+          "unitPrice",
+          "lineTotal",
+          "currency",
+          "outboundQuantity",
+          "outboundStatus",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "orderId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lineNo": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quotationLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "partNumber": {
+            "type": "string"
+          },
+          "uom": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "unitPrice": {
+            "type": "string",
+            "pattern": "^-?\\d+(?:\\.\\d+)?$",
+            "description": "Decimal unit price serialized as a string."
+          },
+          "lineTotal": {
+            "type": "string",
+            "pattern": "^-?\\d+(?:\\.\\d+)?$",
+            "description": "Decimal line total serialized as a string."
+          },
+          "currency": {
+            "type": "string"
+          },
+          "outboundQuantity": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outboundStatus": {
+            "type": "string"
+          },
+          "inventoryDetailId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "batchNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuotationLegacyCreateRequest": {
+        "type": "object",
+        "required": [
+          "rfqId",
+          "customerId",
+          "partNumber",
+          "quantity",
+          "unitPrice",
+          "costPrice",
+          "costSourceType"
+        ],
+        "properties": {
+          "rfqId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "customerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "unitPrice": {
+            "type": "number",
+            "minimum": 0
+          },
+          "costPrice": {
+            "type": "number",
+            "minimum": 0
+          },
+          "certificateFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "template": {
+            "type": "string"
+          },
+          "validityDays": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "saleType": {
+            "type": "string",
+            "enum": [
+              "Sale"
+            ]
+          },
+          "shipToId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "shipForId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "incoterm": {
+            "type": "string"
+          },
+          "incotermLocation": {
+            "type": "string"
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "leadTimeBasis": {
+            "type": "string"
+          },
+          "moq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mpq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "priceBasis": {
+            "type": "string"
+          },
+          "taxIncluded": {
+            "type": "boolean",
+            "default": true
+          },
+          "taxRate": {
+            "type": "number"
+          },
+          "warrantyDays": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 90
+          },
+          "warrantyTerms": {
+            "type": "string"
+          },
+          "packagingRequirement": {
+            "type": "string"
+          },
+          "shippingMethod": {
+            "type": "string"
+          },
+          "ccRecipients": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "commonNote": {
+            "type": "string"
+          },
+          "eSignature": {
+            "type": "string"
+          },
+          "eSignatureStatus": {
+            "type": "string",
+            "default": "Unsigned"
+          },
+          "countryOfOrigin": {
+            "type": "string"
+          },
+          "hsCode": {
+            "type": "string"
+          },
+          "eccn": {
+            "type": "string"
+          },
+          "dualUse": {
+            "type": "boolean",
+            "default": false
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ],
+            "default": "USD"
+          },
+          "costSourceType": {
+            "type": "string",
+            "enum": [
+              "SUPPLIER_QUOTE",
+              "INVENTORY_DETAIL",
+              "MANUAL"
+            ]
+          },
+          "costSourceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "costSourceReason": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "costSourceType": {
+                    "const": "MANUAL"
+                  },
+                  "costSourceId": false,
+                  "costSourceReason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "costSourceType",
+                  "costSourceReason"
+                ]
+              },
+              {
+                "properties": {
+                  "costSourceType": {
+                    "enum": [
+                      "SUPPLIER_QUOTE",
+                      "INVENTORY_DETAIL"
+                    ]
+                  },
+                  "costSourceId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "costSourceType",
+                  "costSourceId"
+                ]
+              }
+            ]
+          }
+        ],
+        "description": "USD sale quotation with an explicit, verifiable cost source. Supplier or inventory source identity, quantity and price are validated server-side; manual cost requires a reason."
+      },
+      "QuotationLineCreateRequest": {
+        "type": "object",
+        "required": [
+          "rfqLineId",
+          "partNumber",
+          "quantity",
+          "unitPrice",
+          "costPrice",
+          "costSourceType"
+        ],
+        "properties": {
+          "rfqLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "unitPrice": {
+            "type": "number",
+            "minimum": 0
+          },
+          "costPrice": {
+            "type": "number",
+            "minimum": 0
+          },
+          "costSourceType": {
+            "type": "string",
+            "enum": [
+              "SUPPLIER_QUOTE",
+              "INVENTORY_DETAIL",
+              "MANUAL"
+            ]
+          },
+          "costSourceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "costSourceReason": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "costSourceType": {
+                    "const": "MANUAL"
+                  },
+                  "costSourceId": false,
+                  "costSourceReason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "costSourceType",
+                  "costSourceReason"
+                ]
+              },
+              {
+                "properties": {
+                  "costSourceType": {
+                    "enum": [
+                      "SUPPLIER_QUOTE",
+                      "INVENTORY_DETAIL"
+                    ]
+                  },
+                  "costSourceId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "costSourceType",
+                  "costSourceId"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "QuotationMultiLineCreateRequest": {
+        "type": "object",
+        "required": [
+          "rfqId",
+          "customerId",
+          "currency",
+          "lines"
+        ],
+        "properties": {
+          "rfqId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "customerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "certificateFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "template": {
+            "type": "string"
+          },
+          "validityDays": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "saleType": {
+            "type": "string",
+            "enum": [
+              "Sale"
+            ],
+            "default": "Sale"
+          },
+          "shipToId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "shipForId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "incoterm": {
+            "type": "string"
+          },
+          "incotermLocation": {
+            "type": "string"
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "leadTimeBasis": {
+            "type": "string"
+          },
+          "moq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mpq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "priceBasis": {
+            "type": "string"
+          },
+          "taxIncluded": {
+            "type": "boolean",
+            "default": true
+          },
+          "taxRate": {
+            "type": "number"
+          },
+          "warrantyDays": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 90
+          },
+          "warrantyTerms": {
+            "type": "string"
+          },
+          "packagingRequirement": {
+            "type": "string"
+          },
+          "shippingMethod": {
+            "type": "string"
+          },
+          "ccRecipients": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "commonNote": {
+            "type": "string"
+          },
+          "eSignature": {
+            "type": "string"
+          },
+          "eSignatureStatus": {
+            "type": "string",
+            "default": "Unsigned"
+          },
+          "countryOfOrigin": {
+            "type": "string"
+          },
+          "hsCode": {
+            "type": "string"
+          },
+          "eccn": {
+            "type": "string"
+          },
+          "dualUse": {
+            "type": "boolean",
+            "default": false
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ],
+            "const": "USD",
+            "default": "USD"
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/QuotationLineCreateRequest"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuotationAcceptanceLine": {
+        "type": "object",
+        "required": [
+          "quotationLineId",
+          "quantity"
+        ],
+        "properties": {
+          "quotationLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
       }
     },
     "x-aerolink-route-catalog": {

@@ -18,20 +18,22 @@ type Props = {
   value: CostSourceValue;
   onChange: (value: CostSourceValue, unitCost?: number) => void;
   rfqId: string;
+  /** Modern line-first quotations must match the exact RFQ demand line. */
+  rfqLineId?: string;
   partNumber: string;
   quantity: number;
   active?: boolean;
   expectedCost?: number;
 };
 
-export function CostSourceFields({ value, onChange, rfqId, partNumber, quantity, active = true, expectedCost }: Props) {
+export function CostSourceFields({ value, onChange, rfqId, rfqLineId, partNumber, quantity, active = true, expectedCost }: Props) {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => locale === 'zh-CN' ? zh : en;
   const can = useCapabilityStore(state => state.can);
   const supplierAllowed = can('supplier_quote.read');
   const inventoryAllowed = can('inventory.view_cost');
   const supplierQuotes = useQuery({
-    queryKey: [...queryKeys.all, 'cost-source-supplier-quotes', rfqId, partNumber],
+    queryKey: [...queryKeys.all, 'cost-source-supplier-quotes', rfqId, rfqLineId || '', partNumber],
     queryFn: () => supplierQuoteApi.getAll({ rfqId, partNumber }),
     enabled: active && value.costSourceType === 'SUPPLIER_QUOTE' && supplierAllowed && Boolean(rfqId && partNumber),
     staleTime: 0,
@@ -45,7 +47,7 @@ export function CostSourceFields({ value, onChange, rfqId, partNumber, quantity,
   const priceMatches = (price: number) => expectedCost === undefined || Math.round(price * 10000) === Math.round(expectedCost * 10000);
   const options = value.costSourceType === 'SUPPLIER_QUOTE'
     ? (supplierAllowed ? supplierQuotes.data ?? [] : []).filter(source =>
-      source.rfqId === rfqId && source.partNumber === partNumber && source.quantity >= quantity &&
+      source.rfqId === rfqId && (!rfqLineId || source.rfqLineId === rfqLineId) && source.partNumber === partNumber && source.quantity >= quantity &&
       source.currency === 'USD' && source.currencyStatus === 'VERIFIED' &&
       !['rejected', 'expired'].includes(source.status.toLowerCase()) &&
       (!source.validUntil || new Date(source.validUntil).getTime() > Date.now()) && priceMatches(source.unitPrice),

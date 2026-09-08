@@ -102,4 +102,72 @@ describe('sensitive response policy', () => {
     expect(JSON.parse((financeProjection.approvals as Array<{ snapshotJson: string }>)[0].snapshotJson))
       .toMatchObject({ costPrice: 1800, margin: 57.14, costSourceType: 'SUPPLIER_QUOTE', costSourceId: 'sq-secret', costSourceHash: 'hash-secret' });
   });
+
+  it('recursively removes line costs and source metadata for sales', () => {
+    const payload = {
+      id: 'quotation-lines-1',
+      unitPrice: 120,
+      lines: [{
+        id: 'line-1',
+        partNumber: 'PN-1',
+        unitPrice: 120,
+        costPrice: 80,
+        marginAmount: 40,
+        marginPercent: 33.3333,
+        costSourceType: 'SUPPLIER_QUOTE',
+        costSourceId: 'supplier-secret',
+        costSourceReason: 'supplier record',
+        costSourceSnapshotJson: '{"costPrice":80}',
+        costSourceCapturedAt: '2026-09-08T00:00:00.000Z',
+        costSourceHash: 'hash-secret',
+        nested: {
+          costPrice: 79,
+          marginPercent: 34,
+          visible: 'line fact',
+        },
+      }],
+      approvals: [{
+        snapshotJson: JSON.stringify({
+          totalPrice: 120,
+          lines: [{
+            lineNo: 1,
+            unitPrice: 120,
+            costPrice: 80,
+            marginAmount: 40,
+            marginPercent: 33.3333,
+            costSourceType: 'SUPPLIER_QUOTE',
+            costSourceId: 'supplier-secret',
+            costSourceSnapshotJson: '{"costPrice":80}',
+          }],
+        }),
+      }],
+    };
+
+    const projected = projectQuotationResponse(payload, salesActor, salesScope);
+    expect(projected.lines).toEqual([{
+      id: 'line-1',
+      partNumber: 'PN-1',
+      unitPrice: 120,
+      nested: { visible: 'line fact' },
+    }]);
+    const snapshot = JSON.parse((projected.approvals as Array<{ snapshotJson: string }>)[0].snapshotJson);
+    expect(snapshot).toEqual({
+      totalPrice: 120,
+      lines: [{ lineNo: 1, unitPrice: 120 }],
+    });
+  });
+
+  it('keeps nested line cost evidence for an actor with quotation cost capability', () => {
+    const payload = {
+      lines: [{
+        costPrice: 80,
+        marginAmount: 40,
+        marginPercent: 33.3333,
+        costSourceType: 'MANUAL',
+        costSourceReason: 'contract sheet',
+      }],
+    };
+
+    expect(projectQuotationResponse(payload, financeActor, salesScope)).toEqual(payload);
+  });
 });

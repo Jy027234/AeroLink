@@ -14,6 +14,7 @@ import {
   withdrawQuotationAggregate,
 } from './service.js';
 import { buildQuotationApprovalSnapshot } from '../../lib/quotationApprovalPolicy.js';
+import { createLineQuotation } from './lineService.js';
 
 vi.mock('../../lib/outboxService.js', () => ({
   enqueueBusinessEvent: vi.fn().mockResolvedValue(undefined),
@@ -22,7 +23,7 @@ vi.mock('../../lib/outboxService.js', () => ({
 
 function addLineDelegates<T extends Record<string, unknown>>(tx: T) {
   if (!(tx as Record<string, unknown>).order) {
-    Object.assign(tx, { order: { findUnique: vi.fn().mockResolvedValue(null) } });
+    Object.assign(tx, { order: { findFirst: vi.fn().mockResolvedValue(null) } });
   }
   Object.assign(tx, {
     rfqLine: {
@@ -94,6 +95,34 @@ function makeSnapshotQuotation(overrides: Record<string, unknown> = {}) {
 }
 
 describe('quotation/order module service boundary', () => {
+  it('rejects line quotation creation against a legacy RFQ before cost capture or writes', async () => {
+    const create = vi.fn();
+    const tx = {
+      rFQ: { findUnique: vi.fn().mockResolvedValue({ id: 'legacy-rfq', lineItemsMode: false }) },
+      quotation: { create },
+    } as unknown as Prisma.TransactionClient;
+    await expect(createLineQuotation({ tx, actorId: 'seller', authorizeRfq: () => {}, input: {
+      rfqId: 'legacy-rfq', customerId: 'customer', currency: 'USD',
+      lines: [{ rfqLineId: 'line-1', partNumber: 'PN-1', quantity: 1, unitPrice: 100,
+        costPrice: 50, costSourceType: 'MANUAL', costSourceReason: 'Manual evidence' }],
+    } })).rejects.toMatchObject({ statusCode: 409 });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rejects scalar quotation creation against an explicit line-mode RFQ before writing', async () => {
+    const create = vi.fn();
+    const tx = {
+      rFQ: { findUnique: vi.fn().mockResolvedValue({ id: 'modern-rfq', lineItemsMode: true, createdBy: 'seller' }) },
+      quotation: { create },
+    } as unknown as Prisma.TransactionClient;
+    await expect(createQuotationAggregate({
+      tx, actorId: 'seller', rfqId: 'modern-rfq', customerId: 'customer',
+      partNumber: 'PN-1', quantity: 1, unitPrice: 100, costPrice: 50,
+      currency: 'USD', costSourceType: 'MANUAL', costSourceReason: 'Manual evidence',
+    })).rejects.toMatchObject({ statusCode: 409, code: 'RESOURCE_CONFLICT' });
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it('owns transition policy and UI status projection without changing state-machine semantics', () => {
     expect(() => assertQuotationTransition('DRAFT', 'PENDING_APPROVAL')).not.toThrow();
     expect(() => assertQuotationTransition('DRAFT', 'ACCEPTED')).toThrowError(/不能从/);
@@ -568,7 +597,7 @@ describe('quotation/order module service boundary', () => {
     };
     const tx = addLineDelegates({
       quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
-      order: { findUnique: vi.fn().mockResolvedValue(order) },
+      order: { findFirst: vi.fn().mockResolvedValue(order) },
     }) as unknown as Prisma.TransactionClient;
     const authorize = vi.fn();
     const ensureContractDocument = vi.fn().mockResolvedValue({ id: 'doc-1', title: 'Contract' });
@@ -612,7 +641,7 @@ describe('quotation/order module service boundary', () => {
     };
     const tx = addLineDelegates({
       quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
-      order: { findUnique: vi.fn().mockResolvedValue(null) },
+      order: { findFirst: vi.fn().mockResolvedValue(null) },
     }) as unknown as Prisma.TransactionClient;
     const createOrder = vi.fn().mockResolvedValue(order);
     const ensureContractDocument = vi.fn().mockResolvedValue({ id: 'doc-direct-snapshot', title: 'Contract' });

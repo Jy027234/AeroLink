@@ -324,7 +324,7 @@ async function syncQuotationLineStateInternal(tx: TransactionLineClient, quotati
   if (lines.length > 1) lineRequired('当前报价已有多条报价行，暂不支持旧单行生命周期操作');
   const line = lines[0];
   await assertQuotationLineProjection(tx, quotation, line);
-  const order = await tx.order.findUnique({ where: { quotationId: quotation.id }, select: { quantity: true, status: true } });
+  const order = await tx.order.findFirst({ where: { quotationId: quotation.id }, select: { quantity: true, status: true } });
   if (order && ['CANCELLED', 'CANCELED'].includes(String(order.status).toUpperCase())) {
     conflict('订单取消后的成交量释放语义尚未定义，拒绝将成交量伪装为零');
   }
@@ -355,7 +355,7 @@ export async function ensureSingleQuotationLine(args: {
   if (!rfq) throw new AppError('关联 RFQ 不存在，不能建立报价行', 404, 'RESOURCE_NOT_FOUND');
   const rfqLine = await getSingleRfqLine(args.tx, rfq as RfqLineAggregate, args.rfqLineId);
   const amounts = assertQuotationFacts(args.quotation, rfqLine);
-  const acceptedOrder = await args.tx.order.findUnique({ where: { quotationId: args.quotation.id }, select: { quantity: true } });
+  const acceptedOrder = await args.tx.order.findFirst({ where: { quotationId: args.quotation.id }, select: { quantity: true } });
   const acceptedQuantity = acceptedOrder?.quantity ?? 0;
   if (acceptedQuantity > args.quotation.quantity) conflict('订单成交数量超过报价数量');
   const expected = {

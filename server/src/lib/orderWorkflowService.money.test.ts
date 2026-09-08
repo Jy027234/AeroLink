@@ -47,7 +47,7 @@ describe('order workflow monetary shadows', () => {
     }));
     const quotationLine = {
       id: 'ql-001', quotationId: quotation.id, rfqLineId: quotation.rfqId,
-      lineNo: 1, partNumber: quotation.partNumber, quantity: 3, uom: 'EA', currency: 'USD',
+      lineNo: 1, partNumber: quotation.partNumber, description: null, quantity: 3, uom: 'EA', currency: 'USD',
       unitPrice: new Prisma.Decimal('12.3457'), costPrice: new Prisma.Decimal(8),
       lineTotal: new Prisma.Decimal('37.0371'), marginAmount: new Prisma.Decimal('13.0371'),
       marginPercent: new Prisma.Decimal('13.0371').div('37.0371').mul(100).toDecimalPlaces(4),
@@ -56,8 +56,8 @@ describe('order workflow monetary shadows', () => {
     };
     const orderLineCreate = vi.fn().mockImplementation(async ({ data }) => data);
     const tx = {
-      order: { create: orderCreate, findUnique: vi.fn().mockResolvedValue({ quantity: 3, status: 'SO_CREATED' }) },
-      rfqLine: { findUnique: vi.fn().mockResolvedValue({ rfqId: quotation.rfqId, partNumber: quotation.partNumber, alternatePartNumbers: null }) },
+      order: { create: orderCreate, findFirst: vi.fn().mockResolvedValue({ quantity: 3, status: 'SO_CREATED' }) },
+      rfqLine: { findUnique: vi.fn().mockResolvedValue({ rfqId: quotation.rfqId, partNumber: quotation.partNumber, alternatePartNumbers: null, description: null, uom: 'EA' }) },
       quotationLine: {
         findMany: vi.fn().mockResolvedValue([quotationLine]),
         update: vi.fn().mockImplementation(async ({ data }) => ({ ...quotationLine, ...data })),

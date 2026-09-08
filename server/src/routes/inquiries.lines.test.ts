@@ -52,6 +52,34 @@ describe('inquiry source lines and current access', () => {
     expect(response.body.code).toBe('INVALID_RFQ_LINE');
     expect(tx.inquiry.create).not.toHaveBeenCalled();
   });
+
+  it('creates a partial inquiry for exactly the selected line of a multi-line RFQ', async () => {
+    tx.rFQ.findUnique.mockResolvedValueOnce({
+      id: 'r1', createdBy: actor.id, creator: { department: 'Sales' }, status: 'PENDING', urgency: 'STANDARD',
+      lines: [
+        { id: 'l1', lineNo: 1, partNumber: 'P1', quantity: 3, requiredDate: date, certificateRequired: true, status: 'OPEN' },
+        { id: 'l2', lineNo: 2, partNumber: 'P2', quantity: 5, requiredDate: date, certificateRequired: false, status: 'OPEN' },
+      ],
+    });
+    const response = await request(await app()).post('/').send({ rfqId: 'r1', supplierIds: ['s1'], lineIds: ['l2'] });
+    expect(response.status).toBe(201);
+    expect(response.body.data[0].items).toHaveLength(1);
+    expect(response.body.data[0].items[0]).toMatchObject({ rfqLineId: 'l2', partNumber: 'P2', quantity: 5 });
+  });
+
+  it('does not silently select line one for a multi-line RFQ', async () => {
+    tx.rFQ.findUnique.mockResolvedValueOnce({
+      id: 'r1', createdBy: actor.id, creator: { department: 'Sales' }, status: 'PENDING', urgency: 'STANDARD',
+      lines: [
+        { id: 'l1', lineNo: 1, partNumber: 'P1', quantity: 3, requiredDate: date, certificateRequired: true, status: 'OPEN' },
+        { id: 'l2', lineNo: 2, partNumber: 'P2', quantity: 5, requiredDate: date, certificateRequired: false, status: 'OPEN' },
+      ],
+    });
+    const response = await request(await app()).post('/').send({ rfqId: 'r1', supplierIds: ['s1'] });
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('LINE_ID_REQUIRED');
+    expect(tx.inquiry.create).not.toHaveBeenCalled();
+  });
   it('requires source RFQ access despite global supplier quote capability', async () => {
     actor.id = 'other-sales';
     const response = await request(await app()).post('/').send({ rfqId: 'r1', supplierIds: ['s1'] });

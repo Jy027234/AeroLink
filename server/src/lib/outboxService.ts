@@ -291,7 +291,10 @@ async function buildQuotationAttachment(quotation: NonNullable<Awaited<ReturnTyp
     throw new Error('Quotation customer no longer exists');
   }
 
+  const lines = quotation.lineItemsMode ? await prisma.quotationLine.findMany({ where: { quotationId: quotation.id }, orderBy: { lineNo: 'asc' } }) : undefined;
   const pdfBuffer = await generateQuotationPDF({
+    lineItemsMode: quotation.lineItemsMode,
+    lines: lines?.map(line => ({ ...line, unitPrice: Number(line.unitPrice), costPrice: Number(line.costPrice), lineTotal: Number(line.lineTotal) })),
     quoteNumber: quotation.quoteNumber,
     customerName: customer.name,
     partNumber: quotation.partNumber,

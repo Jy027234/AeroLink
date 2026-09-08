@@ -143,6 +143,7 @@ export type TransactionLineBackfillPlan = {
   inquiryItemLinks: Array<{ id: string; rfqLineId: string }>;
   supplierQuoteLinks: Array<{ id: string; rfqLineId?: string; inquiryItemId?: string }>;
   skippedExisting: { rfqLines: number; quotationLines: number; orderLines: number };
+  skippedModern: { rfqs: number; quotations: number; orders: number };
 };
 
 const safeSourceReviewCodes = new Set([
@@ -267,7 +268,23 @@ export function buildTransactionLineBackfillPlan(
   input: TransactionLineBackfillInput,
   idFactory: (kind: 'rfq' | 'quotation' | 'order', parentId: string) => string = (kind, parentId) => `${kind}-line-${parentId}`,
 ): TransactionLineBackfillPlan {
-  const preflight = assessTransactionLineMigration(input.preflight);
+  const modernRfqIds = new Set(input.rfqs.filter((row) => row.lineItemsMode).map((row) => row.id));
+  const modernQuotationIds = new Set(input.quotations.filter((row) => row.lineItemsMode).map((row) => row.id));
+  const modernOrderIds = new Set(input.orders.filter((row) => row.lineItemsMode).map((row) => row.id));
+  const modernInquiryIds = new Set(
+    input.inquiries.filter((row) => row.rfqId && modernRfqIds.has(row.rfqId)).map((row) => row.id),
+  );
+  const legacyPreflight = {
+    ...input.preflight,
+    rfqs: input.preflight.rfqs.filter((row) => !modernRfqIds.has(row.id)),
+    inquiries: input.preflight.inquiries.filter((row) => !modernInquiryIds.has(row.id)),
+    inquiryItems: input.preflight.inquiryItems.filter((row) => !modernInquiryIds.has(row.inquiryId)),
+    supplierQuotes: input.preflight.supplierQuotes.filter((row) =>
+      !modernRfqIds.has(row.rfqId || '') && !modernInquiryIds.has(row.inquiryId || '')),
+    quotations: input.preflight.quotations.filter((row) => !modernQuotationIds.has(row.id)),
+    orders: input.preflight.orders.filter((row) => !modernOrderIds.has(row.id)),
+  };
+  const preflight = assessTransactionLineMigration(legacyPreflight);
   const issues: TransactionLineBackfillIssue[] = [];
   const gate = canApplyTransactionLinePreflight(preflight);
   if (!gate.allowed) {
@@ -281,6 +298,7 @@ export function buildTransactionLineBackfillPlan(
       inquiryItemLinks: [],
       supplierQuoteLinks: [],
       skippedExisting: { rfqLines: 0, quotationLines: 0, orderLines: 0 },
+      skippedModern: { rfqs: modernRfqIds.size, quotations: modernQuotationIds.size, orders: modernOrderIds.size },
     };
   }
 
@@ -301,6 +319,7 @@ export function buildTransactionLineBackfillPlan(
   let skippedOrderLines = 0;
 
   for (const rfq of input.rfqs) {
+    if (modernRfqIds.has(rfq.id)) continue;
     let targetPriceDecimal: string | null = null;
     if (rfq.targetPrice !== null && rfq.targetPrice !== undefined) {
       try {
@@ -334,14 +353,16 @@ export function buildTransactionLineBackfillPlan(
     rfqLineByRfqId.set(rfq.id, adopted.value);
   }
 
-  const inquiryById = new Map(input.inquiries.map((inquiry) => [inquiry.id, inquiry]));
+  const inquiryById = new Map(input.inquiries
+    .filter((inquiry) => !modernInquiryIds.has(inquiry.id))
+    .map((inquiry) => [inquiry.id, inquiry]));
   const itemsByInquiry = new Map<string, LegacyInquiryItem[]>();
-  for (const item of input.inquiryItems) {
+  for (const item of input.inquiryItems.filter((candidate) => !modernInquiryIds.has(candidate.inquiryId))) {
     itemsByInquiry.set(item.inquiryId, [...(itemsByInquiry.get(item.inquiryId) ?? []), item]);
   }
   const inquiryItemLinks: Array<{ id: string; rfqLineId: string }> = [];
   const effectiveInquiryItemLineById = new Map<string, string>();
-  for (const item of input.inquiryItems) {
+  for (const item of input.inquiryItems.filter((candidate) => !modernInquiryIds.has(candidate.inquiryId))) {
     const inquiry = inquiryById.get(item.inquiryId);
     if (!inquiry?.rfqId) continue;
     const line = rfqLineByRfqId.get(inquiry.rfqId);
@@ -358,6 +379,7 @@ export function buildTransactionLineBackfillPlan(
   }
 
   for (const quotation of input.quotations) {
+    if (modernQuotationIds.has(quotation.id)) continue;
     const rfqLine = rfqLineByRfqId.get(quotation.rfqId);
     if (!rfqLine) {
       issue(issues, 'quotations', quotation.id, 'MISSING_RFQ_LINE');
@@ -436,6 +458,7 @@ export function buildTransactionLineBackfillPlan(
 
   const supplierQuoteLinks: Array<{ id: string; rfqLineId?: string; inquiryItemId?: string }> = [];
   for (const quote of input.supplierQuotes) {
+    if (modernRfqIds.has(quote.rfqId || '') || modernInquiryIds.has(quote.inquiryId || '')) continue;
     const links: { rfqLineId?: string; inquiryItemId?: string } = {};
     if (quote.rfqId) {
       const line = rfqLineByRfqId.get(quote.rfqId);
@@ -465,6 +488,7 @@ export function buildTransactionLineBackfillPlan(
   }
 
   for (const order of input.orders) {
+    if (modernOrderIds.has(order.id)) continue;
     const quotationLine = quotationLineByQuotationId.get(order.quotationId);
     const quotation = input.quotations.find((row) => row.id === order.quotationId);
     if (!quotationLine || !quotation) {
@@ -531,5 +555,6 @@ export function buildTransactionLineBackfillPlan(
     inquiryItemLinks: blockingIssues.length > 0 ? [] : inquiryItemLinks,
     supplierQuoteLinks: blockingIssues.length > 0 ? [] : supplierQuoteLinks,
     skippedExisting: { rfqLines: skippedRfqLines, quotationLines: skippedQuotationLines, orderLines: skippedOrderLines },
+    skippedModern: { rfqs: modernRfqIds.size, quotations: modernQuotationIds.size, orders: modernOrderIds.size },
   };
 }
