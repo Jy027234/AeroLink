@@ -1539,6 +1539,224 @@ export const inventoryAllocationApi = {
   consume: async (payload: { assignmentId: string; quantity: number; reviewId: string; notes?: string }) => request<AllocationConsumeResult>('/inventory-allocations/consume', { method: 'POST', body: JSON.stringify(payload) }),
 };
 
+// ===== D13 modern shipment, receipt, and return API =====
+
+export interface ShipmentEvidenceSnapshot {
+  id: string;
+  version: number;
+  sha256: string;
+  status: string;
+}
+
+export interface ShipmentCertificateView {
+  id: string;
+  certificateNumber: string;
+  partNumber: string;
+  serialNumber: string | null;
+  batchNumber: string | null;
+  certificateType: string;
+  status: string;
+  expiryDate: string | null;
+  fileHash: string | null;
+  updatedAt: string;
+}
+
+export interface ShipmentOutboundTransactionView {
+  id: string;
+  orderLineId: string | null;
+  assignmentId: string | null;
+  inventoryDetailId: string;
+  inventoryItemId: string;
+  partNumber: string;
+  trackingType: string;
+  serialNumber: string | null;
+  batchNumber: string | null;
+  conditionCode: string;
+  warehouse: string | null;
+  location: string | null;
+  quantity: number;
+  boundQuantity: number;
+  availableQuantity: number;
+  requiresHistoricalReview: boolean;
+}
+
+export interface ShipmentReturnHoldView {
+  id: string;
+  shipmentLineId: string;
+  inventoryDetailId: string;
+  quantity: number;
+  status: string;
+  version: number;
+  snapshotHash: string;
+  receivedById: string | null;
+  receivedAt: string | null;
+  releasedById: string | null;
+  releasedAt: string | null;
+  releaseReason?: string | null;
+  returnTransactionId?: string | null;
+  identitySnapshot: unknown;
+  evidence: ShipmentEvidenceSnapshot[];
+}
+
+export interface ShipmentLineView {
+  id: string;
+  lineNo: number;
+  orderLineId: string;
+  assignmentId: string;
+  outboundTransactionId: string;
+  quantity: number;
+  receivedQuantity: number;
+  returnedQuantity: number;
+  version: number;
+  identitySnapshot: unknown;
+  returns: ShipmentReturnHoldView[];
+}
+
+export interface ShipmentView {
+  id: string;
+  shipmentNumber: string;
+  carrier: string;
+  trackingNumber: string;
+  origin: string;
+  destination: string;
+  status: string;
+  version: number;
+  shippedAt: string | null;
+  evidence: {
+    qualityReviews: Array<{
+      outboundTransactionId: string;
+      reviewId: string;
+      snapshotHash: string;
+      evidence: unknown[];
+      certificates: unknown[];
+    }>;
+    attachments: unknown[];
+  };
+  lines: ShipmentLineView[];
+}
+
+export interface ShipmentDeliveryLineProgress {
+  orderLineId: string;
+  quantity: number;
+  receivedQuantity: number;
+  remainingQuantity: number;
+  fullyReceived: boolean;
+}
+
+export interface ShipmentDeliveryProgress {
+  requiredQuantity: number;
+  receivedQuantity: number;
+  remainingQuantity: number;
+  complete: boolean;
+  lines: ShipmentDeliveryLineProgress[];
+}
+
+export interface ShipmentOrderView {
+  order: { id: string; status: string; version: number };
+  outboundTransactions: ShipmentOutboundTransactionView[];
+  shipments: ShipmentView[];
+  delivery: ShipmentDeliveryProgress;
+}
+
+export interface CreateShipmentInput {
+  orderId: string;
+  carrier: string;
+  trackingNumber: string;
+  origin: string;
+  destination: string;
+  lines: Array<{ outboundTransactionId: string; quantity: number }>;
+  evidenceIds?: string[];
+}
+
+export interface CreateShipmentReceiptInput {
+  lines: Array<{ shipmentLineId: string; quantity: number }>;
+  evidenceIds: string[];
+  reason: string;
+}
+
+export interface CreateShipmentReturnInput {
+  shipmentLineId: string;
+  quantity: number;
+  evidenceIds: string[];
+  verifiedSerialNumber: string;
+  verifiedBatchNumber: string;
+  reason: string;
+}
+
+export interface ShipmentReturnReleaseContext {
+  id: string;
+  shipmentLineId: string;
+  inventoryDetailId: string;
+  quantity: number;
+  status: string;
+  version: number;
+  identitySnapshot: unknown;
+  evidence: ShipmentEvidenceSnapshot[];
+  receivedById: string;
+  receivedAt: string;
+  releasedById: string | null;
+  releasedAt: string | null;
+  releaseReason?: string | null;
+  returnTransactionId?: string | null;
+  returnHoldId: string;
+  snapshotHash: string;
+  receivedSnapshotHash: string;
+  snapshot: unknown;
+  shipmentLine: {
+    id: string;
+    shipmentId: string;
+    orderLineId: string;
+    assignmentId: string;
+    outboundTransactionId: string;
+    quantity: number;
+    receivedQuantity: number;
+    returnedQuantity: number;
+    version: number;
+    identitySnapshot: unknown;
+  };
+  inventoryDetail: {
+    id: string;
+    inventoryItemId: string;
+    partNumber: string;
+    trackingType: string;
+    serialNumber: string | null;
+    batchNumber: string | null;
+    conditionCode: string | null;
+    warehouse: string | null;
+    location: string | null;
+    status: string;
+    quantity: number;
+    allocatedQuantity: number;
+    certificateType: string | null;
+    certificateNumber: string | null;
+    lifeLimited: boolean;
+    remainingHours: number | null;
+    remainingCycles: number | null;
+    shelfLifeDate: string | null;
+    nextOverhaulDue: string | null;
+  };
+  certificates: ShipmentCertificateView[];
+  currentSnapshotHash: string;
+}
+
+export interface ReleaseShipmentReturnInput {
+  snapshotHash: string;
+  evidenceIds: string[];
+  verifiedSerialNumber: string;
+  verifiedBatchNumber: string;
+  checks: { identity: boolean; documents: boolean; conditionAndLife: boolean; customerRequirements: boolean };
+  reason: string;
+}
+
+export const shipmentApi = {
+  getByOrderId: async (orderId: string) => request<ShipmentOrderView>(`/shipments/orders/${encodeURIComponent(orderId)}`),
+  create: async (payload: CreateShipmentInput) => request<ShipmentView>('/shipments', { method: 'POST', body: JSON.stringify(payload) }),
+  createReceipt: async (shipmentId: string, payload: CreateShipmentReceiptInput) => request<ShipmentView>(`/shipments/dispatches/${encodeURIComponent(shipmentId)}/receipts`, { method: 'POST', body: JSON.stringify(payload) }),
+  createReturn: async (payload: CreateShipmentReturnInput) => request<ShipmentReturnHoldView & { replayed: boolean }>('/shipments/returns', { method: 'POST', body: JSON.stringify(payload) }),
+  getReturnReleaseContext: async (returnHoldId: string) => request<ShipmentReturnReleaseContext>(`/shipments/returns/${encodeURIComponent(returnHoldId)}/release-context`),
+  releaseReturn: async (returnHoldId: string, payload: ReleaseShipmentReturnInput) => request<ShipmentReturnHoldView & { replayed: boolean }>(`/shipments/returns/${encodeURIComponent(returnHoldId)}/release`, { method: 'POST', body: JSON.stringify(payload) }),
+};
+
 /**
  * The legacy branch of QuotationCreateRequest used by commercial revisions.
  * Keep this type separate from the generated OpenAPI declaration: the
@@ -3191,6 +3409,10 @@ export const qualityReviewApi = {
     body.append('file', file);
     return request<{ id: string; originalName: string }>('/upload', { method: 'POST', body });
   },
+  getEvidenceBlob: (id: string) => requestBlob(`/files/${encodeURIComponent(id)}`, {
+    method: 'GET',
+    headers: { Accept: 'application/octet-stream' },
+  }),
   create: (payload: {
     orderId: string; quantity: number; snapshotHash: string; approved: boolean; evidenceIds: string[];
     verifiedSerialNumber: string; verifiedBatchNumber: string;

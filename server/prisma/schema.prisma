@@ -82,6 +82,11 @@ model User {
   inventoryAllocations    InventoryAllocation[]
   allocationAssignments   AllocationAssignment[]
   inventoryAllocationEvents InventoryAllocationEvent[]
+  shipmentsCreated        Shipment[] @relation("ShipmentCreator")
+  shipmentEvents          ShipmentEvent[] @relation("ShipmentEventActor")
+  returnHoldsReceived     ReturnHold[] @relation("ReturnHoldReceiver")
+  returnHoldsReleased     ReturnHold[] @relation("ReturnHoldReleaser")
+  returnEvents            ReturnEvent[] @relation("ReturnEventActor")
 
   @@map("users")
 }
@@ -497,6 +502,7 @@ model InventoryDetail {
   certificates      Certificate[]
   inventoryTransactions InventoryTransaction[]
   allocations       InventoryAllocation[]
+  returnHolds       ReturnHold[]
 
   // 唯一约束：同一件号下序号唯一；同一件号+批次+状态+仓库组合唯一
   fulfillmentReviews FulfillmentReview[]
@@ -1034,6 +1040,7 @@ model Order {
   customer    Customer           @relation(fields: [customerId], references: [id])
   quotation   Quotation          @relation(fields: [quotationId], references: [id])
   tracking    ShipmentTracking?
+  shipments   Shipment[]
   generatedDocuments GeneratedDocument[]
   certificates Certificate[]
   inventoryTransactions InventoryTransaction[]
@@ -1067,6 +1074,7 @@ model OrderLine {
   order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
   quotationLine QuotationLine @relation(fields: [quotationLineId], references: [id], onDelete: Restrict)
   allocationAssignments AllocationAssignment[]
+  shipmentLines         ShipmentLine[]
 
   @@unique([orderId, lineNo])
   @@index([quotationLineId])
@@ -1095,6 +1103,7 @@ model FulfillmentReview {
   inventoryDetail InventoryDetail @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
   reviewer        User            @relation(fields: [reviewedById], references: [id], onDelete: Restrict)
   assignment      AllocationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  outboundTransaction InventoryTransaction? @relation("FulfillmentReviewOutboundTransaction")
 
   @@index([orderId, inventoryDetailId, reviewedAt])
   @@index([assignmentId, reviewedAt])
@@ -1170,6 +1179,7 @@ model AllocationAssignment {
   events InventoryAllocationEvent[]
   transactions InventoryTransaction[]
   fulfillmentReviews FulfillmentReview[]
+  shipmentLines ShipmentLine[]
 
   @@unique([commandId, commandLineNo])
   @@index([allocationId])
@@ -1213,6 +1223,7 @@ model InventoryTransaction {
   quotationId       String?
   allocationId      String?
   assignmentId      String?
+  fulfillmentReviewId String? @unique
   referenceNo       String?  // 出库单号/入库单号
   referenceType     String?  // 'ORDER', 'QUOTATION', 'MANUAL', 'SYSTEM'
 
@@ -1224,6 +1235,9 @@ model InventoryTransaction {
   order             Order?          @relation(fields: [orderId], references: [id])
   allocation        InventoryAllocation? @relation(fields: [allocationId], references: [id], onDelete: Restrict)
   assignment        AllocationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  fulfillmentReview FulfillmentReview? @relation("FulfillmentReviewOutboundTransaction", fields: [fulfillmentReviewId], references: [id], onDelete: Restrict)
+  shipmentLines     ShipmentLine[] @relation("ShipmentLineOutboundTransaction")
+  returnHold        ReturnHold? @relation("ReturnHoldTransaction")
 
   @@index([inventoryDetailId, createdAt])
   @@index([orderId])
@@ -1393,6 +1407,147 @@ model TrackingEvent {
   tracking ShipmentTracking @relation(fields: [trackingId], references: [id], onDelete: Cascade)
 
   @@map("tracking_events")
+}
+
+// D13 modern shipment aggregate. Legacy ShipmentTracking remains unchanged
+// for compatibility with existing one-tracking-per-order records.
+model Shipment {
+  id             String   @id @default(uuid())
+  orderId        String
+  shipmentNumber String   @unique
+  carrier        String
+  trackingNumber String
+  origin         String
+  destination    String
+  status         String   @default("DISPATCHED")
+  version        Int      @default(1)
+  evidence       Json
+  commandId      String   @unique
+  requestHash    String
+  createdById    String
+  shippedAt      DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  order     Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  createdBy User           @relation("ShipmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  lines     ShipmentLine[]
+  events    ShipmentEvent[]
+
+  @@index([orderId])
+  @@index([createdById])
+  @@index([status, createdAt])
+  @@map("shipments")
+}
+
+model ShipmentLine {
+  id                    String   @id @default(uuid())
+  shipmentId            String
+  lineNo                Int
+  orderLineId           String
+  assignmentId          String
+  outboundTransactionId String
+  quantity              Int
+  receivedQuantity      Int      @default(0)
+  returnedQuantity      Int      @default(0)
+  version               Int      @default(1)
+  identitySnapshot      Json
+  createdAt             DateTime @default(now())
+
+  shipment            Shipment             @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  orderLine           OrderLine            @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
+  assignment          AllocationAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  outboundTransaction InventoryTransaction @relation("ShipmentLineOutboundTransaction", fields: [outboundTransactionId], references: [id], onDelete: Restrict)
+  events              ShipmentEvent[]
+  returnHolds         ReturnHold[]
+
+  @@unique([shipmentId, lineNo])
+  @@index([orderLineId])
+  @@index([assignmentId])
+  @@index([outboundTransactionId])
+  @@map("shipment_lines")
+}
+
+model ShipmentEvent {
+  id             String   @id @default(uuid())
+  shipmentId     String
+  shipmentLineId String?
+  kind           String
+  quantity       Int
+  commandId      String
+  eventNo        Int
+  actorId        String?
+  evidence       Json
+  reason         String?
+  createdAt      DateTime @default(now())
+
+  shipment     Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  shipmentLine ShipmentLine? @relation(fields: [shipmentLineId], references: [id], onDelete: Restrict)
+  actor        User?         @relation("ShipmentEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([shipmentId, createdAt])
+  @@index([shipmentLineId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("shipment_events")
+}
+
+model ReturnHold {
+  id                   String   @id @default(uuid())
+  shipmentLineId       String
+  inventoryDetailId    String
+  quantity             Int
+  status               String   @default("QUARANTINED")
+  version              Int      @default(1)
+  identitySnapshot     Json
+  evidence             Json
+  snapshotHash         String
+  receivedById         String
+  receivedAt           DateTime @default(now())
+  commandId            String   @unique
+  requestHash          String
+  releasedById         String?
+  releasedAt           DateTime?
+  releaseCommandId     String?  @unique
+  releaseRequestHash   String?
+  releaseEvidence      Json?
+  releaseReason        String?
+  returnTransactionId  String?  @unique
+
+  shipmentLine    ShipmentLine        @relation(fields: [shipmentLineId], references: [id], onDelete: Restrict)
+  inventoryDetail InventoryDetail     @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
+  receivedBy      User                @relation("ReturnHoldReceiver", fields: [receivedById], references: [id], onDelete: Restrict)
+  releasedBy      User?               @relation("ReturnHoldReleaser", fields: [releasedById], references: [id], onDelete: Restrict)
+  returnTransaction InventoryTransaction? @relation("ReturnHoldTransaction", fields: [returnTransactionId], references: [id], onDelete: Restrict)
+  events          ReturnEvent[]
+
+  @@index([shipmentLineId])
+  @@index([inventoryDetailId])
+  @@index([receivedById])
+  @@index([releasedById])
+  @@index([status, receivedAt])
+  @@map("return_holds")
+}
+
+model ReturnEvent {
+  id           String   @id @default(uuid())
+  returnHoldId String
+  kind         String
+  quantity     Int
+  commandId    String
+  eventNo      Int
+  actorId      String?
+  evidence     Json
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  returnHold ReturnHold @relation(fields: [returnHoldId], references: [id], onDelete: Restrict)
+  actor      User?      @relation("ReturnEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([returnHoldId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("return_events")
 }
 
 model IPCData {

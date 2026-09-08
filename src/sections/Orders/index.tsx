@@ -68,6 +68,7 @@ import { downloadBlob } from '@/lib/downloadBlob';
 import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { InventoryAllocationPanel } from '@/components/InventoryAllocationPanel';
+import { ShipmentPanel } from '@/components/ShipmentPanel';
 import { toast } from 'sonner';
 import { QualityReviewPanel } from './QualityReviewPanel';
 import type { Order, OrderStatus } from '@/types';
@@ -730,6 +731,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
                     onChanged={refetchDetail}
                   />
                 ))}
+                {activeOrder.id && <ShipmentPanel orderId={activeOrder.id} onChanged={refetchDetail} />}
               </div>
             </div>
           ) : (

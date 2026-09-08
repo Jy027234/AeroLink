@@ -1358,6 +1358,9 @@ export async function transitionOrderAggregate(
   if (nextStatus === 'SHIPPED' && currentStatus !== 'SHIPPED') {
     throw new AppError('请通过已审核的库存出库流程登记发货；直发流程尚未开放', 409, 'FULFILLMENT_REQUIRED');
   }
+  if (existing.lineItemsMode && nextStatus === 'DELIVERED' && currentStatus !== 'DELIVERED') {
+    throw new AppError('现代订单的交付完成由逐行签收数量确认，请通过发运签收入口办理', 409, 'FULFILLMENT_REQUIRED');
+  }
   if (!isOrderStatusTransitionAllowed(currentStatus, nextStatus)) {
     throw new AppError(`订单不允许从 ${currentStatus.toLowerCase()} 变更为 ${nextStatus.toLowerCase()}`, 409, 'INVALID_STATE_TRANSITION');
   }

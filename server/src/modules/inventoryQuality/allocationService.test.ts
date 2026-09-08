@@ -17,6 +17,15 @@ import {
 const manager = { id: 'manager-1', role: 'MANAGER', department: 'Operations' };
 const sales = { id: 'sales-1', role: 'SALES', department: 'Sales' };
 
+function noReturnHold() {
+  return {
+    returnHold: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  };
+}
+
 function lineFixture(overrides: Record<string, unknown> = {}) {
   const line = {
     id: 'line-1',
@@ -158,6 +167,7 @@ describe('modern inventory allocation service', () => {
   it('returns only quantity facts and never exposes cost/source fields', async () => {
     const line = lineFixture();
     const tx = {
+      ...noReturnHold(),
       quotationLine: { findUnique: vi.fn().mockResolvedValue(line) },
       inventoryAllocation: {
         findMany: vi.fn().mockResolvedValue([{
@@ -205,6 +215,7 @@ describe('modern inventory allocation service', () => {
       }],
     };
     const tx = {
+      ...noReturnHold(),
       quotationLine: { findUnique: vi.fn().mockResolvedValue(line) },
       inventoryAllocation: {
         findMany: vi.fn()
@@ -290,6 +301,7 @@ describe('modern inventory allocation service', () => {
     };
     const allocationRows: any[] = [];
     const tx = {
+      ...noReturnHold(),
       quotationLine: { findUnique: vi.fn().mockResolvedValue(line) },
       orderLine: { findUnique: vi.fn().mockResolvedValue(orderLine) },
       inventoryAllocation: {
@@ -352,6 +364,7 @@ describe('modern inventory allocation service', () => {
   it('blocks reuse of an outbound serial after its physical quantity was manually restored', async () => {
     const { line, orderLine } = withdrawnExpiredOrderFixture();
     const tx = {
+      ...noReturnHold(),
       quotationLine: { findUnique: vi.fn().mockResolvedValue(line) },
       orderLine: { findUnique: vi.fn().mockResolvedValue(orderLine) },
       inventoryAllocation: { findMany: vi.fn().mockResolvedValue([]) },
@@ -361,10 +374,13 @@ describe('modern inventory allocation service', () => {
         shelfLifeDate: null, shelfLifeDays: null, nextOverhaulDue: null, lifeLimited: false,
         remainingHours: null, remainingCycles: null,
         inventoryItem: { partNumber: 'PN-1', trackingType: 'SERIAL' } }), updateMany: vi.fn() },
-      inventoryTransaction: { findFirst: vi.fn().mockResolvedValue({ id: 'old-outbound' }) },
+      inventoryTransaction: {
+        findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([{ id: 'old-outbound', quantity: -1 }]),
+      },
     } as unknown as Prisma.TransactionClient;
     await expect(reserveLineInventory({ tx, actor: manager, quotationLineId: line.id, orderLineId: orderLine.id,
-      allocations: [{ inventoryDetailId: 'detail-1', quantity: 1 }], commandId: 'illegal-serial-reuse' })).rejects.toThrow('已有出库记录');
+      allocations: [{ inventoryDetailId: 'detail-1', quantity: 1 }], commandId: 'illegal-serial-reuse' })).rejects.toThrow('序号件已有未被唯一受控退货覆盖的出库事实');
     expect(tx.inventoryDetail.updateMany).not.toHaveBeenCalled();
   });
 

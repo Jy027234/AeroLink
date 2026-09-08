@@ -6,6 +6,12 @@ import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { StateTransitionConflictError, transitionOrderStatus } from '../../lib/transactionStateService.js';
 import { syncOrderLineState, syncQuotationLineState } from '../../lib/transactionLineService.js';
 import { consumeFulfillmentReview } from './fulfillmentReview.js';
+import {
+  assertInventoryUseAllowed,
+  assertNoOpenReturnHold,
+  assertNoReturnHistory,
+  assertReservationReleaseAllowed,
+} from './returnGuards.js';
 
 export function assertInventoryQuantityAdjustmentAllowed(status: string, quantityProvided: boolean) {
   if (quantityProvided && status !== 'AVAILABLE') {
@@ -225,6 +231,10 @@ export async function updateInventoryAggregate(
     throw new AppError('库存明细存在现代分配，不能修改数量或物理身份', 409, 'RESOURCE_CONFLICT');
   }
 
+  if (protectedDetailMutation || itemIdentityMutation) {
+    await assertNoOpenReturnHold(tx, args.id);
+  }
+
   if (detailIdentityMutation) {
     await assertInventoryDetailIdentityMutable(tx, args.id);
   }
@@ -313,6 +323,8 @@ export async function deleteInventoryAggregate(
     throw new AppError('库存明细已有流水或证书关联，不能物理删除', 409, 'RESOURCE_CONFLICT');
   }
 
+  await assertNoReturnHistory(tx, detail.id);
+
   const allocation = await tx.inventoryAllocation.findFirst({
     where: { inventoryDetailId: detail.id },
     select: { id: true },
@@ -360,6 +372,7 @@ export async function reserveInventoryForQuotation(
   if (!detail) throw new AppError('库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   assertNoActiveAllocation(detail.allocatedQuantity);
+  await assertInventoryUseAllowed(tx, detail);
   assertActiveQuotationRevision(quotation);
   if (quotation.lineItemsMode) throw new AppError('多行报价需要行级数量分配，暂不能使用旧整单库存接口', 409, 'RESOURCE_CONFLICT');
   if (!RESERVABLE_QUOTATION_STATUSES.has(quotation.status)) {
@@ -524,6 +537,7 @@ export async function releaseInventoryReservation(
   ]);
   if (!detail) throw new AppError('预留库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
   assertNoActiveAllocation(detail.allocatedQuantity);
+  await assertReservationReleaseAllowed(tx, detail);
   if (existingOrder) throw new AppError('报价已生成订单，不能直接释放库存预留', 409, 'INVALID_STATE_TRANSITION');
   if (detail.status !== 'RESERVED') throw new AppError('库存明细不是预留状态，无法释放', 409, 'RESOURCE_CONFLICT');
   assertPartNumberMatches(detail.inventoryItem.partNumber, quotation.partNumber, '报价');
@@ -619,6 +633,7 @@ export async function outboundInventoryForOrder(
   if (!detail) throw new AppError('库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
   if (!order) throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
   assertNoActiveAllocation(detail.allocatedQuantity);
+  await assertInventoryUseAllowed(tx, detail);
   if (order.lineItemsMode) throw new AppError('多行订单需要行级质量审核与出库，暂不能使用旧整单库存接口', 409, 'RESOURCE_CONFLICT');
   if (!OUTBOUND_ORDER_STATUSES.has(order.status)) {
     throw new AppError('当前订单状态不能执行出库', 409, 'INVALID_STATE_TRANSITION');

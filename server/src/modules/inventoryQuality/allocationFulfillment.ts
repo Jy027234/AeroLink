@@ -941,6 +941,7 @@ export async function consumeAllocatedInventory(input: ConsumeAllocatedInventory
       quotationId: assignmentBefore.orderLine.order.quotationId,
       allocationId: allocationBefore.id,
       assignmentId: assignmentBefore.id,
+      fulfillmentReviewId: reviewId,
       referenceNo: assignmentBefore.orderLine.order.orderNumber,
       referenceType: 'ORDER',
       notes: notes?.trim() || null,

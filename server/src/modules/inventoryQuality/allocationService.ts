@@ -21,6 +21,7 @@ import { assertActiveQuotationRevision } from '../../lib/quotationRevisionPolicy
 import { enqueueBusinessEvent } from '../../lib/outboxService.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { allocationQuantities } from './allocationQuantities.js';
+import { assertInventoryUseAllowed } from './returnGuards.js';
 
 /**
  * D12's allocation service is intentionally separate from the legacy
@@ -708,12 +709,7 @@ export async function reserveLineInventory(args: {
   const details = await Promise.all(requested.map(item => loadDetail(args.tx, item.inventoryDetailId)));
   for (const [index, detail] of details.entries()) {
     assertDetailMatchesLine(detail, line, requested[index].quantity);
-    if (normalizedStatus(detail.inventoryItem.trackingType) === 'SERIAL' || detail.serialNumber) {
-      const previousOutbound = await args.tx.inventoryTransaction.findFirst({ where: {
-        inventoryDetailId: detail.id, type: 'OUTBOUND',
-      }, select: { id: true } });
-      if (previousOutbound) fail('该序号件已有出库记录，不能通过数量调整重新分配；需受控退货和质量放行');
-    }
+    await assertInventoryUseAllowed(args.tx, detail);
     const active = await assertDetailProjection(args.tx, detail);
     if (detail.quantity - active < requested[index].quantity) fail('库存数量不足');
   }

@@ -7,7 +7,7 @@ import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
 import { canViewInventoryCost } from '../lib/costVisibility.js';
 import { projectInventoryItem } from '../lib/inventoryProjection.js';
-import { assertInventoryItemIdentityMutable } from '../modules/inventoryQuality/service.js';
+import { assertInventoryItemIdentityMutable } from '../modules/inventoryQuality/index.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();

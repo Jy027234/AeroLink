@@ -14,6 +14,15 @@ vi.mock('../../lib/outboxService.js', () => ({
   enqueueBusinessEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
+function noReturnHold() {
+  return {
+    returnHold: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+  };
+}
+
 describe('inventoryQuality service policy', () => {
   it('rejects quantity changes for reserved inventory and normalizes codes', () => {
     expect(() => assertInventoryQuantityAdjustmentAllowed('RESERVED', true)).toThrowError(/不能直接调整数量/);
@@ -58,6 +67,7 @@ describe('inventoryQuality service policy', () => {
     };
     const updated = { ...existing, quantity: 3 };
     const txMock = {
+      ...noReturnHold(),
       inventoryItem: { update: vi.fn().mockResolvedValue({ id: 'item-1' }) },
       inventoryDetail: {
         findUnique: vi.fn().mockResolvedValueOnce(existing).mockResolvedValueOnce(updated),
@@ -97,6 +107,7 @@ describe('inventoryQuality service policy', () => {
 
   it('protects legacy, ledger-linked, and non-empty details before deleting the aggregate', async () => {
     const txMock = {
+      ...noReturnHold(),
       inventoryDetail: {
         findUnique: vi.fn().mockResolvedValue({ id: 'detail-1', inventoryItemId: 'item-1', quantity: 0 }),
         delete: vi.fn().mockResolvedValue(undefined),
@@ -153,6 +164,7 @@ describe('inventoryQuality service policy', () => {
       createdAt: new Date(),
     };
     const tx = {
+      ...noReturnHold(),
       inventoryDetail: {
         findUnique: vi.fn().mockResolvedValue(detail),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -199,6 +211,7 @@ describe('inventoryQuality service policy', () => {
       allocatedQuantity: 2,
     };
     const txMock = {
+      ...noReturnHold(),
       inventoryItem: { update: vi.fn() },
       inventoryDetail: { findUnique: vi.fn().mockResolvedValue(existing), update: vi.fn(), updateMany: vi.fn() },
     };
@@ -238,6 +251,7 @@ describe('inventoryQuality service policy', () => {
     };
     const updated = { ...existing, remainingHours: 100 };
     const txMock = {
+      ...noReturnHold(),
       inventoryItem: { update: vi.fn() },
       inventoryDetail: { findUnique: vi.fn().mockResolvedValue(existing), update: vi.fn().mockResolvedValue(updated) },
       inventoryTransaction: { create: vi.fn() },
@@ -272,6 +286,7 @@ describe('inventoryQuality service policy', () => {
     };
     const updated = { ...existing, status: 'QUARANTINED' };
     const txMock = {
+      ...noReturnHold(),
       inventoryItem: { update: vi.fn() },
       inventoryDetail: {
         findUnique: vi.fn().mockResolvedValueOnce(existing).mockResolvedValueOnce(updated),
@@ -338,6 +353,7 @@ describe('inventoryQuality service policy', () => {
       updatedAt: new Date('2026-09-09T00:00:00.000Z'),
     };
     const txMock = {
+      ...noReturnHold(),
       inventoryItem: { update: vi.fn() },
       inventoryDetail: {
         findUnique: vi.fn().mockResolvedValue(existing),
@@ -406,6 +422,7 @@ describe('inventoryQuality service policy', () => {
       inventoryItem: { partNumber: 'PN-HISTORY', trackingType: 'BATCH' },
     };
     const txMock = {
+      ...noReturnHold(),
       inventoryItem: {
         update: vi.fn(),
       },
@@ -440,6 +457,7 @@ describe('inventoryQuality service policy', () => {
       allocatedQuantity: 0,
     };
     const txMock = {
+      ...noReturnHold(),
       inventoryItem: {
         findUnique: vi.fn().mockResolvedValue({ partNumber: 'PN-1', trackingType: 'BATCH' }),
         update: vi.fn(),
@@ -500,6 +518,7 @@ describe('inventoryQuality service policy', () => {
       quoteNumber: 'Q-1',
     };
     const tx = {
+      ...noReturnHold(),
       inventoryDetail: { findUnique: vi.fn().mockResolvedValue(detail), updateMany: vi.fn() },
       quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
     } as unknown as Prisma.TransactionClient;
@@ -524,6 +543,7 @@ describe('inventoryQuality service policy', () => {
       version: 2,
     };
     const tx = {
+      ...noReturnHold(),
       quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
       inventoryDetail: {
         findUnique: vi.fn().mockResolvedValue({
@@ -571,6 +591,7 @@ describe('inventoryQuality service policy', () => {
       },
     };
     const tx = {
+      ...noReturnHold(),
       inventoryDetail: { findUnique: vi.fn().mockResolvedValue(detail), updateMany: vi.fn() },
       order: { findUnique: vi.fn().mockResolvedValue(order) },
     } as unknown as Prisma.TransactionClient;
@@ -585,6 +606,7 @@ describe('inventoryQuality service policy', () => {
 
   it('rejects deletion when any modern allocation history exists', async () => {
     const tx = {
+      ...noReturnHold(),
       inventoryDetail: {
         findUnique: vi.fn().mockResolvedValue({ id: 'detail-1', inventoryItemId: 'item-1', quantity: 0, allocatedQuantity: 0 }),
         delete: vi.fn(),

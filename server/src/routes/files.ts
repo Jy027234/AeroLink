@@ -4,6 +4,7 @@ import prisma from '../lib/prisma.js';
 import { objectStorage } from '../lib/objectStorage.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { recordOperationalAlert } from '../lib/alerting.js';
+import { hasCapability, type CapabilityActor } from '../lib/capabilityPolicy.js';
 
 const router = Router();
 
@@ -22,12 +23,33 @@ export function contentDisposition(filename?: string | null) {
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
+/** Independent quality staff may inspect the exact evidence received with a return. */
+export async function canReadReturnEvidence(
+  object: { id: string; ownerId: string | null; domain: string | null; resourceId: string | null; version: number; sha256: string; status: string },
+  user: CapabilityActor | undefined,
+) {
+  if (!user || !hasCapability(user, 'quality_review', 'read')
+    || !['order', 'orders'].includes(object.domain ?? '') || !object.resourceId || object.status !== 'AVAILABLE') return false;
+  const hold = await prisma.returnHold.findFirst({
+    where: {
+      evidence: { array_contains: [{ id: object.id, version: object.version, sha256: object.sha256, status: object.status }] },
+      shipmentLine: { shipment: { orderId: object.resourceId } },
+    },
+    select: { shipmentLine: { select: { shipment: { select: { order: { select: {
+      quotation: { select: { createdBy: true, creator: { select: { department: true } } } },
+    } } } } } } },
+  });
+  if (!hold) return false;
+  const quotation = hold.shipmentLine.shipment.order.quotation;
+  return hasCapability(user, 'order', 'read', { ownerId: quotation.createdBy, department: quotation.creator.department });
+}
+
 router.get('/:id', asyncHandler(async (req: AuthRequest, res) => {
   const storedObject = await prisma.storedObject.findUnique({ where: { id: req.params.id } });
   if (!storedObject || storedObject.status !== 'AVAILABLE') {
     throw new AppError('文件不存在或不可用', 404, 'RESOURCE_NOT_FOUND');
   }
-  if (!canReadStoredObject(storedObject, req.user)) {
+  if (!canReadStoredObject(storedObject, req.user) && !await canReadReturnEvidence(storedObject, req.user)) {
     throw new AppError('无权访问此文件', 403, 'AUTH_FORBIDDEN');
   }
 

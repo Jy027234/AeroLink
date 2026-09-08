@@ -178,6 +178,10 @@
       "description": "Routes mounted under inventoryAllocations"
     },
     {
+      "name": "shipments",
+      "description": "Routes mounted under shipments"
+    },
+    {
       "name": "shipmentTracking",
       "description": "Routes mounted under shipmentTracking"
     },
@@ -19589,7 +19593,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 36
+          "line": 37
         },
         "security": [
           {
@@ -19676,7 +19680,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 93
+          "line": 94
         },
         "security": [
           {
@@ -19742,7 +19746,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 63
+          "line": 64
         },
         "security": [
           {
@@ -19802,7 +19806,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 78
+          "line": 79
         },
         "security": [
           {
@@ -19860,7 +19864,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 116
+          "line": 117
         },
         "security": [
           {
@@ -21119,6 +21123,412 @@
               }
             }
           }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/shipments/orders/{orderId}": {
+      "get": {
+        "operationId": "getShipmentsOrdersOrderId",
+        "tags": [
+          "shipments"
+        ],
+        "summary": "GET /api/shipments/orders/:orderId",
+        "description": "Reads the current modern order shipment view under order.read and current order owner/department scope. QUALITY_MANAGER may use this order view without quotation.read. Outbound sources expose no costs; a source missing current assignment or quality-review mapping has availableQuantity 0 and requiresHistoricalReview=true.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/shipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/shipments.ts",
+          "line": 46
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ShipmentOrder"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/shipments/returns/{id}/release-context": {
+      "get": {
+        "operationId": "getShipmentsReturnsIdReleaseContext",
+        "tags": [
+          "shipments"
+        ],
+        "summary": "GET /api/shipments/returns/:id/release-context",
+        "description": "Reads the current return identity, quality, certificate, and evidence snapshot under quality_review.approve and current order scope. QUALITY_MANAGER does not need quotation.read; the snapshot contains no commercial cost fields.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/shipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/shipments.ts",
+          "line": 52
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ShipmentReturnReleaseContext"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/shipments": {
+      "post": {
+        "operationId": "postShipments",
+        "tags": [
+          "shipments"
+        ],
+        "summary": "POST /api/shipments",
+        "description": "Creates a modern shipment from explicitly selected OUTBOUND transaction sources under inventory.manage and current order scope. No source is selected implicitly; each source must have a current assignment and consumed quality review.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/shipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/shipments.ts",
+          "line": 59
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Stable command identity required for retry-safe shipment, receipt, return, and release writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/Shipment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ShipmentCreate"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/shipments/dispatches/{id}/receipts": {
+      "post": {
+        "operationId": "postShipmentsDispatchesIdReceipts",
+        "tags": [
+          "shipments"
+        ],
+        "summary": "POST /api/shipments/dispatches/:id/receipts",
+        "description": "Records explicit receipt quantities for shipment lines under inventory.manage and current order scope. Evidence must be supplied by the authenticated operator and the response contains safe quantity/state projections only.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/shipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/shipments.ts",
+          "line": 70
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Stable command identity required for retry-safe shipment, receipt, return, and release writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Shipment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ShipmentReceipt"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/shipments/returns": {
+      "post": {
+        "operationId": "postShipmentsReturns",
+        "tags": [
+          "shipments"
+        ],
+        "summary": "POST /api/shipments/returns",
+        "description": "Creates a quarantined return hold under inventory.manage and current order scope. The hold is identity/evidence scoped and does not silently increase saleable inventory.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/shipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/shipments.ts",
+          "line": 81
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Stable command identity required for retry-safe shipment, receipt, return, and release writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ShipmentReturnHold"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ShipmentReturn"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/shipments/returns/{id}/release": {
+      "post": {
+        "operationId": "postShipmentsReturnsIdRelease",
+        "tags": [
+          "shipments"
+        ],
+        "summary": "POST /api/shipments/returns/:id/release",
+        "description": "Releases a return hold only after an independent quality_review.approve decision and current snapshot/evidence checks under the order scope. The response is a safe hold projection without command internals or cost fields.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/shipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/shipments.ts",
+          "line": 92
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Stable command identity required for retry-safe shipment, receipt, return, and release writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ShipmentReturnHold"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ShipmentReturnRelease"
         },
         "x-aerolink-contract-level": "baseline-json-envelope"
       }
@@ -22786,7 +23196,7 @@
         "x-aerolink-owner": "P2-01/health",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 243
+          "line": 245
         },
         "security": [],
         "parameters": [],
@@ -22833,7 +23243,7 @@
         "x-aerolink-owner": "P2-01/metrics",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 247
+          "line": 249
         },
         "security": [
           {
@@ -23742,6 +24152,46 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/QuotationReviseRequest"
+            }
+          }
+        }
+      },
+      "ShipmentCreate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ShipmentCreateRequest"
+            }
+          }
+        }
+      },
+      "ShipmentReceipt": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ShipmentReceiptRequest"
+            }
+          }
+        }
+      },
+      "ShipmentReturn": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ShipmentReturnRequest"
+            }
+          }
+        }
+      },
+      "ShipmentReturnRelease": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ShipmentReturnReleaseRequest"
             }
           }
         }
@@ -25570,6 +26020,98 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/QuotationRevisionListEnvelope"
+            }
+          }
+        }
+      },
+      "ShipmentOrder": {
+        "description": "Modern order shipment view; quantity, identity, delivery, and safe quality evidence only.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "const": true
+                },
+                "data": {
+                  "$ref": "#/components/schemas/ShipmentOrder"
+                }
+              },
+              "required": [
+                "success",
+                "data"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "Shipment": {
+        "description": "Created or updated shipment safe view.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "const": true
+                },
+                "data": {
+                  "$ref": "#/components/schemas/Shipment"
+                }
+              },
+              "required": [
+                "success",
+                "data"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "ShipmentReturnHold": {
+        "description": "Quarantined or released return hold safe view.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "const": true
+                },
+                "data": {
+                  "$ref": "#/components/schemas/ShipmentReturnCommandResult"
+                }
+              },
+              "required": [
+                "success",
+                "data"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "ShipmentReturnReleaseContext": {
+        "description": "Current return quality-release snapshot without commercial cost fields.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "const": true
+                },
+                "data": {
+                  "$ref": "#/components/schemas/ShipmentReturnReleaseContext"
+                }
+              },
+              "required": [
+                "success",
+                "data"
+              ],
+              "additionalProperties": false
             }
           }
         }
@@ -47694,12 +48236,1565 @@
           "assignmentVersion"
         ],
         "additionalProperties": false
+      },
+      "ShipmentEvidence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "sha256",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentIdentitySnapshot": {
+        "type": "object",
+        "properties": {
+          "inventoryDetailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inventoryItemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trackingType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "batchNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conditionCode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "warehouse": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "inventoryDetailId",
+          "inventoryItemId",
+          "partNumber",
+          "trackingType",
+          "serialNumber",
+          "batchNumber",
+          "conditionCode",
+          "warehouse",
+          "location"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentCertificate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "certificateNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "partNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "batchNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "certificateType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiryDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "fileHash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "certificateNumber",
+          "partNumber",
+          "serialNumber",
+          "batchNumber",
+          "certificateType",
+          "status",
+          "expiryDate",
+          "fileHash",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentQualityEvidence": {
+        "type": "object",
+        "properties": {
+          "outboundTransactionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reviewId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentEvidence"
+            }
+          },
+          "certificates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentCertificate"
+            }
+          }
+        },
+        "required": [
+          "outboundTransactionId",
+          "reviewId",
+          "snapshotHash",
+          "evidence",
+          "certificates"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentEvidenceBundle": {
+        "type": "object",
+        "properties": {
+          "qualityReviews": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentQualityEvidence"
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentEvidence"
+            }
+          }
+        },
+        "required": [
+          "qualityReviews",
+          "attachments"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentReturnHold": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "shipmentLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inventoryDetailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "receivedById": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "releasedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "releasedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "identitySnapshot": {
+            "$ref": "#/components/schemas/ShipmentIdentitySnapshot"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentEvidence"
+            }
+          },
+          "releaseReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "returnTransactionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "shipmentLineId",
+          "inventoryDetailId",
+          "quantity",
+          "status",
+          "version",
+          "snapshotHash",
+          "receivedById",
+          "receivedAt",
+          "releasedById",
+          "releasedAt",
+          "identitySnapshot",
+          "evidence"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentLine": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "lineNo": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "orderLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "assignmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "outboundTransactionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "receivedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "returnedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "identitySnapshot": {
+            "$ref": "#/components/schemas/ShipmentIdentitySnapshot"
+          },
+          "returns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentReturnHold"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "lineNo",
+          "orderLineId",
+          "assignmentId",
+          "outboundTransactionId",
+          "quantity",
+          "receivedQuantity",
+          "returnedQuantity",
+          "version",
+          "identitySnapshot",
+          "returns"
+        ],
+        "additionalProperties": false
+      },
+      "Shipment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "shipmentNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "carrier": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trackingNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "origin": {
+            "type": "string",
+            "minLength": 1
+          },
+          "destination": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "shippedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/ShipmentEvidenceBundle"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentLine"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "shipmentNumber",
+          "carrier",
+          "trackingNumber",
+          "origin",
+          "destination",
+          "status",
+          "version",
+          "shippedAt",
+          "evidence",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentOutboundTransaction": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "orderLineId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "assignmentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "inventoryDetailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inventoryItemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trackingType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "batchNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conditionCode": {
+            "type": "string",
+            "minLength": 1
+          },
+          "warehouse": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "boundQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "availableQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "description": "Remaining quantity that can be bound to a shipment. It is 0 when the source lacks a current assignment or consumed quality review."
+          },
+          "requiresHistoricalReview": {
+            "type": "boolean",
+            "description": "True when the source has no current assignment/review mapping and must not be silently treated as shippable."
+          }
+        },
+        "required": [
+          "id",
+          "orderLineId",
+          "assignmentId",
+          "inventoryDetailId",
+          "inventoryItemId",
+          "partNumber",
+          "trackingType",
+          "serialNumber",
+          "batchNumber",
+          "conditionCode",
+          "warehouse",
+          "location",
+          "quantity",
+          "boundQuantity",
+          "availableQuantity",
+          "requiresHistoricalReview"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentDeliveryLine": {
+        "type": "object",
+        "properties": {
+          "orderLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "receivedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "remainingQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "fullyReceived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "orderLineId",
+          "quantity",
+          "receivedQuantity",
+          "remainingQuantity",
+          "fullyReceived"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentDelivery": {
+        "type": "object",
+        "properties": {
+          "requiredQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "receivedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "remainingQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentDeliveryLine"
+            }
+          }
+        },
+        "required": [
+          "requiredQuantity",
+          "receivedQuantity",
+          "remainingQuantity",
+          "complete",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentOrder": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "outboundTransactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentOutboundTransaction"
+            }
+          },
+          "shipments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Shipment"
+            }
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/ShipmentDelivery"
+          }
+        },
+        "required": [
+          "order",
+          "outboundTransactions",
+          "shipments",
+          "delivery"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentReturnSnapshot": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "const": 1
+          },
+          "shipmentLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inventoryDetailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "assignmentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "outboundTransactionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "identitySnapshot": {
+            "$ref": "#/components/schemas/ShipmentIdentitySnapshot"
+          },
+          "quality": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "quantity": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "allocatedQuantity": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "conditionCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "certificateType": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "certificateNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "certificateFileUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lifeLimited": {
+                "type": "boolean"
+              },
+              "remainingHours": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "remainingCycles": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "shelfLifeDate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "shelfLifeDays": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "nextOverhaulDue": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "storageCondition": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updatedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "itemUpdatedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "certificates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ShipmentCertificate"
+                }
+              }
+            },
+            "required": [
+              "status",
+              "quantity",
+              "allocatedQuantity",
+              "conditionCode",
+              "certificateType",
+              "certificateNumber",
+              "certificateFileUrl",
+              "lifeLimited",
+              "remainingHours",
+              "remainingCycles",
+              "shelfLifeDate",
+              "shelfLifeDays",
+              "nextOverhaulDue",
+              "storageCondition",
+              "updatedAt",
+              "itemUpdatedAt",
+              "certificates"
+            ],
+            "additionalProperties": false
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentEvidence"
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "shipmentLineId",
+          "inventoryDetailId",
+          "assignmentId",
+          "outboundTransactionId",
+          "quantity",
+          "identitySnapshot",
+          "quality",
+          "evidence"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentReturnReleaseContext": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "shipmentLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inventoryDetailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "identitySnapshot": {
+            "$ref": "#/components/schemas/ShipmentIdentitySnapshot"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentEvidence"
+            }
+          },
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "receivedById": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "releasedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "releasedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "releaseReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "returnTransactionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "returnHoldId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "receivedSnapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ShipmentReturnSnapshot"
+          },
+          "shipmentLine": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "shipmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "orderLineId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "assignmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "outboundTransactionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "quantity": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "receivedQuantity": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "returnedQuantity": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "identitySnapshot": {
+                "$ref": "#/components/schemas/ShipmentIdentitySnapshot"
+              }
+            },
+            "required": [
+              "id",
+              "shipmentId",
+              "orderLineId",
+              "assignmentId",
+              "outboundTransactionId",
+              "quantity",
+              "receivedQuantity",
+              "returnedQuantity",
+              "version",
+              "identitySnapshot"
+            ],
+            "additionalProperties": false
+          },
+          "inventoryDetail": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "inventoryItemId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "partNumber": {
+                "type": "string",
+                "minLength": 1
+              },
+              "trackingType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "serialNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "batchNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "conditionCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "warehouse": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "location": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "quantity": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "allocatedQuantity": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "certificateType": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "certificateNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lifeLimited": {
+                "type": "boolean"
+              },
+              "remainingHours": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "remainingCycles": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "shelfLifeDate": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "nextOverhaulDue": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "inventoryItemId",
+              "partNumber",
+              "trackingType",
+              "serialNumber",
+              "batchNumber",
+              "conditionCode",
+              "warehouse",
+              "location",
+              "status",
+              "quantity",
+              "allocatedQuantity",
+              "certificateType",
+              "certificateNumber",
+              "lifeLimited",
+              "remainingHours",
+              "remainingCycles",
+              "shelfLifeDate",
+              "nextOverhaulDue"
+            ],
+            "additionalProperties": false
+          },
+          "certificates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentCertificate"
+            }
+          },
+          "currentSnapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          }
+        },
+        "required": [
+          "id",
+          "shipmentLineId",
+          "inventoryDetailId",
+          "quantity",
+          "status",
+          "version",
+          "identitySnapshot",
+          "evidence",
+          "snapshotHash",
+          "receivedById",
+          "receivedAt",
+          "releasedById",
+          "releasedAt",
+          "returnHoldId",
+          "receivedSnapshotHash",
+          "snapshot",
+          "shipmentLine",
+          "inventoryDetail",
+          "certificates",
+          "currentSnapshotHash"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentReturnCommandResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "shipmentLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inventoryDetailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "receivedById": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "releasedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "releasedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "identitySnapshot": {
+            "$ref": "#/components/schemas/ShipmentIdentitySnapshot"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShipmentEvidence"
+            }
+          },
+          "releaseReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "returnTransactionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "shipmentLineId",
+          "inventoryDetailId",
+          "quantity",
+          "status",
+          "version",
+          "snapshotHash",
+          "receivedById",
+          "receivedAt",
+          "releasedById",
+          "releasedAt",
+          "identitySnapshot",
+          "evidence",
+          "replayed"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentCreateRequest": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "carrier": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "trackingNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "origin": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "destination": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "outboundTransactionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "outboundTransactionId",
+                "quantity"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "orderId",
+          "carrier",
+          "trackingNumber",
+          "origin",
+          "destination",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentReceiptRequest": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "shipmentLineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "shipmentLineId",
+                "quantity"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "lines",
+          "evidenceIds",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentReturnRequest": {
+        "type": "object",
+        "properties": {
+          "shipmentLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "verifiedSerialNumber": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "verifiedBatchNumber": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "shipmentLineId",
+          "quantity",
+          "evidenceIds",
+          "verifiedSerialNumber",
+          "verifiedBatchNumber",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "ShipmentReturnReleaseRequest": {
+        "type": "object",
+        "properties": {
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "verifiedSerialNumber": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "verifiedBatchNumber": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "identity": {
+                "type": "boolean"
+              },
+              "documents": {
+                "type": "boolean"
+              },
+              "conditionAndLife": {
+                "type": "boolean"
+              },
+              "customerRequirements": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "identity",
+              "documents",
+              "conditionAndLife",
+              "customerRequirements"
+            ],
+            "additionalProperties": false
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "snapshotHash",
+          "evidenceIds",
+          "verifiedSerialNumber",
+          "verifiedBatchNumber",
+          "checks",
+          "reason"
+        ],
+        "additionalProperties": false
       }
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
-      "mountCount": 55,
-      "operationCount": 328
+      "mountCount": 56,
+      "operationCount": 334
     }
   }
 }

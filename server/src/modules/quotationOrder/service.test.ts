@@ -184,6 +184,15 @@ describe('quotation/order module service boundary', () => {
     }));
   });
 
+  it('does not let manual status updates replace modern shipment receipts', async () => {
+    const updateMany = vi.fn();
+    const tx = { order: { findUnique: vi.fn().mockResolvedValue({ id: 'modern-order', status: 'SHIPPED',
+      statusEnum: 'SHIPPED', lineItemsMode: true, version: 1 }), updateMany } } as unknown as Prisma.TransactionClient;
+    await expect(transitionOrderAggregate(tx, { id: 'modern-order', nextStatus: 'DELIVERED', expectedVersion: 1,
+      actorId: 'manager', reasonCode: 'MANUAL_STATUS_UPDATE' })).rejects.toMatchObject({ code: 'FULFILLMENT_REQUIRED' });
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
   it('keeps mutable order writes behind the module service boundary', async () => {
     const existing = { id: 'order-1', quotation: { createdBy: 'owner-1', creator: null } };
     const updated = { ...existing, status: 'SO_CREATED' };

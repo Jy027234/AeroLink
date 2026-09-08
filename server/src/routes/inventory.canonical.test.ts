@@ -87,6 +87,7 @@ describe('canonical inventory mutations', () => {
       updateMany: ReturnType<typeof vi.fn>;
     };
     inventoryTransaction: { create: ReturnType<typeof vi.fn> };
+    returnHold: { findFirst: ReturnType<typeof vi.fn> };
   };
   let enqueueBusinessEventMock: ReturnType<typeof vi.fn>;
 
@@ -98,6 +99,7 @@ describe('canonical inventory mutations', () => {
       inventoryItem: { upsert: vi.fn(), update: vi.fn() },
       inventoryDetail: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       inventoryTransaction: { create: vi.fn() },
+      returnHold: { findFirst: vi.fn().mockResolvedValue(null) },
     };
     enqueueBusinessEventMock = vi.fn();
 

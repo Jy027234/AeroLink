@@ -235,7 +235,7 @@ describe('D12 allocation fulfillment', () => {
     expect(f.txState.orderLine).toMatchObject({ outboundQuantity: 2, outboundStatus: 'PARTIAL' });
     expect(f.txState.order).toMatchObject({ outboundQuantity: 2, outboundStatus: 'PARTIAL' });
     expect(f.txState.allocation.quotationLine.reservedQuantity).toBe(4);
-    expect(f.mocks.inventoryTransaction.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ allocationId: 'allocation-1', assignmentId: 'assignment-1', quantity: -2, beforeQuantity: 10, afterQuantity: 8 }) }));
+    expect(f.mocks.inventoryTransaction.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ allocationId: 'allocation-1', assignmentId: 'assignment-1', fulfillmentReviewId: 'review-1', quantity: -2, beforeQuantity: 10, afterQuantity: 8 }) }));
     expect(f.mocks.inventoryAllocationEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ kind: 'CONSUME', allocationId: 'allocation-1', assignmentId: 'assignment-1', quantity: 2 }) }));
     const outboxPayloads = f.mocks.outboxEvent.create.mock.calls.map(([call]) => JSON.stringify(call.data.payload));
     expect(outboxPayloads.every((payload: string) => !payload.includes('unitCost') && !payload.includes('unitPrice') && !payload.includes('costPrice'))).toBe(true);

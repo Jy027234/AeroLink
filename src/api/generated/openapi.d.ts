@@ -5053,6 +5053,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/shipments/orders/{orderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/shipments/orders/:orderId
+         * @description Reads the current modern order shipment view under order.read and current order owner/department scope. QUALITY_MANAGER may use this order view without quotation.read. Outbound sources expose no costs; a source missing current assignment or quality-review mapping has availableQuantity 0 and requiresHistoricalReview=true.
+         */
+        get: operations["getShipmentsOrdersOrderId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments/returns/{id}/release-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/shipments/returns/:id/release-context
+         * @description Reads the current return identity, quality, certificate, and evidence snapshot under quality_review.approve and current order scope. QUALITY_MANAGER does not need quotation.read; the snapshot contains no commercial cost fields.
+         */
+        get: operations["getShipmentsReturnsIdReleaseContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/shipments
+         * @description Creates a modern shipment from explicitly selected OUTBOUND transaction sources under inventory.manage and current order scope. No source is selected implicitly; each source must have a current assignment and consumed quality review.
+         */
+        post: operations["postShipments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments/dispatches/{id}/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/shipments/dispatches/:id/receipts
+         * @description Records explicit receipt quantities for shipment lines under inventory.manage and current order scope. Evidence must be supplied by the authenticated operator and the response contains safe quantity/state projections only.
+         */
+        post: operations["postShipmentsDispatchesIdReceipts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments/returns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/shipments/returns
+         * @description Creates a quarantined return hold under inventory.manage and current order scope. The hold is identity/evidence scoped and does not silently increase saleable inventory.
+         */
+        post: operations["postShipmentsReturns"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments/returns/{id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/shipments/returns/:id/release
+         * @description Releases a return hold only after an independent quality_review.approve decision and current snapshot/evidence checks under the order scope. The response is a safe hold projection without command internals or cost fields.
+         */
+        post: operations["postShipmentsReturnsIdRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shipment-tracking": {
         parameters: {
             query?: never;
@@ -11925,6 +12045,292 @@ export interface components {
             allocationVersion: number;
             assignmentVersion: number;
         };
+        ShipmentEvidence: {
+            id: string;
+            version: number;
+            sha256: string;
+            status: string;
+        };
+        ShipmentIdentitySnapshot: {
+            inventoryDetailId: string;
+            inventoryItemId: string;
+            partNumber: string;
+            trackingType: string;
+            serialNumber: string | null;
+            batchNumber: string | null;
+            conditionCode: string;
+            warehouse: string | null;
+            location: string | null;
+        };
+        ShipmentCertificate: {
+            id: string;
+            certificateNumber: string | null;
+            partNumber: string | null;
+            serialNumber: string | null;
+            batchNumber: string | null;
+            certificateType: string | null;
+            status: string | null;
+            /** Format: date-time */
+            expiryDate: string | null;
+            fileHash: string | null;
+            /** Format: date-time */
+            updatedAt: string | null;
+        };
+        ShipmentQualityEvidence: {
+            outboundTransactionId: string;
+            reviewId: string;
+            snapshotHash: string;
+            evidence: components["schemas"]["ShipmentEvidence"][];
+            certificates: components["schemas"]["ShipmentCertificate"][];
+        };
+        ShipmentEvidenceBundle: {
+            qualityReviews: components["schemas"]["ShipmentQualityEvidence"][];
+            attachments: components["schemas"]["ShipmentEvidence"][];
+        };
+        ShipmentReturnHold: {
+            id: string;
+            shipmentLineId: string;
+            inventoryDetailId: string;
+            quantity: number;
+            status: string;
+            version: number;
+            snapshotHash: string;
+            receivedById: string;
+            /** Format: date-time */
+            receivedAt: string;
+            releasedById: string | null;
+            /** Format: date-time */
+            releasedAt: string | null;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            evidence: components["schemas"]["ShipmentEvidence"][];
+            releaseReason?: string | null;
+            returnTransactionId?: string | null;
+        };
+        ShipmentLine: {
+            id: string;
+            lineNo: number;
+            orderLineId: string;
+            assignmentId: string;
+            outboundTransactionId: string;
+            quantity: number;
+            receivedQuantity: number;
+            returnedQuantity: number;
+            version: number;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            returns: components["schemas"]["ShipmentReturnHold"][];
+        };
+        Shipment: {
+            id: string;
+            shipmentNumber: string;
+            carrier: string;
+            trackingNumber: string;
+            origin: string;
+            destination: string;
+            status: string;
+            version: number;
+            /** Format: date-time */
+            shippedAt: string | null;
+            evidence: components["schemas"]["ShipmentEvidenceBundle"];
+            lines: components["schemas"]["ShipmentLine"][];
+        };
+        ShipmentOutboundTransaction: {
+            id: string;
+            orderLineId: string | null;
+            assignmentId: string | null;
+            inventoryDetailId: string;
+            inventoryItemId: string;
+            partNumber: string;
+            trackingType: string;
+            serialNumber: string | null;
+            batchNumber: string | null;
+            conditionCode: string;
+            warehouse: string | null;
+            location: string | null;
+            quantity: number;
+            boundQuantity: number;
+            /** @description Remaining quantity that can be bound to a shipment. It is 0 when the source lacks a current assignment or consumed quality review. */
+            availableQuantity: number;
+            /** @description True when the source has no current assignment/review mapping and must not be silently treated as shippable. */
+            requiresHistoricalReview: boolean;
+        };
+        ShipmentDeliveryLine: {
+            orderLineId: string;
+            quantity: number;
+            receivedQuantity: number;
+            remainingQuantity: number;
+            fullyReceived: boolean;
+        };
+        ShipmentDelivery: {
+            requiredQuantity: number;
+            receivedQuantity: number;
+            remainingQuantity: number;
+            complete: boolean;
+            lines: components["schemas"]["ShipmentDeliveryLine"][];
+        };
+        ShipmentOrder: {
+            order: {
+                id: string;
+                status: string;
+                version: number;
+            };
+            outboundTransactions: components["schemas"]["ShipmentOutboundTransaction"][];
+            shipments: components["schemas"]["Shipment"][];
+            delivery: components["schemas"]["ShipmentDelivery"];
+        };
+        ShipmentReturnSnapshot: {
+            /** @constant */
+            schemaVersion: 1;
+            shipmentLineId: string;
+            inventoryDetailId: string;
+            assignmentId: string | null;
+            outboundTransactionId: string;
+            quantity: number;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            quality: {
+                status: string | null;
+                quantity: number;
+                allocatedQuantity: number;
+                conditionCode: string | null;
+                certificateType: string | null;
+                certificateNumber: string | null;
+                certificateFileUrl: string | null;
+                lifeLimited: boolean;
+                remainingHours: number | null;
+                remainingCycles: number | null;
+                /** Format: date-time */
+                shelfLifeDate: string | null;
+                shelfLifeDays: number | null;
+                /** Format: date-time */
+                nextOverhaulDue: string | null;
+                storageCondition: string | null;
+                /** Format: date-time */
+                updatedAt: string | null;
+                /** Format: date-time */
+                itemUpdatedAt: string | null;
+                certificates: components["schemas"]["ShipmentCertificate"][];
+            };
+            evidence: components["schemas"]["ShipmentEvidence"][];
+        };
+        ShipmentReturnReleaseContext: {
+            id: string;
+            shipmentLineId: string;
+            inventoryDetailId: string;
+            quantity: number;
+            status: string;
+            version: number;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            evidence: components["schemas"]["ShipmentEvidence"][];
+            snapshotHash: string;
+            receivedById: string;
+            /** Format: date-time */
+            receivedAt: string;
+            releasedById: string | null;
+            /** Format: date-time */
+            releasedAt: string | null;
+            releaseReason?: string | null;
+            returnTransactionId?: string | null;
+            returnHoldId: string;
+            receivedSnapshotHash: string;
+            snapshot: components["schemas"]["ShipmentReturnSnapshot"];
+            shipmentLine: {
+                id: string;
+                shipmentId: string;
+                orderLineId: string;
+                assignmentId: string;
+                outboundTransactionId: string;
+                quantity: number;
+                receivedQuantity: number;
+                returnedQuantity: number;
+                version: number;
+                identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            };
+            inventoryDetail: {
+                id: string;
+                inventoryItemId: string;
+                partNumber: string;
+                trackingType: string;
+                serialNumber: string | null;
+                batchNumber: string | null;
+                conditionCode: string | null;
+                warehouse: string | null;
+                location: string | null;
+                status: string;
+                quantity: number;
+                allocatedQuantity: number;
+                certificateType: string | null;
+                certificateNumber: string | null;
+                lifeLimited: boolean;
+                remainingHours: number | null;
+                remainingCycles: number | null;
+                /** Format: date-time */
+                shelfLifeDate: string | null;
+                /** Format: date-time */
+                nextOverhaulDue: string | null;
+            };
+            certificates: components["schemas"]["ShipmentCertificate"][];
+            currentSnapshotHash: string;
+        };
+        ShipmentReturnCommandResult: {
+            id: string;
+            shipmentLineId: string;
+            inventoryDetailId: string;
+            quantity: number;
+            status: string;
+            version: number;
+            snapshotHash: string;
+            receivedById: string;
+            /** Format: date-time */
+            receivedAt: string;
+            releasedById: string | null;
+            /** Format: date-time */
+            releasedAt: string | null;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            evidence: components["schemas"]["ShipmentEvidence"][];
+            releaseReason?: string | null;
+            returnTransactionId?: string | null;
+            replayed: boolean;
+        };
+        ShipmentCreateRequest: {
+            orderId: string;
+            carrier: string;
+            trackingNumber: string;
+            origin: string;
+            destination: string;
+            lines: {
+                outboundTransactionId: string;
+                quantity: number;
+            }[];
+            evidenceIds?: string[];
+        };
+        ShipmentReceiptRequest: {
+            lines: {
+                shipmentLineId: string;
+                quantity: number;
+            }[];
+            evidenceIds: string[];
+            reason: string;
+        };
+        ShipmentReturnRequest: {
+            shipmentLineId: string;
+            quantity: number;
+            evidenceIds: string[];
+            verifiedSerialNumber: string;
+            verifiedBatchNumber: string;
+            reason: string;
+        };
+        ShipmentReturnReleaseRequest: {
+            snapshotHash: string;
+            evidenceIds: string[];
+            verifiedSerialNumber: string;
+            verifiedBatchNumber: string;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+            reason: string;
+        };
     };
     responses: {
         /** @description Authenticated; refresh token is rotated in an HttpOnly cookie. */
@@ -13553,6 +13959,58 @@ export interface components {
                 "application/json": components["schemas"]["QuotationRevisionListEnvelope"];
             };
         };
+        /** @description Modern order shipment view; quantity, identity, delivery, and safe quality evidence only. */
+        ShipmentOrder: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["ShipmentOrder"];
+                };
+            };
+        };
+        /** @description Created or updated shipment safe view. */
+        Shipment: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["Shipment"];
+                };
+            };
+        };
+        /** @description Quarantined or released return hold safe view. */
+        ShipmentReturnHold: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["ShipmentReturnCommandResult"];
+                };
+            };
+        };
+        /** @description Current return quality-release snapshot without commercial cost fields. */
+        ShipmentReturnReleaseContext: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["ShipmentReturnReleaseContext"];
+                };
+            };
+        };
     };
     parameters: never;
     requestBodies: {
@@ -14001,6 +14459,26 @@ export interface components {
         QuotationRevise: {
             content: {
                 "application/json": components["schemas"]["QuotationReviseRequest"];
+            };
+        };
+        ShipmentCreate: {
+            content: {
+                "application/json": components["schemas"]["ShipmentCreateRequest"];
+            };
+        };
+        ShipmentReceipt: {
+            content: {
+                "application/json": components["schemas"]["ShipmentReceiptRequest"];
+            };
+        };
+        ShipmentReturn: {
+            content: {
+                "application/json": components["schemas"]["ShipmentReturnRequest"];
+            };
+        };
+        ShipmentReturnRelease: {
+            content: {
+                "application/json": components["schemas"]["ShipmentReturnReleaseRequest"];
             };
         };
     };
@@ -21069,6 +21547,146 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getShipmentsOrdersOrderId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ShipmentOrder"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getShipmentsReturnsIdReleaseContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ShipmentReturnReleaseContext"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postShipments: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe shipment, receipt, return, and release writes. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ShipmentCreate"];
+        responses: {
+            201: components["responses"]["Shipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postShipmentsDispatchesIdReceipts: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe shipment, receipt, return, and release writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ShipmentReceipt"];
+        responses: {
+            200: components["responses"]["Shipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postShipmentsReturns: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe shipment, receipt, return, and release writes. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ShipmentReturn"];
+        responses: {
+            201: components["responses"]["ShipmentReturnHold"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postShipmentsReturnsIdRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe shipment, receipt, return, and release writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ShipmentReturnRelease"];
+        responses: {
+            200: components["responses"]["ShipmentReturnHold"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
