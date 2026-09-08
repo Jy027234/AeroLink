@@ -49,6 +49,21 @@ enum SupplierQuoteStatusEnum {
   expired
 }
 
+enum PurchaseCommitmentStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  CONFIRMED
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+
+enum PurchaseCommitmentFulfillmentMode {
+  STOCK_RECEIPT
+  SUPPLIER_DIRECT
+}
+
 model User {
   id          String    @id @default(uuid())
   email       String    @unique
@@ -87,6 +102,11 @@ model User {
   returnHoldsReceived     ReturnHold[] @relation("ReturnHoldReceiver")
   returnHoldsReleased     ReturnHold[] @relation("ReturnHoldReleaser")
   returnEvents            ReturnEvent[] @relation("ReturnEventActor")
+  purchaseCommitmentsCreated    PurchaseCommitment[] @relation("PurchaseCommitmentCreator")
+  purchaseCommitmentsSubmitted  PurchaseCommitment[] @relation("PurchaseCommitmentSubmitter")
+  purchaseCommitmentsApproved   PurchaseCommitment[] @relation("PurchaseCommitmentApprover")
+  purchaseCommitmentsConfirmed  PurchaseCommitment[] @relation("PurchaseCommitmentConfirmer")
+  purchaseCommitmentEvents      PurchaseCommitmentEvent[]
 
   @@map("users")
 }
@@ -297,6 +317,7 @@ model Supplier {
   supplierQuotes    SupplierQuote[]
   followUpLogs      SupplierFollowUpLog[]
   certificates      Certificate[]
+  purchaseCommitments PurchaseCommitment[]
 
   @@map("suppliers")
 }
@@ -745,6 +766,7 @@ model SupplierQuote {
   inquiryItem    InquiryItem?    @relation(fields: [inquiryItemId], references: [id], onDelete: SetNull)
   supplier Supplier  @relation(fields: [supplierId], references: [id])
   quotationLines QuotationLine[]
+  purchaseCommitmentLines PurchaseCommitmentLine[]
 
   @@index([rfqLineId, supplierId, status])
   @@index([inquiryItemId, supplierId, status])
@@ -1046,6 +1068,7 @@ model Order {
   inventoryTransactions InventoryTransaction[]
   lines                 OrderLine[]
   fulfillmentReviews    FulfillmentReview[]
+  purchaseCommitments   PurchaseCommitment[]
 
   @@index([status, createdAt])
   @@map("orders")
@@ -1075,10 +1098,103 @@ model OrderLine {
   quotationLine QuotationLine @relation(fields: [quotationLineId], references: [id], onDelete: Restrict)
   allocationAssignments AllocationAssignment[]
   shipmentLines         ShipmentLine[]
+  purchaseCommitmentLines PurchaseCommitmentLine[]
 
   @@unique([orderId, lineNo])
   @@index([quotationLineId])
   @@map("order_lines")
+}
+
+model PurchaseCommitment {
+  id                     String   @id @default(uuid())
+  commitmentNumber       String   @unique
+  orderId                String
+  supplierId             String
+  currency               String   @default("USD")
+  totalCost              Decimal  @db.Decimal(18, 4)
+  status                 PurchaseCommitmentStatus @default(DRAFT)
+  version                Int      @default(1)
+  createdById            String
+  submittedById          String?
+  submittedAt            DateTime?
+  approvedById           String?
+  approvedAt             DateTime?
+  approvalLevel          String?
+  approvalPolicyVersion  String?
+  approvalSnapshot       Json?
+  confirmedById          String?
+  confirmedAt            DateTime?
+  supplierReferenceNo    String?
+  confirmationEvidence   Json?
+  paymentTerms           String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  order       Order       @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  supplier    Supplier    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy   User        @relation("PurchaseCommitmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  submittedBy User?       @relation("PurchaseCommitmentSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  approvedBy  User?       @relation("PurchaseCommitmentApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  confirmedBy User?       @relation("PurchaseCommitmentConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict)
+  lines       PurchaseCommitmentLine[]
+  events      PurchaseCommitmentEvent[]
+
+  @@index([orderId, status])
+  @@index([supplierId, status])
+  @@map("purchase_commitments")
+}
+
+model PurchaseCommitmentLine {
+  id                     String   @id @default(uuid())
+  purchaseCommitmentId   String
+  lineNo                 Int
+  orderLineId            String
+  sourceSupplierQuoteId  String?
+  partNumber             String
+  uom                    String   @default("EA")
+  quantity               Int
+  cancelledQuantity      Int      @default(0)
+  receivedQuantity       Int      @default(0)
+  directShippedQuantity  Int      @default(0)
+  unitCost               Decimal  @db.Decimal(18, 4)
+  lineTotal              Decimal  @db.Decimal(18, 4)
+  currency               String   @default("USD")
+  promisedDate           DateTime
+  fulfillmentMode        PurchaseCommitmentFulfillmentMode
+  sourceSnapshot         Json
+  identitySnapshot       Json
+  version                Int      @default(1)
+  createdAt              DateTime @default(now())
+
+  purchaseCommitment PurchaseCommitment @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  orderLine          OrderLine          @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
+  sourceSupplierQuote SupplierQuote?     @relation(fields: [sourceSupplierQuoteId], references: [id], onDelete: Restrict)
+
+  @@unique([purchaseCommitmentId, lineNo])
+  @@unique([purchaseCommitmentId, orderLineId])
+  @@index([orderLineId])
+  @@index([sourceSupplierQuoteId])
+  @@map("purchase_commitment_lines")
+}
+
+model PurchaseCommitmentEvent {
+  id                   String   @id @default(uuid())
+  purchaseCommitmentId String
+  kind                 String
+  actorId              String
+  commandId            String
+  eventNo              Int
+  requestHash          String
+  data                 Json
+  createdAt            DateTime @default(now())
+
+  purchaseCommitment PurchaseCommitment @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  actor              User               @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([purchaseCommitmentId, eventNo])
+  @@index([actorId, createdAt])
+  @@map("purchase_commitment_events")
 }
 
 // Immutable human quality review for one planned outbound quantity.

@@ -42,6 +42,45 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
+function object(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid(`${label}缺失`);
+  return value as Record<string, unknown>;
+}
+
+/** Structural checks supplement, and never replace, the command's transactional source reads. */
+function assertLineEvidence(source: PurchasePolicySource, line: PurchasePolicyLine) {
+  const identity = object(line.identitySnapshot, '采购实物要求快照');
+  if (identity.schemaVersion !== 1 || identity.orderLineId !== line.orderLineId
+    || identity.partNumber !== line.partNumber || identity.uom !== line.uom
+    || typeof identity.quotationLineId !== 'string' || !identity.quotationLineId.trim()
+    || typeof identity.rfqLineId !== 'string' || !identity.rfqLineId.trim()
+    || typeof identity.conditionCode !== 'string' || !identity.conditionCode.trim()
+    || !['serialNumber', 'batchNumber'].every(key => identity[key] === null || (typeof identity[key] === 'string' && Boolean(identity[key])))
+    || typeof identity.certificateRequired !== 'boolean'
+    || !(identity.certificateType === null || typeof identity.certificateType === 'string')) invalid('采购实物要求快照不完整或与销售来源不符');
+  const evidence = object(line.sourceSnapshot, '采购成本来源快照');
+  if (evidence.schemaVersion !== 1 || evidence.supplierId !== source.supplierId
+    || evidence.rfqLineId !== identity.rfqLineId || evidence.partNumber !== line.partNumber
+    || evidence.currency !== 'USD' || !money(evidence.unitCost as Prisma.Decimal.Value).equals(money(line.unitCost))) {
+    invalid('采购成本来源快照与供应商、需求行、件号、币种或成本不符');
+  }
+  if (evidence.type === 'SUPPLIER_QUOTE') {
+    if (!line.sourceSupplierQuoteId || evidence.id !== line.sourceSupplierQuoteId
+      || !Number.isInteger(evidence.quantity) || (evidence.quantity as number) < line.quantity
+      || (evidence.quantity as number) > 2147483647
+      || typeof evidence.validUntil !== 'string' || Number.isNaN(new Date(evidence.validUntil).getTime())) invalid('采购报价来源身份、数量或有效期快照无效');
+  } else if (evidence.type === 'MANUAL') {
+    if (line.sourceSupplierQuoteId !== null || evidence.id !== null
+      || typeof evidence.reason !== 'string' || !evidence.reason.trim()
+      || !Array.isArray(evidence.evidence) || !evidence.evidence.length) invalid('人工采购成本必须保留原因和证据且不能伪装为供应商报价');
+    for (const item of evidence.evidence) {
+      const file = object(item, '人工采购成本附件');
+      if (typeof file.id !== 'string' || !file.id.trim() || !Number.isInteger(file.version) || (file.version as number) < 1
+        || file.status !== 'AVAILABLE' || typeof file.sha256 !== 'string' || !/^[a-f\d]{64}$/i.test(file.sha256)) invalid('人工采购成本附件快照无效');
+    }
+  } else invalid('采购成本来源类型无效');
+}
+
 export function buildPurchaseApprovalSnapshot(source: PurchasePolicySource) {
   usd(source.currency);
   identifier(source.orderId); identifier(source.supplierId);
@@ -64,6 +103,7 @@ export function buildPurchaseApprovalSnapshot(source: PurchasePolicySource) {
     if (!['STOCK_RECEIPT', 'SUPPLIER_DIRECT'].includes(line.fulfillmentMode)) invalid('采购履约方式无效');
     if (!line.sourceSnapshot || typeof line.sourceSnapshot !== 'object' || Array.isArray(line.sourceSnapshot)) invalid('采购成本来源快照缺失');
     if (!line.identitySnapshot || typeof line.identitySnapshot !== 'object' || Array.isArray(line.identitySnapshot)) invalid('采购实物要求快照缺失');
+    assertLineEvidence(source, line);
     return { id: line.id, lineNo: line.lineNo, orderLineId: line.orderLineId,
       sourceSupplierQuoteId: line.sourceSupplierQuoteId, quantity: line.quantity,
       unitCost: unitCost.toFixed(4), lineTotal: lineTotal.toFixed(4), currency: 'USD',
