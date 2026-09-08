@@ -5,13 +5,17 @@ import { objectStorage } from '../lib/objectStorage.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { recordOperationalAlert } from '../lib/alerting.js';
 import { hasCapability, type CapabilityActor } from '../lib/capabilityPolicy.js';
+import { canReadPurchaseEvidence } from '../modules/procurementSettlement/index.js';
 
 const router = Router();
 
 export function canReadStoredObject(
-  storedObject: { ownerId: string | null },
+  storedObject: { ownerId: string | null; domain?: string | null },
   user: { id?: string; role?: string } | undefined,
 ) {
+  // Commercial documents require current order scope and cost access, even
+  // for their uploader or a manager using an old /uploads link.
+  if (storedObject.domain === 'purchase_commitment') return false;
   const role = user?.role?.toLowerCase();
   const privileged = role === 'admin' || role === 'manager';
   return privileged || Boolean(user?.id && storedObject.ownerId === user.id);
@@ -49,7 +53,10 @@ router.get('/:id', asyncHandler(async (req: AuthRequest, res) => {
   if (!storedObject || storedObject.status !== 'AVAILABLE') {
     throw new AppError('文件不存在或不可用', 404, 'RESOURCE_NOT_FOUND');
   }
-  if (!canReadStoredObject(storedObject, req.user) && !await canReadReturnEvidence(storedObject, req.user)) {
+  const allowed = storedObject.domain === 'purchase_commitment'
+    ? await canReadPurchaseEvidence(prisma, storedObject, req.user)
+    : canReadStoredObject(storedObject, req.user) || await canReadReturnEvidence(storedObject, req.user);
+  if (!allowed) {
     throw new AppError('无权访问此文件', 403, 'AUTH_FORBIDDEN');
   }
 

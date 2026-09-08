@@ -22,6 +22,7 @@ import { enqueueBusinessEvent } from '../../lib/outboxService.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { allocationQuantities } from './allocationQuantities.js';
 import { assertInventoryUseAllowed } from './returnGuards.js';
+import { lockPurchaseCoverageLines, assertAdditionalStockCoverage } from '../procurementSettlement/purchaseCoverage.js';
 
 /**
  * D12's allocation service is intentionally separate from the legacy
@@ -668,6 +669,7 @@ export async function reserveLineInventory(args: {
   if (replay) return replay;
 
   const requested = normalizeAllocations(args.allocations);
+  if (orderLineId) await lockPurchaseCoverageLines(args.tx, [orderLineId]);
   const line = await loadQuotationLine(args.tx, quotationLineId);
   assertQuoteRead(args.actor, line.quotation);
   const orderLine = orderLineId ? await loadOrderLine(args.tx, orderLineId) : null;
@@ -701,6 +703,8 @@ export async function reserveLineInventory(args: {
       select: { assignedQuantity: true, releasedQuantity: true, consumedQuantity: true },
     });
     const assigned = existingOrderAssignments.reduce((sum, item) => sum + assignmentActive(item), 0);
+    await assertAdditionalStockCoverage(args.tx, { orderLineId: orderLine.id, orderQuantity: orderLine.quantity,
+      assignments: existingOrderAssignments, additionalQuantity: requestedTotal });
     if (requestedTotal > orderLine.quantity - orderLine.outboundQuantity - assigned) {
       fail('订单行待履约数量不足，不能新增库存分配');
     }
@@ -849,6 +853,7 @@ export async function assignLineInventory(args: {
   const replay = await replayAssign(args.tx, { ...args, orderLineId, commandId });
   if (replay) return replay;
   const requested = normalizeAssignmentInputs(args.allocations);
+  await lockPurchaseCoverageLines(args.tx, [orderLineId]);
   const orderLine = await loadOrderLine(args.tx, orderLineId);
   const parentRows = await args.tx.inventoryAllocation.findMany({
     where: { id: { in: requested.map(item => item.allocationId) } },
@@ -877,6 +882,8 @@ export async function assignLineInventory(args: {
   });
   let activeOrderAssigned = existingOrderAssignments.reduce((sum, item) => sum + assignmentActive(item), 0);
   const requestedTotal = requested.reduce((sum, item) => sum + item.quantity, 0);
+  await assertAdditionalStockCoverage(args.tx, { orderLineId, orderQuantity: orderLine.quantity,
+    assignments: existingOrderAssignments, additionalQuantity: requestedTotal });
   if (requestedTotal > orderLine.quantity - orderLine.outboundQuantity - activeOrderAssigned) {
     fail('订单行待履约数量不足，不能新增库存分配');
   }

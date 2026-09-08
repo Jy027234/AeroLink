@@ -54,6 +54,7 @@ import inventoryItemRoutes from './routes/inventoryItems.js';
 import inventoryTransactionRoutes from './routes/inventoryTransactions.js';
 import inventoryAllocationRoutes from './routes/inventoryAllocations.js';
 import shipmentRoutes from './routes/shipments.js';
+import purchaseCommitmentRoutes from './routes/purchaseCommitments.js';
 import shipmentTrackingRoutes from './routes/shipmentTracking.js';
 import inquiryRoutes from './routes/inquiries.js';
 import exchangeVmiRoutes from './routes/exchangeVmi.js';
@@ -232,6 +233,7 @@ app.use('/api/inventory-items', authenticate, auditLogger({ resourceType: 'INVEN
 app.use('/api/inventory-transactions', authenticate, auditLogger({ resourceType: 'INVENTORY', actions: ['CREATE', 'UPDATE', 'DELETE'] }), inventoryTransactionRoutes);
 app.use('/api/inventory-allocations', authenticate, auditLogger({ resourceType: 'INVENTORY', actions: ['CREATE', 'UPDATE', 'DELETE'] }), inventoryAllocationRoutes);
 app.use('/api/shipments', authenticate, auditLogger({ resourceType: 'ORDER', actions: ['CREATE', 'UPDATE', 'DELETE'] }), shipmentRoutes);
+app.use('/api/purchase-commitments', authenticate, auditLogger({ resourceType: 'PURCHASE_COMMITMENT', actions: ['CREATE', 'UPDATE', 'DELETE'] }), purchaseCommitmentRoutes);
 app.use('/api/shipment-tracking', authenticate, auditLogger({ resourceType: 'ORDER', actions: ['CREATE', 'UPDATE', 'DELETE'] }), shipmentTrackingRoutes);
 app.use('/api/inquiries', authenticate, auditLogger({ resourceType: 'RFQ', actions: ['CREATE', 'UPDATE', 'DELETE'] }), inquiryRoutes);
 app.use('/api/exchange-vmi', authenticate, auditLogger({ resourceType: 'INVENTORY', actions: ['CREATE', 'UPDATE', 'DELETE'] }), exchangeVmiRoutes);

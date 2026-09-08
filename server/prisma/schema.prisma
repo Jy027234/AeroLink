@@ -1099,10 +1099,23 @@ model OrderLine {
   allocationAssignments AllocationAssignment[]
   shipmentLines         ShipmentLine[]
   purchaseCommitmentLines PurchaseCommitmentLine[]
+  coverageGuard         OrderLineCoverageGuard? @relation("OrderLineCoverageGuardOrderLine") @ignore
 
   @@unique([orderId, lineNo])
   @@index([quotationLineId])
   @@map("order_lines")
+}
+
+// Private SQL-only lock/version row for the cross-domain procurement and
+// inventory coverage constraint.  It is intentionally ignored by Prisma's
+// client; the migration owns creation and trigger updates.
+model OrderLineCoverageGuard {
+  orderLineId String @id
+  version     BigInt @default(1)
+  orderLine   OrderLine @relation("OrderLineCoverageGuardOrderLine", fields: [orderLineId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("order_line_coverage_guards")
+  @@ignore
 }
 
 model PurchaseCommitment {

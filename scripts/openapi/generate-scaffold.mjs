@@ -8,6 +8,7 @@ import { applyCommercialCostContract } from './commercial-cost-contract.mjs';
 import { applyQuotationRevisionContract } from './quotation-revision-contract.mjs';
 import { applyInventoryAllocationContract } from './inventory-allocation-contract.mjs';
 import { applyShipmentContract } from './shipment-contract.mjs';
+import { applyPurchaseCommitmentContract } from './purchase-commitment-contract.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const outputPath = path.join(repoRoot, 'contracts', 'openapi', 'openapi.json');
@@ -3973,6 +3974,7 @@ export function buildScaffold() {
   applyQuotationRevisionContract(paths, core);
   applyInventoryAllocationContract(paths, core);
   applyShipmentContract(paths, core);
+  applyPurchaseCommitmentContract(paths, core);
 
   return {
     openapi: '3.1.0',

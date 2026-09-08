@@ -7,6 +7,7 @@ type Operation = {
   parameters?: unknown[];
   responses: Record<string, unknown>;
   'x-aerolink-contract-status'?: string;
+  'x-aerolink-strict-query'?: boolean;
 };
 
 type Schema = {
@@ -594,5 +595,61 @@ describe('OpenAPI representative contract invariants', () => {
     expect(mine.responses['200']).toEqual({ $ref: '#/components/responses/AuctionList' });
     expect(contract.components.schemas.AuctionBidCreateRequest.required).toEqual(['amount']);
     expect(contract.components.schemas.AuctionDetail.properties.bids).toBeDefined();
+  });
+
+  it('contracts strict purchase commitment sources, private cost projection and idempotent commands', () => {
+    const orderList = operation('GET', '/api/purchase-commitments');
+    const detail = operation('GET', '/api/purchase-commitments/{id}');
+    const create = operation('POST', '/api/purchase-commitments');
+    const transitionPaths = ['submit', 'approve', 'reject', 'cancel'];
+    const confirm = operation('POST', '/api/purchase-commitments/{id}/confirm');
+
+    expect(orderList.responses['200']).toEqual({ $ref: '#/components/responses/PurchaseCommitmentOrderList' });
+    expect(orderList['x-aerolink-strict-query']).toBe(true);
+    expect(orderList.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'orderId', in: 'query', required: true }),
+    ]));
+    expect(detail.responses['200']).toEqual({ $ref: '#/components/responses/PurchaseCommitment' });
+    expect(create.requestBody).toEqual({ $ref: '#/components/requestBodies/PurchaseCommitmentCreate' });
+    expect(create.responses['201']).toEqual({ $ref: '#/components/responses/PurchaseCommitment' });
+    for (const action of transitionPaths) {
+      const transition = operation('POST', `/api/purchase-commitments/{id}/${action}`);
+      expect(transition.requestBody).toEqual({ $ref: '#/components/requestBodies/PurchaseCommitmentTransition' });
+      expect(transition.responses['200']).toEqual({ $ref: '#/components/responses/PurchaseCommitment' });
+      expect(transition.parameters).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
+      ]));
+    }
+    expect(confirm.requestBody).toEqual({ $ref: '#/components/requestBodies/PurchaseCommitmentConfirm' });
+    expect(confirm.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
+    ]));
+
+    const request = resolveSchema(contract.components.schemas.PurchaseCommitmentCreateRequest);
+    expect(request.additionalProperties).toBe(false);
+    expect(request.required).toEqual(expect.arrayContaining(['orderId', 'supplierId', 'lines']));
+    const line = resolveSchema(request.properties?.lines?.items as Schema);
+    expect(line.additionalProperties).toBe(false);
+    expect(line.required).toEqual(expect.arrayContaining(['orderLineId', 'source', 'quantity', 'promisedDate', 'fulfillmentMode']));
+    const source = resolveSchema(line.properties?.source as Schema);
+    expect(source.oneOf).toHaveLength(2);
+    const sourceBranches = source.oneOf?.map(resolveSchema) ?? [];
+    expect(sourceBranches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ required: expect.arrayContaining(['type', 'supplierQuoteId']) }),
+      expect.objectContaining({ required: expect.arrayContaining(['type', 'unitCost', 'currency', 'reason', 'evidenceFileIds']) }),
+    ]));
+    const manual = sourceBranches.find((branch) => branch.properties?.type?.const === 'MANUAL');
+    expect(manual?.properties?.currency).toMatchObject({ const: 'USD', enum: ['USD'] });
+    expect(manual?.additionalProperties).toBe(false);
+
+    const purchase = contract.components.schemas.PurchaseCommitment;
+    for (const field of ['currency', 'totalCost', 'paymentTerms', 'supplierReferenceNo', 'approvalSnapshot', 'confirmationEvidence']) {
+      expect(purchase.properties?.[field]).toBeDefined();
+      expect(JSON.stringify(purchase.properties?.[field])).toContain('purchase_commitment.view_cost');
+    }
+    const purchaseLine = contract.components.schemas.PurchaseCommitmentLine;
+    for (const field of ['currency', 'unitCost', 'lineTotal', 'sourceSupplierQuoteId', 'sourceSnapshot']) {
+      expect(JSON.stringify(purchaseLine.properties?.[field])).toContain('purchase_commitment.view_cost');
+    }
   });
 });

@@ -1,5 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
+vi.mock('../procurementSettlement/purchaseCoverage.js', () => ({
+  lockPurchaseCoverageLines: vi.fn(), assertAdditionalStockCoverage: vi.fn(),
+}));
 import {
   assignLineInventory,
   getLineInventoryAvailability,

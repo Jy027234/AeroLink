@@ -182,6 +182,10 @@
       "description": "Routes mounted under shipments"
     },
     {
+      "name": "purchaseCommitments",
+      "description": "Routes mounted under purchaseCommitments"
+    },
+    {
       "name": "shipmentTracking",
       "description": "Routes mounted under shipmentTracking"
     },
@@ -9381,7 +9385,7 @@
         "x-aerolink-owner": "P2-01/files",
         "x-aerolink-source": {
           "file": "server/src/routes/files.ts",
-          "line": 25
+          "line": 51
         },
         "security": [
           {
@@ -21533,6 +21537,571 @@
         "x-aerolink-contract-level": "baseline-json-envelope"
       }
     },
+    "/api/purchase-commitments": {
+      "get": {
+        "operationId": "getPurchaseCommitments",
+        "tags": [
+          "purchaseCommitments"
+        ],
+        "summary": "GET /api/purchase-commitments",
+        "description": "Lists purchase commitments for a modern order. orderId is the only accepted query parameter; cost and supplier evidence follow purchase_commitment.view_cost.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/purchaseCommitments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/purchaseCommitments.ts",
+          "line": 44
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PurchaseCommitmentOrderList"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope",
+        "x-aerolink-strict-query": true
+      },
+      "post": {
+        "operationId": "postPurchaseCommitments",
+        "tags": [
+          "purchaseCommitments"
+        ],
+        "summary": "POST /api/purchase-commitments",
+        "description": "Creates a strict line-first purchase commitment from a supplier quote or private manual-cost evidence.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/purchaseCommitments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/purchaseCommitments.ts",
+          "line": 54
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Required stable key for retry-safe procurement commands.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/PurchaseCommitment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/PurchaseCommitmentCreate"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/purchase-commitments/{id}": {
+      "get": {
+        "operationId": "getPurchaseCommitmentsId",
+        "tags": [
+          "purchaseCommitments"
+        ],
+        "summary": "GET /api/purchase-commitments/:id",
+        "description": "Returns one purchase commitment with cost fields only when purchase_commitment.view_cost is granted.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/purchaseCommitments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/purchaseCommitments.ts",
+          "line": 50
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PurchaseCommitment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/purchase-commitments/{id}/submit": {
+      "post": {
+        "operationId": "postPurchaseCommitmentsIdSubmit",
+        "tags": [
+          "purchaseCommitments"
+        ],
+        "summary": "POST /api/purchase-commitments/:id/submit",
+        "description": "Submits a purchase commitment for approval.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/purchaseCommitments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/purchaseCommitments.ts",
+          "line": 82
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Required stable key for retry-safe procurement commands.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PurchaseCommitment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/PurchaseCommitmentTransition"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/purchase-commitments/{id}/approve": {
+      "post": {
+        "operationId": "postPurchaseCommitmentsIdApprove",
+        "tags": [
+          "purchaseCommitments"
+        ],
+        "summary": "POST /api/purchase-commitments/:id/approve",
+        "description": "Approves a purchase commitment after current source and coverage checks.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/purchaseCommitments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/purchaseCommitments.ts",
+          "line": 83
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Required stable key for retry-safe procurement commands.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PurchaseCommitment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/PurchaseCommitmentTransition"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/purchase-commitments/{id}/reject": {
+      "post": {
+        "operationId": "postPurchaseCommitmentsIdReject",
+        "tags": [
+          "purchaseCommitments"
+        ],
+        "summary": "POST /api/purchase-commitments/:id/reject",
+        "description": "Rejects a purchase commitment with a required reason.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/purchaseCommitments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/purchaseCommitments.ts",
+          "line": 84
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Required stable key for retry-safe procurement commands.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PurchaseCommitment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/PurchaseCommitmentTransition"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/purchase-commitments/{id}/confirm": {
+      "post": {
+        "operationId": "postPurchaseCommitmentsIdConfirm",
+        "tags": [
+          "purchaseCommitments"
+        ],
+        "summary": "POST /api/purchase-commitments/:id/confirm",
+        "description": "Confirms supplier reference and private confirmation evidence.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/purchaseCommitments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/purchaseCommitments.ts",
+          "line": 85
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Required stable key for retry-safe procurement commands.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PurchaseCommitment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/PurchaseCommitmentConfirm"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/purchase-commitments/{id}/cancel": {
+      "post": {
+        "operationId": "postPurchaseCommitmentsIdCancel",
+        "tags": [
+          "purchaseCommitments"
+        ],
+        "summary": "POST /api/purchase-commitments/:id/cancel",
+        "description": "Cancels a purchase commitment under its version check.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/purchaseCommitments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/purchaseCommitments.ts",
+          "line": 86
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Required stable key for retry-safe procurement commands.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PurchaseCommitment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/PurchaseCommitmentTransition"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
     "/api/shipment-tracking": {
       "get": {
         "operationId": "getShipmentTracking",
@@ -23196,7 +23765,7 @@
         "x-aerolink-owner": "P2-01/health",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 245
+          "line": 247
         },
         "security": [],
         "parameters": [],
@@ -23243,7 +23812,7 @@
         "x-aerolink-owner": "P2-01/metrics",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 249
+          "line": 251
         },
         "security": [
           {
@@ -24192,6 +24761,36 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ShipmentReturnReleaseRequest"
+            }
+          }
+        }
+      },
+      "PurchaseCommitmentCreate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PurchaseCommitmentCreateRequest"
+            }
+          }
+        }
+      },
+      "PurchaseCommitmentTransition": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PurchaseCommitmentTransitionRequest"
+            }
+          }
+        }
+      },
+      "PurchaseCommitmentConfirm": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PurchaseCommitmentConfirmRequest"
             }
           }
         }
@@ -26112,6 +26711,26 @@
                 "data"
               ],
               "additionalProperties": false
+            }
+          }
+        }
+      },
+      "PurchaseCommitment": {
+        "description": "Procurement commitment response; cost and supplier evidence are omitted without purchase_commitment.view_cost.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PurchaseCommitmentEnvelope"
+            }
+          }
+        }
+      },
+      "PurchaseCommitmentOrderList": {
+        "description": "Procurement commitments for an order; cost and supplier evidence are omitted without purchase_commitment.view_cost.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PurchaseCommitmentOrderListEnvelope"
             }
           }
         }
@@ -49789,12 +50408,600 @@
           "reason"
         ],
         "additionalProperties": false
+      },
+      "PurchaseCommitmentSupplierQuoteSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "supplierQuoteId"
+        ],
+        "properties": {
+          "type": {
+            "const": "SUPPLIER_QUOTE"
+          },
+          "supplierQuoteId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "PurchaseCommitmentManualSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "unitCost",
+          "currency",
+          "reason",
+          "evidenceFileIds"
+        ],
+        "properties": {
+          "type": {
+            "const": "MANUAL"
+          },
+          "unitCost": {
+            "type": "string",
+            "pattern": "^\\d{1,14}(\\.\\d{1,4})?$",
+            "description": "Manual Decimal(18,4) unit cost."
+          },
+          "currency": {
+            "type": "string",
+            "const": "USD",
+            "enum": [
+              "USD"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "evidenceFileIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "PurchaseCommitmentSource": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PurchaseCommitmentSupplierQuoteSource"
+          },
+          {
+            "$ref": "#/components/schemas/PurchaseCommitmentManualSource"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        },
+        "description": "Strict source union. Manual cost always requires verified USD and private purchase evidence."
+      },
+      "PurchaseCommitmentLineCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orderLineId",
+          "source",
+          "quantity",
+          "promisedDate",
+          "fulfillmentMode"
+        ],
+        "properties": {
+          "orderLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "source": {
+            "$ref": "#/components/schemas/PurchaseCommitmentSource"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "promisedDate": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339 date-time including an explicit offset."
+          },
+          "fulfillmentMode": {
+            "type": "string",
+            "enum": [
+              "STOCK_RECEIPT",
+              "SUPPLIER_DIRECT"
+            ]
+          }
+        }
+      },
+      "PurchaseCommitmentCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orderId",
+          "supplierId",
+          "lines"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "supplierId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "paymentTerms": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/PurchaseCommitmentLineCreateRequest"
+            }
+          }
+        }
+      },
+      "PurchaseCommitmentTransitionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "reason"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          }
+        }
+      },
+      "PurchaseCommitmentConfirmRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "reason",
+          "supplierReferenceNo",
+          "evidenceIds"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "supplierReferenceNo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "evidenceIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "PurchaseCommitmentLine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "lineNo",
+          "orderLineId",
+          "partNumber",
+          "uom",
+          "quantity",
+          "cancelledQuantity",
+          "receivedQuantity",
+          "directShippedQuantity",
+          "version",
+          "promisedDate",
+          "fulfillmentMode"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "readOnly": true
+          },
+          "lineNo": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "orderLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "readOnly": true
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1,
+            "readOnly": true
+          },
+          "uom": {
+            "type": "string",
+            "minLength": 1,
+            "readOnly": true
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "cancelledQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "readOnly": true
+          },
+          "receivedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "readOnly": true
+          },
+          "directShippedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "readOnly": true
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "promisedDate": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "fulfillmentMode": {
+            "type": "string",
+            "enum": [
+              "STOCK_RECEIPT",
+              "SUPPLIER_DIRECT"
+            ],
+            "readOnly": true
+          },
+          "currency": {
+            "type": "string",
+            "const": "USD",
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "unitCost": {
+            "type": "string",
+            "pattern": "^\\d{1,14}(\\.\\d{1,4})?$",
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "lineTotal": {
+            "type": "string",
+            "pattern": "^\\d{1,14}(\\.\\d{1,4})?$",
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "sourceSupplierQuoteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "sourceSnapshot": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          }
+        }
+      },
+      "PurchaseCommitment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "commitmentNumber",
+          "orderId",
+          "supplierId",
+          "supplierName",
+          "status",
+          "version",
+          "createdAt",
+          "submittedAt",
+          "approvedAt",
+          "confirmedAt",
+          "lines"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "readOnly": true
+          },
+          "commitmentNumber": {
+            "type": "string",
+            "minLength": 1,
+            "readOnly": true
+          },
+          "orderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "readOnly": true
+          },
+          "supplierId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "readOnly": true
+          },
+          "supplierName": {
+            "type": "string",
+            "minLength": 1,
+            "readOnly": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PENDING_APPROVAL",
+              "APPROVED",
+              "CONFIRMED",
+              "CLOSED",
+              "REJECTED",
+              "CANCELLED"
+            ],
+            "readOnly": true
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "submittedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "readOnly": true
+          },
+          "approvedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "readOnly": true
+          },
+          "confirmedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "readOnly": true
+          },
+          "currency": {
+            "type": "string",
+            "const": "USD",
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "totalCost": {
+            "type": "string",
+            "pattern": "^\\d{1,14}(\\.\\d{1,4})?$",
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "paymentTerms": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "supplierReferenceNo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "approvalLevel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "approvalPolicyVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "approvalSnapshot": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true,
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "confirmationEvidence": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version",
+                "sha256",
+                "status"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-fA-F0-9]{64}$"
+                },
+                "status": {
+                  "const": "AVAILABLE"
+                }
+              }
+            },
+            "description": "Omitted unless purchase_commitment.view_cost is granted.",
+            "x-aerolink-capability": "purchase_commitment.view_cost",
+            "readOnly": true
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PurchaseCommitmentLine"
+            },
+            "readOnly": true
+          }
+        }
+      },
+      "PurchaseCommitmentOrderList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orderId",
+          "purchases"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "readOnly": true
+          },
+          "purchases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PurchaseCommitment"
+            },
+            "readOnly": true
+          }
+        }
+      },
+      "PurchaseCommitmentEnvelope": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/PurchaseCommitment"
+          }
+        }
+      },
+      "PurchaseCommitmentOrderListEnvelope": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/PurchaseCommitmentOrderList"
+          }
+        }
       }
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
-      "mountCount": 56,
-      "operationCount": 334
+      "mountCount": 57,
+      "operationCount": 342
     }
   }
 }

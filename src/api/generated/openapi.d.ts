@@ -5173,6 +5173,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/purchase-commitments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/purchase-commitments
+         * @description Lists purchase commitments for a modern order. orderId is the only accepted query parameter; cost and supplier evidence follow purchase_commitment.view_cost.
+         */
+        get: operations["getPurchaseCommitments"];
+        put?: never;
+        /**
+         * POST /api/purchase-commitments
+         * @description Creates a strict line-first purchase commitment from a supplier quote or private manual-cost evidence.
+         */
+        post: operations["postPurchaseCommitments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/purchase-commitments/:id
+         * @description Returns one purchase commitment with cost fields only when purchase_commitment.view_cost is granted.
+         */
+        get: operations["getPurchaseCommitmentsId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/submit
+         * @description Submits a purchase commitment for approval.
+         */
+        post: operations["postPurchaseCommitmentsIdSubmit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/approve
+         * @description Approves a purchase commitment after current source and coverage checks.
+         */
+        post: operations["postPurchaseCommitmentsIdApprove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/reject
+         * @description Rejects a purchase commitment with a required reason.
+         */
+        post: operations["postPurchaseCommitmentsIdReject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/confirm
+         * @description Confirms supplier reference and private confirmation evidence.
+         */
+        post: operations["postPurchaseCommitmentsIdConfirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/cancel
+         * @description Cancels a purchase commitment under its version check.
+         */
+        post: operations["postPurchaseCommitmentsIdCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shipment-tracking": {
         parameters: {
             query?: never;
@@ -12331,6 +12475,155 @@ export interface components {
             };
             reason: string;
         };
+        PurchaseCommitmentSupplierQuoteSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "PurchaseCommitmentSupplierQuoteSource";
+            supplierQuoteId: string;
+        };
+        PurchaseCommitmentManualSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "PurchaseCommitmentManualSource";
+            /** @description Manual Decimal(18,4) unit cost. */
+            unitCost: string;
+            /**
+             * @constant
+             * @enum {string}
+             */
+            currency: "USD";
+            reason: string;
+            evidenceFileIds: string[];
+        };
+        /** @description Strict source union. Manual cost always requires verified USD and private purchase evidence. */
+        PurchaseCommitmentSource: components["schemas"]["PurchaseCommitmentSupplierQuoteSource"] | components["schemas"]["PurchaseCommitmentManualSource"];
+        PurchaseCommitmentLineCreateRequest: {
+            orderLineId: string;
+            source: components["schemas"]["PurchaseCommitmentSource"];
+            quantity: number;
+            /**
+             * Format: date-time
+             * @description RFC 3339 date-time including an explicit offset.
+             */
+            promisedDate: string;
+            /** @enum {string} */
+            fulfillmentMode: "STOCK_RECEIPT" | "SUPPLIER_DIRECT";
+        };
+        PurchaseCommitmentCreateRequest: {
+            orderId: string;
+            supplierId: string;
+            paymentTerms?: string | null;
+            lines: components["schemas"]["PurchaseCommitmentLineCreateRequest"][];
+        };
+        PurchaseCommitmentTransitionRequest: {
+            version: number;
+            reason: string;
+        };
+        PurchaseCommitmentConfirmRequest: {
+            version: number;
+            reason: string;
+            supplierReferenceNo: string;
+            evidenceIds: string[];
+        };
+        PurchaseCommitmentLine: {
+            readonly id: string;
+            readonly lineNo: number;
+            readonly orderLineId: string;
+            readonly partNumber: string;
+            readonly uom: string;
+            readonly quantity: number;
+            readonly cancelledQuantity: number;
+            readonly receivedQuantity: number;
+            readonly directShippedQuantity: number;
+            readonly version: number;
+            /** Format: date-time */
+            readonly promisedDate: string;
+            /** @enum {string} */
+            readonly fulfillmentMode: "STOCK_RECEIPT" | "SUPPLIER_DIRECT";
+            /**
+             * @description Omitted unless purchase_commitment.view_cost is granted.
+             * @constant
+             */
+            readonly currency?: "USD";
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly unitCost?: string;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly lineTotal?: string;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly sourceSupplierQuoteId?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly sourceSnapshot?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        PurchaseCommitment: {
+            readonly id: string;
+            readonly commitmentNumber: string;
+            readonly orderId: string;
+            readonly supplierId: string;
+            readonly supplierName: string;
+            /** @enum {string} */
+            readonly status: "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "CONFIRMED" | "CLOSED" | "REJECTED" | "CANCELLED";
+            readonly version: number;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly submittedAt: string | null;
+            /** Format: date-time */
+            readonly approvedAt: string | null;
+            /** Format: date-time */
+            readonly confirmedAt: string | null;
+            /**
+             * @description Omitted unless purchase_commitment.view_cost is granted.
+             * @constant
+             */
+            readonly currency?: "USD";
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly totalCost?: string;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly paymentTerms?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly supplierReferenceNo?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly approvalLevel?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly approvalPolicyVersion?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly approvalSnapshot?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly confirmationEvidence?: {
+                id: string;
+                version: number;
+                sha256: string;
+                /** @constant */
+                status: "AVAILABLE";
+            }[] | null;
+            readonly lines: components["schemas"]["PurchaseCommitmentLine"][];
+        };
+        PurchaseCommitmentOrderList: {
+            readonly orderId: string;
+            readonly purchases: components["schemas"]["PurchaseCommitment"][];
+        };
+        PurchaseCommitmentEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["PurchaseCommitment"];
+        } & {
+            [key: string]: unknown;
+        };
+        PurchaseCommitmentOrderListEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["PurchaseCommitmentOrderList"];
+        } & {
+            [key: string]: unknown;
+        };
     };
     responses: {
         /** @description Authenticated; refresh token is rotated in an HttpOnly cookie. */
@@ -14011,6 +14304,24 @@ export interface components {
                 };
             };
         };
+        /** @description Procurement commitment response; cost and supplier evidence are omitted without purchase_commitment.view_cost. */
+        PurchaseCommitment: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentEnvelope"];
+            };
+        };
+        /** @description Procurement commitments for an order; cost and supplier evidence are omitted without purchase_commitment.view_cost. */
+        PurchaseCommitmentOrderList: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentOrderListEnvelope"];
+            };
+        };
     };
     parameters: never;
     requestBodies: {
@@ -14479,6 +14790,21 @@ export interface components {
         ShipmentReturnRelease: {
             content: {
                 "application/json": components["schemas"]["ShipmentReturnReleaseRequest"];
+            };
+        };
+        PurchaseCommitmentCreate: {
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentCreateRequest"];
+            };
+        };
+        PurchaseCommitmentTransition: {
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentTransitionRequest"];
+            };
+        };
+        PurchaseCommitmentConfirm: {
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentConfirmRequest"];
             };
         };
     };
@@ -21687,6 +22013,198 @@ export interface operations {
         requestBody: components["requestBodies"]["ShipmentReturnRelease"];
         responses: {
             200: components["responses"]["ShipmentReturnHold"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getPurchaseCommitments: {
+        parameters: {
+            query: {
+                orderId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PurchaseCommitmentOrderList"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitments: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentCreate"];
+        responses: {
+            201: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getPurchaseCommitmentsId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdSubmit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentTransition"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdApprove: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentTransition"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdReject: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentTransition"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdConfirm: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentConfirm"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdCancel: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentTransition"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];

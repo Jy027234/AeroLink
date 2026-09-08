@@ -13,7 +13,7 @@ const legacyStatic = express.static(
   { fallthrough: true },
 );
 
-type LegacyStoredObject = { ownerId: string | null; status: string };
+type LegacyStoredObject = { ownerId: string | null; status: string; domain?: string | null };
 type LegacyUser = { id?: string; role?: string } | undefined;
 export type LegacyUploadDecision = 'allow' | 'forbidden' | 'not_found';
 
@@ -69,6 +69,7 @@ router.use(asyncHandler(async (req: AuthRequest, res, next) => {
     select: {
       objectKey: true,
       ownerId: true,
+      domain: true,
       status: true,
       mimeType: true,
       sizeBytes: true,
