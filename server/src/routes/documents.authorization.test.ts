@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -28,6 +29,8 @@ describe('generated document route authorization', () => {
       findUnique: ReturnType<typeof vi.fn>;
     };
   };
+  let generateDocumentPdfMock: ReturnType<typeof vi.fn>;
+  let quotationDocumentPdfMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.resetModules();
@@ -37,10 +40,16 @@ describe('generated document route authorization', () => {
         findUnique: vi.fn(),
       },
     };
+    generateDocumentPdfMock = vi.fn().mockResolvedValue(Buffer.from('contract-pdf'));
+    quotationDocumentPdfMock = vi.fn();
     vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
     vi.doMock('../lib/documentTemplateService.js', () => ({
       ORDER_CONTRACT_DOCUMENT_TYPE: 'ORDER_CONTRACT',
-      generateDocumentPdf: vi.fn().mockResolvedValue(Buffer.from('pdf')),
+      generateDocumentPdf: generateDocumentPdfMock,
+    }));
+    vi.doMock('../lib/quotationDocumentService.js', () => ({
+      QUOTATION_PDF_DOCUMENT_TYPE: 'QUOTATION_PDF',
+      quotationDocumentPdf: quotationDocumentPdfMock,
     }));
   });
 
@@ -59,7 +68,7 @@ describe('generated document route authorization', () => {
 
   it('allows a standalone creator and disables caching on the read response', async () => {
     prismaMock.generatedDocument.findUnique.mockResolvedValue(standaloneDocument());
-    const app = await buildApp({ id: 'creator-1', role: 'viewer' });
+    const app = await buildApp({ id: 'creator-1', role: 'sales', department: 'Sales' });
 
     const response = await request(app).get('/api/documents/doc-1');
 
@@ -100,5 +109,72 @@ describe('generated document route authorization', () => {
     const list = await request(app).get('/api/documents');
     expect(list.status).toBe(200);
     expect(list.body.data.map((item: { id: string }) => item.id)).toEqual([]);
+  });
+
+  it('selects no PDF bytes for JSON list/detail responses', async () => {
+    const document = {
+      ...standaloneDocument(),
+      pdfBytes: Buffer.from('large-frozen-pdf'),
+      pdfSha256: crypto.createHash('sha256').update('large-frozen-pdf').digest('hex'),
+      snapshotHash: 'snapshot-1',
+    };
+    prismaMock.generatedDocument.findUnique.mockResolvedValue(document);
+    const app = await buildApp({ id: 'creator-1', role: 'viewer' });
+
+    const detail = await request(app).get('/api/documents/doc-1');
+    expect(detail.status).toBe(200);
+    expect(detail.body.data).not.toHaveProperty('pdfBytes');
+    const detailSelect = prismaMock.generatedDocument.findUnique.mock.calls.at(-1)?.[0]?.select as Record<string, unknown>;
+    expect(detailSelect.pdfBytes).toBeUndefined();
+
+    prismaMock.generatedDocument.findMany.mockResolvedValue([document]);
+    const list = await request(app).get('/api/documents');
+    expect(list.status).toBe(200);
+    expect(list.body.data[0]).not.toHaveProperty('pdfBytes');
+    const listSelect = prismaMock.generatedDocument.findMany.mock.calls.at(-1)?.[0]?.select as Record<string, unknown>;
+    expect(listSelect.pdfBytes).toBeUndefined();
+  });
+
+  it('serves frozen quotation PDF bytes without regenerating from mutable HTML', async () => {
+    const bytes = Buffer.from('frozen-quotation-pdf');
+    prismaMock.generatedDocument.findUnique.mockResolvedValue({
+      ...standaloneDocument(),
+      documentType: 'QUOTATION_PDF',
+      quotationId: 'quote-1',
+      quotation: { createdBy: 'creator-1', creator: { id: 'creator-1', department: 'Sales' } },
+      contentHtml: '<p>Old frozen HTML</p>',
+      pdfBytes: bytes,
+      pdfSha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+      snapshotHash: 'snapshot-quotation-1',
+    });
+    quotationDocumentPdfMock.mockResolvedValue({
+      document: { id: 'doc-1' },
+      content: bytes,
+    });
+    const app = await buildApp({ id: 'creator-1', role: 'sales', department: 'Sales' });
+
+    const response = await request(app).get('/api/documents/doc-1/pdf');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toMatch(/application\/pdf/);
+    expect(response.body).toEqual(bytes);
+    expect(quotationDocumentPdfMock).toHaveBeenCalledWith(prismaMock, 'quote-1');
+    const pdfSelect = prismaMock.generatedDocument.findUnique.mock.calls.at(-1)?.[0]?.select as Record<string, unknown>;
+    expect(pdfSelect.pdfBytes).toBeUndefined();
+  });
+
+  it('keeps existing order contract downloads backed by immutable contentHtml', async () => {
+    prismaMock.generatedDocument.findUnique.mockResolvedValue(standaloneDocument());
+    const app = await buildApp({ id: 'creator-1', role: 'viewer' });
+
+    const response = await request(app).get('/api/documents/doc-1/pdf');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(Buffer.from('contract-pdf'));
+    expect(generateDocumentPdfMock).toHaveBeenCalledWith({
+      title: 'Standalone document',
+      contentHtml: '<p>safe</p>',
+      renderedAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
   });
 });

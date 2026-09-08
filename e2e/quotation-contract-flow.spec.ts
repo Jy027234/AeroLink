@@ -447,7 +447,7 @@ test('should show an alert and keep the quotation approved when send quote reque
     });
   });
 
-  await quoteRow.getByRole('button').nth(1).click();
+  await quoteRow.getByRole('button', { name: /发送报价邮件|Send Quote Email/ }).click();
   const sendDialog = page.getByRole('dialog');
   await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
 
@@ -559,7 +559,7 @@ test('should show a retryable error banner when quotation list refresh fails aft
   const quoteRow = page.locator('table tbody tr').filter({ hasText: quoteNumber }).first();
   await expect(quoteRow).toBeVisible();
 
-  await quoteRow.getByRole('button').nth(1).click();
+  await quoteRow.getByRole('button', { name: /发送报价邮件|Send Quote Email/ }).click();
   const sendDialog = page.getByRole('dialog');
   await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
 
@@ -685,7 +685,7 @@ test('should show an alert and keep the quotation sent when withdraw request fai
   const quoteRow = page.locator('table tbody tr').filter({ hasText: quoteNumber }).first();
   await expect(quoteRow).toBeVisible();
 
-  await quoteRow.getByRole('button').nth(1).click();
+  await quoteRow.getByRole('button', { name: /发送报价邮件|Send Quote Email/ }).click();
   const sendDialog = page.getByRole('dialog');
   await expect(sendDialog.getByRole('heading', { name: /发送报价邮件|Send Quote Email/ })).toBeVisible();
 

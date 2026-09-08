@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   acceptQuotationAggregate,
   assertQuotationTransition,
@@ -16,10 +16,22 @@ import {
 import { buildQuotationApprovalSnapshot } from '../../lib/quotationApprovalPolicy.js';
 import { createLineQuotation } from './lineService.js';
 
+const quotationDocumentMocks = vi.hoisted(() => ({
+  freezeQuotationDocument: vi.fn().mockResolvedValue({
+    id: 'quotation-pdf-001',
+    snapshotHash: 'snapshot-hash-001',
+  }),
+  quotationDocumentPdf: vi.fn().mockResolvedValue({
+    document: { id: 'quotation-pdf-001', snapshotHash: 'snapshot-hash-001' },
+    content: Buffer.from('quotation-pdf'),
+  }),
+}));
+
 vi.mock('../../lib/outboxService.js', () => ({
   enqueueBusinessEvent: vi.fn().mockResolvedValue(undefined),
   enqueueOutboundEmail: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock('../../lib/quotationDocumentService.js', () => quotationDocumentMocks);
 
 function addLineDelegates<T extends Record<string, unknown>>(tx: T) {
   if (!(tx as Record<string, unknown>).order) {
@@ -95,6 +107,11 @@ function makeSnapshotQuotation(overrides: Record<string, unknown> = {}) {
 }
 
 describe('quotation/order module service boundary', () => {
+  beforeEach(() => {
+    quotationDocumentMocks.freezeQuotationDocument.mockClear();
+    quotationDocumentMocks.quotationDocumentPdf.mockClear();
+  });
+
   it('rejects line quotation creation against a legacy RFQ before cost capture or writes', async () => {
     const create = vi.fn();
     const tx = {
@@ -532,7 +549,10 @@ describe('quotation/order module service boundary', () => {
     }];
     const pendingEmail = { id: 'mail-pending-1' };
     const tx = addLineDelegates({
-      quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
+      quotation: {
+        findUnique: vi.fn().mockResolvedValue(quotation),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       outboundEmail: { create: vi.fn().mockResolvedValue(pendingEmail) },
     }) as unknown as Prisma.TransactionClient;
     const authorize = vi.fn();
@@ -553,6 +573,7 @@ describe('quotation/order module service boundary', () => {
       include: expect.objectContaining({ rfq: true }),
     }));
     expect(getDefaultOutboundAccount).toHaveBeenCalledWith(tx);
+    expect(quotationDocumentMocks.quotationDocumentPdf).toHaveBeenCalledWith(tx, quotation.id);
     expect(result.pendingEmail).toBe(pendingEmail);
     expect(tx.outboundEmail.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -717,6 +738,8 @@ describe('quotation/order module service boundary', () => {
       costSourceId: null,
       costSourceReason: 'AOG成本依据',
       costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 50, partNumber: 'PN-1', quantity: 1, status: null, supplierId: null, capturedAt: '2027-05-12T09:00:00.000Z', reason: 'AOG成本依据' }),
+      expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+      validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
     };
     const updated = { ...current, status: 'APPROVED', statusEnum: 'APPROVED', version: 2 };
     const tx = addLineDelegates({
@@ -741,6 +764,7 @@ describe('quotation/order module service boundary', () => {
     expect(tx.approval.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ quotationId: current.id, level: 'MANAGER', requiredLevel: 'MANAGER', action: 'APPROVE' }),
     });
+    expect(quotationDocumentMocks.freezeQuotationDocument).toHaveBeenCalledWith(tx, current.id, 'manager-1');
   });
 
   it('re-approves an old APPROVED quotation in place when its legacy approval cannot be verified', async () => {
@@ -762,6 +786,8 @@ describe('quotation/order module service boundary', () => {
       rfqId: 'rfq-legacy',
       rfq: { id: 'rfq-legacy', partNumber: 'PN-1', quantity: 1, alternatePartNumbers: null, urgency: 'NORMAL' },
       approvals: [],
+      expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+      validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
     };
     const updated = {
       ...current,
@@ -835,6 +861,8 @@ describe('quotation/order module service boundary', () => {
       rfqId: 'rfq-legacy-race',
       rfq: { id: 'rfq-legacy-race', partNumber: 'PN-1', quantity: 1, alternatePartNumbers: null, urgency: 'NORMAL' },
       approvals: [],
+      expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+      validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
     };
     const tx = addLineDelegates({
       quotation: {
@@ -875,6 +903,8 @@ describe('quotation/order module service boundary', () => {
       createdBy: 'seller-1',
       creator: { department: 'sales' },
       approvals: [],
+      expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+      validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
     };
     const tx = addLineDelegates({
       quotation: { findUnique: vi.fn().mockResolvedValue(current) },

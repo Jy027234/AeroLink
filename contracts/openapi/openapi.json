@@ -1323,7 +1323,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 170
+          "line": 172
         },
         "security": [
           {
@@ -1448,7 +1448,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 364
+          "line": 369
         },
         "security": [
           {
@@ -1514,7 +1514,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 235
+          "line": 237
         },
         "security": [
           {
@@ -1681,7 +1681,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 294
+          "line": 299
         },
         "security": [
           {
@@ -1741,7 +1741,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 329
+          "line": 334
         },
         "security": [
           {
@@ -1799,7 +1799,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 468
+          "line": 473
         },
         "security": [
           {
@@ -1873,7 +1873,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 549
+          "line": 554
         },
         "security": [
           {
@@ -1947,7 +1947,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 312
+          "line": 315
         },
         "security": [
           {
@@ -2050,7 +2050,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 662
+          "line": 679
         },
         "security": [
           {
@@ -2116,7 +2116,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 478
+          "line": 490
         },
         "security": [
           {
@@ -2261,7 +2261,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 540
+          "line": 555
         },
         "security": [
           {
@@ -2321,7 +2321,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 575
+          "line": 590
         },
         "security": [
           {
@@ -2369,6 +2369,142 @@
         }
       }
     },
+    "/api/quotations/{id}/revisions": {
+      "get": {
+        "operationId": "getQuotationsIdRevisions",
+        "tags": [
+          "quotations"
+        ],
+        "summary": "GET /api/quotations/:id/revisions",
+        "description": "Returns revision metadata only; commercial cost fields are not exposed by this history projection.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/quotations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/quotations.ts",
+          "line": 744
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/QuotationRevisionList"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/quotations/{id}/revise": {
+      "post": {
+        "operationId": "postQuotationsIdRevise",
+        "tags": [
+          "quotations"
+        ],
+        "summary": "POST /api/quotations/:id/revise",
+        "description": "Creates a new DRAFT commercial quotation revision under a version and reason check. validityDays is required for the nested quotation request.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/quotations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/quotations.ts",
+          "line": 767
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/QuotationRevisionCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/QuotationRevise"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
     "/api/quotations/{id}/submit": {
       "post": {
         "operationId": "postQuotationsIdSubmit",
@@ -2381,7 +2517,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 724
+          "line": 793
         },
         "security": [
           {
@@ -2455,7 +2591,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 774
+          "line": 843
         },
         "security": [
           {
@@ -2529,7 +2665,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 830
+          "line": 899
         },
         "security": [
           {
@@ -2603,7 +2739,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 888
+          "line": 957
         },
         "security": [
           {
@@ -2677,7 +2813,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 953
+          "line": 1022
         },
         "security": [
           {
@@ -2751,7 +2887,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 1027
+          "line": 1096
         },
         "security": [
           {
@@ -2811,7 +2947,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 283
+          "line": 284
         },
         "security": [
           {
@@ -2914,7 +3050,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 554
+          "line": 560
         },
         "security": [
           {
@@ -2980,7 +3116,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 414
+          "line": 417
         },
         "security": [
           {
@@ -3125,7 +3261,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 473
+          "line": 479
         },
         "security": [
           {
@@ -3185,7 +3321,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 512
+          "line": 518
         },
         "security": [
           {
@@ -3243,7 +3379,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 778
+          "line": 784
         },
         "security": [
           {
@@ -3317,7 +3453,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 724
+          "line": 730
         },
         "security": [
           {
@@ -3391,7 +3527,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 891
+          "line": 897
         },
         "security": [
           {
@@ -3451,7 +3587,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 928
+          "line": 934
         },
         "security": [
           {
@@ -22870,6 +23006,16 @@
             }
           }
         }
+      },
+      "QuotationRevise": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/QuotationReviseRequest"
+            }
+          }
+        }
       }
     },
     "responses": {
@@ -24675,6 +24821,26 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/PushStatusEnvelope"
+            }
+          }
+        }
+      },
+      "QuotationRevisionCreated": {
+        "description": "Created draft quotation revision response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/QuotationRevisionCreatedEnvelope"
+            }
+          }
+        }
+      },
+      "QuotationRevisionList": {
+        "description": "Quotation revision metadata response without commercial cost fields",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/QuotationRevisionListEnvelope"
             }
           }
         }
@@ -31144,7 +31310,8 @@
           "warrantyDays",
           "createdAt",
           "createdBy",
-          "expiryDate"
+          "expiryDate",
+          "commercialRevision"
         ],
         "properties": {
           "id": {
@@ -31378,6 +31545,45 @@
               "null"
             ],
             "format": "date-time",
+            "readOnly": true
+          },
+          "commercialRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "revisionOfId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "revisionRootId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "revisionReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "supersededAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "readOnly": true
+          },
+          "supersededById": {
+            "type": "string",
+            "minLength": 1,
             "readOnly": true
           }
         },
@@ -45684,12 +45890,198 @@
           }
         },
         "additionalProperties": false
+      },
+      "QuotationRevision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "quoteNumber",
+          "commercialRevision",
+          "revisionOfId",
+          "revisionRootId",
+          "revisionReason",
+          "supersededAt",
+          "createdAt",
+          "status",
+          "expiryDate"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "readOnly": true
+          },
+          "quoteNumber": {
+            "type": "string",
+            "minLength": 1,
+            "readOnly": true
+          },
+          "commercialRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "readOnly": true
+          },
+          "revisionOfId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "revisionRootId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "revisionReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "supersededAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "readOnly": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "pending_approval",
+              "approved",
+              "rejected",
+              "sent",
+              "accepted",
+              "expired",
+              "withdrawn"
+            ],
+            "readOnly": true
+          },
+          "expiryDate": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "supersededById": {
+            "type": "string",
+            "minLength": 1,
+            "readOnly": true
+          }
+        }
+      },
+      "QuotationRevisionListEnvelope": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuotationRevision"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "QuotationReviseRequest": {
+        "type": "object",
+        "required": [
+          "version",
+          "reason",
+          "quotation"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "quotation": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QuotationCreateRequest"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "validityDays"
+                ],
+                "properties": {
+                  "validityDays": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuotationRevisionCreated": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Quotation"
+          },
+          {
+            "type": "object",
+            "required": [
+              "previousQuotationId"
+            ],
+            "properties": {
+              "previousQuotationId": {
+                "type": "string",
+                "minLength": 1,
+                "readOnly": true
+              }
+            },
+            "additionalProperties": true
+          }
+        ]
+      },
+      "QuotationRevisionCreatedEnvelope": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/QuotationRevisionCreated"
+          }
+        },
+        "additionalProperties": true
       }
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
       "mountCount": 54,
-      "operationCount": 318
+      "operationCount": 320
     }
   }
 }

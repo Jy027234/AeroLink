@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import {
   hasCapability,
   type CapabilityActor,
@@ -44,6 +45,10 @@ const orderCostFields = [
   'exchangeCoreDueDate',
 ] as const;
 
+// PDF bytes are a binary delivery artifact. They must never cross a JSON
+// response projection, including for actors who can view commercial costs.
+const binaryDocumentFields = ['pdfBytes'] as const;
+
 type RecordValue = Record<string, unknown>;
 
 function isRecord(value: unknown): value is RecordValue {
@@ -61,7 +66,9 @@ function omitFields<T>(value: T, fields: readonly string[]): T {
 }
 
 function omitFieldsRecursively<T>(value: T, fields: readonly string[]): T {
-  if (value instanceof Date) return value;
+  // Preserve scalar serializers: spreading Decimal exposes its internal d/e/s
+  // representation and breaks line prices in both live and frozen responses.
+  if (value instanceof Date || Prisma.Decimal.isDecimal(value)) return value;
   if (Array.isArray(value)) {
     return value.map((item) => omitFieldsRecursively(item, fields)) as T;
   }
@@ -157,7 +164,7 @@ export function projectQuotationResponse<T>(
   actor: CapabilityActor,
   resource: ResponseResourceContext,
 ): T {
-  const projected = projectQuotationCost(value, actor, resource);
+  const projected = omitFieldsRecursively(projectQuotationCost(value, actor, resource), binaryDocumentFields);
   if (!isRecord(projected)) return projected;
 
   const result = { ...(projected as RecordValue) };
@@ -182,7 +189,7 @@ export function projectOrderResponse<T>(
   actor: CapabilityActor,
   resource: ResponseResourceContext,
 ): T {
-  const projected = projectOrderCost(value, actor, resource);
+  const projected = omitFieldsRecursively(projectOrderCost(value, actor, resource), binaryDocumentFields);
   if (!isRecord(projected)) return projected;
 
   const result = { ...(projected as RecordValue) };

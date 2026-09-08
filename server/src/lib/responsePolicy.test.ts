@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Prisma } from '@prisma/client';
 import { hasCapability } from './capabilityPolicy.js';
 import {
   canViewQuotationCost,
@@ -11,6 +12,14 @@ const financeActor = { id: 'finance-1', role: 'finance', department: 'Finance' }
 const salesScope = { ownerId: salesActor.id, department: 'Sales' };
 
 describe('sensitive response policy', () => {
+  it('preserves exact Decimal JSON scalars while removing nested costs and PDF bytes', () => {
+    const payload = { lines: [{ unitPrice: new Prisma.Decimal('110.1234'), costPrice: new Prisma.Decimal('55.0001') }],
+      documents: [{ pdfBytes: Buffer.from('binary') }] };
+    const sales = JSON.parse(JSON.stringify(projectQuotationResponse(payload, salesActor, salesScope)));
+    expect(sales).toEqual({ lines: [{ unitPrice: '110.1234' }], documents: [{}] });
+    const finance = JSON.parse(JSON.stringify(projectOrderResponse(payload, financeActor, salesScope)));
+    expect(finance).toEqual({ lines: [{ unitPrice: '110.1234', costPrice: '55.0001' }], documents: [{}] });
+  });
   it('removes quotation, nested order, and nested quotation costs for sales', () => {
     const payload = {
       id: 'quotation-1',
@@ -169,5 +178,23 @@ describe('sensitive response policy', () => {
     };
 
     expect(projectQuotationResponse(payload, financeActor, salesScope)).toEqual(payload);
+  });
+
+  it('removes binary PDF bytes from every nested quotation/order projection', () => {
+    const pdfBytes = Buffer.from('%PDF-frozen');
+    const payload = {
+      pdfBytes,
+      quotation: { pdfBytes },
+      orders: [{ pdfBytes, quotation: { pdfBytes } }],
+    };
+
+    expect(projectQuotationResponse(payload, financeActor, salesScope)).toEqual({
+      quotation: {},
+      orders: [{ quotation: {} }],
+    });
+    expect(projectOrderResponse(payload, financeActor, salesScope)).toEqual({
+      quotation: {},
+      orders: [{ quotation: {} }],
+    });
   });
 });

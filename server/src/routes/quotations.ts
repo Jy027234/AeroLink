@@ -7,6 +7,7 @@ import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
 import {
   quotationCreateSchema,
+  quotationReviseSchema,
   quotationSubmitSchema,
   quotationApproveSchema,
   quotationSendSchema,
@@ -14,7 +15,6 @@ import {
   quotationAcceptSchema,
 } from '../lib/validation.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { generateQuotationPDF } from '../lib/pdfService.js';
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { preferredMoneyValue } from '../lib/money.js';
@@ -25,6 +25,7 @@ import {
   createOrderFromQuotation,
   acceptQuotationAggregate,
   createQuotationAggregate,
+  reviseQuotationAggregate,
   sendQuotationAggregate,
   withdrawQuotationAggregate,
   mapOrderResponse,
@@ -37,13 +38,15 @@ import {
 } from '../lib/transactionStatusShadows.js';
 import { getCapabilityScope } from '../lib/capabilityPolicy.js';
 import {
-  canViewQuotationCost,
   projectQuotationResponse,
 } from '../lib/responsePolicy.js';
 import { hasCurrentLineQuotationApproval } from '../modules/quotationOrder/index.js';
 import { hasCurrentQuotationApproval } from '../lib/quotationApprovalPolicy.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import prisma from '../lib/prisma.js';
+import { quotationDocumentPdf, QUOTATION_PDF_DOCUMENT_TYPE } from '../lib/quotationDocumentService.js';
+import { buildQuotationRenderSnapshot, quotationRenderData } from '../lib/documentRenderSnapshot.js';
+import { generatePDF, generateQuotationHTML } from '../lib/pdfService.js';
 
 const router = Router();
 
@@ -333,6 +336,7 @@ router.get(
         where,
         include: {
           lines: { orderBy: { lineNo: 'asc' } },
+          revisedQuotation: { select: { id: true } },
           customer: true,
           creator: { select: { id: true, name: true, department: true } },
           approver: { select: { id: true, name: true } },
@@ -405,6 +409,12 @@ router.get(
         return projectQuotationResponse({
           id: q.id,
           quoteNumber: q.quoteNumber,
+          commercialRevision: q.commercialRevision,
+          revisionOfId: q.revisionOfId,
+          revisionRootId: q.revisionRootId,
+          revisionReason: q.revisionReason,
+          supersededAt: q.supersededAt,
+          supersededById: q.revisedQuotation?.id,
           lineItemsMode: q.lineItemsMode,
           lines: q.lines,
           rfqId: q.rfqId,
@@ -586,6 +596,7 @@ router.get(
       where: { id: req.params.id },
       include: {
         lines: { orderBy: { lineNo: 'asc' } },
+        revisedQuotation: { select: { id: true } },
         customer: true,
         creator: { select: { id: true, name: true, department: true } },
         approver: { select: { id: true, name: true } },
@@ -630,6 +641,7 @@ router.get(
       success: true,
       data: {
         ...quotationForActor,
+        supersededById: quotation.revisedQuotation?.id,
         rfq: projectRfqStatus(quotation.rfq),
         status: quotationStatus(quotation).toLowerCase(),
         template: quotation.template.toLowerCase(),
@@ -693,6 +705,9 @@ router.post(
           payload: {
             id: quotation.id,
             quoteNumber: quotation.quoteNumber,
+            commercialRevision: quotation.commercialRevision,
+            revisionOfId: quotation.revisionOfId,
+            revisionRootId: quotation.revisionRootId,
             lineItemsMode: quotation.lineItemsMode,
             ...('lines' in quotation ? { lines: quotation.lines } : {}),
             customerName: quotation.customer.name,
@@ -725,6 +740,55 @@ router.post(
       data: responsePayload,
     });
   })
+);
+
+router.get(
+  '/:id/revisions',
+  requireCapability('quotation', 'read'),
+  asyncHandler(async (req, res) => {
+    const actor = (req as AuthRequest).user!;
+    const original = await prisma.quotation.findUnique({ where: { id: req.params.id },
+      include: { creator: { select: { department: true } } } });
+    if (!original) throw new AppError('报价不存在', 404, 'RESOURCE_NOT_FOUND');
+    assertQuotationAccess(actor, 'read', original);
+    const rootId = original.revisionRootId ?? original.id;
+    const revisions = await prisma.quotation.findMany({ where: { AND: [
+      buildQuotationReadScope(actor), { OR: [{ id: rootId }, { revisionRootId: rootId }] },
+    ] }, orderBy: { commercialRevision: 'asc' }, select: {
+      id: true, quoteNumber: true, commercialRevision: true, revisionOfId: true, revisionRootId: true,
+      revisionReason: true, supersededAt: true, createdAt: true, status: true, expiryDate: true,
+      revisedQuotation: { select: { id: true } },
+    } });
+    res.json({ success: true, data: revisions.map(({ revisedQuotation, ...revision }) => ({
+      ...revision, status: revision.status.toLowerCase(), supersededById: revisedQuotation?.id,
+    })) });
+  }),
+);
+
+router.post(
+  '/:id/revise',
+  requireCapability('quotation', 'create'),
+  validateBody(quotationReviseSchema),
+  asyncHandler(async (req, res) => {
+    const actor = (req as AuthRequest).user!;
+    const execution = await runIdempotentOperation(
+      buildIdempotencyContext(req, actor.id, 'POST:/quotations/:id/revise'),
+      async tx => {
+        const result = await reviseQuotationAggregate({ tx, quotationId: req.params.id, actorId: actor.id,
+          version: req.body.version, reason: req.body.reason, quotation: req.body.quotation,
+          authorize: original => assertQuotationAccess(actor, 'update', original),
+          authorizeRfq: rfq => assertCapability(actor, 'rfq', 'read', { ownerId: rfq.createdBy, department: rfq.creator?.department }),
+        });
+        return { payload: { ...projectQuotationMoney(result.quotation), status: 'draft', previousQuotationId: result.previousQuotationId },
+          statusCode: 201, resourceType: 'QUOTATION', resourceId: result.quotation.id };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    const scope = await resolveQuotationResponseScope(actor, String((execution.payload as { id: string }).id));
+    applyIdempotencyHeaders(res, execution);
+    res.status(execution.statusCode).json({ success: true,
+      data: projectQuotationResponse(execution.payload, actor, quotationResponseContext(scope)) });
+  }),
 );
 
 router.post(
@@ -874,6 +938,7 @@ router.post(
           resourceId: quotation.id,
         };
       },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 },
     );
 
     const responseScope = await resolveQuotationResponseScope(
@@ -1049,39 +1114,20 @@ router.get(
     const actor = (req as AuthRequest).user!;
     assertQuotationAccess(actor, 'read', quotation);
 
-    const pdfBuffer = await generateQuotationPDF({
-      lineItemsMode: quotation.lineItemsMode,
-      lines: quotation.lineItemsMode ? quotation.lines.map(line => ({ ...line, unitPrice: Number(line.unitPrice), costPrice: Number(line.costPrice), lineTotal: Number(line.lineTotal) })) : undefined,
-      quoteNumber: quotation.quoteNumber,
-      customerName: quotation.customer.name,
-      partNumber: quotation.partNumber,
-      quantity: quotation.quantity,
-      unitPrice: preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0,
-      totalPrice: quotationTotalPrice(quotation),
-      costPrice: preferredMoneyValue(quotation.costPriceDecimal, quotation.costPrice) ?? 0,
-      margin: quotation.margin,
-      validityDays: quotation.validityDays,
-      saleType: quotation.saleType,
-      incoterm: quotation.incoterm || '',
-      incotermLocation: quotation.incotermLocation || '',
-      leadTimeDays: quotation.leadTimeDays || undefined,
-      leadTimeBasis: quotation.leadTimeBasis || '',
-      moq: quotation.moq || undefined,
-      mpq: quotation.mpq || undefined,
-      priceBasis: quotation.priceBasis || '',
-      taxIncluded: quotation.taxIncluded,
-      taxRate: quotation.taxRate || undefined,
-      warrantyDays: quotation.warrantyDays,
-      warrantyTerms: quotation.warrantyTerms || '',
-      packagingRequirement: quotation.packagingRequirement || '',
-      shippingMethod: quotation.shippingMethod || '',
-      commonNote: quotation.commonNote || '',
-      certificateFiles: quotation.certificateFiles?.split(',').filter(Boolean),
-      createdAt: quotation.createdAt.toISOString(),
-      expiryDate: quotation.expiryDate.toISOString().split('T')[0],
-      createdBy: quotation.createdBy,
-      includeInternalInfo: canViewQuotationCost(actor, quotationResponseContext(quotation)),
-    });
+    const frozen = await prisma.generatedDocument.findFirst({ where: { quotationId: quotation.id, documentType: QUOTATION_PDF_DOCUMENT_TYPE }, select: { id: true } });
+    let pdfBuffer: Buffer;
+    if (frozen) {
+      const artifact = await quotationDocumentPdf(prisma, quotation.id);
+      pdfBuffer = artifact.content;
+      res.setHeader('X-Quotation-Document', 'frozen');
+      res.setHeader('X-Document-SHA256', artifact.document.pdfSha256!);
+    } else if (!quotation.supersededAt && ['DRAFT', 'PENDING_APPROVAL', 'REJECTED'].includes(quotation.status)) {
+      const snapshot = buildQuotationRenderSnapshot({ quotation, customer: quotation.customer, lines: quotation.lines });
+      pdfBuffer = await generatePDF('<div style="color:#a33;font-size:20px">预览 · 未审批冻结 · 非历史正式文件</div>' + generateQuotationHTML(quotationRenderData(snapshot)));
+      res.setHeader('X-Quotation-Document', 'preview');
+    } else {
+      throw new AppError('该历史报价没有冻结文件，请核对原始文件或审批新修订版', 409, 'RESOURCE_CONFLICT');
+    }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', buildContentDisposition(`${quotation.quoteNumber}.pdf`));

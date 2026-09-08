@@ -580,6 +580,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/quotations/{id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/quotations/:id/revisions
+         * @description Returns revision metadata only; commercial cost fields are not exposed by this history projection.
+         */
+        get: operations["getQuotationsIdRevisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/quotations/{id}/revise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/quotations/:id/revise
+         * @description Creates a new DRAFT commercial quotation revision under a version and reason check. validityDays is required for the nested quotation request.
+         */
+        post: operations["postQuotationsIdRevise"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/quotations/{id}/submit": {
         parameters: {
             query?: never;
@@ -7440,6 +7480,13 @@ export interface components {
             readonly costSourceSnapshotJson?: string | null;
             /** Format: date-time */
             readonly costSourceCapturedAt?: string | null;
+            readonly commercialRevision: number;
+            readonly revisionOfId?: string | null;
+            readonly revisionRootId?: string | null;
+            readonly revisionReason?: string | null;
+            /** Format: date-time */
+            readonly supersededAt?: string | null;
+            readonly supersededById?: string;
         } & {
             [key: string]: unknown;
         };
@@ -11495,6 +11542,49 @@ export interface components {
             quotationLineId: string;
             quantity: number;
         };
+        QuotationRevision: {
+            readonly id: string;
+            readonly quoteNumber: string;
+            readonly commercialRevision: number;
+            readonly revisionOfId: string | null;
+            readonly revisionRootId: string | null;
+            readonly revisionReason: string | null;
+            /** Format: date-time */
+            readonly supersededAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** @enum {string} */
+            readonly status: "draft" | "pending_approval" | "approved" | "rejected" | "sent" | "accepted" | "expired" | "withdrawn";
+            /** Format: date-time */
+            readonly expiryDate: string;
+            readonly supersededById?: string;
+        };
+        QuotationRevisionListEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["QuotationRevision"][];
+        } & {
+            [key: string]: unknown;
+        };
+        QuotationReviseRequest: {
+            version: number;
+            reason: string;
+            quotation: components["schemas"]["QuotationCreateRequest"] & {
+                validityDays: number;
+            };
+        };
+        QuotationRevisionCreated: components["schemas"]["Quotation"] & ({
+            readonly previousQuotationId: string;
+        } & {
+            [key: string]: unknown;
+        });
+        QuotationRevisionCreatedEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["QuotationRevisionCreated"];
+        } & {
+            [key: string]: unknown;
+        };
     };
     responses: {
         /** @description Authenticated; refresh token is rotated in an HttpOnly cookie. */
@@ -13105,6 +13195,24 @@ export interface components {
                 "application/json": components["schemas"]["PushStatusEnvelope"];
             };
         };
+        /** @description Created draft quotation revision response */
+        QuotationRevisionCreated: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["QuotationRevisionCreatedEnvelope"];
+            };
+        };
+        /** @description Quotation revision metadata response without commercial cost fields */
+        QuotationRevisionList: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["QuotationRevisionListEnvelope"];
+            };
+        };
     };
     parameters: never;
     requestBodies: {
@@ -13548,6 +13656,11 @@ export interface components {
         AuctionBidCreate: {
             content: {
                 "application/json": components["schemas"]["AuctionBidCreateRequest"];
+            };
+        };
+        QuotationRevise: {
+            content: {
+                "application/json": components["schemas"]["QuotationReviseRequest"];
             };
         };
     };
@@ -14257,6 +14370,53 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["Quotation"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getQuotationsIdRevisions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["QuotationRevisionList"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postQuotationsIdRevise: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["QuotationRevise"];
+        responses: {
+            201: components["responses"]["QuotationRevisionCreated"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];

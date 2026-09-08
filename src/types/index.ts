@@ -475,6 +475,20 @@ export interface QuotationLine {
   updatedAt?: string;
 }
 
+export interface QuotationRevisionSummary {
+  id: string;
+  quoteNumber?: string;
+  commercialRevision: number;
+  status?: QuoteStatus | string;
+  revisionOfId?: string | null;
+  revisionRootId?: string | null;
+  revisionReason?: string | null;
+  createdAt?: string;
+  expiryDate?: string;
+  supersededAt?: string | null;
+  supersededById?: string | null;
+}
+
 export interface Quotation {
   id: string;
   quoteNumber: string;
@@ -555,6 +569,16 @@ export interface Quotation {
   /** Modern line-first quotations keep commercial facts on lines. */
   lineItemsMode?: boolean;
   lines?: QuotationLine[];
+  /** Commercial revision chain metadata. A revision is a new draft record. */
+  commercialRevision?: number;
+  revisionOfId?: string | null;
+  revisionRootId?: string | null;
+  revisionReason?: string | null;
+  supersededAt?: string | null;
+  supersededById?: string | null;
+  revisionOf?: QuotationRevisionSummary | null;
+  supersededBy?: QuotationRevisionSummary | null;
+  revisionHistory?: QuotationRevisionSummary[];
   // Phase 4: 库存明细绑定
   inventoryDetailId?: string;
   serialNumber?: string;

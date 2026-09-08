@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { AppError } from '../../middleware/errorHandler.js';
+import { assertActiveQuotationRevision } from '../../lib/quotationRevisionPolicy.js';
 import { enqueueBusinessEvent } from '../../lib/outboxService.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { StateTransitionConflictError, transitionOrderStatus } from '../../lib/transactionStateService.js';
@@ -164,6 +165,7 @@ export async function reserveInventoryForQuotation(
 
   if (!detail) throw new AppError('库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+  assertActiveQuotationRevision(quotation);
   if (quotation.lineItemsMode) throw new AppError('多行报价需要行级数量分配，暂不能使用旧整单库存接口', 409, 'RESOURCE_CONFLICT');
   if (!RESERVABLE_QUOTATION_STATUSES.has(quotation.status)) {
     throw new AppError('只有已审批、已发送或已接受的报价可以预留库存', 409, 'INVALID_STATE_TRANSITION');

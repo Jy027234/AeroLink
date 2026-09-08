@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertQuotationApprovalActor,
+  assertQuotationCommercialTerms,
+  assertQuotationValidity,
   buildQuotationApprovalSnapshot,
   hashQuotationApprovalSnapshot,
   hasCurrentQuotationApproval,
@@ -96,5 +98,48 @@ describe('quotation approval policy', () => {
 
     const changedAmount = { ...quotation, totalPrice: 4_300 };
     expect(hasCurrentQuotationApproval(changedAmount)).toBe(false);
+  });
+
+  it('uses expiryDate as the only authority and fails closed on a conflicting compatibility deadline', () => {
+    const quotation = approvedQuotation();
+    expect(() => assertQuotationValidity(quotation, new Date('2026-09-08T00:00:00.000Z'))).not.toThrow();
+    expect(() => assertQuotationValidity({
+      ...quotation,
+      validityDeadline: '2027-05-26T08:00:00+08:00',
+    }, new Date('2026-09-08T00:00:00.000Z'))).not.toThrow();
+
+    const conflict = { ...quotation, validityDeadline: new Date('2028-05-26T00:00:00.000Z') };
+    expect(() => assertQuotationValidity(conflict, new Date('2026-09-08T00:00:00.000Z'))).toThrowError(expect.objectContaining({
+      code: 'RESOURCE_CONFLICT',
+    }));
+    expect(hasCurrentQuotationApproval(conflict)).toBe(false);
+  });
+
+  it('never borrows a future validityDeadline when the canonical expiryDate is expired', () => {
+    const quotation = approvedQuotation();
+    expect(() => assertQuotationValidity({
+      ...quotation,
+      expiryDate: new Date('2026-01-01T00:00:00.000Z'),
+      validityDeadline: new Date('2028-01-01T00:00:00.000Z'),
+    }, new Date('2026-09-08T00:00:00.000Z'))).toThrowError(expect.objectContaining({
+      code: 'RESOURCE_CONFLICT',
+    }));
+
+    expect(() => assertQuotationCommercialTerms({
+      ...quotation,
+      expiryDate: new Date('2026-01-01T00:00:00.000Z'),
+      validityDeadline: new Date('2028-01-01T00:00:00.000Z'),
+    }, new Date('2026-09-08T00:00:00.000Z'))).toThrowError(expect.objectContaining({
+      code: 'RESOURCE_CONFLICT',
+    }));
+  });
+
+  it('blocks a superseded quotation before checking commercial validity', () => {
+    expect(() => assertQuotationCommercialTerms({
+      ...approvedQuotation(),
+      supersededAt: new Date('2027-05-20T00:00:00.000Z'),
+    }, new Date('2026-09-08T00:00:00.000Z'))).toThrowError(expect.objectContaining({
+      code: 'RESOURCE_CONFLICT',
+    }));
   });
 });

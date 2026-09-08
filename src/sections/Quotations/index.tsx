@@ -16,6 +16,8 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
+  Pencil,
+  History,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -50,7 +52,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAcceptQuotation, useApproveQuotation, useCreateQuotation, useQuotation, useQuotations, useSendQuotation, useSubmitQuotation, useWithdrawQuotation } from '@/features/quotations';
-import { useRFQs } from '@/features/rfqs';
+import { useRFQ, useRFQs } from '@/features/rfqs';
 import { useDispatchNotification, useDocumentTemplates } from '@/features/integrations';
 import { documentApi, quotationApi } from '@/api/client';
 import { useCapabilityStore } from '@/store';
@@ -64,6 +66,7 @@ import type { DocumentTemplate, Quotation, QuotationLine, QuoteStatus, SaleType,
 import { CostSourceFields } from './CostSourceFields';
 import { LineQuotationComposer, type LineQuotationDraft } from './LineQuotationComposer';
 import { createLineQuotationDrafts } from './lineQuotationComposerModel';
+import { buildQuotationRevisionInput, remainingRevisionQuantity, validateRevisionIdentity } from './revisionModel';
 
 const statusConfig: Record<QuoteStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
   draft: { label: 'Draft', color: 'text-gray-600', bgColor: 'bg-gray-50', icon: FileText },
@@ -147,6 +150,8 @@ function QuoteDetailDialog({
   onConfirmCustomer,
   onWithdraw,
   onDownloadContract,
+  onRevise,
+  onOpenHistory,
 }: {
   quote: Quotation | null;
   isOpen: boolean;
@@ -154,6 +159,8 @@ function QuoteDetailDialog({
   onConfirmCustomer: (quote: Quotation) => void;
   onWithdraw: (quote: Quotation) => void;
   onDownloadContract: (quote: Quotation) => void;
+  onRevise: (quote: Quotation) => void;
+  onOpenHistory: (id: string) => void;
 }) {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
@@ -162,6 +169,30 @@ function QuoteDetailDialog({
   const detailLoading = detailQuery.loading;
   const detailLoadFailed = Boolean(detailQuery.error);
   const can = useCapabilityStore((state) => state.can);
+  const [revisionHistory, setRevisionHistory] = useState<NonNullable<Quotation['revisionHistory']>>([]);
+  const quoteId = quote?.id;
+
+  useEffect(() => {
+    let active = true;
+    if (!isOpen || !quoteId) {
+      setRevisionHistory([]);
+      return () => {
+        active = false;
+      };
+    }
+    void quotationApi.getRevisions(quoteId)
+      .then((revisions) => {
+        if (active) setRevisionHistory(revisions);
+      })
+      .catch(() => {
+        // Revision history is an auxiliary view. The main quotation detail
+        // remains usable when an older deployment has no history endpoint.
+        if (active) setRevisionHistory([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isOpen, quoteId]);
 
   if (!quote) return null;
 
@@ -174,9 +205,16 @@ function QuoteDetailDialog({
   };
 
   const canViewCost = can('quotation.view_cost');
-  const canConfirmCustomer = (activeQuote.status === 'sent' || activeQuote.status === 'approved') && can('quotation.accept');
-  const canWithdraw = activeQuote.status === 'sent' && can('quotation.withdraw');
+  const isSuperseded = Boolean(activeQuote.supersededAt);
+  const canConfirmCustomer = !isSuperseded && (activeQuote.status === 'sent' || activeQuote.status === 'approved') && can('quotation.accept');
+  const canWithdraw = !isSuperseded && activeQuote.status === 'sent' && can('quotation.withdraw');
   const canDownloadContract = !!activeQuote.contractDocumentId && (activeQuote.status === 'accepted' || !!activeQuote.orderId);
+  const canRevise = can('quotation.create') && can('quotation.update')
+    && !activeQuote.supersededAt
+    && activeQuote.status !== 'accepted'
+    && !(activeQuote.lineItemsMode !== true && !!activeQuote.orderId);
+  const previousRevisionId = activeQuote.revisionOfId ?? activeQuote.revisionOf?.id ?? null;
+  const nextRevisionId = activeQuote.supersededById ?? activeQuote.supersededBy?.id ?? null;
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
@@ -217,6 +255,48 @@ function QuoteDetailDialog({
               <p className="font-mono font-semibold text-lg">{activeQuote.quoteNumber}</p>
               <p className="text-sm text-gray-500">{activeQuote.customerName}</p>
               {activeQuote.customerEmail && <p className="text-sm text-gray-400">{activeQuote.customerEmail}</p>}
+              {(activeQuote.commercialRevision !== undefined || previousRevisionId || nextRevisionId) && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                  <span className="inline-flex items-center gap-1 rounded border bg-white px-2 py-1">
+                    <History className="h-3 w-3" />
+                    {tx('商务版次', 'Commercial revision')} v{activeQuote.commercialRevision ?? 1}
+                  </span>
+                  {previousRevisionId && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
+                      onClick={() => onOpenHistory(previousRevisionId)}
+                    >
+                      {tx('查看上一版', 'View previous revision')}
+                    </Button>
+                  )}
+                  {nextRevisionId && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
+                      onClick={() => onOpenHistory(nextRevisionId)}
+                    >
+                      {tx('查看下一版', 'View next revision')}
+                    </Button>
+                  )}
+                  {revisionHistory.length > 1 && revisionHistory.map((revision) => (
+                    <Button
+                      key={revision.id}
+                      type="button"
+                      variant={revision.id === activeQuote.id ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="h-auto px-2 py-1 text-xs"
+                      onClick={() => onOpenHistory(revision.id)}
+                    >
+                      v{revision.commercialRevision}
+                    </Button>
+                  ))}
+                </div>
+              )}
             </div>
             <QuoteStatusBadge status={activeQuote.status} />
           </div>
@@ -390,6 +470,12 @@ function QuoteDetailDialog({
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{activeQuote.commonNote}</p>
             </div>
           )}
+          {activeQuote.revisionReason && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <p className="mb-1 text-sm font-medium text-blue-900">{tx('修订原因', 'Revision reason')}</p>
+              <p className="whitespace-pre-wrap text-sm text-blue-800">{activeQuote.revisionReason}</p>
+            </div>
+          )}
 
           {activeQuote.certificateFiles && activeQuote.certificateFiles.length > 0 && (
             <div>
@@ -451,6 +537,18 @@ function QuoteDetailDialog({
               {tx('下载合同', 'Download Contract')}
             </Button>
           )}
+          {canRevise && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                onClose();
+                onRevise(activeQuote);
+              }}
+            >
+              <Pencil className="w-4 h-4 mr-1" />
+              {tx('修订报价', 'Revise Quote')}
+            </Button>
+          )}
           {canConfirmCustomer && (
             <Button
               className="bg-green-600 hover:bg-green-700"
@@ -473,15 +571,23 @@ function CreateQuoteDialog({
   isOpen,
   onClose,
   onCreated,
+  initialQuote = null,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (quote?: Quotation) => void;
+  initialQuote?: Quotation | null;
 }) {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const { data: rfqs } = useRFQs();
   const { mutate: createQuotation } = useCreateQuotation();
+  const revisionDetail = useQuotation(isOpen && initialQuote ? initialQuote.id : '');
+  const revisionRfqDetail = useRFQ(isOpen && initialQuote ? initialQuote.rfqId : '');
+  const revisionQuote = revisionDetail.data?.id === initialQuote?.id ? revisionDetail.data : initialQuote;
+  const isRevision = Boolean(initialQuote);
+  const [revisionReason, setRevisionReason] = useState('');
+  const [revisionValidityDays, setRevisionValidityDays] = useState(0);
   const [formData, setFormData] = useState({
     rfqId: '',
     customerId: '',
@@ -517,17 +623,111 @@ function CreateQuoteDialog({
   });
   const [lineDrafts, setLineDrafts] = useState<LineQuotationDraft[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [revisionLegacyCostTouched, setRevisionLegacyCostTouched] = useState(false);
 
-  const selectedRfq = rfqs?.find((r) => r.id === formData.rfqId);
+  const selectedRfq = isRevision
+    ? (revisionRfqDetail.data ?? rfqs?.find((r) => r.id === formData.rfqId))
+    : rfqs?.find((r) => r.id === formData.rfqId);
   const isAog = selectedRfq?.urgency === 'aog';
-  const isModernRfq = selectedRfq?.lineItemsMode === true;
+  const isModernRfq = isRevision
+    ? revisionQuote?.lineItemsMode === true
+    : selectedRfq?.lineItemsMode === true;
+  const revisionQuoteId = revisionQuote?.id;
+  const revisionQuoteVersion = revisionQuote?.version;
+  const revisionQuoteLineCount = revisionQuote?.lines?.length;
+  const hasRevisionDetail = Boolean(revisionDetail.data);
+  const revisionCustomerName = revisionQuote?.customerName || revisionRfqDetail.data?.customerName || '';
+
+  useEffect(() => {
+    if (!isOpen || !revisionQuote) return;
+    const costPrice = numeric(revisionQuote.costPrice);
+    const sourceCostMissing = costPrice === null;
+    setRevisionReason('');
+    setRevisionValidityDays(revisionQuote.rfqUrgency === 'aog' ? 1 : 0);
+    setRevisionLegacyCostTouched(!sourceCostMissing);
+    setFormData((previous) => ({
+      ...previous,
+      rfqId: revisionQuote.rfqId,
+      customerId: revisionQuote.customerId,
+      customerName: revisionCustomerName,
+      partNumber: revisionQuote.partNumber,
+      quantity: revisionQuote.quantity,
+      unitPrice: numeric(revisionQuote.unitPrice) ?? 0,
+      costPrice: costPrice ?? 0,
+      // A policy-redacted cost must be re-entered with a fresh source or
+      // reason. Do not carry a hidden value forward as an implicit zero.
+      costSourceType: sourceCostMissing ? 'MANUAL' : (revisionQuote.costSourceType ?? 'MANUAL'),
+      costSourceId: sourceCostMissing ? '' : (revisionQuote.costSourceId ?? ''),
+      costSourceReason: sourceCostMissing ? '' : (revisionQuote.costSourceReason ?? ''),
+      validityDays: revisionQuote.validityDays || previous.validityDays,
+      saleType: revisionQuote.saleType || previous.saleType,
+      incoterm: revisionQuote.incoterm || '',
+      incotermLocation: revisionQuote.incotermLocation ?? '',
+      leadTimeDays: revisionQuote.leadTimeDays ?? 0,
+      leadTimeBasis: revisionQuote.leadTimeBasis ?? '',
+      moq: revisionQuote.moq ?? 0,
+      mpq: revisionQuote.mpq ?? 0,
+      priceBasis: revisionQuote.priceBasis ?? '',
+      taxIncluded: revisionQuote.taxIncluded,
+      taxRate: revisionQuote.taxRate ?? 0,
+      warrantyDays: revisionQuote.warrantyDays ?? 0,
+      warrantyTerms: revisionQuote.warrantyTerms ?? '',
+      packagingRequirement: revisionQuote.packagingRequirement ?? '',
+      shippingMethod: revisionQuote.shippingMethod ?? '',
+      countryOfOrigin: revisionQuote.countryOfOrigin ?? '',
+      hsCode: revisionQuote.hsCode ?? '',
+      eccn: revisionQuote.eccn ?? '',
+      dualUse: revisionQuote.dualUse ?? false,
+      ccRecipients: revisionQuote.ccRecipients?.join(', ') ?? '',
+      commonNote: revisionQuote.commonNote ?? '',
+    }));
+    if (revisionQuote.lineItemsMode === true) {
+      setLineDrafts((revisionQuote.lines ?? []).filter((line) => remainingRevisionQuantity(line) > 0).map((line) => {
+        const lineCost = numeric(line.costPrice);
+        const lineCostMissing = lineCost === null;
+        return {
+          rfqLineId: line.rfqLineId,
+          partNumber: line.partNumber,
+          // A partially accepted quotation can only revise the unaccepted
+          // quantity. Existing order quantities remain attached to the old
+          // revision and are never re-submitted here.
+          quantity: remainingRevisionQuantity(line),
+          unitPrice: numeric(line.unitPrice) ?? 0,
+          costPrice: lineCost ?? 0,
+          costPriceRedacted: lineCostMissing,
+          costSourceType: lineCostMissing ? 'MANUAL' : (line.costSourceType ?? 'MANUAL'),
+          costSourceId: lineCostMissing ? '' : (line.costSourceId ?? ''),
+          costSourceReason: lineCostMissing ? '' : (line.costSourceReason ?? ''),
+        };
+      }));
+    } else {
+      setLineDrafts([]);
+    }
+  }, [isOpen, revisionQuote, revisionQuoteId, revisionQuoteVersion, revisionQuoteLineCount, hasRevisionDetail, revisionCustomerName]);
+
+  useEffect(() => {
+    if (!isOpen || initialQuote) return;
+    setRevisionReason('');
+    setRevisionValidityDays(0);
+  }, [initialQuote, isOpen]);
 
   const totalPrice = formData.quantity * formData.unitPrice;
   const displayTotal = isModernRfq
     ? lineDrafts.reduce((sum, line) => sum + Math.max(0, line.quantity) * Math.max(0, line.unitPrice), 0)
     : totalPrice;
+  const revisionCostNeedsReverification = isRevision && (
+    isModernRfq
+      ? lineDrafts.some((line) => line.costPriceRedacted === true || (line.costSourceType === 'MANUAL'
+        ? !line.costSourceReason.trim()
+        : !line.costSourceId.trim()))
+      : (numeric(revisionQuote?.costPrice) === null && !revisionLegacyCostTouched)
+        || (formData.costSourceType === 'MANUAL'
+          ? !formData.costSourceReason.trim()
+          : !formData.costSourceId.trim())
+  );
 
   const handleRfqChange = (rfqId: string) => {
+    if (isRevision) return;
     const rfq = rfqs?.find((r) => r.id === rfqId);
     if (rfq) {
       setFormData((prev) => ({
@@ -549,6 +749,26 @@ function CreateQuoteDialog({
   };
 
   const handleSubmit = async () => {
+    const validityDays = isRevision ? (isAog ? 1 : revisionValidityDays) : formData.validityDays;
+    const revisionIdentityError = isRevision && revisionQuote
+      ? validateRevisionIdentity(revisionQuote, {
+        rfqId: formData.rfqId,
+        customerId: formData.customerId,
+        lineItemsMode: isModernRfq,
+      })
+      : null;
+    if (isRevision && (!revisionQuote || revisionIdentityError)) {
+      toast.error(tx('修订必须保留原 RFQ、客户和交易模式。', 'A revision must keep the original RFQ, customer, and transaction mode.'));
+      return;
+    }
+    if (isRevision && !revisionReason.trim()) {
+      toast.error(tx('请填写修订原因。', 'Please provide a revision reason.'));
+      return;
+    }
+    if (validityDays <= 0) {
+      toast.error(tx('请明确填写新版有效期。', 'Enter a new validity period for the revised quotation.'));
+      return;
+    }
     const invalidModernLine = lineDrafts.some((draft) => {
       const rfqLine = selectedRfq?.lines?.find((line) => line.id === draft.rfqLineId);
       if (!rfqLine || rfqLine.status !== 'OPEN') return true;
@@ -557,11 +777,12 @@ function CreateQuoteDialog({
         || draft.quantity > rfqLine.quantity
         || draft.unitPrice <= 0
         || draft.costPrice < 0
+        || draft.costPriceRedacted === true
         || (draft.costSourceType === 'MANUAL' ? !draft.costSourceReason.trim() : !draft.costSourceId.trim());
     });
     const invalidForm = isModernRfq
       ? !selectedRfq?.customerId || !formData.customerName || lineDrafts.length === 0 || invalidModernLine
-      : !formData.rfqId || !formData.customerName || !formData.partNumber || formData.quantity <= 0 || formData.unitPrice <= 0
+      : !formData.rfqId || !formData.customerId || !formData.customerName || !formData.partNumber || formData.quantity <= 0 || formData.unitPrice <= 0 || formData.costPrice < 0
         || (formData.costSourceType === 'MANUAL' && !formData.costSourceReason.trim())
         || (formData.costSourceType !== 'MANUAL' && !formData.costSourceId.trim());
     if (invalidForm) {
@@ -572,6 +793,7 @@ function CreateQuoteDialog({
     }
     setIsSubmitting(true);
     try {
+      let createdQuote: Quotation | undefined;
       if (isModernRfq && selectedRfq) {
         const modernPayload = {
           rfqId: selectedRfq.id,
@@ -588,7 +810,7 @@ function CreateQuoteDialog({
               : { costSourceId: line.costSourceId.trim() }),
           })),
           currency: 'USD' as const,
-          validityDays: formData.validityDays,
+          validityDays,
           saleType: 'Sale' as const,
           incoterm: formData.incoterm || undefined,
           incotermLocation: formData.incotermLocation || undefined,
@@ -599,7 +821,7 @@ function CreateQuoteDialog({
           priceBasis: formData.priceBasis || undefined,
           taxIncluded: formData.taxIncluded,
           taxRate: formData.taxRate || undefined,
-          warrantyDays: formData.warrantyDays,
+          warrantyDays: formData.warrantyDays || undefined,
           warrantyTerms: formData.warrantyTerms || undefined,
           packagingRequirement: formData.packagingRequirement || undefined,
           shippingMethod: formData.shippingMethod || undefined,
@@ -609,56 +831,87 @@ function CreateQuoteDialog({
           dualUse: formData.dualUse,
           ccRecipients: formData.ccRecipients ? formData.ccRecipients.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
           commonNote: formData.commonNote || undefined,
+          ...(isRevision && revisionQuote ? {
+            certificateFiles: revisionQuote.certificateFiles,
+            template: revisionQuote.template,
+            shipToId: revisionQuote.shipToId ?? undefined,
+            shipForId: revisionQuote.shipForId ?? undefined,
+            // A revised commercial offer must not inherit the prior
+            // signature; the new draft always starts unsigned.
+            eSignatureStatus: 'Unsigned',
+          } : {}),
         };
-        await quotationApi.createMultiLine(modernPayload);
+        createdQuote = isRevision && revisionQuote
+          ? await quotationApi.revise(revisionQuote.id, {
+            ...buildQuotationRevisionInput(revisionQuote, revisionReason, modernPayload),
+          })
+          : await quotationApi.createMultiLine(modernPayload);
       } else {
-      await createQuotation({
-        rfqId: formData.rfqId,
-        customerId: formData.customerId || 'c001',
-        customerName: formData.customerName,
-        partNumber: formData.partNumber,
-        description: `Part ${formData.partNumber}`,
-        quantity: formData.quantity,
-        unitPrice: formData.unitPrice,
-         costPrice: formData.costPrice,
-         currency: 'USD',
-         costSourceType: formData.costSourceType,
-         costSourceId: formData.costSourceType === 'MANUAL' ? undefined : formData.costSourceId.trim(),
-         costSourceReason: formData.costSourceType === 'MANUAL' ? formData.costSourceReason.trim() : undefined,
-        totalPrice,
-        margin: formData.costPrice > 0 ? ((formData.unitPrice - formData.costPrice) / formData.unitPrice) * 100 : 0,
-        status: 'draft',
-        validityDays: formData.validityDays,
-        saleType: formData.saleType,
-        incoterm: formData.incoterm || undefined,
-        incotermLocation: formData.incotermLocation || undefined,
-        leadTimeDays: formData.leadTimeDays || undefined,
-        leadTimeBasis: formData.leadTimeBasis || undefined,
-        moq: formData.moq || undefined,
-        mpq: formData.mpq || undefined,
-        priceBasis: formData.priceBasis || undefined,
-        taxIncluded: formData.taxIncluded,
-        taxRate: formData.taxRate || undefined,
-        warrantyDays: formData.warrantyDays,
-        warrantyTerms: formData.warrantyTerms || undefined,
-        packagingRequirement: formData.packagingRequirement || undefined,
-        shippingMethod: formData.shippingMethod || undefined,
-        countryOfOrigin: formData.countryOfOrigin || undefined,
-        hsCode: formData.hsCode || undefined,
-        eccn: formData.eccn || undefined,
-        dualUse: formData.dualUse,
-        ccRecipients: formData.ccRecipients ? formData.ccRecipients.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
-        commonNote: formData.commonNote || undefined,
-      });
+        const legacyPayload = {
+          rfqId: formData.rfqId,
+          customerId: formData.customerId,
+          partNumber: formData.partNumber,
+          quantity: formData.quantity,
+          unitPrice: formData.unitPrice,
+          costPrice: formData.costPrice,
+          currency: 'USD' as const,
+          costSourceType: formData.costSourceType,
+          costSourceId: formData.costSourceType === 'MANUAL' ? undefined : formData.costSourceId.trim(),
+          costSourceReason: formData.costSourceType === 'MANUAL' ? formData.costSourceReason.trim() : undefined,
+          validityDays,
+          saleType: 'Sale' as const,
+          incoterm: formData.incoterm || undefined,
+          incotermLocation: formData.incotermLocation || undefined,
+          leadTimeDays: formData.leadTimeDays || undefined,
+          leadTimeBasis: formData.leadTimeBasis || undefined,
+          moq: formData.moq || undefined,
+          mpq: formData.mpq || undefined,
+          priceBasis: formData.priceBasis || undefined,
+          taxIncluded: formData.taxIncluded,
+          taxRate: formData.taxRate || undefined,
+          warrantyDays: formData.warrantyDays || undefined,
+          warrantyTerms: formData.warrantyTerms || undefined,
+          packagingRequirement: formData.packagingRequirement || undefined,
+          shippingMethod: formData.shippingMethod || undefined,
+          countryOfOrigin: formData.countryOfOrigin || undefined,
+          hsCode: formData.hsCode || undefined,
+          eccn: formData.eccn || undefined,
+          dualUse: formData.dualUse,
+          ccRecipients: formData.ccRecipients ? formData.ccRecipients.split(',').map((s: string) => s.trim()).filter(Boolean) : undefined,
+          commonNote: formData.commonNote || undefined,
+          ...(isRevision && revisionQuote ? {
+            certificateFiles: revisionQuote.certificateFiles,
+            template: revisionQuote.template,
+            shipToId: revisionQuote.shipToId ?? undefined,
+            shipForId: revisionQuote.shipForId ?? undefined,
+            // A revised commercial offer must not inherit the prior
+            // signature; the new draft always starts unsigned.
+            eSignatureStatus: 'Unsigned',
+          } : {}),
+        };
+        createdQuote = isRevision && revisionQuote
+          ? await quotationApi.revise(revisionQuote.id, {
+            ...buildQuotationRevisionInput(revisionQuote, revisionReason, legacyPayload),
+          })
+          : await createQuotation({
+            ...legacyPayload,
+            customerName: formData.customerName,
+            description: `Part ${formData.partNumber}`,
+            totalPrice,
+            margin: formData.costPrice > 0 ? ((formData.unitPrice - formData.costPrice) / formData.unitPrice) * 100 : 0,
+            status: 'draft',
+          });
       }
-      toast.success(isModernRfq
-        ? tx('多行报价草稿已创建，请从列表提交审批。', 'Multi-line quote draft created. Submit it for approval from the list.')
-        : tx('报价单创建成功。', 'Quote created successfully.'));
+      toast.success(isRevision
+        ? tx('报价修订已创建为新草稿，请重新提交审批。', 'The quotation revision was created as a new draft and must be submitted for approval.')
+        : isModernRfq
+          ? tx('多行报价草稿已创建，请从列表提交审批。', 'Multi-line quote draft created. Submit it for approval from the list.')
+          : tx('报价单创建成功。', 'Quote created successfully.'));
       onClose();
-      onCreated();
+      onCreated(createdQuote);
     } catch (error) {
-      console.error('Failed to create quote:', error);
-      toast.error(tx('创建报价单失败。', 'Failed to create quote.'));
+      console.error('Failed to create quotation:', error);
+      toast.error(tx(isRevision ? '修订报价单失败。' : '创建报价单失败。', isRevision ? 'Failed to create the quotation revision.' : 'Failed to create quote.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -669,16 +922,58 @@ function CreateQuoteDialog({
       <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Plus className="w-5 h-5" />
-            {tx(isModernRfq ? '创建报价草稿' : '创建报价单', isModernRfq ? 'Create Quote Draft' : 'Create Quote')}
+            {isRevision ? <Pencil className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+            {tx(
+              isRevision ? '修订报价单' : (isModernRfq ? '创建报价草稿' : '创建报价单'),
+              isRevision ? 'Revise Quote' : (isModernRfq ? 'Create Quote Draft' : 'Create Quote'),
+            )}
           </DialogTitle>
-          <DialogDescription className="sr-only">{tx('创建新的报价单', 'Create a new quote')}</DialogDescription>
+          <DialogDescription className="sr-only">{tx(isRevision ? '基于现有报价创建新版报价单' : '创建新的报价单', isRevision ? 'Create a new revision from this quotation' : 'Create a new quote')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {isRevision && revisionQuote && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">
+                  {revisionQuote.quoteNumber} · {tx('当前版次', 'Current revision')} v{revisionQuote.commercialRevision ?? 1}
+                </span>
+                <span>{tx('新版创建后为草稿，需重新提交审批；既有订单保持不变。', 'The new version starts as a draft and must be re-submitted for approval; existing orders remain unchanged.')}</span>
+              </div>
+            </div>
+          )}
+          {isRevision && (
+            <div className="grid grid-cols-1 gap-4 rounded-lg border border-amber-200 bg-amber-50 p-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="quotation-revision-reason">{tx('修订原因 *', 'Revision reason *')}</Label>
+                <Textarea
+                  id="quotation-revision-reason"
+                  value={revisionReason}
+                  onChange={(e) => setRevisionReason(e.target.value)}
+                  placeholder={tx('请说明价格、交期、成本来源或商务条款的变更原因。', 'Explain why the price, lead time, cost source, or commercial terms changed.')}
+                  className="min-h-[96px]"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quotation-revision-validity">{tx('新版有效期（天） *', 'New validity (days) *')}</Label>
+                <Input
+                  id="quotation-revision-validity"
+                  type="number"
+                  min={1}
+                  value={isAog ? 1 : revisionValidityDays}
+                  onChange={(e) => setRevisionValidityDays(parseInt(e.target.value, 10) || 0)}
+                  disabled={isAog}
+                  className={isAog ? 'bg-red-50 border-red-200' : ''}
+                />
+                <p className="text-xs text-amber-800">
+                  {isAog ? tx('AOG 修订有效期固定为 1 天。', 'AOG revisions are fixed to 1 day.') : tx('必须重新确认新版有效期，不会沿用旧版。', 'Confirm a new validity period; the old period is not reused.')}
+                </p>
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             <Label>{tx('关联 RFQ *', 'Associated RFQ *')}</Label>
-            <Select value={formData.rfqId} onValueChange={handleRfqChange}>
+            <Select value={formData.rfqId} onValueChange={handleRfqChange} disabled={isRevision}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={tx('请选择 RFQ', 'Select RFQ...')} />
               </SelectTrigger>
@@ -709,7 +1004,7 @@ function CreateQuoteDialog({
                 value={formData.customerName}
                 onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
                 placeholder={tx('输入客户名称', 'Enter customer name')}
-                readOnly={isModernRfq}
+                readOnly={isModernRfq || isRevision}
               />
             </div>
           </div>
@@ -758,9 +1053,12 @@ function CreateQuoteDialog({
                   <Input
                     type="number"
                     min={0}
-                    value={formData.costPrice}
+                    value={isRevision && numeric(revisionQuote?.costPrice) === null && !revisionLegacyCostTouched ? '' : formData.costPrice}
                     readOnly={formData.costSourceType !== 'MANUAL'}
-                    onChange={(e) => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) => {
+                      if (isRevision) setRevisionLegacyCostTouched(true);
+                      setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 });
+                    }}
                   />
                 </div>
               </div>
@@ -771,7 +1069,10 @@ function CreateQuoteDialog({
                 rfqId={formData.rfqId}
                 partNumber={formData.partNumber}
                 quantity={formData.quantity}
-                onChange={(source, unitCost) => setFormData(previous => ({ ...previous, ...source, ...(unitCost !== undefined ? { costPrice: unitCost } : {}) }))}
+                onChange={(source, unitCost) => {
+                  if (isRevision) setRevisionLegacyCostTouched(true);
+                  setFormData(previous => ({ ...previous, ...source, ...(unitCost !== undefined ? { costPrice: unitCost } : {}) }));
+                }}
               />
 
               {/* AI 价格推荐 */}
@@ -787,14 +1088,25 @@ function CreateQuoteDialog({
             </>
           )}
 
+          {isRevision && revisionCostNeedsReverification && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>{tx('旧版成本字段不可见或来源不完整。请重新核实成本并填写来源/原因后再提交，系统不会按 0 成本静默修订。', 'The prior cost is unavailable or its source is incomplete. Re-verify the cost and enter a source or reason before submitting; the revision will not silently use zero cost.')}</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>{tx('有效期（天）', 'Validity (days)')}</Label>
               <Input
                 type="number"
                 min={1}
-                value={formData.validityDays}
-                onChange={(e) => setFormData({ ...formData, validityDays: parseInt(e.target.value) || 30 })}
+                value={isRevision ? (isAog ? 1 : revisionValidityDays) : formData.validityDays}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value, 10) || 0;
+                  if (isRevision) setRevisionValidityDays(value);
+                  else setFormData({ ...formData, validityDays: value || 30 });
+                }}
                 disabled={isAog}
                 className={isAog ? 'bg-red-50 border-red-200' : ''}
               />
@@ -1068,8 +1380,8 @@ function CreateQuoteDialog({
             onClick={handleSubmit}
             disabled={isSubmitting}
           >
-            {isSubmitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}
-            {tx('创建报价单', 'Create Quote')}
+            {isSubmitting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : (isRevision ? <Pencil className="w-4 h-4 mr-1" /> : <Plus className="w-4 h-4 mr-1" />)}
+            {tx(isRevision ? '创建新版报价草稿' : '创建报价单', isRevision ? 'Create Revised Quote Draft' : 'Create Quote')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1708,6 +2020,7 @@ export function Quotations() {
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isRevisionOpen, setIsRevisionOpen] = useState(false);
   const [isConvertOpen, setIsConvertOpen] = useState(false);
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
@@ -1750,6 +2063,22 @@ export function Quotations() {
   const handleViewDetail = (quote: Quotation) => {
     setSelectedQuote(quote);
     setIsDetailOpen(true);
+  };
+
+  const handleRevise = (quote: Quotation) => {
+    setSelectedQuote(quote);
+    setIsRevisionOpen(true);
+  };
+
+  const handleOpenRevisionHistory = async (id: string) => {
+    try {
+      const historyQuote = await quotationApi.getById(id);
+      setSelectedQuote(historyQuote);
+      setIsDetailOpen(true);
+    } catch (error) {
+      console.error('Failed to load quotation revision history item:', error);
+      toast.error(tx('加载历史报价版本失败。', 'Failed to load the quotation revision.'));
+    }
   };
 
   const handleApprove = async (comment: string, costSource?: { costSourceType: 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL'; costSourceId?: string; costSourceReason?: string }) => {
@@ -2046,6 +2375,11 @@ export function Quotations() {
                                   AOG
                                 </Badge>
                               )}
+                              {quote.commercialRevision !== undefined && quote.commercialRevision > 1 && (
+                                <Badge variant="outline" className="text-indigo-700 border-indigo-300 bg-indigo-50 text-xs">
+                                  R{quote.commercialRevision}
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>{quote.customerName}</TableCell>
@@ -2089,11 +2423,28 @@ export function Quotations() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
+                                title={tx('查看报价详情', 'View quote details')}
+                                aria-label={tx('查看报价详情', 'View quote details')}
                                 onClick={() => handleViewDetail(quote)}
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              {(quote.status === 'draft' || quote.status === 'rejected') && can('quotation.transition') && (
+                              {can('quotation.create') && can('quotation.update')
+                                && !quote.supersededAt
+                                && quote.status !== 'accepted'
+                                && !(quote.lineItemsMode !== true && !!quote.orderId) && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  title={tx('修订报价', 'Revise quote')}
+                                  aria-label={tx('修订报价', 'Revise quote')}
+                                  onClick={() => handleRevise(quote)}
+                                >
+                                  <Pencil className="w-4 h-4 text-indigo-600" />
+                                </Button>
+                              )}
+                              {!quote.supersededAt && (quote.status === 'draft' || quote.status === 'rejected') && can('quotation.transition') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -2106,7 +2457,7 @@ export function Quotations() {
                                   <Send className="w-4 h-4 text-blue-600" />
                                 </Button>
                               )}
-                              {(quote.status === 'pending_approval' || (quote.status === 'approved' && quote.requiresReapproval === true)) && can('quotation.approve') && (
+                              {!quote.supersededAt && (quote.status === 'pending_approval' || (quote.status === 'approved' && quote.requiresReapproval === true)) && can('quotation.approve') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -2121,17 +2472,19 @@ export function Quotations() {
                                   <CheckCircle className="w-4 h-4 text-green-600" />
                                 </Button>
                               )}
-                              {quote.status === 'approved' && can('quotation.send') && (
+                              {!quote.supersededAt && quote.status === 'approved' && can('quotation.send') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8"
+                                  aria-label={tx('发送报价邮件', 'Send Quote Email')}
+                                  title={tx('发送报价邮件', 'Send Quote Email')}
                                   onClick={() => handleSend(quote)}
                                 >
                                   <Send className="w-4 h-4 text-blue-600" />
                                 </Button>
                               )}
-                              {(quote.status === 'sent' || quote.status === 'approved') && can('quotation.accept') && (
+                              {!quote.supersededAt && (quote.status === 'sent' || quote.status === 'approved') && can('quotation.accept') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -2141,7 +2494,7 @@ export function Quotations() {
                                   <CheckCircle className="w-4 h-4 text-green-600" />
                                 </Button>
                               )}
-                              {quote.status === 'sent' && can('quotation.withdraw') && (
+                              {!quote.supersededAt && quote.status === 'sent' && can('quotation.withdraw') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -2217,6 +2570,8 @@ export function Quotations() {
         onConfirmCustomer={handleConvertToOrder}
         onWithdraw={handleWithdraw}
         onDownloadContract={handleDownloadContract}
+        onRevise={handleRevise}
+        onOpenHistory={handleOpenRevisionHistory}
       />
 
       <ConvertToOrderDialog
@@ -2281,6 +2636,23 @@ export function Quotations() {
         onClose={() => setIsCreateOpen(false)}
         onCreated={() => {
           void refetchQuotes();
+        }}
+      />
+
+      <CreateQuoteDialog
+        isOpen={isRevisionOpen}
+        initialQuote={selectedQuote}
+        onClose={() => {
+          setIsRevisionOpen(false);
+          setSelectedQuote(null);
+        }}
+        onCreated={(revisedQuote) => {
+          setIsRevisionOpen(false);
+          void refetchQuotes();
+          if (revisedQuote) {
+            setSelectedQuote(revisedQuote);
+            setIsDetailOpen(true);
+          }
         }}
       />
     </div>

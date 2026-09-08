@@ -5,35 +5,54 @@ import type { AuthRequest } from '../middleware/auth.js';
 import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { canReadGeneratedDocument } from '../lib/documentAccess.js';
 import { generateDocumentPdf, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
+import { quotationDocumentPdf, QUOTATION_PDF_DOCUMENT_TYPE } from '../lib/quotationDocumentService.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
 
-const documentAccessInclude = {
-  template: true,
+// Keep the JSON/list queries free of pdfBytes.  A PDF can be several MB and
+// is only selected by the binary download route below after authorization.
+const documentAccessSelect = {
+  id: true,
+  templateId: true,
+  quotationId: true,
+  orderId: true,
+  customerId: true,
+  documentType: true,
+  title: true,
+  status: true,
+  contentHtml: true,
+  contentSha256: true,
+  payloadJson: true,
+  snapshotHash: true,
+  generatedAt: true,
+  generatedById: true,
+  template: { select: { id: true, name: true } },
   quotation: {
-    include: {
+    select: {
+      createdBy: true,
       creator: { select: { id: true, department: true } },
     },
   },
   order: {
-    include: {
+    select: {
       quotation: {
-        include: {
+        select: {
+          createdBy: true,
           creator: { select: { id: true, department: true } },
         },
       },
     },
   },
-} satisfies Prisma.GeneratedDocumentInclude;
+} satisfies Prisma.GeneratedDocumentSelect;
 
-type DocumentWithAccess = Prisma.GeneratedDocumentGetPayload<{ include: typeof documentAccessInclude }>;
+type DocumentWithAccess = Prisma.GeneratedDocumentGetPayload<{ select: typeof documentAccessSelect }>;
 
 function setNoStore(res: { setHeader(name: string, value: string): unknown }) {
   res.setHeader('Cache-Control', 'no-store');
 }
 
-function assertReadableDocument(req: AuthRequest, document: DocumentWithAccess | null): DocumentWithAccess {
+function assertReadableDocument<T extends DocumentWithAccess>(req: AuthRequest, document: T | null): T {
   if (!document) {
     throw new AppError('文档不存在', 404, 'RESOURCE_NOT_FOUND');
   }
@@ -79,7 +98,7 @@ router.get(
         ...(orderId ? { orderId } : {}),
         ...(documentType ? { documentType } : {}),
       },
-      include: documentAccessInclude,
+      select: documentAccessSelect,
       orderBy: { generatedAt: 'desc' },
     });
 
@@ -96,7 +115,7 @@ router.get(
   asyncHandler(async (req: AuthRequest, res) => {
     const document = await prisma.generatedDocument.findUnique({
       where: { id: req.params.id },
-      include: documentAccessInclude,
+      select: documentAccessSelect,
     });
     const readableDocument = assertReadableDocument(req, document);
 
@@ -110,14 +129,29 @@ router.get(
   asyncHandler(async (req: AuthRequest, res) => {
     const document = await prisma.generatedDocument.findUnique({
       where: { id: req.params.id },
-      include: documentAccessInclude,
+      select: documentAccessSelect,
     });
     const readableDocument = assertReadableDocument(req, document);
 
-    const pdfBuffer = await generateDocumentPdf({
-      title: readableDocument.title,
-      contentHtml: readableDocument.contentHtml,
-    });
+    let pdfBuffer: Buffer;
+    if (readableDocument.documentType === QUOTATION_PDF_DOCUMENT_TYPE) {
+      if (!readableDocument.quotationId) {
+        throw new AppError('报价 PDF 缺少报价关联，不能下载', 409, 'RESOURCE_CONFLICT');
+      }
+      const artifact = await quotationDocumentPdf(prisma, readableDocument.quotationId);
+      if (artifact.document.id !== readableDocument.id) {
+        throw new AppError('报价 PDF 文档关联不一致，不能下载', 409, 'RESOURCE_CONFLICT');
+      }
+      pdfBuffer = artifact.content;
+    } else {
+      // Existing order contracts remain backed by their immutable contentHtml;
+      // do not replace them with the quotation PDF byte artifact.
+      pdfBuffer = await generateDocumentPdf({
+        title: readableDocument.title,
+        contentHtml: readableDocument.contentHtml,
+        renderedAt: readableDocument.generatedAt,
+      });
+    }
 
     setNoStore(res);
     res.setHeader('Content-Type', 'application/pdf');

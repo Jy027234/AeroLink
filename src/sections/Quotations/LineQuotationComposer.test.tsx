@@ -125,6 +125,22 @@ describe('LineQuotationComposer', () => {
     expect(screen.getByTestId('quotation-display-total')).toHaveTextContent('$10,000.3706');
   });
 
+  it('keeps a policy-redacted cost blank until the user re-enters it', () => {
+    const initial = createLineQuotationDrafts(rfq, ['line-1']).map(line => ({
+      ...line,
+      costPrice: 0,
+      costPriceRedacted: true,
+    }));
+    const changed = renderComposer(initial);
+    const costInput = screen.getByRole('spinbutton', { name: 'PN-100 成本单价' });
+
+    expect(costInput).toHaveValue(null);
+    fireEvent.change(costInput, { target: { value: '42.5' } });
+
+    const next = changed.mock.lastCall?.[0] as LineQuotationDraft[];
+    expect(next[0]).toMatchObject({ costPrice: 42.5, costPriceRedacted: false });
+  });
+
   it('queries and accepts a cost source for the selected line using that line part number', async () => {
     permissions.add('supplier_quote.read');
     vi.mocked(supplierQuoteApi.getAll).mockImplementation(async filters => {

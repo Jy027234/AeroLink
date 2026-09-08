@@ -69,6 +69,78 @@ function assertContractShape(contract) {
       failContract(`QuotationLine and OrderLine ${field} must serialize Decimal values as strings`);
     }
   }
+
+  const revise = contract.paths?.['/api/quotations/{id}/revise']?.post;
+  if (revise?.['x-aerolink-contract-status'] !== 'contracted') {
+    failContract('POST /api/quotations/{id}/revise must be contracted');
+  }
+  if (revise?.requestBody?.$ref !== '#/components/requestBodies/QuotationRevise') {
+    failContract('quotation revision POST must use QuotationRevise request body');
+  }
+  if (revise?.responses?.['201']?.$ref !== '#/components/responses/QuotationRevisionCreated') {
+    failContract('quotation revision POST must return QuotationRevisionCreated with 201');
+  }
+
+  const revisions = contract.paths?.['/api/quotations/{id}/revisions']?.get;
+  if (revisions?.['x-aerolink-contract-status'] !== 'contracted') {
+    failContract('GET /api/quotations/{id}/revisions must be contracted');
+  }
+  if (revisions?.responses?.['200']?.$ref !== '#/components/responses/QuotationRevisionList') {
+    failContract('quotation revisions GET must return QuotationRevisionList');
+  }
+
+  const reviseSchema = schemas.QuotationReviseRequest;
+  if (!reviseSchema?.required?.includes('version') || !reviseSchema.required.includes('reason') || !reviseSchema.required.includes('quotation')) {
+    failContract('QuotationReviseRequest must require version, reason and quotation');
+  }
+  if (reviseSchema?.additionalProperties !== false
+    || reviseSchema.properties?.version?.type !== 'integer'
+    || reviseSchema.properties?.version?.minimum !== 1) {
+    failContract('QuotationReviseRequest.version must be a positive integer on a strict object');
+  }
+  if (reviseSchema.properties?.reason?.type !== 'string'
+    || reviseSchema.properties?.reason?.minLength !== 1
+    || reviseSchema.properties?.reason?.maxLength !== 1000) {
+    failContract('QuotationReviseRequest.reason must be bounded to 1..1000 characters');
+  }
+  const nestedQuotation = reviseSchema.properties?.quotation;
+  if (!nestedQuotation?.allOf?.some((entry) => refName(entry) === 'QuotationCreateRequest')) {
+    failContract('QuotationReviseRequest.quotation must reuse QuotationCreateRequest');
+  }
+  const validityOverlay = nestedQuotation?.allOf?.find((entry) => entry.required?.includes('validityDays'));
+  if (!validityOverlay || validityOverlay.properties?.validityDays?.type !== 'integer' || validityOverlay.properties.validityDays.minimum !== 1) {
+    failContract('QuotationReviseRequest.quotation must require validityDays');
+  }
+
+  const quotation = schemas.Quotation;
+  if (quotation?.properties?.commercialRevision?.type !== 'integer' || quotation.properties.commercialRevision.minimum !== 1) {
+    failContract('Quotation must expose commercialRevision as an integer >= 1');
+  }
+  for (const field of ['revisionOfId', 'revisionRootId', 'revisionReason', 'supersededAt']) {
+    if (!Object.hasOwn(quotation?.properties ?? {}, field)) failContract(`Quotation must expose ${field}`);
+  }
+  if (quotation?.required?.includes('supersededById')) {
+    failContract('Quotation.supersededById must remain optional because latest revisions omit it');
+  }
+
+  const metadata = schemas.QuotationRevision;
+  for (const field of ['id', 'quoteNumber', 'commercialRevision', 'revisionOfId', 'revisionRootId', 'revisionReason', 'supersededAt', 'createdAt', 'status', 'expiryDate']) {
+    if (!metadata?.required?.includes(field)) failContract(`QuotationRevision must require ${field}`);
+  }
+  if (metadata?.required?.includes('supersededById')) {
+    failContract('QuotationRevision.supersededById must remain optional');
+  }
+  for (const field of ['unitPrice', 'totalPrice', 'costPrice', 'margin', 'costSourceType', 'costSourceId', 'costSourceReason', 'costSourceSnapshotJson']) {
+    if (Object.hasOwn(metadata?.properties ?? {}, field)) failContract(`QuotationRevision must not expose ${field}`);
+  }
+
+  const created = schemas.QuotationRevisionCreated;
+  if (!created?.allOf?.some((entry) => refName(entry) === 'Quotation')) {
+    failContract('QuotationRevisionCreated must include the regular quotation response');
+  }
+  if (!created?.allOf?.some((entry) => entry.required?.includes('previousQuotationId'))) {
+    failContract('QuotationRevisionCreated must require previousQuotationId');
+  }
 }
 
 try {

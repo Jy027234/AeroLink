@@ -762,6 +762,14 @@ model SupplierFollowUpLog {
 
 model Quotation {
   lineItemsMode Boolean @default(false)
+  // Commercial revisions are independent of the optimistic-lock version.
+  commercialRevision Int @default(1)
+  revisionOfId String? @unique
+  revisionRootId String?
+  revisionReason String?
+  supersededAt DateTime?
+  revisionOf Quotation? @relation("QuotationRevision", fields: [revisionOfId], references: [id], onDelete: Restrict)
+  revisedQuotation Quotation? @relation("QuotationRevision")
   id              String   @id @default(uuid())
   quoteNumber     String   @unique
   rfqId           String
@@ -873,6 +881,7 @@ model Quotation {
   lines              QuotationLine[]
 
   @@index([costSourceType, costSourceId])
+  @@index([revisionRootId, commercialRevision])
   @@map("quotations")
 }
 
@@ -1151,6 +1160,10 @@ model DocumentTemplate {
 }
 
 model GeneratedDocument {
+  contentSha256 String?
+  snapshotHash String?
+  pdfBytes Bytes?
+  pdfSha256 String?
   id            String   @id @default(uuid())
   templateId    String?
   quotationId   String?

@@ -500,6 +500,60 @@ describe('OpenAPI representative contract invariants', () => {
       .toEqual(expect.arrayContaining(['costSourceId']));
   });
 
+  it('contracts commercial quotation revision requests and metadata-only history', () => {
+    const revise = operation('POST', '/api/quotations/{id}/revise');
+    const revisions = operation('GET', '/api/quotations/{id}/revisions');
+
+    expect(revise['x-aerolink-contract-status']).toBe('contracted');
+    expect(revise.requestBody).toEqual({ $ref: '#/components/requestBodies/QuotationRevise' });
+    expect(revise.responses['201']).toEqual({ $ref: '#/components/responses/QuotationRevisionCreated' });
+    expect(revisions['x-aerolink-contract-status']).toBe('contracted');
+    expect(revisions.requestBody).toBeUndefined();
+    expect(revisions.responses['200']).toEqual({ $ref: '#/components/responses/QuotationRevisionList' });
+
+    const request = resolveSchema(contract.components.schemas.QuotationReviseRequest);
+    expect(request.additionalProperties).toBe(false);
+    expect(request.required).toEqual(expect.arrayContaining(['version', 'reason', 'quotation']));
+    expect(request.properties?.version).toMatchObject({ type: 'integer', minimum: 1 });
+    expect(request.properties?.reason).toMatchObject({ type: 'string', minLength: 1, maxLength: 1000 });
+    const nestedQuotation = request.properties?.quotation as Schema;
+    expect(nestedQuotation.allOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $ref: '#/components/schemas/QuotationCreateRequest' }),
+      expect.objectContaining({ required: expect.arrayContaining(['validityDays']) }),
+    ]));
+    expect(nestedQuotation.allOf?.find((entry) => entry.required?.includes('validityDays'))?.properties?.validityDays)
+      .toMatchObject({ type: 'integer', minimum: 1 });
+
+    const quotation = contract.components.schemas.Quotation;
+    expect(quotation.properties).toMatchObject({
+      commercialRevision: expect.objectContaining({ type: 'integer', minimum: 1 }),
+      revisionOfId: expect.objectContaining({ type: ['string', 'null'] }),
+      revisionRootId: expect.objectContaining({ type: ['string', 'null'] }),
+      revisionReason: expect.objectContaining({ type: ['string', 'null'] }),
+      supersededAt: expect.objectContaining({ type: ['string', 'null'], format: 'date-time' }),
+      supersededById: expect.objectContaining({ type: 'string' }),
+    });
+    expect(quotation.required).toContain('commercialRevision');
+    expect(quotation.required).not.toContain('supersededById');
+
+    const metadata = resolveSchema(contract.components.schemas.QuotationRevision);
+    expect(metadata.required).toEqual(expect.arrayContaining([
+      'id', 'quoteNumber', 'commercialRevision', 'revisionOfId', 'revisionRootId',
+      'revisionReason', 'supersededAt', 'createdAt', 'status', 'expiryDate',
+    ]));
+    expect(metadata.required).not.toContain('supersededById');
+    expect(metadata.properties?.commercialRevision).toMatchObject({ type: 'integer', minimum: 1 });
+    for (const field of ['unitPrice', 'totalPrice', 'costPrice', 'margin', 'costSourceType', 'costSourceId', 'costSourceReason', 'costSourceSnapshotJson']) {
+      expect(metadata.properties).not.toHaveProperty(field);
+    }
+
+    const created = resolveSchema(contract.components.schemas.QuotationRevisionCreated);
+    expect(created.allOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $ref: '#/components/schemas/Quotation' }),
+      expect.objectContaining({ required: expect.arrayContaining(['previousQuotationId']) }),
+    ]));
+  });
+
   it('contracts bounded AI assistance requests and response shapes', () => {
     const parse = operation('POST', '/api/ai/parse-email');
     const analyze = operation('POST', '/api/ai/analyze-quotes');

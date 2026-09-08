@@ -3,11 +3,13 @@ import { Prisma } from '@prisma/client';
 import { AppError } from '../../middleware/errorHandler.js';
 import { calculateMoneyTotal, normalizeMoney } from '../../lib/money.js';
 import { assertSupportedSaleType } from '../../lib/commercialScope.js';
-import { assertQuotationApprovalActor, buildQuotationApprovalSnapshot, QUOTATION_APPROVAL_POLICY_VERSION } from '../../lib/quotationApprovalPolicy.js';
+import { assertQuotationApprovalActor, assertQuotationValidity, buildQuotationApprovalSnapshot, QUOTATION_APPROVAL_POLICY_VERSION } from '../../lib/quotationApprovalPolicy.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { captureQuotationLineCost, assertLineCostSnapshot, buildCommercialApprovalSnapshot, hashCommercialApprovalSnapshot } from '../../lib/lineQuotationPolicy.js';
 import { createInitialStatusHistory, StateTransitionConflictError } from '../../lib/transactionStateService.js';
 import { enqueueBusinessEvent } from '../../lib/outboxService.js';
+import { assertActiveQuotationRevision } from '../../lib/quotationRevisionPolicy.js';
+import { freezeQuotationDocument } from '../../lib/quotationDocumentService.js';
 
 export type LineQuoteInput = {
   rfqLineId: string; partNumber: string; quantity: number; unitPrice: number; costPrice: number;
@@ -67,10 +69,12 @@ export function hasCurrentLineQuotationApproval(quotation: ApprovalQuotation) {
 }
 
 export function assertLineQuotationCommercialTerms(quotation: LineQuotation) {
+  assertActiveQuotationRevision(quotation);
   assertSupportedSaleType(quotation.saleType);
   assertLineCommercialAmounts(quotation);
   for (const line of quotation.lines) assertLineCostSnapshot(line);
-  if (quotation.currency !== 'USD' || quotation.expiryDate.getTime() <= Date.now()) fail('报价币种无效或已过期');
+  if (quotation.currency !== 'USD') fail('报价币种无效或已过期');
+  assertQuotationValidity(quotation);
   if (!hasCurrentLineQuotationApproval(quotation)) fail('报价行或条款已变化，需要重新审批');
 }
 
@@ -209,6 +213,7 @@ async function changeState(tx: Tx, quotation: LineQuotation, actorId: string, ne
 }
 
 export async function submitLineQuotation(tx: Tx, quotation: LineQuotation, actorId: string, version?: number) {
+  assertActiveQuotationRevision(quotation);
   if (!['DRAFT', 'REJECTED'].includes(quotation.status)) fail('只有草稿或已驳回报价可提交审批');
   return { quotation: await changeState(tx, quotation, actorId, 'PENDING_APPROVAL', version) };
 }
@@ -217,6 +222,7 @@ export async function approveLineQuotation(args: {
   tx: Tx; quotation: LineQuotation; actorId: string; actorRole: string; action: 'approve' | 'reject'; version?: number; comment?: string;
 }) {
   const { tx, quotation, actorId } = args;
+  assertActiveQuotationRevision(quotation);
   if (!['PENDING_APPROVAL', 'APPROVED'].includes(quotation.status)) fail('报价当前不可审批');
   if (quotation.lines.some(line => line.acceptedQuantity > 0)) fail('已分批成交的报价不能重置审批，请撤回剩余报价后另建报价');
   assertLineCommercialAmounts(quotation);
@@ -224,6 +230,7 @@ export async function approveLineQuotation(args: {
   if (!total.equals(quotation.totalPriceDecimal ?? quotation.totalPrice)) fail('报价行合计与总额不一致');
   const level = assertQuotationApprovalActor({ actorId, actorRole: args.actorRole, creatorId: quotation.createdBy, totalPrice: total.toNumber(), currency: quotation.currency });
   if (args.action === 'approve') {
+    assertQuotationValidity(quotation);
     await assertSharedInventoryCapacity(tx, quotation.lines, quotation.id);
     for (const line of quotation.lines) {
       assertLineCostSnapshot(line);
@@ -244,6 +251,7 @@ export async function approveLineQuotation(args: {
     reviewedVersion: quotation.version, snapshotJson: JSON.stringify(snapshot), approverId: actorId,
     action: args.action.toUpperCase(), comment: args.comment,
   } });
+  if (args.action === 'approve') await freezeQuotationDocument(tx, quotation.id, actorId);
   return { quotation: await loadLineQuotation(tx, updated.id), approvalLevel: level, requiredLevel: level, isNoop: false };
 }
 

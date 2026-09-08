@@ -31,6 +31,7 @@ import type {
   WorkflowDefinition,
   WorkflowInstance,
   WorkflowInstanceStep,
+  QuotationRevisionSummary,
 } from '@/types';
 import type { CapabilitySnapshot } from '@/lib/capabilities';
 
@@ -1443,6 +1444,62 @@ export interface MultiLineQuotationAcceptInput {
   reason?: string;
 }
 
+/**
+ * The legacy branch of QuotationCreateRequest used by commercial revisions.
+ * Keep this type separate from the generated OpenAPI declaration: the
+ * revision endpoint is introduced by the server in a later contract refresh,
+ * while the client still needs a typed payload during that rollout.
+ */
+export interface LegacyQuotationCreateInput {
+  rfqId: string;
+  customerId: string;
+  partNumber: string;
+  quantity: number;
+  unitPrice: number;
+  costPrice: number;
+  currency: 'USD';
+  costSourceType: QuotationCostSourceType;
+  costSourceId?: string;
+  costSourceReason?: string;
+  certificateFiles?: string[];
+  template?: string;
+  validityDays?: number;
+  saleType?: 'Sale';
+  shipToId?: string;
+  shipForId?: string;
+  incoterm?: string;
+  incotermLocation?: string;
+  leadTimeDays?: number;
+  leadTimeBasis?: string;
+  moq?: number;
+  mpq?: number;
+  priceBasis?: string;
+  taxIncluded?: boolean;
+  taxRate?: number;
+  warrantyDays?: number;
+  warrantyTerms?: string;
+  packagingRequirement?: string;
+  shippingMethod?: string;
+  ccRecipients?: string[];
+  commonNote?: string;
+  eSignature?: string;
+  eSignatureStatus?: string;
+  countryOfOrigin?: string;
+  hsCode?: string;
+  eccn?: string;
+  dualUse?: boolean;
+}
+
+export type QuotationRevisionCreateInput =
+  | (Omit<LegacyQuotationCreateInput, 'validityDays'> & { validityDays: number })
+  | (Omit<MultiLineQuotationCreateInput, 'validityDays'> & { validityDays: number });
+
+export interface QuotationRevisionInput {
+  version: number;
+  reason: string;
+  quotation: QuotationRevisionCreateInput;
+}
+
 // ===== Quotation API =====
 export const quotationApi = {
   getAll: async (filters?: {
@@ -1468,6 +1525,10 @@ export const quotationApi = {
     return request<Quotation>(`/quotations/${id}`);
   },
 
+  getRevisions: async (id: string) => {
+    return request<QuotationRevisionSummary[]>(`/quotations/${id}/revisions`);
+  },
+
   create: async (data: ApiPayload) => {
     return request<Quotation>('/quotations', {
       method: 'POST',
@@ -1481,6 +1542,14 @@ export const quotationApi = {
    */
   createMultiLine: async (data: MultiLineQuotationCreateInput) => {
     return request<Quotation>('/quotations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Create a new commercial revision while preserving the source quotation. */
+  revise: async (id: string, data: QuotationRevisionInput) => {
+    return request<Quotation>(`/quotations/${id}/revise`, {
       method: 'POST',
       body: JSON.stringify(data),
     });

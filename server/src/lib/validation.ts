@@ -68,8 +68,7 @@ const legacyQuotationCreateSchema = z.object({
   costSourceType: z.enum(['SUPPLIER_QUOTE', 'INVENTORY_DETAIL', 'MANUAL'], { message: '必须明确报价成本来源' }),
   costSourceId: z.string().trim().min(1, '成本来源 ID 不能为空').optional(),
   costSourceReason: z.string().trim().max(1000, '成本来源原因不能超过1000个字符').optional(),
-  // Multi-line quotations are not enabled in this migration; reject rather
-  // than silently stripping a caller's line payload.
+  // Legacy requests reject lines; explicit line requests use their own union branch.
   lines: z.never().optional(),
   certificateFiles: z.array(z.string()).optional(),
   template: z.string().optional(),
@@ -124,6 +123,14 @@ const multiLineQuotationCreateSchema = legacyQuotationCreateSchema.innerType().o
   partNumber: true, quantity: true, unitPrice: true, costPrice: true, costSourceType: true, costSourceId: true, costSourceReason: true, lines: true,
 }).extend({ lines: z.array(quotationLineCreateSchema).min(1).max(100) }).strict();
 export const quotationCreateSchema = z.union([legacyQuotationCreateSchema, multiLineQuotationCreateSchema]);
+
+export const quotationReviseSchema = z.object({
+  version: z.number().int().positive(),
+  reason: z.string().trim().min(1, '请说明本次商业修订的原因').max(1000),
+  quotation: quotationCreateSchema.refine(value => value.validityDays !== undefined, {
+    message: '修订报价必须明确新报价有效天数', path: ['validityDays'],
+  }),
+}).strict();
 
 export const quotationSubmitSchema = z.object({
   ...stateTransitionMetadataSchema,

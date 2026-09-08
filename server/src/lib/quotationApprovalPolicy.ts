@@ -3,6 +3,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { preferredMoneyValue } from './money.js';
 import { normalizeRole } from './capabilityPolicy.js';
 import { assertSupportedSaleType } from './commercialScope.js';
+import { assertActiveQuotationRevision } from './quotationRevisionPolicy.js';
 
 /**
  * The approval rules are intentionally small and explicit for the first USD
@@ -104,6 +105,7 @@ type QuotationApprovalSource = {
   commonNote?: unknown;
   expiryDate?: unknown;
   validityDeadline?: unknown;
+  supersededAt?: Date | string | null;
   rfq?: { urgency?: unknown } | null;
   costSourceType?: unknown;
   costSourceId?: unknown;
@@ -138,6 +140,49 @@ function nullableDate(value: unknown) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(String(value));
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+export type QuotationValiditySource = {
+  expiryDate?: unknown;
+  validityDeadline?: unknown;
+};
+
+function parseQuotationDate(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Validates the canonical and compatibility expiry fields without consulting
+ * validityDays or inventing a replacement date.  expiryDate is authoritative;
+ * a present legacy deadline must be an exact instant match, otherwise the
+ * record is unsafe to use until it is reviewed.
+ */
+export function assertQuotationValidityFields(source: QuotationValiditySource) {
+  const expiryDate = parseQuotationDate(source.expiryDate);
+  if (!expiryDate) {
+    throw new AppError('报价缺少有效的 expiryDate，不能继续交易', 409, 'RESOURCE_CONFLICT');
+  }
+
+  const hasCompatibilityDeadline = source.validityDeadline !== null
+    && source.validityDeadline !== undefined
+    && source.validityDeadline !== '';
+  if (hasCompatibilityDeadline) {
+    const validityDeadline = parseQuotationDate(source.validityDeadline);
+    if (!validityDeadline || validityDeadline.getTime() !== expiryDate.getTime()) {
+      throw new AppError('报价 expiryDate 与 validityDeadline 冲突，需先人工核实', 409, 'RESOURCE_CONFLICT');
+    }
+  }
+  return expiryDate;
+}
+
+export function assertQuotationValidity(source: QuotationValiditySource, now = new Date()) {
+  const expiryDate = assertQuotationValidityFields(source);
+  if (expiryDate.getTime() <= now.getTime()) {
+    throw new AppError('报价已过期，不能继续发送、接受或创建订单', 409, 'BAD_REQUEST');
+  }
+  return expiryDate;
 }
 
 function nullableHash(value: unknown) {
@@ -298,6 +343,11 @@ function latestApproval(approvals: QuotationApprovalRecord[] | undefined) {
 export function hasCurrentQuotationApproval(
   quotation: QuotationApprovalSource & { approvals?: QuotationApprovalRecord[] },
 ) {
+  try {
+    assertQuotationValidityFields(quotation);
+  } catch {
+    return false;
+  }
   const approval = latestApproval(quotation.approvals);
   if (!approval || String(approval.action).toUpperCase() !== 'APPROVE') return false;
   if (approval.policyVersion !== QUOTATION_APPROVAL_POLICY_VERSION) return false;
@@ -316,13 +366,10 @@ export function assertQuotationCommercialTerms(
   quotation: QuotationApprovalSource & { approvals?: QuotationApprovalRecord[] },
   now = new Date(),
 ) {
+  assertActiveQuotationRevision(quotation);
   assertSupportedSaleType(quotation.saleType);
   assertUsdQuotationCurrency(quotation.currency);
-  const expiryDate = quotation.expiryDate || quotation.validityDeadline;
-  const expiry = expiryDate ? new Date(String(expiryDate)) : null;
-  if (!expiry || Number.isNaN(expiry.getTime()) || expiry.getTime() <= now.getTime()) {
-    throw new AppError('报价已过期，不能继续发送、接受或创建订单', 409, 'BAD_REQUEST');
-  }
+  assertQuotationValidity(quotation, now);
   if (!hasCurrentQuotationApproval(quotation)) {
     throw new AppError('报价需要按当前审批策略重新审批后才能继续', 409, 'BAD_REQUEST');
   }

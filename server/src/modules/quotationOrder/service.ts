@@ -16,6 +16,7 @@ import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { releaseInventoryReservation } from '../inventoryQuality/index.js';
 import {
   createInitialStatusHistory,
+  StateTransitionConflictError,
   transitionOrderStatus,
   transitionQuotationStatus,
   transitionRfqStatus,
@@ -31,6 +32,7 @@ import {
   assertQuotationApprovalActor,
   assertQuotationCommercialTerms,
   assertUsdQuotationCurrency,
+  assertQuotationValidity,
   buildQuotationApprovalSnapshot,
   hasCurrentQuotationApproval,
   QUOTATION_APPROVAL_POLICY_VERSION,
@@ -47,6 +49,8 @@ import {
 } from '../../lib/transactionLineService.js';
 
 import { createLineQuotation, loadLineQuotation, submitLineQuotation, approveLineQuotation, acceptLineQuotation, assertLineQuotationCommercialTerms, type LineQuoteCreateInput } from './lineService.js';
+import { assertActiveQuotationRevision } from '../../lib/quotationRevisionPolicy.js';
+import { freezeQuotationDocument, quotationDocumentPdf } from '../../lib/quotationDocumentService.js';
 
 export { createInitialStatusHistory, transitionOrderStatus, transitionQuotationStatus, transitionRfqStatus };
 
@@ -60,6 +64,7 @@ type QuotationRfqAccess = {
 };
 
 type LegacyCreateQuotationArgs = {
+  draftOnly?: true;
   tx: Prisma.TransactionClient;
   actorId: string;
   rfqId: string;
@@ -103,7 +108,7 @@ type LegacyCreateQuotationArgs = {
   authorizeRfq?: (rfq: QuotationRfqAccess) => void;
 };
 
-type CreateQuotationArgs = LegacyCreateQuotationArgs | (LineQuoteCreateInput & {
+export type CreateQuotationArgs = LegacyCreateQuotationArgs | (LineQuoteCreateInput & {
   tx: Prisma.TransactionClient; actorId: string;
   authorizeRfq?: (rfq: QuotationRfqAccess) => void;
 });
@@ -176,7 +181,7 @@ export async function createQuotationAggregate(args: CreateQuotationArgs) {
   const expiryDate = new Date();
   expiryDate.setDate(expiryDate.getDate() + finalValidityDays);
 
-  const initialStatus = isAog ? 'PENDING_APPROVAL' : 'DRAFT';
+  const initialStatus = isAog && !args.draftOnly ? 'PENDING_APPROVAL' : 'DRAFT';
   const initialStatusEnum = toQuotationStatusEnum(initialStatus)!;
   const quotation = await args.tx.quotation.create({
     data: {
@@ -332,6 +337,7 @@ export async function submitQuotationAggregate(args: {
   });
   if (!currentQuotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(currentQuotation);
+  assertActiveQuotationRevision(currentQuotation);
   if (currentQuotation.lineItemsMode) {
     const result = await submitLineQuotation(args.tx, await loadLineQuotation(args.tx, currentQuotation.id), args.actorId, args.expectedVersion);
     return { ...result, isNoop: false };
@@ -398,6 +404,8 @@ export async function approveQuotationAggregate(args: {
   });
   if (!quotationWithRfq) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(quotationWithRfq);
+  assertActiveQuotationRevision(quotationWithRfq);
+  if (args.action === 'approve') assertQuotationValidity(quotationWithRfq);
   if (quotationWithRfq.lineItemsMode) {
     if (args.costSourceType || args.costSourceId || args.costSourceReason) throw new AppError('多行报价必须逐行维护成本来源', 409, 'RESOURCE_CONFLICT');
     return approveLineQuotation({ tx: args.tx, quotation: await loadLineQuotation(args.tx, quotationWithRfq.id), actorId: args.actorId, actorRole: args.actorRole, action: args.action, version: args.expectedVersion, comment: args.comment });
@@ -408,6 +416,9 @@ export async function approveQuotationAggregate(args: {
   let replacementCostSource: Awaited<ReturnType<typeof captureQuotationCostSource>> | undefined;
   if (args.action === 'approve') {
     if (args.costSourceType) {
+      if (quotationWithRfq.costSourceSnapshotJson && quotationWithRfq.approvals.some(approval => approval.action === 'APPROVE')) {
+        throw new AppError('已有审批依据的报价不能原位替换成本来源，请创建商业修订版', 409, 'RESOURCE_CONFLICT');
+      }
       if (!quotationWithRfq.rfqId || !quotationWithRfq.rfq) {
         throw new AppError('历史报价缺少 RFQ，无法补录成本来源', 409, 'STATE_CONFLICT');
       }
@@ -518,6 +529,7 @@ export async function approveQuotationAggregate(args: {
     });
   }
 
+  if (args.action === 'approve') await freezeQuotationDocument(args.tx, quotation.id, args.actorId);
   return { quotation, isNoop };
 }
 
@@ -583,7 +595,7 @@ export async function sendQuotationAggregate(args: {
     '',
     `附件为报价单 ${quotation.quoteNumber}，对应件号 ${quotation.partNumber}。`,
     lineDescription,
-    `总价：USD ${quotationTotalPrice(quotation).toLocaleString('en-US')}`,
+    `总价：USD ${quotationTotalPrice(quotation).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`,
     `销售类型：${quotation.saleType || 'Sale'}`,
     `贸易术语：${quotation.incoterm || '-'} ${quotation.incotermLocation || ''}`,
     `交货期：${quotation.leadTimeDays || '-'} 天`,
@@ -594,6 +606,12 @@ export async function sendQuotationAggregate(args: {
     '',
     'AeroLink 销售团队',
   ].join('\n');
+  const sendClaim = await args.tx.quotation.updateMany({
+    where: { id: quotation.id, version: quotation.version, supersededAt: null },
+    data: { version: { increment: 1 } },
+  });
+  if (sendClaim.count !== 1) throw new StateTransitionConflictError();
+  const attachment = await quotationDocumentPdf(args.tx, quotation.id);
   const pendingEmail = await args.tx.outboundEmail.create({
     data: {
       purpose: 'QUOTATION_SEND',
@@ -613,10 +631,12 @@ export async function sendQuotationAggregate(args: {
     aggregateId: quotation.id,
     outboundEmailId: pendingEmail.id,
     includeQuotationPdf: true,
+    attachmentDocumentId: attachment.document.id,
+    attachmentSnapshotHash: attachment.document.snapshotHash!,
     createdById: args.actorId,
   });
 
-  return { quotation, pendingEmail };
+  return { quotation: { ...quotation, version: quotation.version + 1 }, pendingEmail };
 }
 
 type ContractDocument = { id: string; title: string };
@@ -990,6 +1010,7 @@ export async function withdrawQuotationAggregate(args: {
   });
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(quotation);
+  assertActiveQuotationRevision(quotation);
 
   const currentQuotationStatus = quotationStatus(quotation);
   if (currentQuotationStatus === 'ACCEPTED') {

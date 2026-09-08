@@ -1,4 +1,6 @@
+import crypto from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildQuotationRenderSnapshot, serializeQuotationRenderSnapshot } from './documentRenderSnapshot.js';
 
 function createOutboxEvent(overrides: Record<string, unknown> = {}) {
   return {
@@ -22,9 +24,31 @@ function createOutboxEvent(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function frozenQuotationSnapshot(quotationId: string, commonNote = 'Frozen terms') {
+  return buildQuotationRenderSnapshot({
+    quotation: {
+      id: quotationId,
+      quoteNumber: 'QT-001',
+      partNumber: 'PN-100',
+      quantity: 2,
+      unitPrice: 125,
+      totalPrice: 250,
+      validityDays: 7,
+      currency: 'USD',
+      commonNote,
+      createdAt: '2026-09-08T02:00:00.000Z',
+      expiryDate: '2026-09-15T02:00:00.000Z',
+      commercialRevision: 1,
+      version: 2,
+    },
+    customer: { id: 'customer-1', name: '原客户' },
+    capturedAt: '2026-09-08T02:30:00.000Z',
+  });
+}
+
 function createPrismaMock() {
   const tx = {
-    outboxEvent: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    outboxEvent: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     outboundEmail: { updateMany: vi.fn() },
     notification: { create: vi.fn() },
     quotation: { findUnique: vi.fn() },
@@ -40,6 +64,7 @@ function createPrismaMock() {
       groupBy: vi.fn(),
     },
     outboundEmail: { findUnique: vi.fn() },
+    generatedDocument: { findUnique: vi.fn() },
     customer: { findUnique: vi.fn() },
     $transaction: vi.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
     __tx: tx,
@@ -56,6 +81,7 @@ describe('outboxService', () => {
   let processOutboxEvent: typeof import('./outboxService.js').processOutboxEvent;
   let processPendingOutboxEvents: typeof import('./outboxService.js').processPendingOutboxEvents;
   let retryOutboxEvent: typeof import('./outboxService.js').retryOutboxEvent;
+  let cancelOutboxEvent: typeof import('./outboxService.js').cancelOutboxEvent;
 
   beforeEach(async () => {
     vi.resetModules();
@@ -73,9 +99,9 @@ describe('outboxService', () => {
     }));
     vi.doMock('./emailService.js', () => ({ sendEmail: sendEmailMock }));
     vi.doMock('./crypto.js', () => ({ decrypt: vi.fn((value: string) => value) }));
-    vi.doMock('./pdfService.js', () => ({ generateQuotationPDF: vi.fn() }));
+    vi.doMock('./pdfService.js', () => ({ generateQuotationPDF: vi.fn(), generatePDF: vi.fn().mockResolvedValue(Buffer.from('rendered-pdf')) }));
 
-    ({ enqueueBusinessEvent, processOutboxEvent, processPendingOutboxEvents, retryOutboxEvent } = await import('./outboxService.js'));
+    ({ enqueueBusinessEvent, processOutboxEvent, processPendingOutboxEvents, retryOutboxEvent, cancelOutboxEvent } = await import('./outboxService.js'));
   });
 
   it('writes webhook and socket work items through the caller transaction', async () => {
@@ -230,6 +256,293 @@ describe('outboxService', () => {
     }));
   });
 
+  it('fails closed when a customer quotation email has no immutable attachment document', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'quotation.email.send',
+      payload: JSON.stringify({ outboundEmailId: 'mail-immutable', includeQuotationPdf: true }),
+      maxAttempts: 1,
+      attemptCount: 1,
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-immutable',
+      status: 'PENDING',
+      purpose: 'QUOTATION_SEND',
+      quotationId: 'q001',
+      toEmail: 'procurement@airchina.com',
+      subject: 'Quote',
+      textBody: 'Body',
+      htmlBody: null,
+      account: { id: 'acct-1', email: 'sales@aerolink.com', displayName: null, imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com', smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true },
+      quotation: { id: 'q001', status: 'APPROVED', supersededAt: null },
+    });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenCalledWith({
+      where: { id: event.id, status: 'PROCESSING', workerId: expect.stringMatching(/^worker-/) },
+      data: expect.objectContaining({ status: 'CANCELLED', lastError: 'Quotation PDF attachment snapshot is missing' }),
+    });
+    expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
+      where: { id: 'mail-immutable', status: { notIn: ['SENT', 'WITHDRAWN'] } },
+      data: { status: 'FAILED', errorMessage: 'Quotation PDF attachment snapshot is missing' },
+    });
+  });
+
+  it('replays an immutable document attachment without reading current quotation/customer values', async () => {
+    const snapshot = frozenQuotationSnapshot('q001', '客户承担运输成本');
+    const frozenHtml = '<p>Frozen customer: 原客户</p><p>客户承担运输成本</p>';
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'quotation.email.send',
+      payload: JSON.stringify({
+        outboundEmailId: 'mail-immutable',
+        includeQuotationPdf: true,
+        attachmentDocumentId: 'document-1',
+        attachmentSnapshotHash: snapshot.snapshotHash,
+      }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-immutable',
+      status: 'PENDING',
+      purpose: 'QUOTATION_SEND',
+      quotationId: 'q001',
+      toEmail: 'procurement@airchina.com',
+      subject: 'Quote',
+      textBody: 'Body',
+      htmlBody: null,
+      account: { id: 'acct-1', email: 'sales@aerolink.com', displayName: null, imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com', smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true },
+      // These live values must not be consulted to build the attachment.
+      quotation: { id: 'q001', status: 'APPROVED', supersededAt: null, quoteNumber: 'LATEST-QUOTE' },
+    });
+    prismaMock.generatedDocument.findUnique.mockResolvedValue({
+      id: 'document-1',
+      title: 'QT-001',
+      documentType: 'QUOTATION_PDF',
+      quotationId: 'q001',
+      contentHtml: frozenHtml,
+      generatedAt: new Date('2026-09-08T02:30:00.000Z'),
+      payloadJson: serializeQuotationRenderSnapshot(snapshot),
+      contentSha256: crypto.createHash('sha256').update(frozenHtml).digest('hex'),
+      snapshotHash: snapshot.snapshotHash,
+      pdfBytes: Buffer.from('rendered-pdf'),
+      pdfSha256: crypto.createHash('sha256').update('rendered-pdf').digest('hex'),
+    });
+    sendEmailMock.mockResolvedValue({ messageId: 'provider-1' });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.outboundEmail.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(true);
+    expect(prismaMock.customer.findUnique).not.toHaveBeenCalled();
+    expect(sendEmailMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      attachments: [expect.objectContaining({
+        filename: 'QT-001.pdf',
+        content: Buffer.from('rendered-pdf'),
+        contentType: 'application/pdf',
+        snapshotHash: snapshot.snapshotHash,
+      })],
+    }));
+  });
+
+  it('does not present a legacy document without a snapshot marker as historical evidence', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'quotation.email.send',
+      payload: JSON.stringify({ outboundEmailId: 'mail-legacy', includeQuotationPdf: true, attachmentDocumentId: 'legacy-document' }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-legacy',
+      status: 'PENDING',
+      purpose: 'QUOTATION_SEND',
+      quotationId: 'q-legacy',
+      toEmail: 'customer@example.com',
+      subject: 'Legacy quote',
+      textBody: 'Body',
+      htmlBody: null,
+      account: { id: 'acct-1', email: 'sales@aerolink.com', displayName: null, imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com', smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true },
+      quotation: { id: 'q-legacy', status: 'APPROVED', supersededAt: null },
+    });
+    prismaMock.generatedDocument.findUnique.mockResolvedValue({
+      id: 'legacy-document',
+      title: 'QT-LEGACY',
+      documentType: 'QUOTATION_PDF',
+      quotationId: 'q-legacy',
+      contentHtml: '<p>Current live data</p>',
+      generatedAt: new Date('2026-09-08T02:30:00.000Z'),
+      snapshotHash: null,
+      pdfBytes: Buffer.from('legacy-pdf'),
+      pdfSha256: crypto.createHash('sha256').update('legacy-pdf').digest('hex'),
+    });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenCalledWith({
+      where: { id: event.id, status: 'PROCESSING', workerId: expect.stringMatching(/^worker-/) },
+      data: expect.objectContaining({ status: 'CANCELLED', lastError: 'Historical quotation document has no immutable snapshot marker' }),
+    });
+  });
+
+  it('does not regenerate a snapshot document when its final PDF bytes are unavailable', async () => {
+    const snapshot = frozenQuotationSnapshot('q-no-bytes');
+    const frozenHtml = '<p>Frozen HTML</p>';
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'quotation.email.send',
+      payload: JSON.stringify({ outboundEmailId: 'mail-no-bytes', includeQuotationPdf: true, attachmentDocumentId: 'document-no-bytes' }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-no-bytes',
+      status: 'PENDING',
+      purpose: 'QUOTATION_SEND',
+      quotationId: 'q-no-bytes',
+      toEmail: 'customer@example.com',
+      subject: 'Quote',
+      textBody: 'Body',
+      htmlBody: null,
+      account: { id: 'acct-1', email: 'sales@aerolink.com', displayName: null, imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com', smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true },
+      quotation: { id: 'q-no-bytes', status: 'APPROVED', supersededAt: null },
+    });
+    prismaMock.generatedDocument.findUnique.mockResolvedValue({
+      id: 'document-no-bytes',
+      title: 'QT-NO-BYTES',
+      documentType: 'QUOTATION_PDF',
+      quotationId: 'q-no-bytes',
+      contentHtml: frozenHtml,
+      generatedAt: new Date('2026-09-08T02:30:00.000Z'),
+      payloadJson: serializeQuotationRenderSnapshot(snapshot),
+      contentSha256: crypto.createHash('sha256').update(frozenHtml).digest('hex'),
+      snapshotHash: snapshot.snapshotHash,
+      pdfBytes: null,
+      pdfSha256: null,
+    });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenCalledWith({
+      where: { id: event.id, status: 'PROCESSING', workerId: expect.stringMatching(/^worker-/) },
+      data: expect.objectContaining({ status: 'CANCELLED', lastError: 'Immutable quotation PDF bytes are missing' }),
+    });
+  });
+
+  it('rejects an attachment frozen for a different quotation', async () => {
+    const snapshot = frozenQuotationSnapshot('q-other');
+    const bytes = Buffer.from('wrong-quotation-pdf');
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'quotation.email.send',
+      payload: JSON.stringify({ outboundEmailId: 'mail-wrong-source', includeQuotationPdf: true, attachmentDocumentId: 'document-wrong-source', attachmentSnapshotHash: snapshot.snapshotHash }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-wrong-source',
+      status: 'PENDING',
+      purpose: 'QUOTATION_SEND',
+      quotationId: 'q-current',
+      toEmail: 'customer@example.com',
+      subject: 'Quote',
+      textBody: 'Body',
+      htmlBody: null,
+      account: { id: 'acct-1', email: 'sales@aerolink.com', displayName: null, imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com', smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true },
+      quotation: { id: 'q-current', status: 'APPROVED', supersededAt: null },
+    });
+    const otherHtml = '<p>Frozen other quotation</p>';
+    prismaMock.generatedDocument.findUnique.mockResolvedValue({
+      id: 'document-wrong-source',
+      title: 'QT-OTHER',
+      documentType: 'QUOTATION_PDF',
+      quotationId: 'q-other',
+      contentHtml: otherHtml,
+      generatedAt: new Date('2026-09-08T02:30:00.000Z'),
+      payloadJson: serializeQuotationRenderSnapshot(snapshot),
+      contentSha256: crypto.createHash('sha256').update(otherHtml).digest('hex'),
+      snapshotHash: snapshot.snapshotHash,
+      pdfBytes: bytes,
+      pdfSha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
+      where: { id: 'mail-wrong-source', status: { notIn: ['SENT', 'WITHDRAWN'] } },
+      data: { status: 'FAILED', errorMessage: 'Outbound quotation attachment belongs to a different quotation' },
+    });
+  });
+
+  it('cancels a pending quotation email after its quotation is superseded', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'quotation.email.send',
+      payload: JSON.stringify({ outboundEmailId: 'mail-old', includeQuotationPdf: true, attachmentDocumentId: 'document-old' }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-old',
+      status: 'PENDING',
+      purpose: 'QUOTATION_SEND',
+      quotationId: 'q-old',
+      toEmail: 'customer@example.com',
+      subject: 'Old quote',
+      textBody: 'Body',
+      htmlBody: null,
+      account: { id: 'acct-1', email: 'sales@aerolink.com', displayName: null, imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com', smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true },
+      quotation: { id: 'q-old', status: 'APPROVED', supersededAt: new Date('2026-09-08T03:00:00.000Z') },
+    });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenCalledWith({
+      where: { id: event.id, status: 'PROCESSING', workerId: expect.stringMatching(/^worker-/) },
+      data: expect.objectContaining({ status: 'CANCELLED', lastError: 'Quotation was superseded before email delivery' }),
+    });
+    expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
+      where: { id: 'mail-old', status: { notIn: ['SENT', 'WITHDRAWN'] } },
+      data: { status: 'FAILED', errorMessage: 'Quotation was superseded before email delivery' },
+    });
+  });
+
+  it('does not mark the linked email when an expired worker loses the cancellation lease CAS', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'quotation.email.send',
+      payload: JSON.stringify({ outboundEmailId: 'mail-stale', includeQuotationPdf: true }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-stale',
+      status: 'PENDING',
+      purpose: 'QUOTATION_SEND',
+      quotationId: 'q-stale',
+      toEmail: 'customer@example.com',
+      subject: 'Quote',
+      textBody: 'Body',
+      htmlBody: null,
+      account: { id: 'acct-1', email: 'sales@aerolink.com', displayName: null, imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com', smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true },
+      quotation: { id: 'q-stale', status: 'APPROVED', supersededAt: new Date('2026-09-08T03:00:00.000Z') },
+    });
+    // Initial claim succeeds; the later cancellation CAS loses to a newer
+    // worker that recovered the lease.
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+    expect(prismaMock.__tx.outboundEmail.updateMany).not.toHaveBeenCalled();
+  });
+
   it('marks a malformed terminal email event failed instead of leaving its worker lock stuck', async () => {
     const event = createOutboxEvent({
       channel: 'EMAIL',
@@ -376,5 +689,57 @@ describe('outboxService', () => {
         workerId: null,
       }),
     });
+  });
+
+  it('marks a linked pending or previously failed outbound email failed when an email event is cancelled manually', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      status: 'PENDING',
+      eventType: 'quotation.email.send',
+      payload: JSON.stringify({ outboundEmailId: 'mail-manual-cancel' }),
+    });
+    prismaMock.__tx.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.__tx.outboundEmail.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(cancelOutboxEvent(event.id, '报价已修订')).resolves.toBeUndefined();
+
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: event.id,
+        status: { in: ['PENDING', 'RETRYING', 'FAILED'] },
+      },
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        lastError: '报价已修订',
+        lockedAt: null,
+        workerId: null,
+      }),
+    });
+    expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
+      where: { id: 'mail-manual-cancel', status: { notIn: ['SENT', 'WITHDRAWN'] } },
+      data: { status: 'FAILED', errorMessage: '报价已修订' },
+    });
+  });
+
+  it('rejects manual cancellation after a worker has claimed the event and leaves the linked email unchanged', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      status: 'PROCESSING',
+      eventType: 'quotation.email.send',
+      payload: JSON.stringify({ outboundEmailId: 'mail-processing' }),
+    });
+    prismaMock.__tx.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(cancelOutboxEvent(event.id, '手工取消')).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'STATE_CONFLICT',
+    });
+
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenCalledWith({
+      where: { id: event.id, status: { in: ['PENDING', 'RETRYING', 'FAILED'] } },
+      data: expect.objectContaining({ status: 'CANCELLED' }),
+    });
+    expect(prismaMock.__tx.outboundEmail.updateMany).not.toHaveBeenCalled();
   });
 });

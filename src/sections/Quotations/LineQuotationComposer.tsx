@@ -21,6 +21,8 @@ export interface LineQuotationDraft extends LineQuotationCostSource {
   quantity: number;
   unitPrice: number;
   costPrice: number;
+  /** True when the original cost was policy-redacted and needs re-entry. */
+  costPriceRedacted?: boolean;
 }
 
 export type LineQuotationComposerRfq = Pick<RFQ, 'id' | 'rfqNumber' | 'customerName' | 'lines'>;
@@ -198,8 +200,8 @@ export function LineQuotationComposer({ rfq, value, onChange, disabled = false }
                           min={0}
                           step="0.0001"
                           readOnly={draft.costSourceType !== 'MANUAL'}
-                          value={draft.costPrice}
-                          onChange={event => updateLine(line.id, { costPrice: Math.max(0, Number.parseFloat(event.target.value) || 0) })}
+                          value={draft.costPriceRedacted ? '' : draft.costPrice}
+                          onChange={event => updateLine(line.id, { costPrice: Math.max(0, Number.parseFloat(event.target.value) || 0), costPriceRedacted: false })}
                         />
                       </div>
                     </div>
@@ -213,7 +215,7 @@ export function LineQuotationComposer({ rfq, value, onChange, disabled = false }
                       quantity={draft.quantity}
                       onChange={(source, unitCost) => updateLine(line.id, {
                         ...source,
-                        ...(unitCost !== undefined ? { costPrice: unitCost } : {}),
+                        ...(unitCost !== undefined ? { costPrice: unitCost, costPriceRedacted: false } : {}),
                       })}
                     />
                   </section>

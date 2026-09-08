@@ -160,6 +160,8 @@ describe('Quotation workflow routes', () => {
   let mapOrderResponseMock: ReturnType<typeof vi.fn>;
   let ensureOrderContractDocumentMock: ReturnType<typeof vi.fn>;
   let transitionQuotationStatusMock: ReturnType<typeof vi.fn>;
+  let freezeQuotationDocumentMock: ReturnType<typeof vi.fn>;
+  let quotationDocumentPdfMock: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     process.env.JWT_SECRET = 'test-jwt-secret';
@@ -180,6 +182,14 @@ describe('Quotation workflow routes', () => {
     }));
     ensureOrderContractDocumentMock = vi.fn();
     transitionQuotationStatusMock = vi.fn();
+    freezeQuotationDocumentMock = vi.fn().mockResolvedValue({
+      id: 'quotation-pdf-001',
+      snapshotHash: 'snapshot-hash-001',
+    });
+    quotationDocumentPdfMock = vi.fn().mockResolvedValue({
+      document: { id: 'quotation-pdf-001', snapshotHash: 'snapshot-hash-001' },
+      content: Buffer.from('quotation-pdf'),
+    });
 
     vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
     vi.doMock('../lib/outboxService.js', () => ({
@@ -206,6 +216,11 @@ describe('Quotation workflow routes', () => {
       createInitialStatusHistory: vi.fn(),
     }));
     vi.doMock('../lib/pdfService.js', () => ({ generateQuotationPDF: vi.fn() }));
+    vi.doMock('../lib/quotationDocumentService.js', () => ({
+      QUOTATION_PDF_DOCUMENT_TYPE: 'QUOTATION_PDF',
+      freezeQuotationDocument: freezeQuotationDocumentMock,
+      quotationDocumentPdf: quotationDocumentPdfMock,
+    }));
 
     const quotationsRouter = (await import('./quotations.js')).default;
     const { errorHandler } = await import('../middleware/errorHandler.js');
@@ -222,6 +237,7 @@ describe('Quotation workflow routes', () => {
   it('queues an approved quotation email instead of sending SMTP in the HTTP request', async () => {
     const quotation = createQuotation('APPROVED');
     prismaMock.__tx.quotation.findUnique.mockResolvedValue(quotation);
+    prismaMock.__tx.quotation.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.__tx.emailAccount.findFirst.mockResolvedValue(createEmailAccount());
     prismaMock.__tx.outboundEmail.create.mockResolvedValue({ id: 'mail-pending-001' });
 
@@ -242,8 +258,11 @@ describe('Quotation workflow routes', () => {
         eventType: 'quotation.email.send',
         outboundEmailId: 'mail-pending-001',
         includeQuotationPdf: true,
+        attachmentDocumentId: 'quotation-pdf-001',
+        attachmentSnapshotHash: 'snapshot-hash-001',
       }),
     );
+    expect(quotationDocumentPdfMock).toHaveBeenCalledWith(prismaMock.__tx, quotation.id);
     expect(transitionQuotationStatusMock).not.toHaveBeenCalled();
   });
 

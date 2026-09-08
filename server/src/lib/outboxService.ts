@@ -3,8 +3,7 @@ import type { OutboxEvent, Prisma } from '@prisma/client';
 import { decrypt } from './crypto.js';
 import { sendEmail, type EmailAccountConfig } from './emailService.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { preferredMoneyValue } from './money.js';
-import { generateQuotationPDF } from './pdfService.js';
+import { assertImmutableDocumentArtifact, parseQuotationRenderSnapshot, sha256 } from './documentRenderSnapshot.js';
 import prisma from './prisma.js';
 import { isQuotationTransitionAllowed } from './quotationStateMachine.js';
 import * as socketEvents from './socketEvents.js';
@@ -46,6 +45,8 @@ export type SocketPayload = {
 type EmailPayload = {
   outboundEmailId: string;
   includeQuotationPdf?: boolean;
+  attachmentDocumentId?: string;
+  attachmentSnapshotHash?: string;
 };
 
 export type EnqueueBusinessEventInput = {
@@ -67,6 +68,10 @@ export type EnqueueOutboundEmailInput = {
   aggregateId: string;
   outboundEmailId: string;
   includeQuotationPdf?: boolean;
+  /** Immutable GeneratedDocument containing the frozen customer-facing PDF. */
+  attachmentDocumentId?: string;
+  /** Hash of the immutable render snapshot stored by the caller. */
+  attachmentSnapshotHash?: string;
   createdById?: string | null;
 };
 
@@ -145,6 +150,16 @@ function parseEmailPayload(payload: string): EmailPayload {
   return {
     outboundEmailId: parsed.outboundEmailId,
     includeQuotationPdf: parsed.includeQuotationPdf === true,
+    ...(parsed.attachmentDocumentId === undefined
+      ? {}
+      : typeof parsed.attachmentDocumentId === 'string' && parsed.attachmentDocumentId
+        ? { attachmentDocumentId: parsed.attachmentDocumentId }
+        : (() => { throw new Error('Invalid email attachment document id'); })()),
+    ...(parsed.attachmentSnapshotHash === undefined
+      ? {}
+      : typeof parsed.attachmentSnapshotHash === 'string' && parsed.attachmentSnapshotHash
+        ? { attachmentSnapshotHash: parsed.attachmentSnapshotHash }
+        : (() => { throw new Error('Invalid email attachment snapshot hash'); })()),
   };
 }
 
@@ -253,6 +268,8 @@ export async function enqueueOutboundEmail(tx: OutboxTransactionClient, input: E
       payload: serializePayload({
         outboundEmailId: input.outboundEmailId,
         includeQuotationPdf: input.includeQuotationPdf === true,
+        ...(input.attachmentDocumentId ? { attachmentDocumentId: input.attachmentDocumentId } : {}),
+        ...(input.attachmentSnapshotHash ? { attachmentSnapshotHash: input.attachmentSnapshotHash } : {}),
       }),
       createdById: input.createdById ?? null,
       requestId: getRequestId() ?? null,
@@ -285,52 +302,84 @@ function buildEmailAccountConfig(account: {
   };
 }
 
-async function buildQuotationAttachment(quotation: NonNullable<Awaited<ReturnType<typeof prisma.quotation.findUnique>>>) {
-  const customer = await prisma.customer.findUnique({ where: { id: quotation.customerId } });
-  if (!customer) {
-    throw new Error('Quotation customer no longer exists');
+type GeneratedDocumentSnapshotRecord = {
+  id: string;
+  title: string;
+  documentType: string;
+  quotationId?: string | null;
+  customerId?: string | null;
+  contentHtml: string;
+  generatedAt: Date;
+  generatedById?: string | null;
+  payloadJson?: string | null;
+  contentSha256?: string | null;
+  // These fields are added by the immutable-document migration.  Keeping the
+  // adapter structural lets this worker compile while that migration lands.
+  pdfBytes?: Buffer | Uint8Array | null;
+  pdfSha256?: string | null;
+  snapshotHash?: string | null;
+};
+
+async function buildDocumentSnapshotAttachment(
+  documentId: string,
+  expectedQuotationId: string,
+  expectedSnapshotHash?: string,
+) {
+  const document = await prisma.generatedDocument.findUnique({ where: { id: documentId } }) as GeneratedDocumentSnapshotRecord | null;
+  if (!document) {
+    throw new CancelledOutboxEventError('Immutable quotation document no longer exists');
   }
 
-  const lines = quotation.lineItemsMode ? await prisma.quotationLine.findMany({ where: { quotationId: quotation.id }, orderBy: { lineNo: 'asc' } }) : undefined;
-  const pdfBuffer = await generateQuotationPDF({
-    lineItemsMode: quotation.lineItemsMode,
-    lines: lines?.map(line => ({ ...line, unitPrice: Number(line.unitPrice), costPrice: Number(line.costPrice), lineTotal: Number(line.lineTotal) })),
-    quoteNumber: quotation.quoteNumber,
-    customerName: customer.name,
-    partNumber: quotation.partNumber,
-    quantity: quotation.quantity,
-    unitPrice: preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0,
-    totalPrice: preferredMoneyValue(quotation.totalPriceDecimal, quotation.totalPrice) ?? 0,
-    costPrice: preferredMoneyValue(quotation.costPriceDecimal, quotation.costPrice) ?? 0,
-    margin: quotation.margin,
-    validityDays: quotation.validityDays,
-    saleType: quotation.saleType,
-    incoterm: quotation.incoterm || '',
-    incotermLocation: quotation.incotermLocation || '',
-    leadTimeDays: quotation.leadTimeDays || undefined,
-    leadTimeBasis: quotation.leadTimeBasis || '',
-    moq: quotation.moq || undefined,
-    mpq: quotation.mpq || undefined,
-    priceBasis: quotation.priceBasis || '',
-    taxIncluded: quotation.taxIncluded,
-    taxRate: quotation.taxRate || undefined,
-    warrantyDays: quotation.warrantyDays,
-    warrantyTerms: quotation.warrantyTerms || '',
-    packagingRequirement: quotation.packagingRequirement || '',
-    shippingMethod: quotation.shippingMethod || '',
-    commonNote: quotation.commonNote || '',
-    certificateFiles: quotation.certificateFiles?.split(',').filter(Boolean),
-    createdAt: quotation.createdAt.toISOString(),
-    expiryDate: quotation.expiryDate.toISOString().split('T')[0],
-    createdBy: quotation.createdBy,
-    includeInternalInfo: false,
-  });
+  const dynamicDocument = document as GeneratedDocumentSnapshotRecord;
+  if (dynamicDocument.documentType !== 'QUOTATION_PDF') {
+    throw new CancelledOutboxEventError('Outbound quotation attachment is not a quotation PDF');
+  }
+  if (!dynamicDocument.quotationId || dynamicDocument.quotationId !== expectedQuotationId) {
+    throw new CancelledOutboxEventError('Outbound quotation attachment belongs to a different quotation');
+  }
+  if (!dynamicDocument.snapshotHash) {
+    throw new CancelledOutboxEventError('Historical quotation document has no immutable snapshot marker');
+  }
+  if (expectedSnapshotHash && expectedSnapshotHash !== dynamicDocument.snapshotHash) {
+    throw new Error('Quotation document snapshot hash does not match outbox payload');
+  }
+  if (!dynamicDocument.payloadJson) {
+    throw new CancelledOutboxEventError('Quotation PDF attachment snapshot payload is missing');
+  }
+  let snapshot;
+  try {
+    snapshot = parseQuotationRenderSnapshot(dynamicDocument.payloadJson);
+  } catch {
+    throw new CancelledOutboxEventError('Quotation PDF attachment snapshot payload is invalid');
+  }
+  if (snapshot.source.quotationId !== dynamicDocument.quotationId || snapshot.snapshotHash !== dynamicDocument.snapshotHash) {
+    throw new CancelledOutboxEventError('Quotation PDF attachment snapshot source does not match the document');
+  }
+  if (!dynamicDocument.contentSha256 || sha256(dynamicDocument.contentHtml) !== dynamicDocument.contentSha256) {
+    throw new CancelledOutboxEventError('Quotation PDF attachment HTML snapshot integrity failed');
+  }
+  if (!dynamicDocument.pdfBytes || dynamicDocument.pdfBytes.byteLength === 0) {
+    throw new CancelledOutboxEventError('Immutable quotation PDF bytes are missing');
+  }
+  if (!dynamicDocument.pdfSha256) {
+    throw new CancelledOutboxEventError('Immutable quotation PDF hash is missing');
+  }
+  const content = Buffer.from(dynamicDocument.pdfBytes);
 
-  return {
-    filename: `${quotation.quoteNumber}.pdf`,
-    content: pdfBuffer,
-    contentType: 'application/pdf',
+  const snapshotHash = dynamicDocument.snapshotHash;
+  const artifact = {
+    filename: `${document.title}.pdf`,
+    content,
+    contentType: 'application/pdf' as const,
+    sha256: sha256(content),
+    sizeBytes: content.byteLength,
+    snapshotHash,
   };
+  assertImmutableDocumentArtifact(artifact, {
+    sha256: dynamicDocument.pdfSha256,
+    snapshotHash: expectedSnapshotHash || dynamicDocument.snapshotHash,
+  });
+  return artifact;
 }
 
 async function deliverOutboundEmailEvent(event: OutboxEvent) {
@@ -361,10 +410,20 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
   ) {
     throw new CancelledOutboxEventError('Quotation was withdrawn before email delivery');
   }
+  if (email.purpose === 'QUOTATION_SEND' && (email.quotation as ({ supersededAt?: Date | null } | null) | null)?.supersededAt) {
+    throw new CancelledOutboxEventError('Quotation was superseded before email delivery');
+  }
 
-  const attachments = payload.includeQuotationPdf && email.quotation
-    ? [await buildQuotationAttachment(email.quotation)]
-    : undefined;
+  let attachments;
+  if (payload.includeQuotationPdf) {
+    if (!payload.attachmentDocumentId) {
+      throw new CancelledOutboxEventError('Quotation PDF attachment snapshot is missing');
+    }
+    if (!email.quotationId) {
+      throw new CancelledOutboxEventError('Outbound quotation email has no quotation binding');
+    }
+    attachments = [await buildDocumentSnapshotAttachment(payload.attachmentDocumentId, email.quotationId, payload.attachmentSnapshotHash)];
+  }
   const sentResult = await sendEmail(buildEmailAccountConfig(email.account), {
     to: email.toEmail,
     subject: email.subject,
@@ -550,15 +609,41 @@ async function markOutboxFailure(event: OutboxEvent, workerId: string, error: un
 }
 
 async function markOutboxCancelled(event: OutboxEvent, workerId: string, error: CancelledOutboxEventError) {
-  await prisma.outboxEvent.updateMany({
-    where: { id: event.id, status: OutboxStatus.PROCESSING, workerId },
-    data: {
-      status: OutboxStatus.CANCELLED,
-      nextRetryAt: null,
-      lockedAt: null,
-      workerId: null,
-      lastError: errorMessage(error),
-    },
+  await prisma.$transaction(async (tx) => {
+    const released = await tx.outboxEvent.updateMany({
+      where: { id: event.id, status: OutboxStatus.PROCESSING, workerId },
+      data: {
+        status: OutboxStatus.CANCELLED,
+        nextRetryAt: null,
+        lockedAt: null,
+        workerId: null,
+        lastError: errorMessage(error),
+      },
+    });
+
+    // A stale worker may discover that a newer worker already recovered and
+    // claimed this event.  The lease CAS above is the boundary: only its
+    // winner may mutate the linked email status.
+    if (released.count !== 1 || event.channel !== OutboxChannel.EMAIL) return;
+
+    let emailPayload: EmailPayload;
+    try {
+      emailPayload = parseEmailPayload(event.payload);
+    } catch (payloadError) {
+      logger.warn({ payloadError, outboxEventId: event.id }, 'Unable to parse cancelled email outbox payload');
+      return;
+    }
+
+    await tx.outboundEmail.updateMany({
+      where: {
+        id: emailPayload.outboundEmailId,
+        status: { notIn: ['SENT', 'WITHDRAWN'] },
+      },
+      data: {
+        status: 'FAILED',
+        errorMessage: errorMessage(error),
+      },
+    });
   });
 }
 
@@ -760,23 +845,56 @@ export async function retryOutboxEvent(id: string) {
 }
 
 export async function cancelOutboxEvent(id: string, reason?: string) {
-  const result = await prisma.outboxEvent.updateMany({
-    where: {
-      id,
-      status: { in: [OutboxStatus.PENDING, OutboxStatus.RETRYING, OutboxStatus.FAILED] },
-    },
-    data: {
-      status: OutboxStatus.CANCELLED,
-      nextRetryAt: null,
-      lockedAt: null,
-      workerId: null,
-      lastError: reason?.trim().slice(0, MAX_ERROR_LENGTH) || 'Cancelled manually',
-    },
-  });
+  const cancellationReason = reason?.trim().slice(0, MAX_ERROR_LENGTH) || 'Cancelled manually';
 
-  if (result.count !== 1) {
-    throw new AppError('Outbox 事件不存在或无法取消', 409, 'STATE_CONFLICT');
-  }
+  await prisma.$transaction(async (tx) => {
+    // Read the payload inside the same transaction as the conditional status
+    // update.  A worker can claim the event between an outside read and the
+    // CAS, so only the CAS winner may compensate a linked outbound email.
+    const event = await tx.outboxEvent.findUnique({ where: { id } });
+    if (!event) {
+      throw new AppError('Outbox 事件不存在或无法取消', 409, 'STATE_CONFLICT');
+    }
+
+    const result = await tx.outboxEvent.updateMany({
+      where: {
+        id,
+        status: { in: [OutboxStatus.PENDING, OutboxStatus.RETRYING, OutboxStatus.FAILED] },
+      },
+      data: {
+        status: OutboxStatus.CANCELLED,
+        nextRetryAt: null,
+        lockedAt: null,
+        workerId: null,
+        lastError: cancellationReason,
+      },
+    });
+
+    if (result.count !== 1) {
+      throw new AppError('Outbox 事件不存在或无法取消', 409, 'STATE_CONFLICT');
+    }
+
+    if (event.channel !== OutboxChannel.EMAIL) return;
+
+    let emailPayload: EmailPayload;
+    try {
+      emailPayload = parseEmailPayload(event.payload);
+    } catch (payloadError) {
+      logger.warn({ payloadError, outboxEventId: event.id }, 'Unable to parse manually cancelled email outbox payload');
+      return;
+    }
+
+    await tx.outboundEmail.updateMany({
+      where: {
+        id: emailPayload.outboundEmailId,
+        status: { notIn: ['SENT', 'WITHDRAWN'] },
+      },
+      data: {
+        status: 'FAILED',
+        errorMessage: cancellationReason,
+      },
+    });
+  });
 }
 
 export async function getOutboxStats() {

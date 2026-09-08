@@ -405,9 +405,17 @@ export async function ensureOrderContractDocument(args: {
 export async function generateDocumentPdf(document: {
   title: string;
   contentHtml: string;
+  /** Use the persisted generation time when rendering a stored snapshot. */
+  renderedAt?: Date | string;
 }) {
+  const renderedAt = document.renderedAt
+    ? (document.renderedAt instanceof Date ? document.renderedAt.toISOString() : new Date(document.renderedAt).toISOString())
+    : undefined;
   return generatePDF(document.contentHtml, {
     title: document.title,
+    ...(renderedAt ? {
+      footer: `<div class="footer">AeroLink 航材交易平台 - 生成时间: ${renderedAt}</div>`,
+    } : {}),
   });
 }
 

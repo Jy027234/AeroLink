@@ -275,7 +275,7 @@ function renderInternalPdfLineRows(lines: PdfLineItem[]): string {
   }).join('\n');
 }
 
-export function generateQuotationHTML(data: {
+export interface QuotationPdfData {
   quoteNumber: string;
   customerName: string;
   partNumber: string;
@@ -310,7 +310,9 @@ export function generateQuotationHTML(data: {
   lineItemsMode?: boolean;
   /** Internal route only. Customer-facing quotation attachments must not expose cost or margin. */
   includeInternalInfo?: boolean;
-}): string {
+}
+
+export function generateQuotationHTML(data: QuotationPdfData): string {
   const lines = quotationLineItems(data);
   const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
   const totalPrice = lines.reduce((sum, line) => sum + line.lineTotal, 0);
@@ -468,7 +470,7 @@ export function generateOrderHTML(data: {
 `;
 }
 
-export async function generateQuotationPDF(data: Parameters<typeof generateQuotationHTML>[0]): Promise<Buffer> {
+export async function generateQuotationPDF(data: QuotationPdfData): Promise<Buffer> {
   const html = generateQuotationHTML(data);
   return generatePDF(html, { title: `Quotation-${data.quoteNumber}` });
 }

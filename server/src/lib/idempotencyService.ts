@@ -170,7 +170,7 @@ class IdempotencyKeyConflictError extends Error {}
 export async function runIdempotentOperation<T>(
   context: IdempotencyContext,
   operation: (tx: Prisma.TransactionClient) => Promise<IdempotentOperationResult<T>>,
-  transactionOptions?: { isolationLevel: Prisma.TransactionIsolationLevel },
+  transactionOptions?: { isolationLevel: Prisma.TransactionIsolationLevel; timeout?: number },
 ): Promise<IdempotentExecution<T>> {
   if (!context.key) {
     const operationResult = await prisma.$transaction(operation, transactionOptions);
