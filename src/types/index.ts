@@ -75,6 +75,30 @@ export interface RFQ {
   notes?: string;
   partCategory?: PartCategory;
   trackingType?: TrackingType;
+  lines?: RfqLine[];
+}
+
+export interface RfqLine {
+  id: string;
+  rfqId: string;
+  lineNo: number;
+  partNumber: string;
+  quantity: number;
+  uom: string;
+  conditionCode: string;
+  description?: string | null;
+  serialNumber?: string | null;
+  batchNumber?: string | null;
+  alternatePartNumbers?: string[];
+  certificateRequired: boolean;
+  certificateType?: string | null;
+  requiredDate: string;
+  leadTimeDays?: number | null;
+  targetPriceDecimal?: string | null;
+  targetPriceCurrency: string;
+  status: 'OPEN' | 'CANCELLED' | 'COMPLETED';
+  createdAt: string;
+  updatedAt: string;
 }
 
 // 库存相关
@@ -100,6 +124,8 @@ export interface Inventory {
   alternatePartNumbers?: string[];
   // 状态与条件
   conditionCode: InventoryStatus;
+  // 兼容明细投影；旧库存记录可能只提供 conditionCode。
+  status?: InventoryDetailStatus;
   certificateType: CertificateType;
   certificateNumber?: string;
   certificateFileUrl?: string;
@@ -137,7 +163,7 @@ export interface Inventory {
   storageTempMax?: number;
   hazardClass?: string;
   // 商务属性
-  unitCost: number;
+  unitCost?: number;
   unitOfMeasure: string;
   countryOfOrigin?: string;
   hsCode?: string;
@@ -222,7 +248,7 @@ export interface InventoryDetail {
   storageTempMax?: number;
   hazardClass?: string;
   // 成本
-  unitCost: number;
+  unitCost?: number;
   // 来源
   supplierId?: string;
   supplierName?: string;
@@ -427,6 +453,9 @@ export interface Quotation {
   totalPrice: number;
   costPrice: number;
   margin: number;
+  costSourceType?: 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL';
+  costSourceId?: string;
+  costSourceReason?: string;
   // 销售与交付
   saleType: SaleType;
   shipToId?: string;
@@ -469,6 +498,7 @@ export interface Quotation {
   createdBy: string;
   approvedBy?: string;
   approvedAt?: string;
+  requiresReapproval?: boolean;
   sentAt?: string;
   acceptedAt?: string;
   withdrawnAt?: string;
@@ -653,6 +683,9 @@ export interface InventoryAlert {
 
 // 询价单相关
 export interface InquiryItem {
+  id?: string;
+  lineNo?: number;
+  rfqLineId?: string | null;
   partNumber: string;
   quantity: number;
   requiredDate: string;
@@ -664,6 +697,9 @@ export interface Inquiry {
   inquiryNumber: string;
   supplierId: string;
   supplierName: string;
+  rfqId?: string | null;
+  notes?: string | null;
+  sourceVerified?: boolean;
   items: InquiryItem[];
   isAOG: boolean;
   status: 'draft' | 'sent' | 'responded' | 'expired';

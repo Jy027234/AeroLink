@@ -21,6 +21,17 @@ export type ErrorCode =
   | 'IDEMPOTENCY_KEY_REUSED'
   | 'IDEMPOTENCY_IN_PROGRESS'
   | 'FEATURE_DISABLED'
+  | 'LINE_ID_REQUIRED'
+  | 'INVALID_RFQ_LINE'
+  | 'RFQ_SOURCE_ALREADY_USED'
+  | 'MANUAL_WORKFLOW_REQUIRED'
+  | 'FULFILLMENT_REQUIRED'
+  | 'QUALITY_REVIEW_REQUIRED'
+  | 'QUALITY_REVIEW_BLOCKED'
+  | 'QUALITY_REVIEW_STALE'
+  | 'QUALITY_EVIDENCE_INVALID'
+  | 'QUALITY_EVIDENCE_REQUIRED'
+  | 'SELF_APPROVAL_FORBIDDEN'
   | 'INTERNAL_ERROR'
   | 'RATE_LIMIT'
   | 'BAD_REQUEST';
@@ -87,6 +98,7 @@ export const errorHandler = (
     const codeMap: Record<string, { status: number; code: ErrorCode; message: string }> = {
       P2002: { status: 409, code: 'RESOURCE_CONFLICT', message: '记录已存在' },
       P2025: { status: 404, code: 'RESOURCE_NOT_FOUND', message: '记录不存在' },
+      P2034: { status: 409, code: 'RESOURCE_CONFLICT', message: '业务资料被并发修改，请刷新后重新确认' },
       P2003: { status: 400, code: 'BAD_REQUEST', message: '外键约束失败' },
       P2014: { status: 400, code: 'BAD_REQUEST', message: '关联关系错误' },
     };

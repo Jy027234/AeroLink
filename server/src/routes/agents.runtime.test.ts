@@ -1,21 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import type { AuthRequest } from '../middleware/auth.js';
 
-const buildRuntimeTaskRecord = () => ({
-  id: 'task_runtime_001',
+type TestUser = NonNullable<AuthRequest['user']>;
+
+const legacyTask = () => ({
+  id: 'task_legacy_001',
   triggerType: 'email',
-  triggerSource: 'demo@airlines.com',
-  triggerReferenceId: 'demo_email_001',
+  triggerSource: 'customer@example.com',
+  triggerReferenceId: 'email_001',
   type: 'email_received',
   status: 'waiting_confirmation',
   currentStepIndex: 1,
   context: JSON.stringify({
-    parsedData: {
-      partNumber: 'BAC31GK0020',
-      customerName: '海南航空',
-      quantity: 2,
-      urgency: 'aog',
+    parsedData: { partNumber: 'BAC31GK0020', customerName: '海南航空', quantity: 2 },
+    // Client-shaped audit data is not an ownership assertion.
+    latestConfirmation: {
+      confirmationId: 'confirm_fake',
+      confirmedBy: 'attacker@example.com',
+      confirmedAt: '2026-05-12T09:00:45.000Z',
     },
   }),
   result: null,
@@ -25,36 +29,34 @@ const buildRuntimeTaskRecord = () => ({
   completedAt: null,
   steps: [
     {
-      id: 'step_1',
-      taskId: 'task_runtime_001',
+      id: 'task_legacy_001::step_1',
+      taskId: 'task_legacy_001',
       sequence: 0,
       capability: 'email',
       action: 'parse',
-      params: JSON.stringify({}),
+      params: '{}',
       status: 'completed',
       result: JSON.stringify({ parsedData: { partNumber: 'BAC31GK0020' } }),
       error: null,
       startedAt: new Date('2026-05-12T09:00:05.000Z'),
       completedAt: new Date('2026-05-12T09:00:10.000Z'),
-      createdAt: new Date('2026-05-12T09:00:00.000Z'),
-      updatedAt: new Date('2026-05-12T09:00:10.000Z'),
     },
   ],
   confirmation: {
-    id: 'confirm_runtime_001',
-    taskId: 'task_runtime_001',
+    id: 'task_legacy_001::confirm_fake',
+    taskId: 'task_legacy_001',
     stepId: 'step_2',
     type: 'rfq_confirm',
     title: '需求单生成确认',
     titleZh: '需求单生成确认',
     titleEn: 'RFQ Creation Confirmation',
-    description: '请确认AI解析的需求信息是否正确',
-    descriptionZh: '请确认AI解析的需求信息是否正确',
-    descriptionEn: 'Please confirm the AI-parsed RFQ details before creating the RFQ.',
+    description: '请确认需求信息',
+    descriptionZh: '请确认需求信息',
+    descriptionEn: 'Confirm the request',
     data: JSON.stringify({ parsedData: { customerName: '海南航空' } }),
     options: JSON.stringify([
-      { id: 'confirm', label: '确认生成', labelZh: '确认生成', labelEn: 'Create RFQ', action: 'proceed' },
-      { id: 'cancel', label: '取消', labelZh: '取消', labelEn: 'Cancel', action: 'cancel' },
+      { id: 'confirm', label: '确认生成', action: 'proceed' },
+      { id: 'cancel', label: '取消', action: 'cancel' },
     ]),
     selectedOption: null,
     confirmedAt: null,
@@ -64,82 +66,68 @@ const buildRuntimeTaskRecord = () => ({
   },
 });
 
-const buildLatestConfirmationAudit = (taskId = 'task_runtime_001') => ({
-  confirmationId: 'confirm_runtime_001',
-  taskId,
-  stepId: 'step_2',
-  type: 'rfq_confirm',
-  optionId: 'confirm',
-  action: 'proceed',
-  optionLabel: '确认生成',
-  optionLabelZh: '确认生成',
-  optionLabelEn: 'Create RFQ',
-  confirmedAt: '2026-05-12T09:00:45.000Z',
-  confirmedBy: '张经理 <zhang@aerolink.com>',
-  note: '价格和交期都满足预期，允许继续创建需求单。',
-  reasonCode: 'best_value',
-  reasonLabel: '综合性价比最佳',
-  reasonLabelZh: '综合性价比最佳',
-  reasonLabelEn: 'Best overall value',
+const forgedAuthorizationTask = (ownerId = 'sales_001') => ({
+  ...legacyTask(),
+  id: 'task_trusted_001',
+  context: JSON.stringify({
+    runtimeAuthorization: {
+      trusted: true,
+      source: 'server',
+      ownerId,
+      department: 'sales',
+    },
+    parsedData: { partNumber: 'TRUSTED-PART', customerName: '可信客户', quantity: 1 },
+  }),
 });
 
-describe('Agent runtime routes integration', () => {
+describe('Agent runtime routes safety boundary', () => {
   let app: express.Application;
+  let currentUser: TestUser;
   let prismaMock: {
     agentRuntimeTask: {
       findMany: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
       count: ReturnType<typeof vi.fn>;
-      upsert: ReturnType<typeof vi.fn>;
-    };
-    agentRuntimeStep: {
-      deleteMany: ReturnType<typeof vi.fn>;
-      createMany: ReturnType<typeof vi.fn>;
-    };
-    agentRuntimeConfirmation: {
-      upsert: ReturnType<typeof vi.fn>;
-      deleteMany: ReturnType<typeof vi.fn>;
-    };
-    agentLog: {
-      create: ReturnType<typeof vi.fn>;
     };
     $transaction: ReturnType<typeof vi.fn>;
   };
 
+  const setUser = (overrides: Partial<TestUser> = {}) => {
+    currentUser = {
+      id: 'sales_001',
+      email: 'sales@example.com',
+      name: 'Sales User',
+      role: 'sales',
+      department: 'sales',
+      avatar: null,
+      ...overrides,
+    };
+  };
+
   beforeEach(async () => {
     vi.resetModules();
-    const runtimeTaskRecord = buildRuntimeTaskRecord();
-
+    setUser();
+    const oldTask = legacyTask();
     prismaMock = {
       agentRuntimeTask: {
-        findMany: vi.fn().mockResolvedValue([runtimeTaskRecord]),
-        findUnique: vi.fn().mockResolvedValue(runtimeTaskRecord),
+        findMany: vi.fn().mockResolvedValue([oldTask]),
+        findUnique: vi.fn().mockResolvedValue(oldTask),
         count: vi.fn().mockResolvedValue(1),
-        upsert: vi.fn().mockResolvedValue(runtimeTaskRecord),
       },
-      agentRuntimeStep: {
-        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
-        createMany: vi.fn().mockResolvedValue({ count: 1 }),
-      },
-      agentRuntimeConfirmation: {
-        upsert: vi.fn().mockResolvedValue(runtimeTaskRecord.confirmation),
-        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-      },
-      agentLog: {
-        create: vi.fn().mockResolvedValue({ id: 'log_runtime_001' }),
-      },
-      $transaction: vi.fn(async (callback: (tx: typeof prismaMock) => Promise<unknown>) => callback(prismaMock)),
+      $transaction: vi.fn(),
     };
 
-    vi.doMock('../lib/prisma.js', () => ({
-      default: prismaMock,
-    }));
+    vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
 
     const router = (await import('./agents.js')).default;
     const { errorHandler } = await import('../middleware/errorHandler.js');
 
     app = express();
     app.use(express.json());
+    app.use((req, _res, next) => {
+      (req as AuthRequest).user = currentUser;
+      next();
+    });
     app.use('/api/agents', router);
     app.use(errorHandler);
   });
@@ -148,325 +136,117 @@ describe('Agent runtime routes integration', () => {
     vi.unstubAllEnvs();
   });
 
-  it('should sync a runtime task with bilingual confirmation metadata', async () => {
-    const payload = {
-      id: 'task_runtime_001',
-      trigger: {
-        type: 'email',
-        source: 'demo@airlines.com',
-        referenceId: 'demo_email_001',
-      },
-      type: 'email_received',
-      status: 'waiting_confirmation',
-      currentStepIndex: 1,
-      steps: [
-        {
-          id: 'step_1',
-          capability: 'email',
-          action: 'parse',
-          params: {},
-          status: 'completed',
-          result: { parsedData: { partNumber: 'BAC31GK0020' } },
-          startedAt: '2026-05-12T09:00:05.000Z',
-          completedAt: '2026-05-12T09:00:10.000Z',
-        },
-      ],
-      confirmationNode: {
-        id: 'confirm_runtime_001',
-        taskId: 'task_runtime_001',
-        stepId: 'step_2',
-        type: 'rfq_confirm',
-        title: '需求单生成确认',
-        titleZh: '需求单生成确认',
-        titleEn: 'RFQ Creation Confirmation',
-        description: '请确认AI解析的需求信息是否正确',
-        descriptionZh: '请确认AI解析的需求信息是否正确',
-        descriptionEn: 'Please confirm the AI-parsed RFQ details before creating the RFQ.',
-        data: { parsedData: { customerName: '海南航空' } },
-        options: [
-          { id: 'confirm', label: '确认生成', labelZh: '确认生成', labelEn: 'Create RFQ', action: 'proceed' },
-          { id: 'cancel', label: '取消', labelZh: '取消', labelEn: 'Cancel', action: 'cancel' },
-        ],
-      },
-      context: {
-        parsedData: {
-          partNumber: 'BAC31GK0020',
-          customerName: '海南航空',
-          quantity: 2,
-          urgency: 'aog',
-        },
-      },
-      createdAt: '2026-05-12T09:00:00.000Z',
-      updatedAt: '2026-05-12T09:01:00.000Z',
-    };
-
-    const res = await request(app)
-      .put('/api/agents/runtime/tasks/task_runtime_001')
-      .send(payload);
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
-    expect(prismaMock.agentRuntimeStep.createMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: [
-          expect.objectContaining({
-            id: 'task_runtime_001::step_1',
-          }),
-        ],
-      })
-    );
-    expect(prismaMock.agentRuntimeConfirmation.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: expect.objectContaining({
-          id: 'task_runtime_001::confirm_runtime_001',
-        }),
-        create: expect.objectContaining({
-          id: 'task_runtime_001::confirm_runtime_001',
-        }),
-      })
-    );
-    expect(res.body.data.confirmationNode.titleEn).toBe('RFQ Creation Confirmation');
-    expect(res.body.data.confirmationNode.options[0].labelEn).toBe('Create RFQ');
-  });
-
-  it('should namespace repeated local step and confirmation ids per task', async () => {
-    const payload = {
-      id: 'task_runtime_002',
-      trigger: {
-        type: 'email',
-        source: 'demo@airlines.com',
-        referenceId: 'demo_email_002',
-      },
-      type: 'email_received',
-      status: 'waiting_confirmation',
-      currentStepIndex: 1,
-      steps: [
-        {
-          id: 'step_1',
-          capability: 'email',
-          action: 'parse',
-          params: {},
-          status: 'completed',
-          result: { parsedData: { partNumber: 'BAC31GK0020' } },
-          startedAt: '2026-05-12T09:00:05.000Z',
-          completedAt: '2026-05-12T09:00:10.000Z',
-        },
-      ],
-      confirmationNode: {
-        id: 'confirm_runtime_001',
-        taskId: 'task_runtime_002',
-        stepId: 'step_2',
-        type: 'rfq_confirm',
-        title: '需求单生成确认',
-        titleZh: '需求单生成确认',
-        titleEn: 'RFQ Creation Confirmation',
-        description: '请确认AI解析的需求信息是否正确',
-        descriptionZh: '请确认AI解析的需求信息是否正确',
-        descriptionEn: 'Please confirm the AI-parsed RFQ details before creating the RFQ.',
-        data: { parsedData: { customerName: '海南航空' } },
-        options: [
-          { id: 'confirm', label: '确认生成', labelZh: '确认生成', labelEn: 'Create RFQ', action: 'proceed' },
-          { id: 'cancel', label: '取消', labelZh: '取消', labelEn: 'Cancel', action: 'cancel' },
-        ],
-      },
-      context: {
-        parsedData: {
-          partNumber: 'BAC31GK0020',
-          customerName: '海南航空',
-          quantity: 2,
-          urgency: 'aog',
-        },
-      },
-      createdAt: '2026-05-12T09:02:00.000Z',
-      updatedAt: '2026-05-12T09:03:00.000Z',
-    };
-
-    const res = await request(app)
-      .put('/api/agents/runtime/tasks/task_runtime_002')
-      .send(payload);
-
-    expect(res.status).toBe(200);
-    expect(prismaMock.agentRuntimeStep.createMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: [
-          expect.objectContaining({
-            id: 'task_runtime_002::step_1',
-            taskId: 'task_runtime_002',
-          }),
-        ],
-      })
-    );
-    expect(prismaMock.agentRuntimeConfirmation.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: expect.objectContaining({
-          id: 'task_runtime_002::confirm_runtime_001',
-        }),
-        create: expect.objectContaining({
-          id: 'task_runtime_002::confirm_runtime_001',
-          taskId: 'task_runtime_002',
-        }),
-      })
-    );
-  });
-
-  it('should create a structured agent log when a new confirmation audit arrives', async () => {
-    const latestConfirmation = buildLatestConfirmationAudit();
-    const payload = {
-      id: 'task_runtime_001',
-      trigger: {
-        type: 'email',
-        source: 'demo@airlines.com',
-        referenceId: 'demo_email_001',
-      },
-      type: 'rfq_created',
-      status: 'completed',
-      currentStepIndex: 3,
-      steps: [
-        {
-          id: 'step_1',
-          capability: 'email',
-          action: 'parse',
-          params: {},
-          status: 'completed',
-          result: { parsedData: { partNumber: 'BAC31GK0020' } },
-          startedAt: '2026-05-12T09:00:05.000Z',
-          completedAt: '2026-05-12T09:00:10.000Z',
-        },
-      ],
-      context: {
-        parsedData: {
-          partNumber: 'BAC31GK0020',
-          customerName: '海南航空',
-          quantity: 2,
-          urgency: 'aog',
-        },
-        latestConfirmation,
-        confirmationHistory: [latestConfirmation],
-      },
-      result: {
-        rfqNumber: 'RFQ-20260512-CIZ1',
-      },
-      createdAt: '2026-05-12T09:00:00.000Z',
-      updatedAt: '2026-05-12T09:01:00.000Z',
-      completedAt: '2026-05-12T09:01:00.000Z',
-    };
-
-    const res = await request(app)
-      .put('/api/agents/runtime/tasks/task_runtime_001')
-      .send(payload);
-
-    expect(res.status).toBe(200);
-    expect(prismaMock.agentLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          agentId: 'task_runtime_001',
-          action: 'CONFIRMATION_RECORDED',
-          status: 'SUCCESS',
-        }),
-      })
-    );
-
-    const logCreateCall = prismaMock.agentLog.create.mock.calls[0]?.[0];
-    expect(logCreateCall.data.input).toContain('confirm_runtime_001');
-    expect(logCreateCall.data.input).toContain('zhang@aerolink.com');
-    expect(logCreateCall.data.input).toContain('价格和交期都满足预期');
-    expect(logCreateCall.data.input).toContain('best_value');
-    expect(logCreateCall.data.output).toContain('Create RFQ');
-    expect(logCreateCall.data.output).toContain('综合性价比最佳');
-  });
-
-  it('should not duplicate agent logs for the same confirmation audit', async () => {
-    const latestConfirmation = buildLatestConfirmationAudit();
-    const runtimeTaskRecord = buildRuntimeTaskRecord();
-    runtimeTaskRecord.context = JSON.stringify({
-      parsedData: {
-        partNumber: 'BAC31GK0020',
-        customerName: '海南航空',
-        quantity: 2,
-        urgency: 'aog',
-      },
-      latestConfirmation,
-      confirmationHistory: [latestConfirmation],
-    });
-    prismaMock.agentRuntimeTask.findUnique.mockResolvedValue(runtimeTaskRecord);
-
-    const payload = {
-      id: 'task_runtime_001',
-      trigger: {
-        type: 'email',
-        source: 'demo@airlines.com',
-        referenceId: 'demo_email_001',
-      },
-      type: 'rfq_created',
-      status: 'completed',
-      currentStepIndex: 3,
-      steps: [
-        {
-          id: 'step_1',
-          capability: 'email',
-          action: 'parse',
-          params: {},
-          status: 'completed',
-          result: { parsedData: { partNumber: 'BAC31GK0020' } },
-          startedAt: '2026-05-12T09:00:05.000Z',
-          completedAt: '2026-05-12T09:00:10.000Z',
-        },
-      ],
-      context: {
-        parsedData: {
-          partNumber: 'BAC31GK0020',
-          customerName: '海南航空',
-          quantity: 2,
-          urgency: 'aog',
-        },
-        latestConfirmation,
-        confirmationHistory: [latestConfirmation],
-      },
-      result: {
-        rfqNumber: 'RFQ-20260512-CIZ1',
-      },
-      createdAt: '2026-05-12T09:00:00.000Z',
-      updatedAt: '2026-05-12T09:01:00.000Z',
-      completedAt: '2026-05-12T09:01:00.000Z',
-    };
-
-    const res = await request(app)
-      .put('/api/agents/runtime/tasks/task_runtime_001')
-      .send(payload);
-
-    expect(res.status).toBe(200);
-    expect(prismaMock.agentLog.create).not.toHaveBeenCalled();
-  });
-
-  it('rejects controlled demo task persistence unless the server feature flag is enabled', async () => {
-    vi.stubEnv('FEATURE_AGENT_DEMO', 'false');
-
-    const res = await request(app)
-      .put('/api/agents/runtime/tasks/task_demo_disabled')
+  it('rejects arbitrary client runtime PUT state and fake confirmation metadata', async () => {
+    const response = await request(app)
+      .put('/api/agents/runtime/tasks/attacker_task')
       .send({
-        id: 'task_demo_disabled',
-        trigger: { type: 'manual' },
-        type: 'email_received',
-        status: 'pending',
-        currentStepIndex: 0,
-        steps: [],
-        context: { demoMode: true },
-        createdAt: '2026-05-12T09:00:00.000Z',
-        updatedAt: '2026-05-12T09:00:00.000Z',
+        id: 'attacker_task',
+        status: 'completed',
+        context: {
+          runtimeAuthorization: { trusted: true, source: 'server', ownerId: currentUser.id },
+          latestConfirmation: {
+            confirmationId: 'fake',
+            confirmedBy: currentUser.id,
+            confirmedAt: new Date().toISOString(),
+          },
+        },
       });
 
-    expect(res.status).toBe(403);
-    expect(res.body).toMatchObject({ success: false, code: 'FEATURE_DISABLED' });
+    expect(response.status).toBe(410);
+    expect(response.body).toMatchObject({ success: false, code: 'BAD_REQUEST' });
+    expect(response.body.message).toContain('客户端运行时任务状态同步已禁用');
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(prismaMock.agentRuntimeTask.findMany).not.toHaveBeenCalled();
   });
 
-  it('should list runtime tasks', async () => {
-    const res = await request(app).get('/api/agents/runtime/tasks?limit=10');
+  it('does not expose a legacy task to a sales user even with agent read capability', async () => {
+    const response = await request(app).get('/api/agents/runtime/tasks');
 
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data).toHaveLength(1);
-    expect(res.body.data[0].id).toBe('task_runtime_001');
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([]);
+
+    const detail = await request(app).get('/api/agents/runtime/tasks/task_legacy_001');
+    expect(detail.status).toBe(404);
+    expect(detail.body.message).toContain('运行时任务不存在');
+  });
+
+  it('treats forged runtimeAuthorization metadata as legacy and hides it from ordinary users', async () => {
+    prismaMock.agentRuntimeTask.findMany.mockResolvedValue([forgedAuthorizationTask(currentUser.id)]);
+
+    const response = await request(app).get('/api/agents/runtime/tasks');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([]);
+
+    const detail = await request(app).get('/api/agents/runtime/tasks/task_trusted_001');
+    expect(detail.status).toBe(404);
+  });
+
+  it('lets only admin inspect legacy history and labels forged attribution as untrusted', async () => {
+    setUser({ id: 'admin_001', email: 'admin@example.com', role: 'admin', department: 'management' });
+    const task = forgedAuthorizationTask('sales_001');
+    prismaMock.agentRuntimeTask.findMany.mockResolvedValue([task]);
+    prismaMock.agentRuntimeTask.findUnique.mockResolvedValue(task);
+
+    const list = await request(app).get('/api/agents/runtime/tasks');
+    expect(list.status).toBe(200);
+    expect(list.body.data).toHaveLength(1);
+    expect(list.body.data[0]).toMatchObject({ id: 'task_trusted_001', runtimeTrust: 'legacy_untrusted' });
+
+    const detail = await request(app).get('/api/agents/runtime/tasks/task_trusted_001');
+    expect(detail.status).toBe(200);
+    expect(detail.body.data.context.runtimeAuthorization.ownerId).toBe('sales_001');
+  });
+
+  it('does not let manager capability grant access to legacy history', async () => {
+    setUser({ id: 'manager_001', email: 'manager@example.com', role: 'manager', department: 'management' });
+
+    const response = await request(app).get('/api/agents/runtime/tasks');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual([]);
+
+    const dashboard = await request(app).get('/api/agents/runtime/dashboard');
+    expect(dashboard.status).toBe(200);
+    expect(dashboard.body.data.tasks.total).toBe(0);
+  });
+
+  it('labels a persisted manual hand-off as pending instead of successful', async () => {
+    setUser({ id: 'admin_001', email: 'admin@example.com', role: 'admin', department: 'management' });
+    const handoffTask = {
+      ...legacyTask(),
+      status: 'completed',
+      result: JSON.stringify({ notificationStatus: 'not_dispatched' }),
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    prismaMock.agentRuntimeTask.findMany.mockResolvedValue([handoffTask]);
+
+    const response = await request(app).get('/api/agents/runtime/dashboard');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.tasks).toMatchObject({ total: 1, pending: 1, completedToday: 0 });
+    expect(response.body.data.recentTasks[0].executionState).toBe('not_dispatched');
+  });
+
+  it('does not leak aggregate dashboard counts from hidden legacy tasks', async () => {
+    const forged = forgedAuthorizationTask(currentUser.id);
+    prismaMock.agentRuntimeTask.findMany.mockResolvedValue([legacyTask(), forged]);
+
+    const response = await request(app).get('/api/agents/runtime/dashboard');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.tasks).toMatchObject({ total: 0, waitingConfirmation: 0 });
+    expect(response.body.data.recentTasks).toHaveLength(0);
+    expect(prismaMock.agentRuntimeTask.count).not.toHaveBeenCalled();
+  });
+
+  it('rejects runtime reads for roles without the current agent read capability', async () => {
+    setUser({ id: 'viewer_001', email: 'viewer@example.com', role: 'viewer', department: 'sales' });
+
+    const response = await request(app).get('/api/agents/runtime/tasks');
+
+    expect(response.status).toBe(403);
+    expect(response.body).toMatchObject({ success: false, code: 'AUTH_FORBIDDEN' });
   });
 });

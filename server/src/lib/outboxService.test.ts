@@ -50,25 +50,32 @@ describe('outboxService', () => {
   let prismaMock: ReturnType<typeof createPrismaMock>;
   let queueWebhookEventMock: ReturnType<typeof vi.fn>;
   let emitToRoomMock: ReturnType<typeof vi.fn>;
+  let emitScopedSocketEventMock: ReturnType<typeof vi.fn>;
   let sendEmailMock: ReturnType<typeof vi.fn>;
   let enqueueBusinessEvent: typeof import('./outboxService.js').enqueueBusinessEvent;
   let processOutboxEvent: typeof import('./outboxService.js').processOutboxEvent;
+  let processPendingOutboxEvents: typeof import('./outboxService.js').processPendingOutboxEvents;
+  let retryOutboxEvent: typeof import('./outboxService.js').retryOutboxEvent;
 
   beforeEach(async () => {
     vi.resetModules();
     prismaMock = createPrismaMock();
     queueWebhookEventMock = vi.fn().mockResolvedValue({ eventId: 'outbox-1', queued: 1 });
     emitToRoomMock = vi.fn().mockReturnValue(true);
+    emitScopedSocketEventMock = vi.fn().mockResolvedValue(true);
     sendEmailMock = vi.fn();
 
     vi.doMock('./prisma.js', () => ({ default: prismaMock }));
     vi.doMock('./webhookService.js', () => ({ queueWebhookEvent: queueWebhookEventMock }));
-    vi.doMock('./socketEvents.js', () => ({ emitToRoom: emitToRoomMock }));
+    vi.doMock('./socketEvents.js', () => ({
+      emitToRoom: emitToRoomMock,
+      emitScopedSocketEvent: emitScopedSocketEventMock,
+    }));
     vi.doMock('./emailService.js', () => ({ sendEmail: sendEmailMock }));
     vi.doMock('./crypto.js', () => ({ decrypt: vi.fn((value: string) => value) }));
     vi.doMock('./pdfService.js', () => ({ generateQuotationPDF: vi.fn() }));
 
-    ({ enqueueBusinessEvent, processOutboxEvent } = await import('./outboxService.js'));
+    ({ enqueueBusinessEvent, processOutboxEvent, processPendingOutboxEvents, retryOutboxEvent } = await import('./outboxService.js'));
   });
 
   it('writes webhook and socket work items through the caller transaction', async () => {
@@ -98,7 +105,12 @@ describe('outboxService', () => {
     expect(prismaMock.__tx.outboxEvent.create).toHaveBeenNthCalledWith(2, {
       data: expect.objectContaining({
         channel: 'SOCKET',
-        payload: JSON.stringify({ room: 'rfqs', event: 'rfq:created', data: { rfqId: 'rfq-1' } }),
+        payload: JSON.stringify({
+          room: 'rfqs',
+          event: 'rfq:created',
+          data: { rfqId: 'rfq-1' },
+          scope: { capability: 'rfq.read' },
+        }),
       }),
     });
   });
@@ -239,6 +251,31 @@ describe('outboxService', () => {
     expect(prismaMock.__tx.outboundEmail.updateMany).not.toHaveBeenCalled();
   });
 
+  it('dispatches socket events through the scoped emitter with a current-policy payload', async () => {
+    const event = createOutboxEvent({
+      channel: 'SOCKET',
+      eventType: 'rfq.updated',
+      payload: JSON.stringify({
+        room: 'rfqs',
+        event: 'rfq:updated',
+        data: { rfqId: 'rfq-1', totalPrice: 99, status: 'SUBMITTED' },
+        scope: { capability: 'rfq.read', ownerId: 'user-1', department: 'Sales' },
+      }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+
+    await expect(processOutboxEvent(event.id, 'api-socket', { channels: ['SOCKET'] })).resolves.toBe(true);
+    expect(emitScopedSocketEventMock).toHaveBeenCalledWith({
+      event: 'rfq:updated',
+      data: { rfqId: 'rfq-1', status: 'SUBMITTED' },
+      scope: { capability: 'rfq.read', ownerId: 'user-1', department: 'Sales' },
+      aggregateType: 'RFQ',
+      aggregateId: 'rfq-1',
+    });
+    expect(emitToRoomMock).not.toHaveBeenCalled();
+  });
+
   it('releases a claim when the event disappears before dispatch', async () => {
     prismaMock.outboxEvent.updateMany
       .mockResolvedValueOnce({ count: 1 })
@@ -254,6 +291,89 @@ describe('outboxService', () => {
         lockedAt: null,
         workerId: null,
         lastError: 'Outbox event disappeared after claim',
+      }),
+    });
+  });
+
+  it('claims only events from the channel owned by the caller', async () => {
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(processOutboxEvent('webhook-event', 'api-socket', {
+      channels: ['SOCKET'],
+    })).resolves.toBe(false);
+
+    expect(prismaMock.outboxEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ channel: { in: ['SOCKET'] } }),
+    }));
+    expect(prismaMock.outboxEvent.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('recovers stale claims and scans only the selected channel', async () => {
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findMany.mockResolvedValue([]);
+
+    await expect(processPendingOutboxEvents(10, 'api-socket', {
+      channels: ['SOCKET'],
+    })).resolves.toEqual({ processed: 0, delivered: 0 });
+
+    expect(prismaMock.outboxEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        channel: { in: ['SOCKET'] },
+        status: 'PROCESSING',
+      }),
+    }));
+    expect(prismaMock.outboxEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ channel: { in: ['SOCKET'] } }),
+    }));
+  });
+
+  it('can constrain standalone processing to EMAIL and WEBHOOK channels', async () => {
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 0 });
+    prismaMock.outboxEvent.findMany.mockResolvedValue([]);
+
+    await processPendingOutboxEvents(10, 'standalone-worker', {
+      channels: ['EMAIL', 'WEBHOOK'],
+    });
+
+    expect(prismaMock.outboxEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ channel: { in: ['EMAIL', 'WEBHOOK'] } }),
+    }));
+    expect(prismaMock.outboxEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ channel: { in: ['EMAIL', 'WEBHOOK'] } }),
+    }));
+  });
+
+  it('resets a failed event for explicit manual replay so its owning consumer can claim it', async () => {
+    const event = createOutboxEvent({
+      channel: 'SOCKET',
+      status: 'FAILED',
+      attemptCount: 5,
+      payload: JSON.stringify({
+        room: 'rfqs',
+        event: 'rfq:updated',
+        data: { rfqId: 'rfq-1' },
+        scope: { capability: 'rfq.read', ownerId: 'user-1' },
+      }),
+    });
+    prismaMock.outboxEvent.findUnique
+      .mockResolvedValueOnce(event)
+      .mockResolvedValueOnce({ ...event, status: 'PENDING', attemptCount: 0 });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(retryOutboxEvent(event.id)).resolves.toMatchObject({
+      id: event.id,
+      status: 'PENDING',
+    });
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: event.id,
+        status: { in: ['FAILED', 'RETRYING'] },
+      },
+      data: expect.objectContaining({
+        status: 'PENDING',
+        attemptCount: 0,
+        lockedAt: null,
+        workerId: null,
       }),
     });
   });

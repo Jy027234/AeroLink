@@ -68,6 +68,7 @@ import { downloadBlob } from '@/lib/downloadBlob';
 import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { toast } from 'sonner';
+import { QualityReviewPanel } from './QualityReviewPanel';
 import type { Order, OrderStatus } from '@/types';
 
 const statusConfig: Record<OrderStatus, { label: string; color: string; bgColor: string; icon: React.ElementType; step: number }> = {
@@ -798,6 +799,9 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
               </div>
 
               {/* 出库操作按钮 */}
+              {activeOrder && can('quality_review.read') && (activeOrder.outboundQuantity || 0) < activeOrder.quantity && (
+                <QualityReviewPanel key={activeOrder.id} orderId={activeOrder.id} remaining={activeOrder.quantity - (activeOrder.outboundQuantity || 0)} />
+              )}
               {activeOrder && can('inventory.manage') && (activeOrder.outboundQuantity || 0) < activeOrder.quantity && (
                 <Button
                   variant="outline"
@@ -830,13 +834,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 
               <TabsContent value="basic" className="space-y-4 mt-4">
                 <div className="grid grid-cols-2 gap-4">
-                  {renderSelect(tx('销售类型', 'Sale Type'), 'saleType', [
-                    { value: 'Sale', label: tx('销售', 'Sale') },
-                    { value: 'Exchange', label: tx('交换', 'Exchange') },
-                    { value: 'Loan', label: tx('借用', 'Loan') },
-                    { value: 'Consign', label: tx('寄售', 'Consign') },
-                    { value: 'Repair', label: tx('维修', 'Repair') },
-                  ])}
+                    <div className="text-sm">{tx('销售类型', 'Sale Type')}: {activeOrder?.saleType || 'Sale'}<p className="text-gray-500">{tx('首期仅开放自有库存销售及背靠背采购转售。', 'The first release covers inventory sales and back-to-back resale.')}</p></div>
                   {renderSelect('Incoterm', 'incoterm', [
                     { value: 'EXW', label: 'EXW' },
                     { value: 'FCA', label: 'FCA' },
@@ -859,20 +857,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
               </TabsContent>
 
               <TabsContent value="warranty" className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  {renderSwitch(tx('需要证书', 'Certificate Required'), 'certificateRequired')}
-                  {renderSelect(tx('证书类型', 'Certificate Type'), 'certificateType', [
-                    { value: 'AAC-038', label: 'AAC-038' },
-                    { value: 'FAA-8130-3', label: 'FAA-8130-3' },
-                    { value: 'EASA-Form-1', label: 'EASA-Form-1' },
-                    { value: 'COC', label: 'COC' },
-                    { value: 'NONE', label: 'NONE' },
-                  ])}
-                  {renderSwitch(tx('证书已交付', 'Certificate Delivered'), 'certificateDelivered')}
-                  {renderSwitch(tx('需要检验', 'Inspection Required'), 'inspectionRequired')}
-                  {renderSwitch(tx('检验通过', 'Inspection Passed'), 'inspectionPassed')}
-                  {renderField(tx('检验日期', 'Inspection Date'), 'inspectionDate', 'date')}
-                </div>
+                <p className="text-sm text-gray-600">{tx('质量要求来自客户需求；请在“交付质量审核”中核对证据并记录结论。普通订单编辑不能更改审核事实。', 'Quality requirements come from the customer request. Record evidence and decisions in Delivery quality review.')}</p>
               </TabsContent>
 
               <TabsContent value="logistics" className="space-y-4 mt-4">

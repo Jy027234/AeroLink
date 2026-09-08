@@ -16,6 +16,11 @@ describe('RFQ status enum shadows', () => {
       responseDeadline: null,
       createdAt: new Date('2026-07-16T00:00:00.000Z'),
       customer: { name: '中国国航' },
+      lines: [{
+        ...(data.lines as { create: Record<string, unknown> }).create,
+        id: 'rfq-line-001', rfqId: 'rfq-enum-001', status: 'OPEN',
+        createdAt: new Date('2026-07-16T00:00:00.000Z'), updatedAt: new Date('2026-07-16T00:00:00.000Z'),
+      }],
     }));
     const tx = {
       rFQ: { create: rfqCreateMock },
@@ -64,6 +69,7 @@ describe('RFQ status enum shadows', () => {
     expect(response.status).toBe(201);
     expect(response.body.data).toMatchObject({ id: 'rfq-enum-001', status: 'pending' });
     expect(response.body.data).not.toHaveProperty('statusEnum');
+    expect(response.body.data.lines).toEqual([expect.objectContaining({ id: 'rfq-line-001', partNumber: 'BAC31GK0020', quantity: 2 })]);
     const createData = rfqCreateMock.mock.calls[0][0].data;
     expect(createData.status).toBe('PENDING');
     expect(createData.statusEnum).toBe('PENDING');

@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { AuthRequest } from '../middleware/auth.js';
 import { requireCapability } from '../middleware/capability.js';
+import { canViewInventoryCost } from '../lib/costVisibility.js';
+import { projectInventoryItem } from '../lib/inventoryProjection.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -10,6 +13,7 @@ router.get(
   '/',
   requireCapability('inventory', 'read'),
   asyncHandler(async (req, res) => {
+    const includeCost = canViewInventoryCost((req as AuthRequest).user!);
     const { partNumber, partCategory, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 50));
@@ -27,7 +31,7 @@ router.get(
       take: pageSize,
     });
 
-    res.json(items);
+    res.json(items.map((item) => projectInventoryItem(item, includeCost)));
   })
 );
 
@@ -36,12 +40,13 @@ router.get(
   '/part/:partNumber',
   requireCapability('inventory', 'read'),
   asyncHandler(async (req, res) => {
+    const includeCost = canViewInventoryCost((req as AuthRequest).user!);
     const item = await prisma.inventoryItem.findFirst({
       where: { partNumber: req.params.partNumber },
       include: { details: true },
     });
     if (!item) throw new AppError('InventoryItem not found', 404);
-    res.json(item);
+    res.json(projectInventoryItem(item, includeCost));
   })
 );
 
@@ -50,12 +55,13 @@ router.get(
   '/:id',
   requireCapability('inventory', 'read'),
   asyncHandler(async (req, res) => {
+    const includeCost = canViewInventoryCost((req as AuthRequest).user!);
     const item = await prisma.inventoryItem.findUnique({
       where: { id: req.params.id },
       include: { details: true },
     });
     if (!item) throw new AppError('InventoryItem not found', 404);
-    res.json(item);
+    res.json(projectInventoryItem(item, includeCost));
   })
 );
 

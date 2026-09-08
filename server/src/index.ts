@@ -8,7 +8,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
-import jwt from 'jsonwebtoken';
 import { rateLimit } from 'express-rate-limit';
 
 import authRoutes from './routes/auth.js';
@@ -62,12 +61,24 @@ import pushRoutes from './routes/push.js';
 import outboxRoutes from './routes/outbox.js';
 import featureRoutes from './routes/features.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { authenticate } from './middleware/auth.js';
+import {
+  authenticate,
+  resolveCurrentAuthIdentity,
+  type CurrentAuthIdentity,
+} from './middleware/auth.js';
+import { createRefreshRateLimiters } from './middleware/refreshRateLimit.js';
 import { auditLogger } from './middleware/auditLogger.js';
 import { requireCapability } from './middleware/capability.js';
 import { logger, requestLogger } from './lib/logger.js';
 import { getMetricsWithAlerts } from './lib/metrics.js';
-import { initSocketIO, SocketRooms } from './lib/socketEvents.js';
+import {
+  initSocketIO,
+  registerSocketSession,
+  startSocketSessionRevalidation,
+  stopSocketSessionRevalidation,
+  unregisterSocketSession,
+} from './lib/socketEvents.js';
+import { API_OUTBOX_CHANNELS } from './lib/outboxService.js';
 import { startWorker, type WorkerRuntime } from './worker.js';
 
 const app = express();
@@ -110,29 +121,67 @@ app.use(cors({
   credentials: true,
 }));
 
-const apiLimiter = isProduction
-  ? rateLimit({
-      windowMs: 15 * 60 * 1000,
-      limit: 200,
-      standardHeaders: true,
-      legacyHeaders: false,
-      skip: (req) => req.path === '/api/health',
-    })
-  : (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
-app.use(apiLimiter);
+function readRateLimitInteger(names: string[], fallback: number, minimum: number, maximum: number) {
+  for (const name of names) {
+    const raw = process.env[name];
+    if (raw === undefined) continue;
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed)) return Math.min(maximum, Math.max(minimum, parsed));
+  }
+  return fallback;
+}
 
-const authLimiter = isProduction
+const loginRateLimitWindowMs = readRateLimitInteger(
+  ['LOGIN_RATE_LIMIT_WINDOW_MS', 'AUTH_LOGIN_RATE_LIMIT_WINDOW_MS'],
+  15 * 60 * 1000,
+  1_000,
+  24 * 60 * 60 * 1000,
+);
+const refreshRateLimitWindowMs = readRateLimitInteger(
+  ['REFRESH_RATE_LIMIT_WINDOW_MS', 'AUTH_REFRESH_RATE_LIMIT_WINDOW_MS'],
+  15 * 60 * 1000,
+  1_000,
+  24 * 60 * 60 * 1000,
+);
+const loginRateLimit = readRateLimitInteger(
+  ['LOGIN_RATE_LIMIT', 'AUTH_LOGIN_RATE_LIMIT'],
+  10,
+  1,
+  10_000,
+);
+const refreshRateLimit = readRateLimitInteger(
+  ['REFRESH_RATE_LIMIT', 'AUTH_REFRESH_RATE_LIMIT'],
+  30,
+  1,
+  10_000,
+);
+const passThroughRateLimiter = (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
+
+// Login remains source-address limited.  Refresh first validates the current
+// user/session and consumes an independent identity bucket; only failed or
+// unverified refresh attempts use the source-address abuse bucket.  Authenticated
+// business requests are limited after current user/session validation in
+// middleware/auth.ts.
+const loginLimiter = isProduction
   ? rateLimit({
-      windowMs: 15 * 60 * 1000,
-      limit: 10,
+      windowMs: loginRateLimitWindowMs,
+      limit: loginRateLimit,
       standardHeaders: true,
       legacyHeaders: false,
       skipFailedRequests: false,
     })
-  : (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
+  : passThroughRateLimiter;
+const {
+  validatedIdentityLimiter: validatedRefreshRateLimiter,
+  ipLimiter: refreshLimiter,
+} = createRefreshRateLimiters({
+  production: isProduction,
+  windowMs: refreshRateLimitWindowMs,
+  limit: refreshRateLimit,
+});
 
-app.use('/api/auth/login', authLimiter);
-app.use('/api/auth/refresh', authLimiter);
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/refresh', validatedRefreshRateLimiter, refreshLimiter);
 
 app.use(requestLogger);
 app.use(express.json({ limit: '10mb' }));
@@ -199,77 +248,72 @@ app.get('/api/metrics', authenticate, requireCapability('settings', 'read'), (_r
 
 app.use(errorHandler);
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   try {
-    const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.toString().replace('Bearer ', '');
+    const authToken = socket.handshake.auth?.token;
+    const authorization = socket.handshake.headers?.authorization?.toString();
+    const token = typeof authToken === 'string' && authToken.trim()
+      ? authToken.trim()
+      : authorization?.startsWith('Bearer ')
+        ? authorization.slice('Bearer '.length).trim()
+        : undefined;
     if (!token) {
       return next(new Error('Authentication required'));
     }
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      return next(new Error('Server configuration error'));
-    }
-    const decoded = jwt.verify(token, secret) as { id: string; role: string };
-    socket.data.user = decoded;
+    const identity = await resolveCurrentAuthIdentity(token);
+    socket.data.authIdentity = identity;
     next();
   } catch {
-    next(new Error('Invalid token'));
+    next(new Error('Invalid current session'));
   }
 });
 
 io.on('connection', (socket) => {
-  logger.debug({ socketId: socket.id, userId: socket.data.user?.id }, 'Socket client connected');
-
-  socket.on('join', (room: string) => {
-    const userRole = socket.data.user?.role?.toLowerCase();
-    const allowedRooms = ['dashboard', 'notifications', 'emails'];
-    const roleRooms: Record<string, string[]> = {
-      admin: Object.values(SocketRooms),
-      manager: ['dashboard', 'rfqs', 'quotations', 'orders', 'inventory', 'notifications', 'emails'],
-      sales: ['dashboard', 'rfqs', 'quotations', 'orders', 'notifications', 'emails'],
-      finance: ['dashboard', 'quotations', 'orders', 'notifications'],
-      gm: ['dashboard', 'rfqs', 'quotations', 'orders', 'notifications'],
-      operator: ['dashboard', 'inventory', 'orders', 'notifications'],
-      viewer: allowedRooms,
-    };
-    const userAllowed = roleRooms[userRole] || allowedRooms;
-    if (!userAllowed.includes(room)) {
-      logger.warn({ socketId: socket.id, userId: socket.data.user?.id, room }, 'Socket join denied');
-      return;
-    }
-    socket.join(room);
-    logger.debug({ socketId: socket.id, room }, 'Socket joined room');
-  });
-
-  socket.on('leave', (room: string) => {
-    socket.leave(room);
-    logger.debug({ socketId: socket.id, room }, 'Socket left room');
-  });
+  const identity = socket.data.authIdentity as CurrentAuthIdentity | undefined;
+  if (!identity) {
+    socket.disconnect(true);
+    return;
+  }
+  registerSocketSession(socket, identity);
+  logger.debug({ socketId: socket.id, userId: identity.id }, 'Socket client connected to server-managed user room');
 
   socket.on('disconnect', () => {
+    unregisterSocketSession(socket);
     logger.debug({ socketId: socket.id }, 'Socket client disconnected');
   });
 });
+
+startSocketSessionRevalidation();
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const isMainModule = process.argv[1]
   ? fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
   : false;
 
-const inlineWorker: WorkerRuntime | null = isMainModule && process.env.ENABLE_INLINE_WORKER === 'true'
-  ? startWorker()
+// Production is intentionally single API + Worker.  The API process owns only
+// SOCKET outbox leases; the standalone worker defaults to EMAIL/WEBHOOK.  A
+// multi-API deployment would need a shared Socket.IO adapter or event cursor.
+const inlineWorker: WorkerRuntime | null = isMainModule && process.env.SOCKET_OUTBOX_CONSUMER !== 'false'
+  ? startWorker({
+      workerId: process.env.API_SOCKET_WORKER_ID?.trim() || `api-socket-${process.pid}`,
+      outboxChannels: API_OUTBOX_CHANNELS,
+      runWebhookRetries: false,
+      runIdempotencyCleanup: false,
+      runEmailSync: false,
+    })
   : null;
 
 if (isMainModule) {
   httpServer.listen(PORT, () => {
     logger.info(`🚀 AeroLink Server running on http://localhost:${PORT}`);
     logger.info(`📚 Health check: http://localhost:${PORT}/api/health`);
-    logger.info(inlineWorker ? '🔁 Inline worker enabled for controlled test/dev fixture' : '🔁 Worker runs as a separate process');
+    logger.info(inlineWorker ? '🔁 API Socket outbox consumer enabled (single-API topology)' : '🔁 Socket outbox consumer disabled');
   });
 }
 
 function gracefulShutdown(signal: string) {
   logger.info({ signal }, 'Shutting down gracefully...');
+  stopSocketSessionRevalidation();
   void inlineWorker?.stop();
   io.close(() => {
     logger.info('Socket.IO closed');

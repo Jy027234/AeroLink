@@ -23,10 +23,18 @@ describe('order workflow monetary shadows', () => {
     } as Customer;
     const quotation = {
       id: 'quotation-001',
+      rfqId: 'rfq-001',
       partNumber: 'BAC31GK0020',
       quantity: 3,
+      unitPrice: 12.3457,
+      unitPriceDecimal: new Prisma.Decimal('12.3457'),
+      costPrice: 8,
+      costPriceDecimal: new Prisma.Decimal('8'),
       totalPrice: 37.0371,
       totalPriceDecimal: new Prisma.Decimal('37.0371'),
+      currency: 'USD', status: 'ACCEPTED', saleType: 'Sale', reservedQuantity: 0,
+      inventoryDetailId: null, serialNumber: null, batchNumber: null,
+      costSourceType: 'MANUAL', costSourceId: null,
     } as Quotation;
     const createdOrder = {
       id: 'order-001',
@@ -34,8 +42,28 @@ describe('order workflow monetary shadows', () => {
       version: 1,
       customer,
     };
-    const orderCreate = vi.fn().mockResolvedValue(createdOrder);
-    const tx = { order: { create: orderCreate } } as unknown as Prisma.TransactionClient;
+    const orderCreate = vi.fn().mockImplementation(async ({ data }) => ({
+      ...data, ...createdOrder, outboundQuantity: 0, outboundStatus: 'PENDING',
+    }));
+    const quotationLine = {
+      id: 'ql-001', quotationId: quotation.id, rfqLineId: quotation.rfqId,
+      lineNo: 1, partNumber: quotation.partNumber, quantity: 3, uom: 'EA', currency: 'USD',
+      unitPrice: new Prisma.Decimal('12.3457'), costPrice: new Prisma.Decimal(8),
+      lineTotal: new Prisma.Decimal('37.0371'), marginAmount: new Prisma.Decimal('13.0371'),
+      marginPercent: new Prisma.Decimal('13.0371').div('37.0371').mul(100).toDecimalPlaces(4),
+      acceptedQuantity: 0, reservedQuantity: 0, status: 'APPROVED', sourceSupplierQuoteId: null,
+      inventoryDetailId: null, serialNumber: null, batchNumber: null,
+    };
+    const orderLineCreate = vi.fn().mockImplementation(async ({ data }) => data);
+    const tx = {
+      order: { create: orderCreate, findUnique: vi.fn().mockResolvedValue({ quantity: 3, status: 'SO_CREATED' }) },
+      rfqLine: { findUnique: vi.fn().mockResolvedValue({ rfqId: quotation.rfqId, partNumber: quotation.partNumber, alternatePartNumbers: null }) },
+      quotationLine: {
+        findMany: vi.fn().mockResolvedValue([quotationLine]),
+        update: vi.fn().mockImplementation(async ({ data }) => ({ ...quotationLine, ...data })),
+      },
+      orderLine: { findMany: vi.fn().mockResolvedValue([]), create: orderLineCreate },
+    } as unknown as Prisma.TransactionClient;
 
     await createOrderFromQuotation({
       tx,
@@ -53,6 +81,8 @@ describe('order workflow monetary shadows', () => {
     expect(createData.statusEnum).toBe('SO_CREATED');
     expect(createData.totalAmount).toBeCloseTo(37.0371, 10);
     expect(String(createData.totalAmountDecimal)).toBe('37.0371');
+    expect(String(orderLineCreate.mock.calls[0][0].data.lineTotal)).toBe('37.0371');
+    expect(String(orderLineCreate.mock.calls[0][0].data.unitPrice)).toBe('12.3457');
     expect(createData.importDuty).toBeCloseTo(12.3457, 10);
     expect(String(createData.importDutyDecimal)).toBe('12.3457');
     expect(createData.vatAmount).toBeCloseTo(1.2, 10);

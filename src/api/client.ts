@@ -201,6 +201,7 @@ interface RuntimeTaskStepPayload {
   action: string;
   params: Record<string, unknown>;
   status: TaskStep['status'];
+  executionState?: AgentTask['executionState'];
   result?: Record<string, unknown>;
   error?: string;
   startedAt?: string;
@@ -216,6 +217,8 @@ interface RuntimeTaskPayload {
   };
   type: AgentTask['type'];
   status: AgentTask['status'];
+  executionState?: AgentTask['executionState'];
+  runtimeTrust?: AgentTask['runtimeTrust'];
   currentStepIndex: number;
   steps: RuntimeTaskStepPayload[];
   confirmationNode?: RuntimeConfirmationPayload;
@@ -227,12 +230,6 @@ interface RuntimeTaskPayload {
   error?: string;
 }
 
-function toIsoDate(value?: Date | string): string | undefined {
-  if (!value) return undefined;
-  if (typeof value === 'string') return value;
-  return value.toISOString();
-}
-
 function toDate(value?: string): Date | undefined {
   return value ? new Date(value) : undefined;
 }
@@ -242,74 +239,24 @@ function cloneRecord<T extends Record<string, unknown> | undefined>(value: T): T
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function serializeConfirmationOption(option: ConfirmationOption): RuntimeConfirmationOptionPayload {
-  return {
-    id: option.id,
-    label: option.label,
-    labelZh: option.labelZh,
-    labelEn: option.labelEn,
-    description: option.description,
-    descriptionZh: option.descriptionZh,
-    descriptionEn: option.descriptionEn,
-    action: option.action,
-    data: cloneRecord(option.data),
-  };
-}
+function inferRuntimeExecutionState(
+  data: Record<string, unknown> | undefined
+): AgentTask['executionState'] | undefined {
+  if (!data) return undefined;
 
-function serializeConfirmationNode(confirmation: ConfirmationNode): RuntimeConfirmationPayload {
-  return {
-    id: confirmation.id,
-    taskId: confirmation.taskId,
-    stepId: confirmation.stepId,
-    type: confirmation.type,
-    title: confirmation.title,
-    titleZh: confirmation.titleZh,
-    titleEn: confirmation.titleEn,
-    description: confirmation.description,
-    descriptionZh: confirmation.descriptionZh,
-    descriptionEn: confirmation.descriptionEn,
-    data: cloneRecord(confirmation.data) || {},
-    options: confirmation.options.map(serializeConfirmationOption),
-    selectedOption: confirmation.selectedOption,
-    confirmedAt: toIsoDate(confirmation.confirmedAt),
-    confirmedBy: confirmation.confirmedBy,
-  };
-}
+  const directState = data.executionState;
+  if (directState === 'manual_workflow_required' || directState === 'not_dispatched') {
+    return directState;
+  }
 
-function serializeTaskStep(step: TaskStep): RuntimeTaskStepPayload {
-  return {
-    id: step.id,
-    capability: step.capability,
-    action: step.action,
-    params: cloneRecord(step.params) || {},
-    status: step.status,
-    result: cloneRecord(step.result),
-    error: step.error,
-    startedAt: toIsoDate(step.startedAt),
-    completedAt: toIsoDate(step.completedAt),
-  };
-}
+  for (const key of ['approvalStatus', 'orderStatus', 'notificationStatus', 'dispatchStatus']) {
+    const marker = data[key];
+    if (marker === 'manual_workflow_required' || marker === 'not_dispatched') {
+      return marker;
+    }
+  }
 
-function serializeAgentTask(task: AgentTask): RuntimeTaskPayload {
-  return {
-    id: task.id,
-    trigger: {
-      type: task.trigger.type,
-      source: task.trigger.source,
-      referenceId: task.trigger.referenceId,
-    },
-    type: task.type,
-    status: task.status,
-    currentStepIndex: task.currentStepIndex,
-    steps: task.steps.map(serializeTaskStep),
-    confirmationNode: task.confirmationNode ? serializeConfirmationNode(task.confirmationNode) : undefined,
-    context: cloneRecord(task.context) || {},
-    result: cloneRecord(task.result),
-    createdAt: toIsoDate(task.createdAt) || new Date().toISOString(),
-    updatedAt: toIsoDate(task.updatedAt) || new Date().toISOString(),
-    completedAt: toIsoDate(task.completedAt),
-    error: task.error,
-  };
+  return undefined;
 }
 
 function deserializeConfirmationOption(option: RuntimeConfirmationOptionPayload): ConfirmationOption {
@@ -347,13 +294,15 @@ function deserializeConfirmationNode(confirmation: RuntimeConfirmationPayload): 
 }
 
 function deserializeTaskStep(step: RuntimeTaskStepPayload): TaskStep {
+  const result = cloneRecord(step.result);
   return {
     id: step.id,
     capability: step.capability,
     action: step.action,
     params: cloneRecord(step.params) || {},
     status: step.status,
-    result: cloneRecord(step.result),
+    executionState: step.executionState || inferRuntimeExecutionState(result),
+    result,
     error: step.error,
     startedAt: toDate(step.startedAt),
     completedAt: toDate(step.completedAt),
@@ -361,6 +310,17 @@ function deserializeTaskStep(step: RuntimeTaskStepPayload): TaskStep {
 }
 
 function deserializeAgentTask(task: RuntimeTaskPayload): AgentTask {
+  const steps = task.steps.map(deserializeTaskStep);
+  const context = cloneRecord(task.context) || {};
+  const result = cloneRecord(task.result);
+  const executionState = task.executionState
+    || inferRuntimeExecutionState(context)
+    || inferRuntimeExecutionState(result)
+    || steps.reduce<AgentTask['executionState'] | undefined>(
+      (state, step) => state || step.executionState,
+      undefined
+    );
+
   return {
     id: task.id,
     trigger: {
@@ -370,11 +330,13 @@ function deserializeAgentTask(task: RuntimeTaskPayload): AgentTask {
     },
     type: task.type,
     status: task.status,
+    executionState,
+    runtimeTrust: task.runtimeTrust || 'legacy_untrusted',
     currentStepIndex: task.currentStepIndex,
-    steps: task.steps.map(deserializeTaskStep),
+    steps,
     confirmationNode: task.confirmationNode ? deserializeConfirmationNode(task.confirmationNode) : undefined,
-    context: cloneRecord(task.context) || {},
-    result: cloneRecord(task.result),
+    context,
+    result,
     createdAt: new Date(task.createdAt),
     updatedAt: new Date(task.updatedAt),
     completedAt: toDate(task.completedAt),
@@ -391,6 +353,8 @@ export interface SupplierQuoteItem {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  currency: string | null;
+  currencyStatus: 'VERIFIED' | 'HISTORICAL_UNVERIFIED';
   leadTimeDays: number;
   validUntil: string | null;
   notes: string | null;
@@ -419,6 +383,8 @@ export interface SupplierQuoteComparedItem {
   };
   unitPrice: number;
   totalPrice: number;
+  currency: string | null;
+  currencyStatus: 'VERIFIED' | 'HISTORICAL_UNVERIFIED';
   quantity: number;
   leadTimeDays: number;
   priceDiff: number | null;
@@ -543,7 +509,7 @@ async function request<T>(
   const url = `${API_BASE_URL}${endpoint}`;
   const token = accessToken;
   const requestHeaders = new Headers(options.headers || undefined);
-  if (!requestHeaders.has('Content-Type')) {
+  if (!requestHeaders.has('Content-Type') && !(options.body instanceof FormData)) {
     requestHeaders.set('Content-Type', 'application/json');
   }
   if (token && !requestHeaders.has('Authorization')) {
@@ -862,7 +828,7 @@ export interface InventorySummary {
   standardPart: number;
   rawMaterial: number;
   consumable: number;
-  totalValue: number;
+  totalValue: number | null;
   locations: string[];
 }
 
@@ -1313,7 +1279,7 @@ export interface ReportSummary {
   activeCustomers: number;
   customerRetention: number | null;
   avgCustomerValue: number | null;
-  totalInventoryValue: number;
+  totalInventoryValue: number | null;
   avgTurnoverDays: number | null;
   slowMovingValue: number | null;
   slowMovingShare: number | null;
@@ -1637,7 +1603,7 @@ export const inventoryApi = {
   },
 
   getByPartNumber: async (partNumber: string) => {
-    return request<Inventory[]>(`/inventory/part/${partNumber}`);
+    return request<Inventory[]>(`/inventory/part/${encodeURIComponent(partNumber)}`);
   },
 
   create: async (data: ApiPayload) => {
@@ -2177,14 +2143,6 @@ export const agentRuntimeApi = {
   getById: async (id: string) => {
     const task = await request<RuntimeTaskPayload>(`/agents/runtime/tasks/${id}`);
     return deserializeAgentTask(task);
-  },
-
-  syncTask: async (task: AgentTask) => {
-    const persistedTask = await request<RuntimeTaskPayload>(`/agents/runtime/tasks/${task.id}`, {
-      method: 'PUT',
-      body: JSON.stringify(serializeAgentTask(task)),
-    });
-    return deserializeAgentTask(persistedTask);
   },
 };
 
@@ -2745,9 +2703,9 @@ export interface AuditLogItem {
 export interface ConsumptionTrend {
   period: string;
   totalQuantity: number;
-  totalValue: number;
+  totalValue: number | null;
   transactionCount: number;
-  topPartNumbers: Array<{ partNumber: string; quantity: number; value: number }>;
+  topPartNumbers: Array<{ partNumber: string; quantity: number; value: number | null }>;
 }
 
 export interface SafetyStockRecommendation {
@@ -2771,7 +2729,7 @@ export interface InventoryHealthSummary {
   lowItems: number;
   excessItems: number;
   adequateItems: number;
-  totalInventoryValue: number;
+  totalInventoryValue: number | null;
   byCategory?: Record<string, { critical: number; low: number; adequate: number; excess: number }>;
   recommendations: SafetyStockRecommendation[];
 }
@@ -2971,6 +2929,30 @@ export interface ReleaseReservationPayload {
   notes?: string;
 }
 
+export interface QualityReviewContext {
+  snapshotHash: string;
+  snapshot: {
+    inventory: { partNumber: string; serialNumber: string | null; batchNumber: string | null; conditionCode: string; shelfLifeDate: string | null; nextOverhaulDue: string | null; lifeLimited: boolean; remainingHours: number | null; remainingCycles: number | null };
+    requirements: { certificateRequired: boolean; certificateType: string | null; conditionCode: string; inspectionStandard: string | null };
+    order: { certificateRequired: boolean; certificateType: string | null; inspectionRequired: boolean };
+  };
+  review: { approved: boolean; snapshotHash: string; consumedAt: string | null; reviewedAt: string; quantity: number } | null;
+}
+
+export const qualityReviewApi = {
+  preview: (orderId: string, quantity: number) => request<QualityReviewContext>(`/inventory-transactions/quality-review/${orderId}?quantity=${quantity}`),
+  uploadEvidence: (file: File) => {
+    const body = new FormData();
+    body.append('file', file);
+    return request<{ id: string; originalName: string }>('/upload', { method: 'POST', body });
+  },
+  create: (payload: {
+    orderId: string; quantity: number; snapshotHash: string; approved: boolean; evidenceIds: string[];
+    verifiedSerialNumber: string; verifiedBatchNumber: string;
+    checks: { identity: boolean; documents: boolean; conditionAndLife: boolean; customerRequirements: boolean }; reason: string;
+  }) => request<{ id: string; approved: boolean }>('/inventory-transactions/quality-reviews', { method: 'POST', body: JSON.stringify(payload) }),
+};
+
 export const inventoryTransactionApi = {
   getByDetailId: async (detailId: string) => {
     return request<InventoryTransaction[]>(`/inventory-transactions/detail/${detailId}`);
@@ -3087,6 +3069,7 @@ export interface Inquiry {
 
 export interface CreateInquiryPayload {
   rfqId: string;
+  lineIds?: string[];
   supplierIds: string[];
   isAOG: boolean;
   notes?: string;

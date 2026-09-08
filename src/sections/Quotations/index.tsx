@@ -61,6 +61,7 @@ import { cn } from '@/lib/utils';
 import { downloadBlob } from '@/lib/downloadBlob';
 import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import type { DocumentTemplate, Quotation, QuoteStatus, SaleType, Incoterm } from '@/types';
+import { CostSourceFields } from './CostSourceFields';
 
 const statusConfig: Record<QuoteStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
   draft: { label: 'Draft', color: 'text-gray-600', bgColor: 'bg-gray-50', icon: FileText },
@@ -111,12 +112,12 @@ function QuoteDetailDialog({
   onDownloadContract: (quote: Quotation) => void;
 }) {
   const { locale } = useTranslation();
-  const can = useCapabilityStore((state) => state.can);
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const detailQuery = useQuotation(isOpen && quote ? quote.id : '');
   const detailQuote = detailQuery.data;
   const detailLoading = detailQuery.loading;
   const detailLoadFailed = Boolean(detailQuery.error);
+  const can = useCapabilityStore((state) => state.can);
 
   if (!quote) return null;
 
@@ -400,6 +401,9 @@ function CreateQuoteDialog({
     quantity: 1,
     unitPrice: 0,
     costPrice: 0,
+    costSourceType: 'MANUAL' as 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL',
+    costSourceId: '',
+    costSourceReason: '',
     validityDays: 30,
     saleType: 'Sale' as SaleType,
     incoterm: '' as Incoterm | '',
@@ -439,6 +443,8 @@ function CreateQuoteDialog({
         customerName: rfq.customerName || prev.customerName,
         partNumber: rfq.partNumber || prev.partNumber,
         quantity: rfq.quantity || prev.quantity,
+        costSourceId: '',
+        costSourceReason: '',
         validityDays: rfq.urgency === 'aog' ? 1 : prev.validityDays,
       }));
     } else {
@@ -447,7 +453,9 @@ function CreateQuoteDialog({
   };
 
   const handleSubmit = async () => {
-    if (!formData.rfqId || !formData.customerName || !formData.partNumber || formData.quantity <= 0 || formData.unitPrice <= 0) {
+    if (!formData.rfqId || !formData.customerName || !formData.partNumber || formData.quantity <= 0 || formData.unitPrice <= 0
+      || (formData.costSourceType === 'MANUAL' && !formData.costSourceReason.trim())
+      || (formData.costSourceType !== 'MANUAL' && !formData.costSourceId.trim())) {
       toast.error(tx('请填写所有必填字段（RFQ、客户、件号、数量、单价）。', 'Please fill in all required fields (RFQ, Customer, Part Number, Quantity, Unit Price).'));
       return;
     }
@@ -461,7 +469,11 @@ function CreateQuoteDialog({
         description: `Part ${formData.partNumber}`,
         quantity: formData.quantity,
         unitPrice: formData.unitPrice,
-        costPrice: formData.costPrice,
+         costPrice: formData.costPrice,
+         currency: 'USD',
+         costSourceType: formData.costSourceType,
+         costSourceId: formData.costSourceType === 'MANUAL' ? undefined : formData.costSourceId.trim(),
+         costSourceReason: formData.costSourceType === 'MANUAL' ? formData.costSourceReason.trim() : undefined,
         totalPrice,
         margin: formData.costPrice > 0 ? ((formData.unitPrice - formData.costPrice) / formData.unitPrice) * 100 : 0,
         status: 'draft',
@@ -549,7 +561,7 @@ function CreateQuoteDialog({
               <Label>{tx('件号 *', 'Part Number *')}</Label>
               <Input
                 value={formData.partNumber}
-                onChange={(e) => setFormData({ ...formData, partNumber: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, partNumber: e.target.value, costSourceId: '' })}
                 placeholder={tx('输入件号', 'Enter part number')}
               />
             </div>
@@ -562,7 +574,7 @@ function CreateQuoteDialog({
                 type="number"
                 min={1}
                 value={formData.quantity}
-                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0, costSourceId: '' })}
               />
             </div>
             <div className="space-y-2">
@@ -580,10 +592,20 @@ function CreateQuoteDialog({
                 type="number"
                 min={0}
                 value={formData.costPrice}
+                readOnly={formData.costSourceType !== 'MANUAL'}
                 onChange={(e) => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })}
               />
             </div>
           </div>
+
+          <CostSourceFields
+            active={isOpen}
+            value={formData}
+            rfqId={formData.rfqId}
+            partNumber={formData.partNumber}
+            quantity={formData.quantity}
+            onChange={(source, unitCost) => setFormData(previous => ({ ...previous, ...source, ...(unitCost !== undefined ? { costPrice: unitCost } : {}) }))}
+          />
 
           {/* AI 价格推荐 */}
           {formData.partNumber && formData.quantity > 0 && (
@@ -620,10 +642,6 @@ function CreateQuoteDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Sale">{tx('销售', 'Sale')}</SelectItem>
-                  <SelectItem value="Exchange">{tx('交换', 'Exchange')}</SelectItem>
-                  <SelectItem value="Loan">{tx('借贷', 'Loan')}</SelectItem>
-                  <SelectItem value="Consign">{tx('寄售', 'Consign')}</SelectItem>
-                  <SelectItem value="Repair">{tx('维修', 'Repair')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -900,16 +918,30 @@ function ApprovalDialog({
   quote: Quotation | null;
   isOpen: boolean;
   onClose: () => void;
-  onApprove: (comment: string) => void;
+  onApprove: (comment: string, costSource?: { costSourceType: 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL'; costSourceId?: string; costSourceReason?: string }) => void;
   onReject: (comment: string) => void;
 }) {
   const [comment, setComment] = useState('');
+  const [costSourceType, setCostSourceType] = useState<'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL'>('MANUAL');
+  const [costSourceId, setCostSourceId] = useState('');
+  const [costSourceReason, setCostSourceReason] = useState('');
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
+  useEffect(() => {
+    setComment('');
+    setCostSourceType('MANUAL');
+    setCostSourceId('');
+    setCostSourceReason('');
+  }, [isOpen, quote?.id]);
 
   if (!quote) return null;
 
   const isAog = quote.rfqUrgency === 'aog';
+  const isReapproval = quote.status === 'approved' && quote.requiresReapproval === true;
+  const needsSourceRepair = !quote.costSourceType;
+  const sourceRepairReady = costSourceType === 'MANUAL'
+    ? costSourceReason.trim().length > 0
+    : costSourceId.trim().length > 0;
 
   const getApprovalLevel = () => {
     if (isAog) return { level: tx('AOG 快速审批（manager / gm 任一通过）', 'AOG Fast Track (manager or gm)'), color: 'text-red-600' };
@@ -924,8 +956,8 @@ function ApprovalDialog({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{tx('审批报价单', 'Approve Quote')}</DialogTitle>
-          <DialogDescription className="sr-only">{tx('审批报价单意见', 'Approve or reject quote')}</DialogDescription>
+          <DialogTitle>{isReapproval ? tx('重新审核报价单', 'Re-review Quote') : tx('审批报价单', 'Approve Quote')}</DialogTitle>
+          <DialogDescription className="sr-only">{isReapproval ? tx('该报价的历史审批记录无法验证，请重新审核', 'The historical approval cannot be verified; review this quote again') : tx('审批报价单意见', 'Approve or reject quote')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
@@ -995,6 +1027,28 @@ function ApprovalDialog({
               placeholder={tx('输入审批意见（可选）...', 'Enter an approval comment (optional)...')}
             />
           </div>
+
+          {needsSourceRepair && (
+            <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <div>
+                <p className="text-sm font-medium text-amber-900">{tx('历史成本来源待补录', 'Historical cost source required')}</p>
+                <p className="text-xs text-amber-800">{tx('该历史报价没有可复核来源。补录后才可在当前版本重新审核。', 'This historical quote has no verifiable source. Add one before re-reviewing it.')}</p>
+              </div>
+              <CostSourceFields
+                active={isOpen}
+                rfqId={quote.rfqId}
+                partNumber={quote.partNumber}
+                quantity={quote.quantity}
+                expectedCost={quote.costPrice}
+                value={{ costSourceType, costSourceId, costSourceReason }}
+                onChange={source => {
+                  setCostSourceType(source.costSourceType);
+                  setCostSourceId(source.costSourceId);
+                  setCostSourceReason(source.costSourceReason);
+                }}
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2">
@@ -1013,13 +1067,18 @@ function ApprovalDialog({
           </Button>
           <Button
             className="bg-green-600 hover:bg-green-700"
+            disabled={needsSourceRepair && !sourceRepairReady}
             onClick={() => {
-              onApprove(comment);
+              onApprove(comment, needsSourceRepair ? {
+                costSourceType,
+                costSourceId: costSourceType === 'MANUAL' ? undefined : costSourceId.trim(),
+                costSourceReason: costSourceType === 'MANUAL' ? costSourceReason.trim() : undefined,
+              } : undefined);
               setComment('');
             }}
           >
             <CheckCircle className="w-4 h-4 mr-1" />
-            {tx('通过', 'Approve')}
+            {isReapproval ? tx('确认重新审核', 'Confirm Re-review') : tx('通过', 'Approve')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1433,9 +1492,9 @@ export function Quotations() {
     setIsDetailOpen(true);
   };
 
-  const handleApprove = async (comment: string) => {
+  const handleApprove = async (comment: string, costSource?: { costSourceType: 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL'; costSourceId?: string; costSourceReason?: string }) => {
     if (!selectedQuote) return;
-    const result = await approveQuote(selectedQuote.id, 'approve', selectedQuote.version, comment);
+    const result = await approveQuote(selectedQuote.id, 'approve', selectedQuote.version, comment, costSource);
     if (result) {
       setIsApprovalOpen(false);
       setSelectedQuote(null);
@@ -1763,11 +1822,13 @@ export function Quotations() {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
-                              {quote.status === 'pending_approval' && can('quotation.approve') && (
+                              {(quote.status === 'pending_approval' || (quote.status === 'approved' && quote.requiresReapproval === true)) && can('quotation.approve') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8"
+                                  title={quote.requiresReapproval ? tx('重新审核报价', 'Re-review quote') : tx('审批报价', 'Approve quote')}
+                                  aria-label={quote.requiresReapproval ? tx('重新审核报价', 'Re-review quote') : tx('审批报价', 'Approve quote')}
                                   onClick={() => {
                                     setSelectedQuote(quote);
                                     setIsApprovalOpen(true);

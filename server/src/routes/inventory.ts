@@ -9,15 +9,18 @@ import { inventoryUpdateSchema, inventoryCreateSchema } from '../lib/validation.
 import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
 import { loadInventoryReconciliation } from '../lib/inventoryReconciliation.js';
 import { serializeInventoryDetail } from '../lib/inventoryProjection.js';
+import { canViewInventoryCost } from '../lib/costVisibility.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import { createInventoryAggregate, deleteInventoryAggregate, inventoryRepository, updateInventoryAggregate } from '../modules/inventoryQuality/index.js';
 
 const router = Router();
+const requireInventoryReadCapability = requireCapability('inventory', 'read');
 const requireInventoryMutationRole = requireCapability('inventory', 'manage');
 const requireInventoryReconciliationCapability = requireCapability('inventory', 'reconcile');
 const requireInventoryExportCapability = requireCapability('inventory', 'export');
+const requireInventoryCostCapability = requireCapability('inventory', 'view_cost');
 
 const inventoryDetailInclude = {
   inventoryItem: true,
@@ -172,11 +175,16 @@ function serializeInventoryEvent(
 
 router.get(
   '/',
+  requireInventoryReadCapability,
   asyncHandler(async (req, res) => {
+    const actor = (req as AuthRequest).user!;
+    const includeCost = canViewInventoryCost(actor);
     const { page: pageNum, limit: pageSize, skip, sort, direction } = parseListQuery<InventoryListSort>(
       req.query as Record<string, unknown>,
       {
-        allowedSorts: ['partNumber', 'createdAt', 'quantity', 'unitCost'],
+        allowedSorts: includeCost
+          ? ['partNumber', 'createdAt', 'quantity', 'unitCost']
+          : ['partNumber', 'createdAt', 'quantity'],
         defaultSort: 'partNumber',
         defaultDirection: 'asc',
       },
@@ -214,13 +222,15 @@ router.get(
       standardPart: categoryCount('STANDARD_PART'),
       rawMaterial: categoryCount('RAW_MATERIAL'),
       consumable: categoryCount('CONSUMABLE'),
-      totalValue: summaryRows.reduce((sum, item) => sum + item.quantity * item.unitCost, 0),
+      totalValue: includeCost
+        ? summaryRows.reduce((sum, item) => sum + item.quantity * item.unitCost, 0)
+        : null,
       locations: Array.from(new Set(summaryRows.map((item) => item.location).filter(Boolean))).sort(),
     };
 
     res.json({
       success: true,
-      data: details.map(serializeInventoryDetail),
+      data: details.map((detail) => serializeInventoryDetail(detail, { includeCost })),
       summary,
       pagination: {
         page: pageNum,
@@ -237,6 +247,7 @@ router.get(
 router.get(
   '/export.csv',
   requireInventoryExportCapability,
+  requireInventoryCostCapability,
   asyncHandler(async (req, res) => {
     const query = req.query as Record<string, unknown>;
     const window = parseControlledExportWindow(query);
@@ -308,7 +319,9 @@ router.get(
 
 router.get(
   '/part/:partNumber',
+  requireInventoryReadCapability,
   asyncHandler(async (req, res) => {
+    const includeCost = canViewInventoryCost((req as AuthRequest).user!);
     const details = await inventoryRepository.findMany({
       where: { inventoryItem: { partNumber: req.params.partNumber } },
       include: inventoryDetailInclude,
@@ -317,14 +330,16 @@ router.get(
 
     res.json({
       success: true,
-      data: details.map(serializeInventoryDetail),
+      data: details.map((detail) => serializeInventoryDetail(detail, { includeCost })),
     });
   }),
 );
 
 router.get(
   '/:id',
+  requireInventoryReadCapability,
   asyncHandler(async (req, res) => {
+    const includeCost = canViewInventoryCost((req as AuthRequest).user!);
     const detail = await inventoryRepository.findUnique({
       where: { id: req.params.id },
       include: inventoryDetailInclude,
@@ -334,7 +349,7 @@ router.get(
       throw new AppError('库存不存在', 404, 'RESOURCE_NOT_FOUND');
     }
 
-    res.json({ success: true, data: serializeInventoryDetail(detail) });
+    res.json({ success: true, data: serializeInventoryDetail(detail, { includeCost }) });
   }),
 );
 
@@ -411,7 +426,9 @@ router.post(
           notes: input.notes,
         });
 
-        const payload = serializeInventoryDetail(detail);
+        const payload = serializeInventoryDetail(detail, {
+          includeCost: canViewInventoryCost(req.user!),
+        });
         await enqueueBusinessEvent(tx, {
           eventType: 'inventory.created',
           aggregateType: 'INVENTORY_DETAIL',
@@ -510,7 +527,9 @@ router.patch(
           notes: input.notes,
         });
 
-        const payload = serializeInventoryDetail(updated);
+        const payload = serializeInventoryDetail(updated, {
+          includeCost: canViewInventoryCost(req.user!),
+        });
         await enqueueBusinessEvent(tx, {
           eventType: quantityDelta === 0 ? 'inventory.updated' : 'inventory.adjusted',
           aggregateType: 'INVENTORY_DETAIL',
@@ -549,7 +568,9 @@ router.delete(
           id: req.params.id,
           include: inventoryDetailInclude,
         });
-        const payload = serializeInventoryDetail(deleted);
+        const payload = serializeInventoryDetail(deleted, {
+          includeCost: canViewInventoryCost(req.user!),
+        });
 
         await enqueueBusinessEvent(tx, {
           eventType: 'inventory.deleted',

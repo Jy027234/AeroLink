@@ -8,6 +8,7 @@ import {
   getInventoryHealthSummary,
   getSeasonalForecast,
 } from '../lib/inventoryAnalytics.js';
+import { canViewInventoryCost } from '../lib/costVisibility.js';
 
 const router = Router();
 
@@ -25,7 +26,8 @@ router.get(
 
     const trends = await getConsumptionTrend(
       partNumber as string | undefined,
-      monthsNum
+      monthsNum,
+      canViewInventoryCost(req.user!),
     );
 
     res.json({
@@ -63,8 +65,8 @@ router.get(
  */
 router.get(
   '/health-summary',
-  asyncHandler(async (_req: AuthRequest, res) => {
-    const summary = await getInventoryHealthSummary();
+  asyncHandler(async (req: AuthRequest, res) => {
+    const summary = await getInventoryHealthSummary(canViewInventoryCost(req.user!));
 
     res.json({
       success: true,

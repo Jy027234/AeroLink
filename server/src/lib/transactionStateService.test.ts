@@ -12,13 +12,29 @@ function createTransactionMock() {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       findUnique: vi.fn().mockResolvedValue({ id: 'rfq-1', version: 2 }),
     },
+    rfqLine: {
+      findMany: vi.fn().mockResolvedValue([]),
+      update: vi.fn().mockResolvedValue({ id: 'rfq-line-1', status: 'OPEN' }),
+    },
+    supplierQuote: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     quotation: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       findUnique: vi.fn().mockResolvedValue({ id: 'quotation-1', version: 4 }),
     },
+    quotationLine: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({ id: 'quotation-line-1' }),
+    },
     order: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       findUnique: vi.fn().mockResolvedValue({ id: 'order-1', version: 8 }),
+    },
+    orderLine: {
+      findMany: vi.fn().mockResolvedValue([]),
+      update: vi.fn().mockResolvedValue({ id: 'order-line-1' }),
     },
     transactionStatusHistory: {
       create: vi.fn().mockResolvedValue({ id: 'history-1' }),

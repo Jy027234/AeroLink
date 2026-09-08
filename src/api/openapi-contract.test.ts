@@ -388,7 +388,9 @@ describe('OpenAPI representative contract invariants', () => {
     const modelDefault = operation('POST', '/api/models/{id}/set-default');
 
     expect(runtimeList.responses['200']).toEqual({ $ref: '#/components/responses/AgentRuntimeTaskList' });
-    expect(runtimeUpdate.requestBody).toEqual({ $ref: '#/components/requestBodies/AgentRuntimeTaskSync' });
+    expect(runtimeUpdate.requestBody).toBeUndefined();
+    expect(runtimeUpdate.responses).not.toHaveProperty('200');
+    expect(runtimeUpdate.responses).toHaveProperty('410');
     expect(runtimeDashboard.responses['200']).toEqual({ $ref: '#/components/responses/AgentRuntimeDashboard' });
     expect(agents.responses['200']).toEqual({ $ref: '#/components/responses/AgentList' });
     expect(agentCreate.requestBody).toEqual({ $ref: '#/components/requestBodies/AgentCreate' });
@@ -401,6 +403,19 @@ describe('OpenAPI representative contract invariants', () => {
     expect(contract.components.schemas.AiModel.properties).not.toHaveProperty('apiKey');
     expect(contract.components.schemas.AiModelCreateRequest.properties).toMatchObject({ apiKey: { writeOnly: true } });
     expect(contract.components.schemas.AgentRuntimeTask.properties).not.toHaveProperty('contextJson');
+  });
+
+  it('requires an exact review snapshot and rejects client-supplied reviewer identity', () => {
+    const review = operation('POST', '/api/inventory-transactions/quality-reviews');
+    const preview = operation('GET', '/api/inventory-transactions/quality-review/{orderId}');
+    expect(review.responses).toHaveProperty('201');
+    expect(preview.parameters).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'quantity', required: true })]));
+    const schema = contract.components.schemas.FulfillmentReviewCreateRequest;
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(expect.arrayContaining(['snapshotHash', 'quantity', 'checks', 'reason', 'evidenceIds']));
+    expect(schema.properties).not.toHaveProperty('reviewedById');
+    expect(schema.properties).not.toHaveProperty('reviewedAt');
+    expect(contract.components.schemas.QuotationCreateRequest.properties.currency.enum).toEqual(['USD']);
   });
 
   it('contracts bounded AI assistance requests and response shapes', () => {

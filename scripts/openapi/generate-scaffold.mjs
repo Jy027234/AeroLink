@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverRouteCatalog } from './route-catalog.mjs';
+import { applySafetyContract } from './safety-contract.mjs';
+import { applyTransactionLineContract } from './transaction-line-contract.mjs';
+import { applyCommercialCostContract } from './commercial-cost-contract.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const outputPath = path.join(repoRoot, 'contracts', 'openapi', 'openapi.json');
@@ -3961,6 +3964,9 @@ export function buildScaffold() {
   }
 
   const core = coreComponents();
+  applySafetyContract(paths, core);
+  applyTransactionLineContract(paths, core);
+  applyCommercialCostContract(core);
 
   return {
     openapi: '3.1.0',

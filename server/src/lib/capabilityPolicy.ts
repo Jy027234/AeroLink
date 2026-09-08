@@ -27,6 +27,7 @@ export const CAPABILITY_RESOURCES = [
   'fmv',
   'blockchain',
   'session',
+  'quality_review',
 ] as const;
 
 export const CAPABILITY_ACTIONS = [
@@ -119,14 +120,14 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('customer', ['read', 'create', 'update', 'delete', 'export']),
       ...keys('supplier', ['read', 'create', 'update', 'delete', 'export']),
       ...keys('supplier_quote', ['read', 'create', 'update', 'delete']),
-      ...keys('inventory', ['read', 'create', 'update', 'delete', 'manage', 'reconcile', 'export']),
+      ...keys('inventory', ['read', 'create', 'update', 'delete', 'manage', 'reconcile', 'export', 'view_cost']),
       ...keys('certificate', ['read', 'issue']),
       ...keys('certificate_template', ['manage']),
       ...keys('workflow', ['read', 'manage']),
       ...keys('webhook', ['read', 'manage']),
       ...keys('agent', ['read', 'run', 'manage']),
       ...keys('model', ['read', 'manage']),
-      ...keys('report', ['read', 'export']),
+      ...keys('report', ['read', 'export', 'view_cost']),
       ...keys('integration', ['read', 'manage']),
       ...keys('email', ['read', 'update']),
       ...keys('auction', ['read', 'create', 'update']),
@@ -135,6 +136,7 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('blockchain', ['read']),
     ]),
     grant('department_or_own', [
+      ...keys('quality_review', ['read']),
       ...keys('rfq', ['read', 'create', 'update', 'transition', 'export']),
       ...keys('quotation', ['read', 'create', 'update', 'transition', 'approve', 'send', 'accept', 'withdraw', 'view_cost', 'export']),
       ...keys('order', ['read', 'create', 'update', 'transition', 'view_cost', 'export']),
@@ -144,9 +146,10 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
   finance: combine(
     grant('all', [
       ...baseReadCapabilities,
-      ...keys('quotation', ['read', 'view_cost', 'export']),
+      ...keys('quotation', ['read', 'approve', 'view_cost', 'export']),
       ...keys('order', ['read', 'view_cost', 'export']),
-      ...keys('report', ['read', 'export']),
+      ...keys('inventory', ['read', 'export', 'view_cost']),
+      ...keys('report', ['read', 'export', 'view_cost']),
       ...keys('customer', ['read']),
       ...keys('supplier', ['read']),
       ...keys('fmv', ['read']),
@@ -159,6 +162,7 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
       ...keys('customer', ['read', 'create', 'update']),
       ...keys('supplier', ['read']),
       ...keys('supplier_quote', ['read', 'create', 'update']),
+      ...keys('inventory', ['read']),
       ...keys('agent', ['read', 'run']),
       ...keys('certificate', ['read']),
       ...keys('email', ['read', 'update']),
@@ -183,6 +187,8 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
     grant('all', [
       ...baseReadCapabilities,
       ...keys('inventory', ['read']),
+      ...keys('order', ['read']),
+      ...keys('quality_review', ['read', 'approve']),
       ...keys('certificate', ['read', 'issue']),
       ...keys('certificate_template', ['manage']),
       ...keys('report', ['read']),
@@ -192,6 +198,7 @@ const rolePolicies: Record<NormalizedRole, RolePolicy> = {
   viewer: combine(
     grant('all', [
       ...baseReadCapabilities,
+      ...keys('inventory', ['read']),
       ...keys('report', ['read']),
     ]),
     grant('own', selfServiceSessionCapabilities),

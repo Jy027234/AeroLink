@@ -36,6 +36,7 @@ export function validatePasswordStrength(password: string): { valid: boolean; me
 }
 
 export const rfqCreateSchema = z.object({
+  lines: z.never({ invalid_type_error: '多行交易正在迁移，当前入口仅接受单行需求' }).optional(),
   customerId: z.string().min(1, '客户ID不能为空'),
   partNumber: z.string().min(1, '件号不能为空'),
   quantity: z.number().int().min(1, '数量必须大于0'),
@@ -91,11 +92,18 @@ export const quotationCreateSchema = z.object({
   quantity: z.number().int().min(1, '数量必须大于0'),
   unitPrice: z.number().min(0, '单价必须大于0'),
   costPrice: z.number().min(0, '成本价必须大于0'),
+  currency: z.string().trim().toUpperCase().default('USD').refine((value) => value === 'USD', '首期报价仅支持 USD 币种'),
+  costSourceType: z.enum(['SUPPLIER_QUOTE', 'INVENTORY_DETAIL', 'MANUAL'], { message: '必须明确报价成本来源' }),
+  costSourceId: z.string().trim().min(1, '成本来源 ID 不能为空').optional(),
+  costSourceReason: z.string().trim().max(1000, '成本来源原因不能超过1000个字符').optional(),
+  // Multi-line quotations are not enabled in this migration; reject rather
+  // than silently stripping a caller's line payload.
+  lines: z.never().optional(),
   certificateFiles: z.array(z.string()).optional(),
   template: z.string().optional(),
   validityDays: z.number().int().min(1).optional(),
   // P0 新增字段
-  saleType: z.string().optional().default('Sale'),
+  saleType: z.literal('Sale').optional().default('Sale'),
   shipToId: z.string().optional(),
   shipForId: z.string().optional(),
   incoterm: z.string().optional(),
@@ -120,6 +128,17 @@ export const quotationCreateSchema = z.object({
   hsCode: z.string().optional(),
   eccn: z.string().optional(),
   dualUse: z.boolean().optional().default(false),
+}).superRefine((data, ctx) => {
+  if (data.costSourceType === 'MANUAL') {
+    if (!data.costSourceReason) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceReason'], message: '人工成本必须填写来源原因' });
+    }
+    if (data.costSourceId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceId'], message: '人工成本不能填写来源 ID' });
+    }
+  } else if (!data.costSourceId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceId'], message: '引用型成本必须填写来源 ID' });
+  }
 });
 
 export const quotationSubmitSchema = z.object({
@@ -129,7 +148,29 @@ export const quotationSubmitSchema = z.object({
 export const quotationApproveSchema = z.object({
   action: z.enum(['approve', 'reject']),
   comment: z.string().optional(),
+  costSourceType: z.enum(['SUPPLIER_QUOTE', 'INVENTORY_DETAIL', 'MANUAL']).optional(),
+  costSourceId: z.string().trim().min(1, '成本来源 ID 不能为空').optional(),
+  costSourceReason: z.string().trim().max(1000, '成本来源原因不能超过1000个字符').optional(),
   ...stateTransitionMetadataSchema,
+}).superRefine((data, ctx) => {
+  if (!data.costSourceType) {
+    if (data.costSourceId || data.costSourceReason) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceType'], message: '补录成本来源时必须明确来源类型' });
+    }
+    return;
+  }
+  if (data.costSourceType === 'MANUAL') {
+    if (!data.costSourceReason) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceReason'], message: '人工成本必须填写来源原因' });
+    }
+    if (data.costSourceId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceId'], message: '人工成本不能填写来源 ID' });
+    }
+  } else if (!data.costSourceId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceId'], message: '引用型成本必须填写来源 ID' });
+  } else if (data.costSourceReason) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceReason'], message: '引用型成本不能用人工原因替代来源记录' });
+  }
 });
 
 export const quotationSendSchema = z.object({
@@ -156,11 +197,14 @@ export const orderCreateSchema = z.object({
   quotationId: z.string().min(1, '报价单ID不能为空'),
   customerId: z.string().min(1, '客户ID不能为空'),
   quotationVersion: z.number().int().positive('报价版本必须为正整数').optional(),
+  // Multi-line orders are not enabled in this migration; reject rather than
+  // silently creating an order from only the aggregate quotation.
+  lines: z.never().optional(),
   poNumber: z.string().optional(),
   deliveryDate: z.string().optional(),
   templateId: z.string().optional(),
   // P2 新增字段
-  saleType: z.string().optional().default('Sale'),
+  saleType: z.literal('Sale').optional().default('Sale'),
   incoterm: z.string().optional(),
   incotermLocation: z.string().optional(),
   shipToId: z.string().optional(),
@@ -190,7 +234,7 @@ export const orderCreateSchema = z.object({
 export const orderUpdateSchema = z.object({
   poNumber: z.string().optional(),
   deliveryDate: z.string().optional(),
-  saleType: z.string().optional(),
+  saleType: z.literal('Sale').optional(),
   incoterm: z.string().optional(),
   incotermLocation: z.string().optional(),
   shipToId: z.string().optional(),
@@ -594,12 +638,15 @@ export const emailAccountUpdateSchema = z.object({
 
 export const supplierQuoteCreateSchema = z.object({
   rfqId: z.string().optional(),
+  rfqLineId: z.string().min(1).optional(),
   inquiryId: z.string().optional(),
+  inquiryItemId: z.string().min(1).optional(),
   supplierId: z.string().min(1, '供应商ID不能为空'),
   partNumber: z.string().min(1, '件号不能为空'),
   description: z.string().optional(),
   quantity: z.number().int().min(1, '数量必须大于0'),
   unitPrice: z.number().min(0, '单价必须大于0'),
+  currency: z.string().trim().toUpperCase().default('USD').refine((value) => value === 'USD', '供应商报价仅支持 USD 币种'),
   leadTimeDays: z.number().int().min(0, '交期不能小于0'),
   validUntil: z.string().optional(),
   notes: z.string().optional(),
@@ -773,7 +820,14 @@ export const supplierFollowUpLogBatchCreateSchema = z.object({
 });
 
 export const supplierQuoteUpdateSchema = z.object({
+  rfqId: z.string().min(1).optional(),
+  rfqLineId: z.string().min(1).optional(),
+  inquiryId: z.string().min(1).optional(),
+  inquiryItemId: z.string().min(1).optional(),
+  partNumber: z.string().min(1).optional(),
+  quantity: z.number().int().min(1).optional(),
   unitPrice: z.number().min(0).optional(),
+  currency: z.string().trim().toUpperCase().refine((value) => value === 'USD', '供应商报价仅支持 USD 币种').optional(),
   leadTimeDays: z.number().int().min(0).optional(),
   validUntil: z.string().optional(),
   notes: z.string().optional(),

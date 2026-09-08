@@ -14,7 +14,13 @@ function toIso(value: Date | null) {
   return value?.toISOString();
 }
 
-export function serializeInventoryDetail(detail: InventoryDetailProjection) {
+export function serializeInventoryDetail(
+  detail: InventoryDetailProjection,
+  options: { includeCost?: boolean } | boolean = false,
+) {
+  const includeCost = typeof options === 'boolean'
+    ? options
+    : options.includeCost === true;
   const item = detail.inventoryItem;
   return {
     id: detail.id,
@@ -63,7 +69,7 @@ export function serializeInventoryDetail(detail: InventoryDetailProjection) {
     storageTempMin: detail.storageTempMin,
     storageTempMax: detail.storageTempMax,
     hazardClass: detail.hazardClass,
-    unitCost: detail.unitCost,
+    ...(includeCost ? { unitCost: detail.unitCost } : {}),
     unitOfMeasure: item.unitOfMeasure,
     countryOfOrigin: item.countryOfOrigin,
     hsCode: item.hsCode,
@@ -74,4 +80,19 @@ export function serializeInventoryDetail(detail: InventoryDetailProjection) {
     createdAt: detail.createdAt.toISOString(),
     updatedAt: detail.updatedAt.toISOString(),
   };
+}
+
+/** Remove unit cost from item/detail responses while preserving all stock data. */
+export function projectInventoryItem<T extends { details?: unknown }>(item: T, includeCost: boolean): T {
+  const details = item.details;
+  if (includeCost || !Array.isArray(details)) return item;
+
+  return {
+    ...item,
+    details: details.map((detail) => {
+      if (!detail || typeof detail !== 'object') return detail;
+      const { unitCost: _unitCost, ...safeDetail } = detail as Record<string, unknown>;
+      return safeDetail;
+    }),
+  } as T;
 }

@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
 import { logger } from './lib/logger.js';
 import { processPendingWebhookRetries } from './lib/webhookService.js';
-import { processPendingOutboxEvents } from './lib/outboxService.js';
+import {
+  processPendingOutboxEvents,
+  type OutboxChannelValue,
+} from './lib/outboxService.js';
 import { pruneExpiredIdempotencyRecords } from './lib/idempotencyService.js';
 import { processDueEmailSyncs } from './lib/inboundEmailSyncService.js';
 
@@ -17,6 +20,11 @@ export interface WorkerOptions {
   batchSize?: number;
   workerId?: string;
   shutdownTimeoutMs?: number;
+  /** Channel ownership is explicit: standalone Worker defaults to EMAIL/WEBHOOK. */
+  outboxChannels?: readonly OutboxChannelValue[];
+  runWebhookRetries?: boolean;
+  runIdempotencyCleanup?: boolean;
+  runEmailSync?: boolean;
 }
 
 /**
@@ -33,6 +41,10 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
   const batchSize = options.batchSize ?? 30;
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? 30_000;
   const workerId = options.workerId?.trim() || process.env.WORKER_ID?.trim() || `worker-${crypto.randomUUID()}`;
+  const outboxChannels = options.outboxChannels ?? (['EMAIL', 'WEBHOOK'] as const satisfies readonly OutboxChannelValue[]);
+  const runWebhookRetriesEnabled = options.runWebhookRetries ?? true;
+  const runIdempotencyCleanupEnabled = options.runIdempotencyCleanup ?? true;
+  const runEmailSyncEnabled = options.runEmailSync ?? true;
   const inFlight = new Set<Promise<void>>();
   let stopped = false;
 
@@ -60,7 +72,7 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
     'webhook-retry',
   );
   const runOutbox = () => runTask(
-    () => processPendingOutboxEvents(batchSize, workerId),
+    () => processPendingOutboxEvents(batchSize, workerId, { channels: outboxChannels }),
     'transactional-outbox',
   );
   const runIdempotencyCleanup = () => runTask(
@@ -72,24 +84,26 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
     'inbound-email-sync',
   );
 
-  const webhookTimer = setInterval(runWebhooks, webhookIntervalMs);
+  const webhookTimer = runWebhookRetriesEnabled ? setInterval(runWebhooks, webhookIntervalMs) : null;
   const outboxTimer = setInterval(runOutbox, outboxIntervalMs);
-  const idempotencyTimer = setInterval(runIdempotencyCleanup, idempotencyIntervalMs);
-  const emailSyncTimer = setInterval(runEmailSync, emailSyncIntervalMs);
+  const idempotencyTimer = runIdempotencyCleanupEnabled
+    ? setInterval(runIdempotencyCleanup, idempotencyIntervalMs)
+    : null;
+  const emailSyncTimer = runEmailSyncEnabled ? setInterval(runEmailSync, emailSyncIntervalMs) : null;
 
-  runWebhooks();
+  if (runWebhookRetriesEnabled) runWebhooks();
   runOutbox();
-  runIdempotencyCleanup();
-  runEmailSync();
+  if (runIdempotencyCleanupEnabled) runIdempotencyCleanup();
+  if (runEmailSyncEnabled) runEmailSync();
 
   return {
     stop: async () => {
       if (stopped) return;
       stopped = true;
-      clearInterval(webhookTimer);
+      if (webhookTimer) clearInterval(webhookTimer);
       clearInterval(outboxTimer);
-      clearInterval(idempotencyTimer);
-      clearInterval(emailSyncTimer);
+      if (idempotencyTimer) clearInterval(idempotencyTimer);
+      if (emailSyncTimer) clearInterval(emailSyncTimer);
       const deadline = Date.now() + Math.max(0, shutdownTimeoutMs);
       while (inFlight.size > 0 && Date.now() < deadline) {
         const remainingMs = deadline - Date.now();

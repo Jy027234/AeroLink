@@ -78,6 +78,7 @@ model User {
   statusHistoryChanges TransactionStatusHistory[] @relation("TransactionStatusActor")
   sessions              UserSession[]
   securityEvents        SecurityEvent[]
+  fulfillmentReviews      FulfillmentReview[]
 
   @@map("users")
 }
@@ -126,6 +127,7 @@ model SecurityEvent {
   @@index([sessionId, createdAt])
   @@map("security_events")
 }
+
 model NotificationPreference {
   id            String   @id @default(uuid())
   userId        String   @unique
@@ -202,6 +204,7 @@ model CustomerContact {
   receivePO  Boolean @default(false)
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
   @@map("customer_contacts")
 }
 
@@ -214,6 +217,7 @@ model CompetitorListing {
   notes       String?
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
   @@map("competitor_listings")
 }
 
@@ -489,9 +493,10 @@ model InventoryDetail {
   inventoryTransactions InventoryTransaction[]
 
   // 唯一约束：同一件号下序号唯一；同一件号+批次+状态+仓库组合唯一
+  fulfillmentReviews FulfillmentReview[]
+
   @@unique([inventoryItemId, serialNumber], name: "unique_serial_per_item")
   @@unique([inventoryItemId, batchNumber, conditionCode, warehouse], name: "unique_batch_per_item")
-
   @@map("inventory_details")
 }
 
@@ -611,36 +616,80 @@ model RFQ {
   creator     User        @relation(fields: [createdBy], references: [id])
   quotations  Quotation[]
   supplierQuotes SupplierQuote[]
+  lines          RfqLine[]
+  inquiries      Inquiry[]
 
   @@map("rfqs")
+}
+
+model RfqLine {
+  id                   String   @id @default(uuid())
+  rfqId                String
+  lineNo               Int
+  partNumber           String
+  quantity             Int
+  uom                  String   @default("EA")
+  conditionCode        String   @default("NE")
+  description          String?
+  serialNumber         String?
+  batchNumber          String?
+  alternatePartNumbers String?
+  certificateRequired  Boolean  @default(true)
+  certificateType      String?
+  requiredDate         DateTime
+  leadTimeDays         Int?
+  targetPriceDecimal   Decimal? @db.Decimal(18, 4)
+  targetPriceCurrency  String   @default("USD")
+  status               String   @default("OPEN")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  rfq            RFQ             @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  inquiryItems   InquiryItem[]
+  supplierQuotes SupplierQuote[]
+  quotationLines QuotationLine[]
+
+  @@unique([rfqId, lineNo])
+  @@index([rfqId, status])
+  @@map("rfq_lines")
 }
 
 model Inquiry {
   id            String    @id @default(uuid())
   inquiryNumber String    @unique
   supplierId    String
+  rfqId         String?
+  notes         String?
   isAOG         Boolean   @default(false)
   status        String    @default("DRAFT")
   createdAt     DateTime  @default(now())
   sentAt        DateTime?
 
+  rfq            RFQ?            @relation(fields: [rfqId], references: [id], onDelete: SetNull)
   supplier      Supplier      @relation(fields: [supplierId], references: [id])
   items         InquiryItem[]
   supplierQuotes SupplierQuote[]
 
+  @@index([rfqId, supplierId])
   @@map("inquiries")
 }
 
 model InquiryItem {
   id                  String   @id @default(uuid())
   inquiryId           String
+  lineNo              Int      @default(1)
+  rfqLineId           String?
   partNumber          String
   quantity            Int
   requiredDate        DateTime
   certificateRequired Boolean  @default(true)
 
   inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  rfqLine        RfqLine?        @relation(fields: [rfqLineId], references: [id], onDelete: SetNull)
+  supplierQuotes SupplierQuote[]
 
+  @@unique([inquiryId, lineNo])
+  @@index([rfqLineId])
   @@map("inquiry_items")
 }
 
@@ -648,6 +697,8 @@ model SupplierQuote {
   id            String    @id @default(uuid())
   inquiryId    String?
   rfqId        String?
+  rfqLineId            String?
+  inquiryItemId        String?
   supplierId   String
   partNumber   String
   description   String?
@@ -658,6 +709,9 @@ model SupplierQuote {
   // projection until the later read-cutover migration is approved.
   unitPriceDecimal Decimal? @db.Decimal(18, 4)
   totalPriceDecimal Decimal? @db.Decimal(18, 4)
+  // 首期供应商报价仅接受 USD。历史记录没有币种事实，保持 NULL 并在响应中标记待核。
+  currency             String?
+  currencyReviewStatus String?
   leadTimeDays Int
   validUntil   DateTime?
   notes        String?
@@ -671,8 +725,13 @@ model SupplierQuote {
 
   inquiry  Inquiry?  @relation(fields: [inquiryId], references: [id])
   rfq     RFQ?     @relation(fields: [rfqId], references: [id])
+  rfqLine        RfqLine?        @relation(fields: [rfqLineId], references: [id], onDelete: SetNull)
+  inquiryItem    InquiryItem?    @relation(fields: [inquiryItemId], references: [id], onDelete: SetNull)
   supplier Supplier  @relation(fields: [supplierId], references: [id])
+  quotationLines QuotationLine[]
 
+  @@index([rfqLineId, supplierId, status])
+  @@index([inquiryItemId, supplierId, status])
   @@map("supplier_quotes")
 }
 
@@ -708,11 +767,19 @@ model Quotation {
   totalPrice      Float
   costPrice       Float
   margin          Float
+  currency          String   @default("USD")
   // P1-04 monetary shadows. New writes dual-write these Decimal values while
   // preserving the existing Float fields for backwards-compatible API output.
   unitPriceDecimal Decimal? @db.Decimal(18, 4)
   totalPriceDecimal Decimal? @db.Decimal(18, 4)
   costPriceDecimal Decimal? @db.Decimal(18, 4)
+
+  // 成本来源是报价审批所需的业务证据；历史报价保持 NULL，不默认为任何来源。
+  costSourceType         String?
+  costSourceId           String?
+  costSourceReason       String?
+  costSourceSnapshotJson String?
+  costSourceCapturedAt   DateTime?
 
   // 销售与交付
   saleType        String   @default("Sale")
@@ -798,14 +865,56 @@ model Quotation {
   generatedDocuments GeneratedDocument[]
   outboundEmails OutboundEmail[]
   certificates Certificate[]
+  lines              QuotationLine[]
 
+  @@index([costSourceType, costSourceId])
   @@map("quotations")
+}
+
+model QuotationLine {
+  id                    String   @id @default(uuid())
+  quotationId           String
+  lineNo                Int
+  rfqLineId             String
+  sourceSupplierQuoteId String?
+  partNumber            String
+  description           String?
+  uom                   String   @default("EA")
+  quantity              Int
+  unitPrice             Decimal  @db.Decimal(18, 4)
+  costPrice             Decimal  @db.Decimal(18, 4)
+  lineTotal             Decimal  @db.Decimal(18, 4)
+  marginAmount          Decimal  @db.Decimal(18, 4)
+  marginPercent         Decimal  @db.Decimal(9, 4)
+  currency              String   @default("USD")
+  status                String   @default("DRAFT")
+  acceptedQuantity      Int      @default(0)
+  reservedQuantity      Int      @default(0)
+  inventoryDetailId     String?
+  serialNumber          String?
+  batchNumber           String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  quotation           Quotation      @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  rfqLine             RfqLine        @relation(fields: [rfqLineId], references: [id], onDelete: Restrict)
+  sourceSupplierQuote SupplierQuote? @relation(fields: [sourceSupplierQuoteId], references: [id], onDelete: SetNull)
+  orderLines          OrderLine[]
+
+  @@unique([quotationId, lineNo])
+  @@index([rfqLineId])
+  @@index([sourceSupplierQuoteId])
+  @@map("quotation_lines")
 }
 
 model Approval {
   id            String   @id @default(uuid())
   quotationId   String
   level         String
+  requiredLevel   String?
+  policyVersion   String?
+  reviewedVersion Int?
+  snapshotJson    String?
   approverId    String
   action        String?
   comment       String?
@@ -901,9 +1010,63 @@ model Order {
   generatedDocuments GeneratedDocument[]
   certificates Certificate[]
   inventoryTransactions InventoryTransaction[]
+  lines                 OrderLine[]
+  fulfillmentReviews    FulfillmentReview[]
 
   @@index([status, createdAt])
   @@map("orders")
+}
+
+model OrderLine {
+  id                String   @id @default(uuid())
+  orderId           String
+  lineNo            Int
+  quotationLineId   String
+  partNumber        String
+  uom               String   @default("EA")
+  quantity          Int
+  unitPrice         Decimal  @db.Decimal(18, 4)
+  lineTotal         Decimal  @db.Decimal(18, 4)
+  currency          String   @default("USD")
+  outboundQuantity  Int      @default(0)
+  outboundStatus    String   @default("PENDING")
+  inventoryDetailId String?
+  serialNumber      String?
+  batchNumber       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  quotationLine QuotationLine @relation(fields: [quotationLineId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, lineNo])
+  @@index([quotationLineId])
+  @@map("order_lines")
+}
+
+// Immutable human quality review for one planned outbound quantity.
+// No historical record is automatically approved during migration.
+model FulfillmentReview {
+  id                String    @id @default(uuid())
+  orderId           String
+  inventoryDetailId String
+  quantity          Int
+  approved          Boolean
+  snapshotHash      String
+  snapshot          Json
+  evidence          Json
+  checks            Json
+  reason            String
+  reviewedById      String
+  reviewedAt        DateTime  @default(now())
+  consumedAt        DateTime?
+
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  inventoryDetail InventoryDetail @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
+  reviewer        User            @relation(fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  @@index([orderId, inventoryDetailId, reviewedAt])
+  @@map("fulfillment_reviews")
 }
 
 model TransactionStatusHistory {
@@ -1258,13 +1421,13 @@ model WebhookDelivery {
 
   endpoint        WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 
+  @@unique([endpointId, outboxEventId])
   @@index([status, nextRetryAt])
   @@index([status, lockedAt])
   @@index([workerId, status])
   @@index([status])  // Phase 2: fast query for quarantined
   @@index([endpointId, createdAt])
   @@index([eventId])
-  @@unique([endpointId, outboxEventId])
   @@map("webhook_deliveries")
 }
 
@@ -1699,7 +1862,6 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-
 // ============================================
 // Phase 2.3: 拍卖模块 (Auction Module)
 // ============================================
@@ -1780,7 +1942,6 @@ model AuctionBid {
   @@map("auction_bids")
 }
 
-
 // ============================================
 // Phase 2.4: 寄售管理 (Consignment Module)
 // ============================================
@@ -1842,7 +2003,6 @@ model Consignment {
   @@index([partNumber, status])
   @@map("consignments")
 }
-
 
 // ============================================
 // Phase 3.1: API Key 管理 (API Platform)

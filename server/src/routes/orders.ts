@@ -14,7 +14,10 @@ import { applyIdempotencyHeaders, buildIdempotencyContext, type IdempotentExecut
 import { isUniqueConstraintError } from '../lib/prismaErrors.js';
 import { toUiOrderStatus } from '../lib/orderStateMachine.js';
 import { preferredOrderStatus, preferredQuotationStatus } from '../lib/transactionStatusShadows.js';
-import { getCapabilityScope, hasCapability } from '../lib/capabilityPolicy.js';
+import { getCapabilityScope } from '../lib/capabilityPolicy.js';
+import {
+  projectOrderResponse,
+} from '../lib/responsePolicy.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import {
   createOrderFromQuotation,
@@ -35,6 +38,13 @@ type ScopedOrder = {
     creator?: { department?: string | null } | null;
   } | null;
 };
+
+function orderResponseContext(order: ScopedOrder) {
+  return {
+    ownerId: order.quotation?.createdBy,
+    department: order.quotation?.creator?.department,
+  };
+}
 
 function buildOrderReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.OrderWhereInput {
   const scope = getCapabilityScope(actor, 'order.read');
@@ -102,14 +112,6 @@ function assertOrderAccess(
 ) {
   const quotation = order.quotation;
   assertCapability(actor, 'order', action, {
-    ownerId: quotation?.createdBy,
-    department: quotation?.creator?.department,
-  });
-}
-
-function canViewOrderCost(actor: NonNullable<AuthRequest['user']>, order: ScopedOrder) {
-  const quotation = order.quotation;
-  return hasCapability(actor, 'order', 'view_cost', {
     ownerId: quotation?.createdBy,
     department: quotation?.creator?.department,
   });
@@ -246,6 +248,38 @@ function mapOrderStatusHistoryEntry(history: {
     createdAt: history.createdAt.toISOString(),
   };
 }
+
+async function loadOrderResponseScope(orderId: string): Promise<ScopedOrder> {
+  const order = await orderRepository.findUnique({
+    where: { id: orderId },
+    select: {
+      quotation: {
+        select: {
+          createdBy: true,
+          creator: { select: { department: true } },
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
+  }
+  return order;
+}
+
+async function resolveOrderResponseScope(
+  actor: NonNullable<AuthRequest['user']>,
+  orderId: string,
+  knownScope?: ScopedOrder,
+) {
+  const scope = knownScope || await loadOrderResponseScope(orderId);
+  // Replays must use the current quotation owner/department, rather than a
+  // scope that may have changed since the original mutation was committed.
+  assertOrderAccess(actor, 'read', scope);
+  return scope;
+}
+
 router.get(
   '/',
   requireCapability('order', 'read'),
@@ -316,8 +350,7 @@ router.get(
     res.json({
       success: true,
       data: orders.map((o) => {
-        const showCost = canViewOrderCost(actor, o);
-        return {
+        return projectOrderResponse({
           id: o.id,
           orderNumber: o.orderNumber,
           soNumber: o.soNumber,
@@ -355,16 +388,14 @@ router.get(
           inspectionDate: o.inspectionDate?.toISOString(),
           customsClearanceRequired: o.customsClearanceRequired,
           customsDeclarationNo: o.customsDeclarationNo,
-          ...(showCost ? {
-            importDuty: preferredMoneyValue(o.importDutyDecimal, o.importDuty),
-            vatAmount: preferredMoneyValue(o.vatAmountDecimal, o.vatAmount),
-            totalLandCost: preferredMoneyValue(o.totalLandCostDecimal, o.totalLandCost),
-            exchangeCoreCharge: preferredMoneyValue(o.exchangeCoreChargeDecimal, o.exchangeCoreCharge),
-            exchangeCoreDueDate: o.exchangeCoreDueDate?.toISOString(),
-          } : {}),
+          importDuty: preferredMoneyValue(o.importDutyDecimal, o.importDuty),
+          vatAmount: preferredMoneyValue(o.vatAmountDecimal, o.vatAmount),
+          totalLandCost: preferredMoneyValue(o.totalLandCostDecimal, o.totalLandCost),
+          exchangeCoreCharge: preferredMoneyValue(o.exchangeCoreChargeDecimal, o.exchangeCoreCharge),
+          exchangeCoreDueDate: o.exchangeCoreDueDate?.toISOString(),
           eSignatureCustomer: o.eSignatureCustomer,
           eSignatureSupplier: o.eSignatureSupplier,
-        };
+        }, actor, orderResponseContext(o));
       }),
       summary,
       pagination: {
@@ -399,7 +430,9 @@ router.get(
         partNumber: true,
         quantity: true,
         totalAmount: true,
+        totalAmountDecimal: true,
         status: true,
+        statusEnum: true,
         deliveryDate: true,
         createdAt: true,
         customer: { select: { name: true } },
@@ -425,8 +458,8 @@ router.get(
         { header: '客户', value: (order) => order.customer.name },
         { header: '件号', value: (order) => order.partNumber },
         { header: '数量', value: (order) => order.quantity },
-        { header: '金额', value: (order) => order.totalAmount },
-        { header: '状态', value: (order) => order.status },
+        { header: '金额', value: (order) => preferredMoneyValue(order.totalAmountDecimal, order.totalAmount) ?? 0 },
+        { header: '状态', value: (order) => orderStatus(order).toLowerCase() },
         { header: '交付日期', value: (order) => order.deliveryDate },
         { header: '创建时间', value: (order) => order.createdAt },
       ],
@@ -499,15 +532,11 @@ router.get(
     assertOrderAccess(actor, 'read', order);
 
     const projectedOrder = projectOrderWithQuotation(order);
-    const {
-      importDuty: _importDuty,
-      vatAmount: _vatAmount,
-      totalLandCost: _totalLandCost,
-      exchangeCoreCharge: _exchangeCoreCharge,
-      exchangeCoreDueDate: _exchangeCoreDueDate,
-      ...orderWithoutCost
-    } = projectedOrder;
-    const orderForActor = canViewOrderCost(actor, order) ? projectedOrder : orderWithoutCost;
+    const orderForActor = projectOrderResponse(
+      projectedOrder,
+      actor,
+      orderResponseContext(order),
+    );
     res.json({
       success: true,
       data: {
@@ -539,6 +568,7 @@ router.post(
 
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
+    let mutationScope: ScopedOrder | undefined;
     const idempotencyContext = buildIdempotencyContext(req, actorId, 'POST:/orders');
     let execution: IdempotentExecution<OrderCreateResponse>;
 
@@ -581,6 +611,12 @@ router.post(
             eSignatureCustomer,
             eSignatureSupplier,
             authorize: (quotation) => {
+              mutationScope = {
+                quotation: {
+                  createdBy: quotation.createdBy,
+                  creator: quotation.creator,
+                },
+              };
               const quotationAccessContext = {
                 ownerId: quotation.createdBy,
                 department: quotation.creator?.department,
@@ -636,6 +672,12 @@ router.post(
         ownerId: currentQuotation.createdBy,
         department: currentQuotation.creator?.department,
       };
+      mutationScope = {
+        quotation: {
+          createdBy: currentQuotation.createdBy,
+          creator: currentQuotation.creator,
+        },
+      };
       assertCapability(actor, 'order', 'create', quotationAccessContext);
       assertCapability(actor, 'quotation', 'accept', quotationAccessContext);
 
@@ -658,10 +700,21 @@ router.post(
       };
     }
 
+    const responseOrderId = String((execution.payload as { id?: string }).id || '');
+    const responseScope = await resolveOrderResponseScope(
+      actor,
+      responseOrderId,
+      execution.replayed ? undefined : mutationScope,
+    );
+    const responsePayload = projectOrderResponse(
+      execution.payload,
+      actor,
+      orderResponseContext(responseScope),
+    );
     applyIdempotencyHeaders(res, execution);
     res.status(execution.statusCode).json({
       success: true,
-      data: execution.payload,
+      data: responsePayload,
     });
   })
 );
@@ -674,6 +727,7 @@ router.patch(
     const nextStatus = String(req.body.status);
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
+    let mutationScope: ScopedOrder | undefined;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'PATCH:/orders/:id/status'),
       async (tx) => {
@@ -684,7 +738,10 @@ router.patch(
           actorId,
           reasonCode: req.body.reasonCode || 'MANUAL_STATUS_UPDATE',
           reason: req.body.reason,
-          authorize: (candidate) => assertOrderAccess(actor, 'transition', candidate),
+          authorize: (candidate) => {
+            mutationScope = candidate;
+            assertOrderAccess(actor, 'transition', candidate);
+          },
         });
 
         return {
@@ -698,10 +755,20 @@ router.patch(
       },
     );
 
+    const responseScope = await resolveOrderResponseScope(
+      actor,
+      req.params.id,
+      execution.replayed ? undefined : mutationScope,
+    );
+    const responsePayload = projectOrderResponse(
+      execution.payload,
+      actor,
+      orderResponseContext(responseScope),
+    );
     applyIdempotencyHeaders(res, execution);
     res.status(execution.statusCode).json({
       success: true,
-      data: execution.payload,
+      data: responsePayload,
     });
   })
 );
@@ -766,6 +833,7 @@ router.patch(
 
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
+    let mutationScope: ScopedOrder | undefined;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'PATCH:/orders/:id'),
       async (tx) => {
@@ -781,7 +849,10 @@ router.patch(
               orderBy: { generatedAt: 'desc' },
             },
           },
-          authorize: (candidate) => assertOrderAccess(actor, 'update', candidate),
+          authorize: (candidate) => {
+            mutationScope = candidate;
+            assertOrderAccess(actor, 'update', candidate);
+          },
         });
 
         return {
@@ -797,10 +868,20 @@ router.patch(
       },
     );
 
+    const responseScope = await resolveOrderResponseScope(
+      actor,
+      req.params.id,
+      execution.replayed ? undefined : mutationScope,
+    );
+    const responsePayload = projectOrderResponse(
+      execution.payload,
+      actor,
+      orderResponseContext(responseScope),
+    );
     applyIdempotencyHeaders(res, execution);
     res.status(execution.statusCode).json({
       success: true,
-      data: execution.payload,
+      data: responsePayload,
     });
   })
 );

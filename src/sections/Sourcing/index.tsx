@@ -140,7 +140,7 @@ function InventoryMatchCard({ item, rfq }: { item: InventoryItem; rfq: RFQ | nul
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const isMatch = rfq && item.partNumber === rfq.partNumber;
-  const isAlternative = rfq && item.partNumber.includes(rfq.partNumber.replace(/-/g, '').slice(0, 8));
+  const isAlternative = rfq?.alternatePartNumbers?.includes(item.partNumber) ?? false;
   const firstDetail = item.details?.[0];
 
   return (
@@ -163,7 +163,7 @@ function InventoryMatchCard({ item, rfq }: { item: InventoryItem; rfq: RFQ | nul
               {isAlternative && !isMatch && (
                 <Badge className="bg-yellow-100 text-yellow-700">
                   <AlertTriangle className="w-3 h-3 mr-1" />
-                  {tx('可替代', 'Interchangeable')}
+                  {tx('需求列明的替代件号', 'Alternate listed in RFQ')}
                 </Badge>
               )}
             </div>
@@ -187,7 +187,7 @@ function InventoryMatchCard({ item, rfq }: { item: InventoryItem; rfq: RFQ | nul
           </div>
           <div>
             <p className="text-xs text-gray-400">{tx('成本', 'Cost')}</p>
-            <p className="font-semibold">${firstDetail?.unitCost?.toLocaleString() || '-'}</p>
+            <p className="font-semibold">{firstDetail?.unitCost == null ? '—' : `$${firstDetail.unitCost.toLocaleString()}`}</p>
           </div>
         </div>
       </CardContent>
@@ -322,7 +322,7 @@ export function Sourcing() {
       setSelectedSuppliers([]);
       setInquiryNote('');
       setIsAOG(false);
-      toast.success(tx(`询价已发送给 ${selectedSuppliers.length} 家供应商。`, `Inquiry has been sent to ${selectedSuppliers.length} suppliers.`));
+      toast.success(tx(`已建立 ${result.length} 份待发送询价，请人工核对并联系供应商。`, `${result.length} inquiry drafts created. Review them and contact the suppliers.`));
     }
   };
 
@@ -524,7 +524,7 @@ export function Sourcing() {
                   {inventoryItems
                     ?.filter((item) =>
                       item.partNumber === selectedRFQ.partNumber ||
-                      item.partNumber.includes(selectedRFQ.partNumber.replace(/-/g, '').slice(0, 8))
+                      selectedRFQ.alternatePartNumbers?.includes(item.partNumber)
                     )
                     .map((item) => (
                       <InventoryMatchCard key={item.id} item={item} rfq={selectedRFQ} />
@@ -560,7 +560,7 @@ export function Sourcing() {
                   className="bg-brand-primary hover:bg-brand-primary-hover"
                 >
                   <Send className="w-4 h-4 mr-1" />
-                  {tx('发送询价', 'Send Inquiry')}
+                  {tx('建立询价草稿', 'Create Inquiry Drafts')}
                 </Button>
               )}
             </div>
@@ -604,8 +604,8 @@ export function Sourcing() {
       <Dialog open={isInquiryDialogOpen} onOpenChange={setIsInquiryDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{tx('确认发送询价', 'Confirm Sending Inquiry')}</DialogTitle>
-            <DialogDescription className="sr-only">{tx('确认发送询价给已选供应商', 'Confirm sending inquiry to selected suppliers')}</DialogDescription>
+            <DialogTitle>{tx('建立询价草稿', 'Create Inquiry Drafts')}</DialogTitle>
+            <DialogDescription>{tx('保存已选供应商的询价草稿。请核对后人工联系供应商，草稿尚未发送。', 'Save drafts for the selected suppliers. Review the drafts and contact suppliers; these drafts have not been sent.')}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
@@ -670,7 +670,7 @@ export function Sourcing() {
               ) : (
                 <Send className="w-4 h-4 mr-1" />
               )}
-              {tx('确认发送', 'Confirm Send')}
+              {tx('保存草稿', 'Save Drafts')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -140,6 +140,10 @@ describe('inventoryQuality service policy', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       order: { findUnique: vi.fn().mockResolvedValue(null) },
+      rfqLine: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },
+      supplierQuote: { findUnique: vi.fn().mockResolvedValue(null) },
+      quotationLine: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },
+      orderLine: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },
       inventoryTransaction: { create: vi.fn().mockResolvedValue(transaction) },
     } as unknown as Prisma.TransactionClient;
 

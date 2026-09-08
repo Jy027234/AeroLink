@@ -232,7 +232,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 212
+          "line": 216
         },
         "security": [],
         "parameters": [],
@@ -282,7 +282,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 286
+          "line": 290
         },
         "security": [
           {
@@ -336,7 +336,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 359
+          "line": 363
         },
         "security": [
           {
@@ -390,7 +390,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 384
+          "line": 388
         },
         "security": [
           {
@@ -439,7 +439,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 849
+          "line": 853
         },
         "security": [
           {
@@ -493,7 +493,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 395
+          "line": 399
         },
         "security": [
           {
@@ -544,7 +544,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 410
+          "line": 414
         },
         "security": [
           {
@@ -595,7 +595,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 451
+          "line": 455
         },
         "security": [
           {
@@ -649,7 +649,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 473
+          "line": 477
         },
         "security": [
           {
@@ -712,7 +712,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 496
+          "line": 500
         },
         "security": [
           {
@@ -787,7 +787,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 535
+          "line": 539
         },
         "security": [
           {
@@ -850,7 +850,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 567
+          "line": 571
         },
         "security": [],
         "parameters": [
@@ -906,7 +906,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 609
+          "line": 613
         },
         "security": [
           {
@@ -960,7 +960,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 676
+          "line": 680
         },
         "security": [],
         "parameters": [],
@@ -1010,7 +1010,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 741
+          "line": 745
         },
         "security": [],
         "parameters": [
@@ -1066,7 +1066,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 783
+          "line": 787
         },
         "security": [],
         "parameters": [],
@@ -1116,7 +1116,7 @@
         "x-aerolink-owner": "P2-01/auth",
         "x-aerolink-source": {
           "file": "server/src/routes/auth.ts",
-          "line": 894
+          "line": 898
         },
         "security": [
           {
@@ -1323,7 +1323,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 169
+          "line": 160
         },
         "security": [
           {
@@ -1448,7 +1448,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 361
+          "line": 354
         },
         "security": [
           {
@@ -1514,7 +1514,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 233
+          "line": 225
         },
         "security": [
           {
@@ -1681,7 +1681,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 292
+          "line": 284
         },
         "security": [
           {
@@ -1741,7 +1741,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 327
+          "line": 319
         },
         "security": [
           {
@@ -1799,7 +1799,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 481
+          "line": 456
         },
         "security": [
           {
@@ -1873,7 +1873,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 568
+          "line": 534
         },
         "security": [
           {
@@ -1947,7 +1947,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 286
+          "line": 311
         },
         "security": [
           {
@@ -2050,7 +2050,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 613
+          "line": 659
         },
         "security": [
           {
@@ -2116,7 +2116,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 437
+          "line": 476
         },
         "security": [
           {
@@ -2261,7 +2261,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 494
+          "line": 538
         },
         "security": [
           {
@@ -2321,7 +2321,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 529
+          "line": 573
         },
         "security": [
           {
@@ -2381,7 +2381,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 804
+          "line": 719
         },
         "security": [
           {
@@ -2455,7 +2455,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 872
+          "line": 769
         },
         "security": [
           {
@@ -2529,7 +2529,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 965
+          "line": 825
         },
         "security": [
           {
@@ -2603,7 +2603,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 1061
+          "line": 883
         },
         "security": [
           {
@@ -2677,7 +2677,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 1285
+          "line": 948
         },
         "security": [
           {
@@ -2751,7 +2751,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 1422
+          "line": 1021
         },
         "security": [
           {
@@ -2811,7 +2811,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 246
+          "line": 283
         },
         "security": [
           {
@@ -2914,7 +2914,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 520
+          "line": 552
         },
         "security": [
           {
@@ -2980,7 +2980,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 379
+          "line": 413
         },
         "security": [
           {
@@ -3125,7 +3125,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 436
+          "line": 472
         },
         "security": [
           {
@@ -3185,7 +3185,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 475
+          "line": 511
         },
         "security": [
           {
@@ -3243,7 +3243,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 840
+          "line": 776
         },
         "security": [
           {
@@ -3317,7 +3317,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 756
+          "line": 722
         },
         "security": [
           {
@@ -3391,7 +3391,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 954
+          "line": 889
         },
         "security": [
           {
@@ -3451,7 +3451,7 @@
         "x-aerolink-owner": "P2-01/orders",
         "x-aerolink-source": {
           "file": "server/src/routes/orders.ts",
-          "line": 991
+          "line": 926
         },
         "security": [
           {
@@ -3511,7 +3511,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 173
+          "line": 176
         },
         "security": [
           {
@@ -3651,7 +3651,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 341
+          "line": 356
         },
         "security": [
           {
@@ -3717,7 +3717,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 237
+          "line": 247
         },
         "security": [
           {
@@ -3899,7 +3899,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 287
+          "line": 298
         },
         "security": [
           {
@@ -3950,7 +3950,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 309
+          "line": 320
         },
         "security": [
           {
@@ -4010,7 +4010,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 325
+          "line": 338
         },
         "security": [
           {
@@ -4068,7 +4068,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 459
+          "line": 455
         },
         "security": [
           {
@@ -4140,7 +4140,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 587
+          "line": 559
         },
         "security": [
           {
@@ -4665,7 +4665,7 @@
         "x-aerolink-owner": "P2-01/customers",
         "x-aerolink-source": {
           "file": "server/src/routes/customers.ts",
-          "line": 459
+          "line": 435
         },
         "security": [
           {
@@ -4736,7 +4736,7 @@
         "x-aerolink-owner": "P2-01/suppliers",
         "x-aerolink-source": {
           "file": "server/src/routes/suppliers.ts",
-          "line": 158
+          "line": 159
         },
         "security": [
           {
@@ -4859,7 +4859,7 @@
         "x-aerolink-owner": "P2-01/suppliers",
         "x-aerolink-source": {
           "file": "server/src/routes/suppliers.ts",
-          "line": 447
+          "line": 448
         },
         "security": [
           {
@@ -4925,7 +4925,7 @@
         "x-aerolink-owner": "P2-01/suppliers",
         "x-aerolink-source": {
           "file": "server/src/routes/suppliers.ts",
-          "line": 236
+          "line": 237
         },
         "security": [
           {
@@ -5090,7 +5090,7 @@
         "x-aerolink-owner": "P2-01/suppliers",
         "x-aerolink-source": {
           "file": "server/src/routes/suppliers.ts",
-          "line": 293
+          "line": 294
         },
         "security": [
           {
@@ -5160,7 +5160,7 @@
         "x-aerolink-owner": "P2-01/suppliers",
         "x-aerolink-source": {
           "file": "server/src/routes/suppliers.ts",
-          "line": 335
+          "line": 336
         },
         "security": [
           {
@@ -5226,7 +5226,7 @@
         "x-aerolink-owner": "P2-01/suppliers",
         "x-aerolink-source": {
           "file": "server/src/routes/suppliers.ts",
-          "line": 410
+          "line": 411
         },
         "security": [
           {
@@ -5284,7 +5284,7 @@
         "x-aerolink-owner": "P2-01/suppliers",
         "x-aerolink-source": {
           "file": "server/src/routes/suppliers.ts",
-          "line": 517
+          "line": 509
         },
         "security": [
           {
@@ -5356,7 +5356,7 @@
         "x-aerolink-owner": "P2-01/suppliers",
         "x-aerolink-source": {
           "file": "server/src/routes/suppliers.ts",
-          "line": 608
+          "line": 585
         },
         "security": [
           {
@@ -5427,7 +5427,7 @@
         "x-aerolink-owner": "P2-01/suppliers",
         "x-aerolink-source": {
           "file": "server/src/routes/suppliers.ts",
-          "line": 593
+          "line": 570
         },
         "security": [
           {
@@ -5796,7 +5796,7 @@
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 10
+          "line": 49
         },
         "security": [
           {
@@ -5820,28 +5820,6 @@
           },
           {
             "name": "isRead",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "processingStatus",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "pending",
-                "processed",
-                "discarded",
-                "failed"
-              ]
-            }
-          },
-          {
-            "name": "excludeSpam",
             "in": "query",
             "required": false,
             "schema": {
@@ -5913,7 +5891,7 @@
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 55
+          "line": 95
         },
         "security": [
           {
@@ -5973,7 +5951,7 @@
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 78
+          "line": 115
         },
         "security": [
           {
@@ -6044,7 +6022,7 @@
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 93
+          "line": 131
         },
         "security": [
           {
@@ -6113,12 +6091,12 @@
           "emails"
         ],
         "summary": "PATCH /api/emails/:id/discard",
-        "description": "Persistently discards an unprocessed inbound email. Emails already linked to an RFQ are protected from discard.",
+        "description": "Contracted internal PATCH /api/emails/:id/discard operation. This route uses the bounded JSON envelope while its owning vertical slice is migrated to a DTO-specific schema; credentials and provider secrets are excluded.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 162
+          "line": 150
         },
         "security": [
           {
@@ -6148,7 +6126,7 @@
         ],
         "responses": {
           "200": {
-            "$ref": "#/components/responses/Email"
+            "$ref": "#/components/responses/Success"
           },
           "400": {
             "$ref": "#/components/responses/Error"
@@ -6174,7 +6152,11 @@
           "500": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/JsonBody"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
       }
     },
     "/api/email-accounts": {
@@ -6189,7 +6171,7 @@
         "x-aerolink-owner": "P2-01/emailAccounts",
         "x-aerolink-source": {
           "file": "server/src/routes/emailAccounts.ts",
-          "line": 66
+          "line": 67
         },
         "security": [
           {
@@ -6260,7 +6242,7 @@
         "x-aerolink-owner": "P2-01/emailAccounts",
         "x-aerolink-source": {
           "file": "server/src/routes/emailAccounts.ts",
-          "line": 172
+          "line": 173
         },
         "security": [
           {
@@ -6326,7 +6308,7 @@
         "x-aerolink-owner": "P2-01/emailAccounts",
         "x-aerolink-source": {
           "file": "server/src/routes/emailAccounts.ts",
-          "line": 95
+          "line": 96
         },
         "security": [
           {
@@ -6389,7 +6371,7 @@
         "x-aerolink-owner": "P2-01/emailAccounts",
         "x-aerolink-source": {
           "file": "server/src/routes/emailAccounts.ts",
-          "line": 154
+          "line": 155
         },
         "security": [
           {
@@ -6447,7 +6429,7 @@
         "x-aerolink-owner": "P2-01/emailAccounts",
         "x-aerolink-source": {
           "file": "server/src/routes/emailAccounts.ts",
-          "line": 213
+          "line": 214
         },
         "security": [
           {
@@ -6519,7 +6501,7 @@
         "x-aerolink-owner": "P2-01/emailAccounts",
         "x-aerolink-source": {
           "file": "server/src/routes/emailAccounts.ts",
-          "line": 266
+          "line": 267
         },
         "security": [
           {
@@ -6590,7 +6572,7 @@
         "x-aerolink-owner": "P2-01/emailAccounts",
         "x-aerolink-source": {
           "file": "server/src/routes/emailAccounts.ts",
-          "line": 299
+          "line": 300
         },
         "security": [
           {
@@ -6661,7 +6643,7 @@
         "x-aerolink-owner": "P2-01/emailAccounts",
         "x-aerolink-source": {
           "file": "server/src/routes/emailAccounts.ts",
-          "line": 337
+          "line": 338
         },
         "security": [
           {
@@ -6803,7 +6785,7 @@
         "x-aerolink-owner": "P2-01/emailSync",
         "x-aerolink-source": {
           "file": "server/src/routes/emailSync.ts",
-          "line": 74
+          "line": 62
         },
         "security": [
           {
@@ -6885,7 +6867,7 @@
         "x-aerolink-owner": "P2-01/emailSync",
         "x-aerolink-source": {
           "file": "server/src/routes/emailSync.ts",
-          "line": 107
+          "line": 95
         },
         "security": [
           {
@@ -6956,7 +6938,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 177
+          "line": 174
         },
         "security": [
           {
@@ -7043,7 +7025,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 207
+          "line": 211
         },
         "security": [
           {
@@ -7096,12 +7078,12 @@
           "agents"
         ],
         "summary": "PUT /api/agents/runtime/tasks/:id",
-        "description": "Contracted internal agent/model administration and runtime operation. Provider credentials, API keys and persisted JSON shadow columns are excluded from response DTOs.",
+        "description": "Disabled legacy browser task synchronization. Authorized callers receive 410; no task data is written.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 273
+          "line": 282
         },
         "security": [
           {
@@ -7130,9 +7112,6 @@
           }
         ],
         "responses": {
-          "200": {
-            "$ref": "#/components/responses/AgentRuntimeTask"
-          },
           "400": {
             "$ref": "#/components/responses/Error"
           },
@@ -7148,6 +7127,16 @@
           "409": {
             "$ref": "#/components/responses/Error"
           },
+          "410": {
+            "description": "Client runtime synchronization is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
           "422": {
             "$ref": "#/components/responses/Error"
           },
@@ -7158,9 +7147,7 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "requestBody": {
-          "$ref": "#/components/requestBodies/AgentRuntimeTaskSync"
-        }
+        "deprecated": true
       }
     },
     "/api/agents/runtime/dashboard": {
@@ -7175,7 +7162,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 223
+          "line": 229
         },
         "security": [
           {
@@ -7226,7 +7213,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 439
+          "line": 296
         },
         "security": [
           {
@@ -7275,7 +7262,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 479
+          "line": 336
         },
         "security": [
           {
@@ -7341,7 +7328,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 457
+          "line": 314
         },
         "security": [
           {
@@ -7399,7 +7386,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 508
+          "line": 365
         },
         "security": [
           {
@@ -7471,7 +7458,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 538
+          "line": 395
         },
         "security": [
           {
@@ -7542,7 +7529,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 553
+          "line": 410
         },
         "security": [
           {
@@ -7613,7 +7600,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 581
+          "line": 438
         },
         "security": [
           {
@@ -7687,7 +7674,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 671
+          "line": 528
         },
         "security": [
           {
@@ -8603,7 +8590,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 88
+          "line": 304
         },
         "security": [
           {
@@ -8714,7 +8701,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 193
+          "line": 413
         },
         "security": [
           {
@@ -8780,7 +8767,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 166
+          "line": 386
         },
         "security": [
           {
@@ -8838,7 +8825,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 240
+          "line": 477
         },
         "security": [
           {
@@ -8910,7 +8897,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 299
+          "line": 590
         },
         "security": [
           {
@@ -8981,7 +8968,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 322
+          "line": 613
         },
         "security": [
           {
@@ -9047,7 +9034,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 462
+          "line": 760
         },
         "security": [
           {
@@ -9118,7 +9105,7 @@
         "x-aerolink-owner": "P2-01/upload",
         "x-aerolink-source": {
           "file": "server/src/routes/upload.ts",
-          "line": 163
+          "line": 176
         },
         "security": [
           {
@@ -9184,7 +9171,7 @@
         "x-aerolink-owner": "P2-01/upload",
         "x-aerolink-source": {
           "file": "server/src/routes/upload.ts",
-          "line": 212
+          "line": 229
         },
         "security": [
           {
@@ -11826,7 +11813,7 @@
         "x-aerolink-owner": "P2-01/documents",
         "x-aerolink-source": {
           "file": "server/src/routes/documents.ts",
-          "line": 9
+          "line": 69
         },
         "security": [
           {
@@ -11902,7 +11889,7 @@
         "x-aerolink-owner": "P2-01/documents",
         "x-aerolink-source": {
           "file": "server/src/routes/documents.ts",
-          "line": 47
+          "line": 94
         },
         "security": [
           {
@@ -11962,7 +11949,7 @@
         "x-aerolink-owner": "P2-01/documents",
         "x-aerolink-source": {
           "file": "server/src/routes/documents.ts",
-          "line": 79
+          "line": 108
         },
         "security": [
           {
@@ -15051,7 +15038,7 @@
         "x-aerolink-owner": "P2-01/pricingBi",
         "x-aerolink-source": {
           "file": "server/src/routes/pricingBI.ts",
-          "line": 73
+          "line": 75
         },
         "security": [
           {
@@ -15102,7 +15089,7 @@
         "x-aerolink-owner": "P2-01/pricingBi",
         "x-aerolink-source": {
           "file": "server/src/routes/pricingBI.ts",
-          "line": 156
+          "line": 169
         },
         "security": [
           {
@@ -15153,7 +15140,7 @@
         "x-aerolink-owner": "P2-01/pricingBi",
         "x-aerolink-source": {
           "file": "server/src/routes/pricingBI.ts",
-          "line": 173
+          "line": 186
         },
         "security": [
           {
@@ -15204,7 +15191,7 @@
         "x-aerolink-owner": "P2-01/pricingBi",
         "x-aerolink-source": {
           "file": "server/src/routes/pricingBI.ts",
-          "line": 190
+          "line": 203
         },
         "security": [
           {
@@ -15255,7 +15242,7 @@
         "x-aerolink-owner": "P2-01/pricingBi",
         "x-aerolink-source": {
           "file": "server/src/routes/pricingBI.ts",
-          "line": 228
+          "line": 241
         },
         "security": [
           {
@@ -15306,7 +15293,7 @@
         "x-aerolink-owner": "P2-01/inventoryAnalytics",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAnalytics.ts",
-          "line": 20
+          "line": 21
         },
         "security": [
           {
@@ -15376,7 +15363,7 @@
         "x-aerolink-owner": "P2-01/inventoryAnalytics",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAnalytics.ts",
-          "line": 42
+          "line": 44
         },
         "security": [
           {
@@ -15446,7 +15433,7 @@
         "x-aerolink-owner": "P2-01/inventoryAnalytics",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAnalytics.ts",
-          "line": 64
+          "line": 66
         },
         "security": [
           {
@@ -15497,7 +15484,7 @@
         "x-aerolink-owner": "P2-01/inventoryAnalytics",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAnalytics.ts",
-          "line": 80
+          "line": 82
         },
         "security": [
           {
@@ -19195,7 +19182,7 @@
         "x-aerolink-owner": "P2-01/reports",
         "x-aerolink-source": {
           "file": "server/src/routes/reports.ts",
-          "line": 37
+          "line": 39
         },
         "security": [
           {
@@ -19246,7 +19233,7 @@
         "x-aerolink-owner": "P2-01/reports",
         "x-aerolink-source": {
           "file": "server/src/routes/reports.ts",
-          "line": 126
+          "line": 129
         },
         "security": [
           {
@@ -19309,7 +19296,7 @@
         "x-aerolink-owner": "P2-01/reports",
         "x-aerolink-source": {
           "file": "server/src/routes/reports.ts",
-          "line": 156
+          "line": 159
         },
         "security": [
           {
@@ -19360,7 +19347,7 @@
         "x-aerolink-owner": "P2-01/reports",
         "x-aerolink-source": {
           "file": "server/src/routes/reports.ts",
-          "line": 209
+          "line": 217
         },
         "security": [
           {
@@ -19411,7 +19398,7 @@
         "x-aerolink-owner": "P2-01/reports",
         "x-aerolink-source": {
           "file": "server/src/routes/reports.ts",
-          "line": 233
+          "line": 241
         },
         "security": [
           {
@@ -19462,7 +19449,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 9
+          "line": 12
         },
         "security": [
           {
@@ -19549,7 +19536,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 63
+          "line": 69
         },
         "security": [
           {
@@ -19615,7 +19602,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 35
+          "line": 39
         },
         "security": [
           {
@@ -19675,7 +19662,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 49
+          "line": 54
         },
         "security": [
           {
@@ -19733,7 +19720,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 86
+          "line": 92
         },
         "security": [
           {
@@ -19795,6 +19782,164 @@
         }
       }
     },
+    "/api/inventory-transactions/quality-review/{orderId}": {
+      "get": {
+        "operationId": "getInventoryTransactionsQualityReviewOrderId",
+        "tags": [
+          "inventoryTransactions"
+        ],
+        "summary": "GET /api/inventory-transactions/quality-review/:orderId",
+        "description": "Server-authoritative delivery quality review. Requires quality_review capability. Client identity/time fields are rejected; changes to reviewed facts invalidate approval.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryTransactions",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryTransactions.ts",
+          "line": 28
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "quantity",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quality review response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FulfillmentReviewPreviewEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/inventory-transactions/quality-reviews": {
+      "post": {
+        "operationId": "postInventoryTransactionsQualityReviews",
+        "tags": [
+          "inventoryTransactions"
+        ],
+        "summary": "POST /api/inventory-transactions/quality-reviews",
+        "description": "Server-authoritative delivery quality review. Requires quality_review capability. Client identity/time fields are rejected; changes to reviewed facts invalidate approval.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryTransactions",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryTransactions.ts",
+          "line": 39
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Quality review response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FulfillmentReviewResultEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FulfillmentReviewCreateRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
     "/api/inventory-transactions/detail/{detailId}": {
       "get": {
         "operationId": "getInventoryTransactionsDetailDetailId",
@@ -19807,7 +19952,7 @@
         "x-aerolink-owner": "P2-01/inventoryTransactions",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryTransactions.ts",
-          "line": 58
+          "line": 84
         },
         "security": [
           {
@@ -19867,7 +20012,7 @@
         "x-aerolink-owner": "P2-01/inventoryTransactions",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryTransactions.ts",
-          "line": 74
+          "line": 97
         },
         "security": [
           {
@@ -19927,7 +20072,7 @@
         "x-aerolink-owner": "P2-01/inventoryTransactions",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryTransactions.ts",
-          "line": 95
+          "line": 115
         },
         "security": [
           {
@@ -19993,7 +20138,7 @@
         "x-aerolink-owner": "P2-01/inventoryTransactions",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryTransactions.ts",
-          "line": 278
+          "line": 156
         },
         "security": [
           {
@@ -20059,7 +20204,7 @@
         "x-aerolink-owner": "P2-01/inventoryTransactions",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryTransactions.ts",
-          "line": 407
+          "line": 185
         },
         "security": [
           {
@@ -20398,7 +20543,7 @@
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 46
+          "line": 78
         },
         "security": [
           {
@@ -20442,12 +20587,12 @@
           "inquiries"
         ],
         "summary": "POST /api/inquiries",
-        "description": "Contracted supporting operational operation. Responses mirror the existing internal route projection and exclude credentials or external-provider secrets.",
+        "description": "Creates source-linked inquiry drafts in one idempotent transaction. No supplier message is sent. Current RFQ access is required, including on replay.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 88
+          "line": 121
         },
         "security": [
           {
@@ -20513,7 +20658,7 @@
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 65
+          "line": 98
         },
         "security": [
           {
@@ -20568,12 +20713,12 @@
           "inquiries"
         ],
         "summary": "POST /api/inquiries/:id/send",
-        "description": "Contracted supporting operational operation. Responses mirror the existing internal route projection and exclude credentials or external-provider secrets.",
+        "description": "No dispatch channel is implemented. Returns 409 MANUAL_WORKFLOW_REQUIRED without changing status or sentAt.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 154
+          "line": 181
         },
         "security": [
           {
@@ -20602,9 +20747,6 @@
           }
         ],
         "responses": {
-          "200": {
-            "$ref": "#/components/responses/Inquiry"
-          },
           "400": {
             "$ref": "#/components/responses/Error"
           },
@@ -20618,7 +20760,14 @@
             "$ref": "#/components/responses/Error"
           },
           "409": {
-            "$ref": "#/components/responses/Error"
+            "description": "Manual supplier contact required; inquiry has not been sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           },
           "422": {
             "$ref": "#/components/responses/Error"
@@ -20629,7 +20778,8 @@
           "500": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/exchange-vmi/exchanges": {
@@ -21454,7 +21604,7 @@
         "x-aerolink-owner": "P2-01/outbox",
         "x-aerolink-source": {
           "file": "server/src/routes/outbox.ts",
-          "line": 25
+          "line": 24
         },
         "security": [
           {
@@ -21543,7 +21693,7 @@
         "x-aerolink-owner": "P2-01/outbox",
         "x-aerolink-source": {
           "file": "server/src/routes/outbox.ts",
-          "line": 79
+          "line": 78
         },
         "security": [
           {
@@ -21594,7 +21744,7 @@
         "x-aerolink-owner": "P2-01/outbox",
         "x-aerolink-source": {
           "file": "server/src/routes/outbox.ts",
-          "line": 86
+          "line": 85
         },
         "security": [
           {
@@ -21657,7 +21807,7 @@
         "x-aerolink-owner": "P2-01/outbox",
         "x-aerolink-source": {
           "file": "server/src/routes/outbox.ts",
-          "line": 122
+          "line": 121
         },
         "security": [
           {
@@ -21771,7 +21921,7 @@
         "x-aerolink-owner": "P2-01/health",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 192
+          "line": 241
         },
         "security": [],
         "parameters": [],
@@ -21818,7 +21968,7 @@
         "x-aerolink-owner": "P2-01/metrics",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 196
+          "line": 245
         },
         "security": [
           {
@@ -25846,35 +25996,6 @@
               "type": "string"
             }
           },
-          "processingStatus": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "processed",
-              "discarded",
-              "failed"
-            ]
-          },
-          "processedAt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "discardedAt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "rfqId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "accountId": {
             "type": [
               "string",
@@ -25925,26 +26046,6 @@
           },
           "pagination": {
             "$ref": "#/components/schemas/Pagination"
-          },
-          "summary": {
-            "type": "object",
-            "required": [
-              "total",
-              "aog",
-              "standard",
-              "inquiry",
-              "unread",
-              "spam"
-            ],
-            "properties": {
-              "total": { "type": "integer", "minimum": 0 },
-              "aog": { "type": "integer", "minimum": 0 },
-              "standard": { "type": "integer", "minimum": 0 },
-              "inquiry": { "type": "integer", "minimum": 0 },
-              "unread": { "type": "integer", "minimum": 0 },
-              "spam": { "type": "integer", "minimum": 0 }
-            },
-            "additionalProperties": false
           }
         },
         "additionalProperties": true
@@ -29978,6 +30079,19 @@
                 },
                 "certificateRequired": {
                   "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "lineNo": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "rfqLineId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "additionalProperties": true
@@ -29999,6 +30113,22 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "rfqId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceVerified": {
+            "type": "boolean",
+            "readOnly": true
           }
         },
         "additionalProperties": true
@@ -30056,10 +30186,24 @@
               "minLength": 1
             },
             "minItems": 1,
-            "maxItems": 100
+            "maxItems": 50
           },
           "isAOG": {
             "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "lineIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         "additionalProperties": false
@@ -30454,9 +30598,88 @@
           },
           "reason": {
             "type": "string"
+          },
+          "costSourceType": {
+            "type": "string",
+            "enum": [
+              "SUPPLIER_QUOTE",
+              "INVENTORY_DETAIL",
+              "MANUAL"
+            ]
+          },
+          "costSourceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "costSourceReason": {
+            "type": "string",
+            "maxLength": 1000
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "not": {
+                  "required": [
+                    "costSourceType"
+                  ],
+                  "properties": {
+                    "costSourceType": {
+                      "type": "string",
+                      "enum": [
+                        "SUPPLIER_QUOTE",
+                        "INVENTORY_DETAIL",
+                        "MANUAL"
+                      ]
+                    }
+                  }
+                },
+                "properties": {
+                  "costSourceId": false,
+                  "costSourceReason": false
+                }
+              },
+              {
+                "properties": {
+                  "costSourceType": {
+                    "const": "MANUAL"
+                  },
+                  "costSourceId": false,
+                  "costSourceReason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "costSourceType",
+                  "costSourceReason"
+                ]
+              },
+              {
+                "properties": {
+                  "costSourceType": {
+                    "enum": [
+                      "SUPPLIER_QUOTE",
+                      "INVENTORY_DETAIL"
+                    ]
+                  },
+                  "costSourceId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "costSourceType",
+                  "costSourceId"
+                ]
+              }
+            ]
+          }
+        ],
+        "description": "Independent approval under the current amount policy. Explicit cost source fields allow historical missing evidence to be captured and approved in one version-checked transaction."
       },
       "QuotationSendRequest": {
         "type": "object",
@@ -30757,6 +30980,13 @@
           },
           "createdBy": {
             "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "readOnly": true,
+            "items": {
+              "$ref": "#/components/schemas/RfqLine"
+            }
           }
         },
         "additionalProperties": true
@@ -30914,7 +31144,8 @@
           "emailId": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "lines": false
         },
         "additionalProperties": false
       },
@@ -31025,7 +31256,8 @@
           "emailId": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "lines": false
         },
         "additionalProperties": false
       },
@@ -31243,6 +31475,57 @@
           "expiryDate": {
             "type": "string",
             "format": "date"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "requiresReapproval": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "True for an approved quotation whose latest approval does not cover the current policy and commercial terms. An authorised independent approver must review it again."
+          },
+          "costSourceType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "SUPPLIER_QUOTE",
+              "INVENTORY_DETAIL",
+              "MANUAL",
+              null
+            ],
+            "readOnly": true
+          },
+          "costSourceId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "costSourceReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "costSourceSnapshotJson": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true,
+            "description": "Immutable cost evidence, omitted without quotation.view_cost."
+          },
+          "costSourceCapturedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "readOnly": true
           }
         },
         "additionalProperties": true
@@ -31297,7 +31580,8 @@
           "partNumber",
           "quantity",
           "unitPrice",
-          "costPrice"
+          "costPrice",
+          "costSourceType"
         ],
         "properties": {
           "rfqId": {
@@ -31339,7 +31623,9 @@
           },
           "saleType": {
             "type": "string",
-            "default": "Sale"
+            "enum": [
+              "Sale"
+            ]
           },
           "shipToId": {
             "type": "string",
@@ -31429,9 +31715,75 @@
           "dualUse": {
             "type": "boolean",
             "default": false
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ],
+            "default": "USD"
+          },
+          "lines": false,
+          "costSourceType": {
+            "type": "string",
+            "enum": [
+              "SUPPLIER_QUOTE",
+              "INVENTORY_DETAIL",
+              "MANUAL"
+            ]
+          },
+          "costSourceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "costSourceReason": {
+            "type": "string",
+            "maxLength": 1000
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "oneOf": [
+              {
+                "properties": {
+                  "costSourceType": {
+                    "const": "MANUAL"
+                  },
+                  "costSourceId": false,
+                  "costSourceReason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "costSourceType",
+                  "costSourceReason"
+                ]
+              },
+              {
+                "properties": {
+                  "costSourceType": {
+                    "enum": [
+                      "SUPPLIER_QUOTE",
+                      "INVENTORY_DETAIL"
+                    ]
+                  },
+                  "costSourceId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "costSourceType",
+                  "costSourceId"
+                ]
+              }
+            ]
+          }
+        ],
+        "description": "USD sale quotation with an explicit, verifiable cost source. Supplier or inventory source identity, quantity and price are validated server-side; manual cost requires a reason."
       },
       "QuotationUpdateRequest": {
         "type": "object",
@@ -31844,7 +32196,9 @@
           },
           "saleType": {
             "type": "string",
-            "default": "Sale"
+            "enum": [
+              "Sale"
+            ]
           },
           "incoterm": {
             "type": "string"
@@ -31927,7 +32281,8 @@
           },
           "eSignatureSupplier": {
             "type": "string"
-          }
+          },
+          "lines": false
         },
         "additionalProperties": false
       },
@@ -31960,7 +32315,9 @@
           },
           "saleType": {
             "type": "string",
-            "default": "Sale"
+            "enum": [
+              "Sale"
+            ]
           },
           "incoterm": {
             "type": "string"
@@ -34035,6 +34392,35 @@
               }
             },
             "additionalProperties": true
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Historical missing currency remains null."
+          },
+          "currencyStatus": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "HISTORICAL_UNVERIFIED"
+            ],
+            "readOnly": true
+          },
+          "rfqLineId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "inquiryItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
           }
         },
         "additionalProperties": true
@@ -34244,6 +34630,35 @@
               "null"
             ],
             "additionalProperties": true
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Historical missing currency remains null."
+          },
+          "currencyStatus": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "HISTORICAL_UNVERIFIED"
+            ],
+            "readOnly": true
+          },
+          "rfqLineId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
+          "inquiryItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
           }
         },
         "additionalProperties": true
@@ -34792,9 +35207,25 @@
           },
           "notes": {
             "type": "string"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ],
+            "default": "USD"
+          },
+          "rfqLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inquiryItemId": {
+            "type": "string",
+            "minLength": 1
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "USD supplier quote with exact source IDs. A unique RFQ line may be selected from the specified RFQ; multi-line RFQs require an explicit line ID. Inquiry ownership and supplier identity are verified in the same transaction."
       },
       "SupplierQuoteUpdateRequest": {
         "type": "object",
@@ -34826,9 +35257,40 @@
           },
           "isWinner": {
             "type": "boolean"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ]
+          },
+          "rfqId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rfqLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inquiryItemId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Updates commercial availability without rewriting captured quotation cost snapshots. Source identity changes require a new supplier quote; sending the unchanged IDs is allowed."
       },
       "SupplierQuoteCompareRequest": {
         "oneOf": [
@@ -43981,12 +44443,344 @@
           }
         },
         "additionalProperties": true
+      },
+      "FulfillmentReviewCreateRequest": {
+        "type": "object",
+        "required": [
+          "orderId",
+          "quantity",
+          "snapshotHash",
+          "approved",
+          "evidenceIds",
+          "verifiedSerialNumber",
+          "verifiedBatchNumber",
+          "checks",
+          "reason"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "snapshotHash": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "evidenceIds": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "verifiedSerialNumber": {
+            "type": "string"
+          },
+          "verifiedBatchNumber": {
+            "type": "string"
+          },
+          "checks": {
+            "type": "object",
+            "required": [
+              "identity",
+              "documents",
+              "conditionAndLife",
+              "customerRequirements"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "identity": {
+                "type": "boolean"
+              },
+              "documents": {
+                "type": "boolean"
+              },
+              "conditionAndLife": {
+                "type": "boolean"
+              },
+              "customerRequirements": {
+                "type": "boolean"
+              }
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          }
+        },
+        "additionalProperties": false
+      },
+      "FulfillmentReviewResultEnvelope": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "approved",
+              "reviewedAt",
+              "quantity"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "approved": {
+                "type": "boolean"
+              },
+              "reviewedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "quantity": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "FulfillmentReviewPreviewEnvelope": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "required": [
+              "snapshot",
+              "snapshotHash",
+              "review"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "snapshotHash": {
+                "type": "string"
+              },
+              "snapshot": {
+                "type": "object",
+                "required": [
+                  "order",
+                  "requirements",
+                  "inventory",
+                  "certificates",
+                  "plannedQuantity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "order": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "Current identity, tracking and quality requirements; no cost fields."
+                  },
+                  "requirements": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "Versioned customer and quotation quality requirements."
+                  },
+                  "inventory": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "Physical identity, condition, life and document references; no cost fields."
+                  },
+                  "certificates": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "plannedQuantity": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "review": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "required": [
+                  "approved",
+                  "snapshotHash",
+                  "consumedAt",
+                  "reviewedAt",
+                  "quantity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "approved": {
+                    "type": "boolean"
+                  },
+                  "snapshotHash": {
+                    "type": "string"
+                  },
+                  "consumedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "reviewedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RfqLine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rfqId",
+          "lineNo",
+          "partNumber",
+          "quantity",
+          "uom",
+          "conditionCode",
+          "requiredDate",
+          "certificateRequired",
+          "targetPriceCurrency",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "rfqId": {
+            "type": "string"
+          },
+          "lineNo": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "partNumber": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "uom": {
+            "type": "string"
+          },
+          "conditionCode": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "batchNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "alternatePartNumbers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "certificateRequired": {
+            "type": "boolean"
+          },
+          "certificateType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requiredDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "leadTimeDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "targetPriceDecimal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetPriceCurrency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "COMPLETED",
+              "CANCELLED"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
       "mountCount": 54,
-      "operationCount": 315
+      "operationCount": 318
     }
   }
 }

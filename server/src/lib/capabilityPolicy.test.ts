@@ -11,7 +11,7 @@ describe('capability policy', () => {
 
     expect(hasCapability(actor, 'webhook', 'delete')).toBe(true);
     expect(hasCapability(actor, 'session', 'manage')).toBe(true);
-    expect(getCapabilitiesForActor(actor)).toHaveLength(28 * 15);
+    expect(getCapabilitiesForActor(actor)).toHaveLength(29 * 15);
   });
 
   it('limits sales transaction access to resources they own', () => {
@@ -40,12 +40,32 @@ describe('capability policy', () => {
     const actor = { id: 'finance-1', role: 'FINANCE' };
 
     expect(hasCapability(actor, 'quotation', 'view_cost')).toBe(true);
+    expect(hasCapability(actor, 'quotation', 'approve')).toBe(true);
     expect(hasCapability(actor, 'quotation', 'export')).toBe(true);
     expect(hasCapability(actor, 'order', 'view_cost')).toBe(true);
     expect(hasCapability(actor, 'order', 'export')).toBe(true);
+    expect(hasCapability(actor, 'inventory', 'read')).toBe(true);
+    expect(hasCapability(actor, 'inventory', 'view_cost')).toBe(true);
+    expect(hasCapability(actor, 'report', 'view_cost')).toBe(true);
     expect(hasCapability(actor, 'customer', 'export')).toBe(false);
     expect(hasCapability(actor, 'report', 'export')).toBe(true);
     expect(hasCapability(actor, 'email_account', 'manage')).toBe(false);
+  });
+
+  it('separates ordinary inventory reads from cost visibility', () => {
+    const readOnlyRoles = ['sales', 'operator', 'viewer', 'quality_manager'];
+    for (const role of readOnlyRoles) {
+      const actor = { id: `${role}-1`, role };
+      expect(hasCapability(actor, 'inventory', 'read')).toBe(true);
+      expect(hasCapability(actor, 'inventory', 'view_cost')).toBe(false);
+      expect(hasCapability(actor, 'report', 'view_cost')).toBe(false);
+    }
+
+    for (const role of ['manager', 'finance', 'gm', 'admin']) {
+      const actor = { id: `${role}-1`, role };
+      expect(hasCapability(actor, 'inventory', 'view_cost')).toBe(true);
+      expect(hasCapability(actor, 'report', 'view_cost')).toBe(true);
+    }
   });
 
   it('normalizes legacy role spellings to the policy roles', () => {

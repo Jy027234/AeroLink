@@ -28,7 +28,11 @@ describe('standalone worker lifecycle', () => {
     });
 
     expect(processPendingWebhookRetries).toHaveBeenCalledWith(7, expect.stringMatching(/^worker-/));
-    expect(processPendingOutboxEvents).toHaveBeenCalledWith(7, expect.stringMatching(/^worker-/));
+    expect(processPendingOutboxEvents).toHaveBeenCalledWith(
+      7,
+      expect.stringMatching(/^worker-/),
+      { channels: ['EMAIL', 'WEBHOOK'] },
+    );
     expect(pruneExpiredIdempotencyRecords).toHaveBeenCalledTimes(1);
     expect(processDueEmailSyncs).toHaveBeenCalledWith(7, expect.stringMatching(/^worker-/));
 
@@ -71,5 +75,29 @@ describe('standalone worker lifecycle', () => {
     release(1);
     await stopping;
     expect(stopped).toBe(true);
+  });
+
+  it('supports the API socket-only consumer without starting worker-owned queues', async () => {
+    vi.useFakeTimers();
+    const { startWorker } = await import('./worker.js');
+    const runtime = startWorker({
+      outboxIntervalMs: 100,
+      batchSize: 5,
+      outboxChannels: ['SOCKET'],
+      runWebhookRetries: false,
+      runIdempotencyCleanup: false,
+      runEmailSync: false,
+    });
+
+    expect(processPendingOutboxEvents).toHaveBeenCalledWith(5, expect.stringMatching(/^worker-/), {
+      channels: ['SOCKET'],
+    });
+    expect(processPendingWebhookRetries).not.toHaveBeenCalled();
+    expect(pruneExpiredIdempotencyRecords).not.toHaveBeenCalled();
+    expect(processDueEmailSyncs).not.toHaveBeenCalled();
+
+    await runtime.stop();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(processPendingOutboxEvents).toHaveBeenCalledTimes(1);
   });
 });

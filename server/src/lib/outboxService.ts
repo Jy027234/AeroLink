@@ -7,7 +7,9 @@ import { preferredMoneyValue } from './money.js';
 import { generateQuotationPDF } from './pdfService.js';
 import prisma from './prisma.js';
 import { isQuotationTransitionAllowed } from './quotationStateMachine.js';
-import { emitToRoom } from './socketEvents.js';
+import * as socketEvents from './socketEvents.js';
+import type { SocketEventScope } from './socketEvents.js';
+import { sanitizeSocketData } from './socketPayload.js';
 import { transitionQuotationStatus } from './transactionStateService.js';
 import { preferredQuotationStatus } from './transactionStatusShadows.js';
 import { queueWebhookEvent } from './webhookService.js';
@@ -31,13 +33,14 @@ export const OutboxStatus = {
   CANCELLED: 'CANCELLED',
 } as const;
 
-type OutboxChannelValue = (typeof OutboxChannel)[keyof typeof OutboxChannel];
+export type OutboxChannelValue = (typeof OutboxChannel)[keyof typeof OutboxChannel];
 type OutboxTransactionClient = Pick<Prisma.TransactionClient, 'outboxEvent'>;
 
-type SocketPayload = {
+export type SocketPayload = {
   room: string;
   event: string;
   data: Record<string, unknown>;
+  scope?: SocketEventScope;
 };
 
 type EmailPayload = {
@@ -53,6 +56,7 @@ export type EnqueueBusinessEventInput = {
   socket?: {
     room: string;
     event: string;
+    scope?: SocketEventScope;
   };
   createdById?: string | null;
 };
@@ -70,6 +74,8 @@ const OUTBOX_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 const OUTBOX_LEASE_HEARTBEAT_MS = 60_000;
 const MAX_ERROR_LENGTH = 2000;
 const DEFAULT_WORKER_ID = process.env.WORKER_ID?.trim() || `worker-${crypto.randomUUID()}`;
+export const API_OUTBOX_CHANNELS = [OutboxChannel.SOCKET] as const;
+export const WORKER_OUTBOX_CHANNELS = [OutboxChannel.EMAIL, OutboxChannel.WEBHOOK] as const;
 const P2_FAULT_INJECTION_ENABLED = ['1', 'true', 'yes'].includes((process.env.P2_FAULT_INJECTION ?? '').toLowerCase());
 const P2_WORKER_CRASH_DELAY_MS = Math.max(0, Number.parseInt(process.env.P2_WORKER_CRASH_DELAY_MS ?? '25', 10) || 25);
 
@@ -101,13 +107,33 @@ function parseRecordPayload(payload: string): Record<string, unknown> {
 
 function parseSocketPayload(payload: string): SocketPayload {
   const parsed = parseRecordPayload(payload);
-  if (typeof parsed.room !== 'string' || typeof parsed.event !== 'string' || !parsed.data || typeof parsed.data !== 'object') {
+  if (
+    typeof parsed.room !== 'string'
+    || typeof parsed.event !== 'string'
+    || !parsed.data
+    || typeof parsed.data !== 'object'
+    || Array.isArray(parsed.data)
+  ) {
     throw new Error('Invalid socket outbox payload');
   }
+  const parsedScope = parsed.scope;
+  const scope = parsedScope && typeof parsedScope === 'object' && !Array.isArray(parsedScope)
+    ? parsedScope as Record<string, unknown>
+    : undefined;
   return {
     room: parsed.room,
     event: parsed.event,
-    data: parsed.data as Record<string, unknown>,
+    data: (sanitizeSocketData(parsed.data) ?? {}) as Record<string, unknown>,
+    ...(scope ? {
+      scope: {
+        ...(typeof scope.capability === 'string' ? { capability: scope.capability } : {}),
+        ...(typeof scope.ownerId === 'string' ? { ownerId: scope.ownerId } : {}),
+        ...(typeof scope.department === 'string' ? { department: scope.department } : {}),
+        ...(Array.isArray(scope.userIds)
+          ? { userIds: scope.userIds.filter((value): value is string => typeof value === 'string') }
+          : {}),
+      },
+    } : {}),
   };
 }
 
@@ -142,6 +168,26 @@ function buildMessageId(outboxEventId: string) {
 
 class CancelledOutboxEventError extends Error {}
 
+function inferSocketCapability(eventType: string, aggregateType: string) {
+  const eventResource = eventType.trim().toLowerCase().split(/[.:]/)[0];
+  if (eventResource) return `${eventResource}.read`;
+  const aggregateResource = aggregateType.trim().toLowerCase().split(/[.:]/)[0];
+  return aggregateResource ? `${aggregateResource}.read` : undefined;
+}
+
+function inferSocketOwner(data: Record<string, unknown>) {
+  for (const key of ['ownerId', 'userId']) {
+    const value = data[key];
+    if (typeof value === 'string' && value) return value;
+  }
+  return undefined;
+}
+
+function isAuthoritativeAggregateType(aggregateType: string) {
+  const normalized = aggregateType.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  return normalized === 'RFQ' || normalized === 'QUOTATION' || normalized === 'ORDER';
+}
+
 /** Queue a Webhook and optional Socket message in the same business transaction. */
 export async function enqueueBusinessEvent(tx: OutboxTransactionClient, input: EnqueueBusinessEventInput) {
   const createdById = input.createdById ?? null;
@@ -162,6 +208,11 @@ export async function enqueueBusinessEvent(tx: OutboxTransactionClient, input: E
     return { webhookEvent, socketEvent: null };
   }
 
+  const hasAuthoritativeOwner = isAuthoritativeAggregateType(input.aggregateType);
+  const ownerHint = input.socket.scope?.ownerId ?? inferSocketOwner(input.data);
+  const departmentHint = input.socket.scope?.department
+    ?? (typeof input.data.department === 'string' ? input.data.department : undefined);
+
   const socketEvent = await tx.outboxEvent.create({
     data: {
       channel: OutboxChannel.SOCKET,
@@ -171,7 +222,16 @@ export async function enqueueBusinessEvent(tx: OutboxTransactionClient, input: E
       payload: serializePayload({
         room: input.socket.room,
         event: input.socket.event,
-        data: input.data,
+        data: (sanitizeSocketData(input.data) ?? {}) as Record<string, unknown>,
+        scope: {
+          capability: input.socket.scope?.capability ?? inferSocketCapability(input.eventType, input.aggregateType),
+          // RFQ, quotation, and order ownership is reloaded from the current
+          // aggregate at dispatch.  Never persist the action actor as a
+          // document owner.  Explicit user scope remains for user-only events.
+          ...(!hasAuthoritativeOwner && ownerHint ? { ownerId: ownerHint } : {}),
+          ...(!hasAuthoritativeOwner && departmentHint ? { department: departmentHint } : {}),
+          ...(input.socket.scope?.userIds ? { userIds: input.socket.scope.userIds } : {}),
+        },
       }),
       createdById,
       requestId: getRequestId() ?? null,
@@ -391,9 +451,19 @@ async function dispatchOutboxEvent(event: OutboxEvent) {
 
   if (event.channel === OutboxChannel.SOCKET) {
     const payload = parseSocketPayload(event.payload);
-    if (!emitToRoom(payload.room, payload.event, payload.data)) {
-      throw new Error('Socket.IO is not initialized');
-    }
+    const scope = payload.scope ?? {
+      capability: inferSocketCapability(event.eventType, event.aggregateType),
+    };
+    // There is no unrestricted room fallback: a missing scoped emitter is a
+    // deployment/configuration error and must fail the outbox item visibly.
+    const emitted = await socketEvents.emitScopedSocketEvent({
+      event: payload.event,
+      data: payload.data,
+      scope,
+      aggregateType: event.aggregateType,
+      aggregateId: event.aggregateId,
+    });
+    if (!emitted) throw new Error('Socket.IO is not initialized or event dispatch failed');
     return;
   }
 
@@ -489,11 +559,27 @@ async function markOutboxCancelled(event: OutboxEvent, workerId: string, error: 
   });
 }
 
-export async function processOutboxEvent(id: string, workerId = DEFAULT_WORKER_ID): Promise<boolean> {
+export type OutboxProcessingOptions = {
+  channels?: readonly OutboxChannelValue[];
+};
+
+function normalizedChannels(options?: OutboxProcessingOptions) {
+  if (!options?.channels) return undefined;
+  return Array.from(new Set(options.channels.filter(isOutboxChannel)));
+}
+
+export async function processOutboxEvent(
+  id: string,
+  workerId = DEFAULT_WORKER_ID,
+  options?: OutboxProcessingOptions,
+): Promise<boolean> {
+  const channels = normalizedChannels(options);
+  if (channels && channels.length === 0) return false;
   const now = new Date();
   const claim = await prisma.outboxEvent.updateMany({
     where: {
       id,
+      ...(channels ? { channel: { in: channels } } : {}),
       status: { in: [OutboxStatus.PENDING, OutboxStatus.RETRYING] },
       OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
     },
@@ -577,11 +663,26 @@ export async function processOutboxEvent(id: string, workerId = DEFAULT_WORKER_I
   }
 }
 
-/** Recover stale claims and process due events. Safe for multiple server replicas. */
-export async function processPendingOutboxEvents(limit = 50, workerId = DEFAULT_WORKER_ID) {
+/**
+ * Recover stale claims and process due events for an owned channel set.  The
+ * current production topology is one API process (SOCKET) plus one Worker
+ * process (EMAIL/WEBHOOK); channel-scoped leases prevent either process from
+ * consuming the other process's queue.  This does not solve delivery to
+ * Socket.IO connections spread across multiple API replicas.
+ */
+export async function processPendingOutboxEvents(
+  limit = 50,
+  workerId = DEFAULT_WORKER_ID,
+  options?: OutboxProcessingOptions,
+) {
+  // Direct maintenance/fault-probe callers retain an all-channel default;
+  // actual runtimes always pass their owned set from worker.ts.
+  const channels = normalizedChannels(options) ?? Object.values(OutboxChannel);
+  if (channels.length === 0) return { processed: 0, delivered: 0 };
   const now = new Date();
   await prisma.outboxEvent.updateMany({
     where: {
+      channel: { in: channels },
       status: OutboxStatus.PROCESSING,
       lockedAt: { lt: new Date(now.getTime() - OUTBOX_LOCK_TIMEOUT_MS) },
     },
@@ -596,6 +697,7 @@ export async function processPendingOutboxEvents(limit = 50, workerId = DEFAULT_
 
   const candidates = await prisma.outboxEvent.findMany({
     where: {
+      channel: { in: channels },
       status: { in: [OutboxStatus.PENDING, OutboxStatus.RETRYING] },
       OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
     },
@@ -606,7 +708,7 @@ export async function processPendingOutboxEvents(limit = 50, workerId = DEFAULT_
 
   let delivered = 0;
   for (const candidate of candidates) {
-    if (await processOutboxEvent(candidate.id, workerId)) {
+    if (await processOutboxEvent(candidate.id, workerId, { channels })) {
       delivered += 1;
     }
   }
@@ -624,8 +726,11 @@ export async function retryOutboxEvent(id: string) {
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.outboxEvent.update({
-      where: { id },
+    const reset = await tx.outboxEvent.updateMany({
+      where: {
+        id,
+        status: { in: [OutboxStatus.FAILED, OutboxStatus.RETRYING] },
+      },
       data: {
         status: OutboxStatus.PENDING,
         attemptCount: 0,
@@ -635,6 +740,9 @@ export async function retryOutboxEvent(id: string) {
         lastError: null,
       },
     });
+    if (reset.count !== 1) {
+      throw new AppError('Outbox 事件已被其他 Worker 领取，无法人工重试', 409, 'STATE_CONFLICT');
+    }
 
     if (event.channel === OutboxChannel.EMAIL) {
       const payload = parseEmailPayload(event.payload);

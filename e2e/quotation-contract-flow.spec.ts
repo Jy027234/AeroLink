@@ -8,15 +8,20 @@ const managerUser = {
   password: E2E_PASSWORD,
 };
 
+const financeUser = {
+  email: 'li@aerolink.com',
+  password: E2E_PASSWORD,
+};
+
 const backendBaseUrl = `${process.env.PLAYWRIGHT_API_ORIGIN || 'http://127.0.0.1:3000'}/api`;
 
-async function loginToApi(apiBaseUrl: string) {
+async function loginToApi(apiBaseUrl: string, user = managerUser) {
   const loginResponse = await fetch(`${apiBaseUrl}/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(managerUser),
+    body: JSON.stringify(user),
   });
 
   expect(loginResponse.ok).toBeTruthy();
@@ -29,7 +34,7 @@ async function loginToApi(apiBaseUrl: string) {
 
 async function createApprovedQuotation(apiBaseUrl: string, existingToken?: string) {
   const token = existingToken ?? await loginToApi(apiBaseUrl);
-  const uniqueSuffix = Date.now();
+  const approverToken = await loginToApi(apiBaseUrl, financeUser);
   const createResponse = await fetch(`${apiBaseUrl}/quotations`, {
     method: 'POST',
     headers: {
@@ -39,10 +44,13 @@ async function createApprovedQuotation(apiBaseUrl: string, existingToken?: strin
     body: JSON.stringify({
       rfqId: 'rfq001',
       customerId: 'c001',
-      partNumber: `E2E-CONTRACT-${uniqueSuffix}`,
+      partNumber: '2341-123-050',
       quantity: 2,
       unitPrice: 2100,
       costPrice: 1800,
+      currency: 'USD',
+      costSourceType: 'MANUAL',
+      costSourceReason: 'E2E synthetic cost basis for contract flow',
       certificateFiles: ['FAA8130'],
       validityDays: 14,
       paymentTerms: 'Net 30',
@@ -70,7 +78,7 @@ async function createApprovedQuotation(apiBaseUrl: string, existingToken?: strin
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${approverToken}`,
     },
     body: JSON.stringify({
       action: 'approve',
@@ -234,7 +242,7 @@ test('should confirm an approved quotation and download the generated contract f
 
 test('should show a retryable error banner when quotation details fail to load', async ({ page }) => {
   const { quotationId, quoteNumber } = await createApprovedQuotation(backendBaseUrl);
-  let remainingFailures = 1;
+  let allowRecovery = false;
 
   await loginByUi(page);
   await navigateFromSidebar(page, '寻源报价', /报价管理/);
@@ -246,8 +254,7 @@ test('should show a retryable error banner when quotation details fail to load',
       return;
     }
 
-    if (remainingFailures > 0) {
-      remainingFailures -= 1;
+    if (!allowRecovery) {
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
@@ -279,6 +286,7 @@ test('should show a retryable error banner when quotation details fail to load',
     response.url().includes(`/api/quotations/${quotationId}`) &&
     response.status() === 200
   );
+  allowRecovery = true;
   await errorBanner.getByRole('button', { name: '重试加载' }).click();
   await retryResponsePromise;
 
@@ -365,7 +373,7 @@ test('should show a retryable error banner when order details fail to load', asy
   const token = await loginToApi(backendBaseUrl);
   const { quotationId } = await createApprovedQuotation(backendBaseUrl, token);
   const { orderId, orderNumber } = await acceptApprovedQuotation(backendBaseUrl, token, quotationId);
-  let remainingFailures = 1;
+  let allowRecovery = false;
 
   await loginByUi(page);
   await navigateFromSidebar(page, '订单与库存', /订单管理/);
@@ -377,8 +385,7 @@ test('should show a retryable error banner when order details fail to load', asy
       return;
     }
 
-    if (remainingFailures > 0) {
-      remainingFailures -= 1;
+    if (!allowRecovery) {
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
@@ -410,6 +417,7 @@ test('should show a retryable error banner when order details fail to load', asy
     response.url().includes(`/api/orders/${orderId}`) &&
     response.status() === 200
   );
+  allowRecovery = true;
   await errorBanner.getByRole('button', { name: '重试加载' }).click();
   await retryResponsePromise;
 

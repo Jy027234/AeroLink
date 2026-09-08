@@ -5,14 +5,17 @@ import {
   toQuotationStatusEnum,
   toRfqStatusEnum,
 } from './transactionStatusShadows.js';
+import {
+  syncOrderLineState,
+  syncQuotationLineState,
+  syncRfqLineState,
+  type TransactionLineClient,
+} from './transactionLineService.js';
 
 export const TRANSACTION_STATUS_ENTITY_TYPES = ['RFQ', 'QUOTATION', 'ORDER'] as const;
 export type TransactionStatusEntityType = (typeof TRANSACTION_STATUS_ENTITY_TYPES)[number];
 
-type StateTransactionClient = Pick<
-  Prisma.TransactionClient,
-  'rFQ' | 'quotation' | 'order' | 'transactionStatusHistory'
->;
+type StateTransactionClient = TransactionLineClient & Pick<Prisma.TransactionClient, 'transactionStatusHistory'>;
 
 type TransitionMetadata = {
   actorId?: string | null;
@@ -122,6 +125,8 @@ export async function transitionRfqStatus(tx: StateTransactionClient, transition
     throw new AppError('RFQ不存在', 404, 'RESOURCE_NOT_FOUND');
   }
 
+  await syncRfqLineState(tx, updated);
+
   await recordStatusHistory(tx, {
     entityType: 'RFQ',
     entityId: updated.id,
@@ -166,6 +171,8 @@ export async function transitionQuotationStatus(tx: StateTransactionClient, tran
     throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   }
 
+  await syncQuotationLineState(tx, updated);
+
   await recordStatusHistory(tx, {
     entityType: 'QUOTATION',
     entityId: updated.id,
@@ -209,6 +216,8 @@ export async function transitionOrderStatus(tx: StateTransactionClient, transiti
   if (!updated) {
     throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
   }
+
+  await syncOrderLineState(tx, updated);
 
   await recordStatusHistory(tx, {
     entityType: 'ORDER',

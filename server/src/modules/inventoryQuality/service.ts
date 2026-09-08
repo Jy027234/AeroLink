@@ -3,6 +3,8 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { enqueueBusinessEvent } from '../../lib/outboxService.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { StateTransitionConflictError, transitionOrderStatus } from '../../lib/transactionStateService.js';
+import { syncOrderLineState, syncQuotationLineState } from '../../lib/transactionLineService.js';
+import { consumeFulfillmentReview } from './fulfillmentReview.js';
 
 export function assertInventoryQuantityAdjustmentAllowed(status: string, quantityProvided: boolean) {
   if (quantityProvided && status !== 'AVAILABLE') {
@@ -237,7 +239,22 @@ export async function reserveInventoryForQuotation(
       },
     });
     if (updatedOrder.count !== 1) throw new StateTransitionConflictError();
+
+    await syncOrderLineState(tx, {
+      ...order,
+      inventoryDetailId: detail.id,
+      serialNumber: detail.serialNumber,
+      batchNumber: detail.batchNumber,
+    });
   }
+
+  await syncQuotationLineState(tx, {
+    ...quotation,
+    inventoryDetailId: detail.id,
+    serialNumber: detail.serialNumber,
+    batchNumber: detail.batchNumber,
+    reservedQuantity: args.quantity,
+  });
 
   const transaction = await tx.inventoryTransaction.create({
     data: {
@@ -329,6 +346,11 @@ export async function releaseInventoryReservation(
       data: { reservedQuantity: 0, version: { increment: 1 } },
     });
     if (releasedQuotation.count !== 1) throw new StateTransitionConflictError();
+
+    await syncQuotationLineState(tx, {
+      ...quotation,
+      reservedQuantity: 0,
+    });
   }
 
   const transaction = await tx.inventoryTransaction.create({
@@ -418,6 +440,8 @@ export async function outboundInventoryForOrder(
     throw new AppError('本次出库数量超过该订单已预留数量', 409, 'RESOURCE_CONFLICT');
   }
 
+  await consumeFulfillmentReview(tx, order.id, args.quantity);
+
   const beforeQuantity = detail.quantity;
   const afterQuantity = beforeQuantity - args.quantity;
   const nextReservedQuantity = isReservedForOrder
@@ -429,7 +453,7 @@ export async function outboundInventoryForOrder(
   const shouldShipOrder = nextOutboundStatus === 'COMPLETED';
 
   const updatedDetail = await tx.inventoryDetail.updateMany({
-    where: { id: detail.id, status: detail.status, quantity: { gte: args.quantity } },
+    where: { id: detail.id, status: detail.status, quantity: detail.quantity, updatedAt: detail.updatedAt },
     data: { quantity: afterQuantity, status: nextInventoryStatus },
   });
   if (updatedDetail.count !== 1) throw new StateTransitionConflictError();
@@ -446,6 +470,11 @@ export async function outboundInventoryForOrder(
       data: { reservedQuantity: nextReservedQuantity, version: { increment: 1 } },
     });
     if (updatedQuotation.count !== 1) throw new StateTransitionConflictError();
+
+    await syncQuotationLineState(tx, {
+      ...order.quotation,
+      reservedQuantity: nextReservedQuantity,
+    });
   }
 
   const transaction = await tx.inventoryTransaction.create({
@@ -492,6 +521,10 @@ export async function outboundInventoryForOrder(
         version: order.version + 1,
       };
     })();
+
+  if (!shouldShipOrder) {
+    await syncOrderLineState(tx, updatedOrder);
+  }
 
   await enqueueBusinessEvent(tx, {
     eventType: 'inventory.outbound',

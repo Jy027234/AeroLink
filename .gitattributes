@@ -1,0 +1,8 @@
+# Preserve verified upstream artifact bytes across Windows/Linux checkouts.
+vendor/pptxgenjs/dist/** -text
+vendor/pptxgenjs/dist/** whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+vendor/pptxgenjs/types/** -text
+vendor/pptxgenjs/LICENSE -text
+vendor/pptxgenjs/package.json -text
+# The fingerprinted manifest deliberately retains its original CRLF bytes.
+vendor/pptxgenjs/package.json whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

@@ -20,6 +20,7 @@ async function main() {
 
   console.log('开始播种数据...');
 
+  await prisma.fulfillmentReview.deleteMany();
   await prisma.transactionStatusHistory.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.approval.deleteMany();
@@ -276,6 +277,14 @@ async function main() {
     ],
   });
   console.log(`创建了 ${users.count} 个用户`);
+
+  if (process.env.NODE_ENV === 'test') {
+    await prisma.user.createMany({ data: [
+      { id: 'test-sales', email: 'sales-test@aerolink.com', name: '销售测试', password: demoPasswordHash, role: 'SALES', department: '销售部' },
+      { id: 'test-sales-peer', email: 'test-sales-peer@aerolink.com', name: '销售测试同事', password: demoPasswordHash, role: 'SALES', department: '采购部' },
+      { id: 'test-quality', email: 'quality-test@aerolink.com', name: '质量测试', password: demoPasswordHash, role: 'QUALITY_MANAGER', department: '质量部' },
+    ] });
+  }
 
   const customers = await prisma.customer.createMany({
     data: [

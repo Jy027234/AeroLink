@@ -68,33 +68,21 @@ test.describe('Agent Workbench', () => {
     await navigateToAgentWorkbench(page);
   });
 
-  test('controlled demo creates a real RFQ only after confirmation', async ({ page }) => {
+  test('runtime assistant is view-only and cannot create an RFQ', async ({ page }) => {
     test.slow();
 
     const before = await getRfqSnapshot(page);
 
-    await page.getByTestId('agent-run-demo').click();
+    const runtimeButton = page.getByTestId('agent-runtime-disabled');
+    await expect(runtimeButton).toBeVisible();
+    await expect(runtimeButton).toBeDisabled();
+    await expect(runtimeButton).toContainText(/助手执行已暂停|Assistant execution paused/);
 
-    const confirmationPanel = page.getByTestId('agent-confirmation-panel');
-    await expect(confirmationPanel).toBeVisible();
-    await expect(page.getByTestId('agent-confirmation-title')).toHaveText('需求单生成确认');
-    await expect(confirmationPanel).toContainText('海南航空');
+    // The former demo action must not remain as an executable client entry point.
+    await expect(page.getByTestId('agent-run-demo')).toHaveCount(0);
+    await expect(page.getByTestId('agent-confirmation-panel')).toHaveCount(0);
 
-    const beforeConfirm = await getRfqSnapshot(page);
-    expect(beforeConfirm.count).toBe(before.count);
-    await expect(page.getByTestId('agent-confirm-submit')).toHaveText('确认生成');
-
-    await page.getByTestId('agent-confirm-submit').click();
-
-    await expect.poll(async () => (await getRfqSnapshot(page)).count, {
-      timeout: 30000,
-      message: 'RFQ count should increase only after confirmation',
-    }).toBe(before.count + 1);
-
-    const afterConfirm = await getRfqSnapshot(page);
-    expect(afterConfirm.latestRfqNumber).toBeTruthy();
-
-    await expect(page.getByText(afterConfirm.latestRfqNumber!).first()).toBeVisible();
-    await expect(page.getByText('Skyline Aero Trading')).toHaveCount(0);
+    const after = await getRfqSnapshot(page);
+    expect(after.count).toBe(before.count);
   });
 });

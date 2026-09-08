@@ -118,7 +118,16 @@ export function useSubmitQuotation() {
 
 export function useApproveQuotation() {
   const mutation = useApproveQuotationMutation();
-  return { approve: async (id: string, action: 'approve' | 'reject', version?: number, comment?: string) => (await mutation.mutateAsync({ id, body: { action, version, comment } })).data, ...quotationActionAdapter(mutation) };
+  return {
+    approve: async (
+      id: string,
+      action: 'approve' | 'reject',
+      version?: number,
+      comment?: string,
+      costSource?: { costSourceType: 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL'; costSourceId?: string; costSourceReason?: string },
+    ) => (await mutation.mutateAsync({ id, body: { action, version, comment, ...costSource } })).data,
+    ...quotationActionAdapter(mutation),
+  };
 }
 
 export function useSendQuotation() {

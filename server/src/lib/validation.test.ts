@@ -102,6 +102,8 @@ describe('quotationCreateSchema', () => {
       quantity: 5,
       unitPrice: 100,
       costPrice: 80,
+      costSourceType: 'MANUAL',
+      costSourceReason: 'contract cost sheet',
     });
     expect(result.success).toBe(true);
   });
@@ -114,6 +116,23 @@ describe('quotationCreateSchema', () => {
       quantity: 5,
       unitPrice: -10,
       costPrice: 80,
+      costSourceType: 'MANUAL',
+      costSourceReason: 'contract cost sheet',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject unsupported quotation line payloads instead of stripping them', () => {
+    const result = quotationCreateSchema.safeParse({
+      rfqId: 'rfq-1',
+      customerId: 'cust-1',
+      partNumber: 'PN123',
+      quantity: 1,
+      unitPrice: 100,
+      costPrice: 80,
+      costSourceType: 'MANUAL',
+      costSourceReason: 'contract cost sheet',
+      lines: [],
     });
     expect(result.success).toBe(false);
   });

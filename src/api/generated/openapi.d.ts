@@ -1343,7 +1343,7 @@ export interface paths {
         head?: never;
         /**
          * PATCH /api/emails/:id/discard
-         * @description Persistently discards an unprocessed inbound email. Emails already linked to an RFQ are protected from discard.
+         * @description Contracted internal PATCH /api/emails/:id/discard operation. This route uses the bounded JSON envelope while its owning vertical slice is migrated to a DTO-specific schema; credentials and provider secrets are excluded.
          */
         patch: operations["patchEmailsIdDiscard"];
         trace?: never;
@@ -1554,7 +1554,8 @@ export interface paths {
         get: operations["getAgentsRuntimeTasksId"];
         /**
          * PUT /api/agents/runtime/tasks/:id
-         * @description Contracted internal agent/model administration and runtime operation. Provider credentials, API keys and persisted JSON shadow columns are excluded from response DTOs.
+         * @deprecated
+         * @description Disabled legacy browser task synchronization. Authorized callers receive 410; no task data is written.
          */
         put: operations["putAgentsRuntimeTasksId"];
         post?: never;
@@ -4712,6 +4713,46 @@ export interface paths {
         patch: operations["patchInventoryItemsId"];
         trace?: never;
     };
+    "/api/inventory-transactions/quality-review/{orderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/inventory-transactions/quality-review/:orderId
+         * @description Server-authoritative delivery quality review. Requires quality_review capability. Client identity/time fields are rejected; changes to reviewed facts invalidate approval.
+         */
+        get: operations["getInventoryTransactionsQualityReviewOrderId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-transactions/quality-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-transactions/quality-reviews
+         * @description Server-authoritative delivery quality review. Requires quality_review capability. Client identity/time fields are rejected; changes to reviewed facts invalidate approval.
+         */
+        post: operations["postInventoryTransactionsQualityReviews"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/inventory-transactions/detail/{detailId}": {
         parameters: {
             query?: never;
@@ -4927,7 +4968,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/inquiries
-         * @description Contracted supporting operational operation. Responses mirror the existing internal route projection and exclude credentials or external-provider secrets.
+         * @description Creates source-linked inquiry drafts in one idempotent transaction. No supplier message is sent. Current RFQ access is required, including on replay.
          */
         post: operations["postInquiries"];
         delete?: never;
@@ -4967,7 +5008,8 @@ export interface paths {
         put?: never;
         /**
          * POST /api/inquiries/:id/send
-         * @description Contracted supporting operational operation. Responses mirror the existing internal route projection and exclude credentials or external-provider secrets.
+         * @deprecated
+         * @description No dispatch channel is implemented. Returns 409 MANUAL_WORKFLOW_REQUIRED without changing status or sentAt.
          */
         post: operations["postInquiriesIdSend"];
         delete?: never;
@@ -5794,13 +5836,6 @@ export interface components {
             type: "aog" | "standard" | "inquiry" | "spam";
             isRead: boolean;
             attachments: string[];
-            /** @enum {string} */
-            processingStatus?: "pending" | "processed" | "discarded" | "failed";
-            /** Format: date-time */
-            processedAt?: string | null;
-            /** Format: date-time */
-            discardedAt?: string | null;
-            rfqId?: string | null;
             accountId?: string | null;
             rfq?: {
                 [key: string]: unknown;
@@ -5820,14 +5855,6 @@ export interface components {
             success: true;
             data: components["schemas"]["Email"][];
             pagination?: components["schemas"]["Pagination"];
-            summary?: {
-                total: number;
-                aog: number;
-                standard: number;
-                inquiry: number;
-                unread: number;
-                spam: number;
-            };
         } & {
             [key: string]: unknown;
         };
@@ -7020,6 +7047,9 @@ export interface components {
                 /** Format: date-time */
                 requiredDate: string;
                 certificateRequired: boolean;
+                id?: string;
+                lineNo?: number;
+                rfqLineId?: string | null;
             } & {
                 [key: string]: unknown;
             })[];
@@ -7029,6 +7059,9 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             sentAt?: string | null;
+            rfqId?: string | null;
+            notes?: string | null;
+            readonly sourceVerified?: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -7050,6 +7083,8 @@ export interface components {
             rfqId: string;
             supplierIds: string[];
             isAOG?: boolean;
+            notes?: string;
+            lineIds?: string[];
         };
         NotificationPreference: {
             id: string;
@@ -7180,6 +7215,7 @@ export interface components {
             reasonCode?: string;
             reason?: string;
         };
+        /** @description Independent approval under the current amount policy. Explicit cost source fields allow historical missing evidence to be captured and approved in one version-checked transaction. */
         QuotationApproveRequest: {
             /** @enum {string} */
             action: "approve" | "reject";
@@ -7187,7 +7223,23 @@ export interface components {
             version?: number;
             reasonCode?: string;
             reason?: string;
-        };
+            /** @enum {string} */
+            costSourceType?: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL";
+            costSourceId?: string;
+            costSourceReason?: string;
+        } & ({
+            costSourceId?: never;
+            costSourceReason?: never;
+        } | {
+            /** @constant */
+            costSourceType: "MANUAL";
+            costSourceId?: never;
+            costSourceReason: string;
+        } | {
+            /** @enum {unknown} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL";
+            costSourceId: string;
+        });
         QuotationSendRequest: {
             subject?: string;
             message?: string;
@@ -7281,6 +7333,7 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             createdBy: string;
+            readonly lines?: components["schemas"]["RfqLine"][];
         } & {
             [key: string]: unknown;
         };
@@ -7337,6 +7390,7 @@ export interface components {
             urgencyJustification?: string;
             notes?: string;
             emailId?: string;
+            lines?: never;
         };
         RfqUpdateRequest: {
             customerId?: string;
@@ -7373,6 +7427,7 @@ export interface components {
             urgencyJustification?: string;
             notes?: string;
             emailId?: string;
+            lines?: never;
         };
         RfqStatusUpdateRequest: {
             status: string;
@@ -7430,6 +7485,17 @@ export interface components {
             createdBy: string;
             /** Format: date */
             expiryDate: string;
+            currency?: string;
+            /** @description True for an approved quotation whose latest approval does not cover the current policy and commercial terms. An authorised independent approver must review it again. */
+            readonly requiresReapproval?: boolean;
+            /** @enum {string|null} */
+            readonly costSourceType?: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL" | null;
+            readonly costSourceId?: string | null;
+            readonly costSourceReason?: string | null;
+            /** @description Immutable cost evidence, omitted without quotation.view_cost. */
+            readonly costSourceSnapshotJson?: string | null;
+            /** Format: date-time */
+            readonly costSourceCapturedAt?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -7451,6 +7517,7 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description USD sale quotation with an explicit, verifiable cost source. Supplier or inventory source identity, quantity and price are validated server-side; manual cost requires a reason. */
         QuotationCreateRequest: {
             rfqId: string;
             customerId: string;
@@ -7461,8 +7528,8 @@ export interface components {
             certificateFiles?: string[];
             template?: string;
             validityDays?: number;
-            /** @default Sale */
-            saleType: string;
+            /** @enum {string} */
+            saleType?: "Sale";
             shipToId?: string;
             shipForId?: string;
             incoterm?: string;
@@ -7490,7 +7557,26 @@ export interface components {
             eccn?: string;
             /** @default false */
             dualUse: boolean;
-        };
+            /**
+             * @default USD
+             * @enum {string}
+             */
+            currency: "USD";
+            lines?: never;
+            /** @enum {string} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL";
+            costSourceId?: string;
+            costSourceReason?: string;
+        } & ({
+            /** @constant */
+            costSourceType: "MANUAL";
+            costSourceId?: never;
+            costSourceReason: string;
+        } | {
+            /** @enum {unknown} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL";
+            costSourceId: string;
+        });
         QuotationUpdateRequest: {
             rfqId?: string;
             customerId?: string;
@@ -7613,8 +7699,8 @@ export interface components {
             /** Format: date */
             deliveryDate?: string;
             templateId?: string;
-            /** @default Sale */
-            saleType: string;
+            /** @enum {string} */
+            saleType?: "Sale";
             incoterm?: string;
             incotermLocation?: string;
             shipToId?: string;
@@ -7646,6 +7732,7 @@ export interface components {
             exchangeCoreDueDate?: string;
             eSignatureCustomer?: string;
             eSignatureSupplier?: string;
+            lines?: never;
         };
         OrderUpdateRequest: {
             quotationId?: string;
@@ -7655,8 +7742,8 @@ export interface components {
             /** Format: date */
             deliveryDate?: string;
             templateId?: string;
-            /** @default Sale */
-            saleType: string;
+            /** @enum {string} */
+            saleType?: "Sale";
             incoterm?: string;
             incotermLocation?: string;
             shipToId?: string;
@@ -8290,6 +8377,12 @@ export interface components {
             } & {
                 [key: string]: unknown;
             };
+            /** @description Historical missing currency remains null. */
+            currency?: string | null;
+            /** @enum {string} */
+            readonly currencyStatus?: "VERIFIED" | "HISTORICAL_UNVERIFIED";
+            readonly rfqLineId?: string | null;
+            readonly inquiryItemId?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -8345,6 +8438,12 @@ export interface components {
             inquiry?: {
                 [key: string]: unknown;
             } | null;
+            /** @description Historical missing currency remains null. */
+            currency?: string | null;
+            /** @enum {string} */
+            readonly currencyStatus?: "VERIFIED" | "HISTORICAL_UNVERIFIED";
+            readonly rfqLineId?: string | null;
+            readonly inquiryItemId?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -8476,6 +8575,7 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description USD supplier quote with exact source IDs. A unique RFQ line may be selected from the specified RFQ; multi-line RFQs require an explicit line ID. Inquiry ownership and supplier identity are verified in the same transaction. */
         SupplierQuoteCreateRequest: {
             rfqId?: string;
             inquiryId?: string;
@@ -8488,7 +8588,15 @@ export interface components {
             /** Format: date-time */
             validUntil?: string;
             notes?: string;
+            /**
+             * @default USD
+             * @enum {string}
+             */
+            currency: "USD";
+            rfqLineId?: string;
+            inquiryItemId?: string;
         };
+        /** @description Updates commercial availability without rewriting captured quotation cost snapshots. Source identity changes require a new supplier quote; sending the unchanged IDs is allowed. */
         SupplierQuoteUpdateRequest: {
             unitPrice?: number;
             leadTimeDays?: number;
@@ -8498,6 +8606,14 @@ export interface components {
             /** @enum {string} */
             status?: "pending" | "accepted" | "rejected" | "expired";
             isWinner?: boolean;
+            /** @enum {string} */
+            currency?: "USD";
+            rfqId?: string;
+            rfqLineId?: string;
+            inquiryId?: string;
+            inquiryItemId?: string;
+            partNumber?: string;
+            quantity?: number;
         };
         SupplierQuoteCompareRequest: {
             rfqId: string;
@@ -11058,6 +11174,93 @@ export interface components {
             }[];
         } & {
             [key: string]: unknown;
+        };
+        FulfillmentReviewCreateRequest: {
+            orderId: string;
+            quantity: number;
+            snapshotHash: string;
+            approved: boolean;
+            evidenceIds: string[];
+            verifiedSerialNumber: string;
+            verifiedBatchNumber: string;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+            reason: string;
+        };
+        FulfillmentReviewResultEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                id: string;
+                approved: boolean;
+                /** Format: date-time */
+                reviewedAt: string;
+                quantity: number;
+            };
+        };
+        FulfillmentReviewPreviewEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                snapshotHash: string;
+                snapshot: {
+                    /** @description Current identity, tracking and quality requirements; no cost fields. */
+                    order: {
+                        [key: string]: unknown;
+                    };
+                    /** @description Versioned customer and quotation quality requirements. */
+                    requirements: {
+                        [key: string]: unknown;
+                    };
+                    /** @description Physical identity, condition, life and document references; no cost fields. */
+                    inventory: {
+                        [key: string]: unknown;
+                    };
+                    certificates: {
+                        [key: string]: unknown;
+                    }[];
+                    plannedQuantity: number;
+                };
+                review: {
+                    approved: boolean;
+                    snapshotHash: string;
+                    /** Format: date-time */
+                    consumedAt: string | null;
+                    /** Format: date-time */
+                    reviewedAt: string;
+                    quantity: number;
+                } | null;
+            };
+        };
+        RfqLine: {
+            id: string;
+            rfqId: string;
+            lineNo: number;
+            partNumber: string;
+            quantity: number;
+            uom: string;
+            conditionCode: string;
+            description?: string | null;
+            serialNumber?: string | null;
+            batchNumber?: string | null;
+            alternatePartNumbers?: string[];
+            certificateRequired: boolean;
+            certificateType?: string | null;
+            /** Format: date */
+            requiredDate: string;
+            leadTimeDays?: number | null;
+            targetPriceDecimal?: string | null;
+            targetPriceCurrency: string;
+            /** @enum {string} */
+            status: "OPEN" | "COMPLETED" | "CANCELLED";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
     };
     responses: {
@@ -14891,8 +15094,6 @@ export interface operations {
             query?: {
                 type?: "aog" | "standard" | "inquiry" | "spam";
                 isRead?: boolean;
-                processingStatus?: "pending" | "processed" | "discarded" | "failed";
-                excludeSpam?: boolean;
                 page?: number;
                 limit?: number;
             };
@@ -14997,9 +15198,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: components["requestBodies"]["JsonBody"];
         responses: {
-            200: components["responses"]["Email"];
+            200: components["responses"]["Success"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -15333,14 +15534,22 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: components["requestBodies"]["AgentRuntimeTaskSync"];
+        requestBody?: never;
         responses: {
-            200: components["responses"]["AgentRuntimeTask"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            /** @description Client runtime synchronization is disabled */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             422: components["responses"]["Error"];
             429: components["responses"]["Error"];
             500: components["responses"]["Error"];
@@ -19659,6 +19868,73 @@ export interface operations {
             500: components["responses"]["Error"];
         };
     };
+    getInventoryTransactionsQualityReviewOrderId: {
+        parameters: {
+            query: {
+                quantity: number;
+            };
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quality review response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FulfillmentReviewPreviewEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryTransactionsQualityReviews: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FulfillmentReviewCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Quality review response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FulfillmentReviewResultEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
     getInventoryTransactionsDetailDetailId: {
         parameters: {
             query?: never;
@@ -19955,12 +20231,19 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Inquiry"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
+            /** @description Manual supplier contact required; inquiry has not been sent. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             422: components["responses"]["Error"];
             429: components["responses"]["Error"];
             500: components["responses"]["Error"];

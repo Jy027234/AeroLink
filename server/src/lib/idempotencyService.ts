@@ -170,9 +170,10 @@ class IdempotencyKeyConflictError extends Error {}
 export async function runIdempotentOperation<T>(
   context: IdempotencyContext,
   operation: (tx: Prisma.TransactionClient) => Promise<IdempotentOperationResult<T>>,
+  transactionOptions?: { isolationLevel: Prisma.TransactionIsolationLevel },
 ): Promise<IdempotentExecution<T>> {
   if (!context.key) {
-    const operationResult = await prisma.$transaction(operation);
+    const operationResult = await prisma.$transaction(operation, transactionOptions);
     return {
       payload: operationResult.payload,
       statusCode: operationResult.statusCode ?? 200,
@@ -220,7 +221,7 @@ export async function runIdempotentOperation<T>(
         replayed: false,
         key: keyedContext.key,
       };
-    });
+    }, transactionOptions);
 
     return execution;
   } catch (error) {
@@ -232,7 +233,7 @@ export async function runIdempotentOperation<T>(
       return await replayExistingOperation<T>(keyedContext);
     } catch (replayError) {
       if (replayError instanceof ExpiredIdempotencyRecordError) {
-        return runIdempotentOperation(context, operation);
+        return runIdempotentOperation(context, operation, transactionOptions);
       }
       throw replayError;
     }

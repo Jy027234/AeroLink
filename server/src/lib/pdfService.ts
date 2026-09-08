@@ -6,7 +6,7 @@ import { logger } from './logger.js';
 let browserInstance: Browser | null = null;
 
 async function getBrowser(): Promise<Browser> {
-  if (browserInstance && browserInstance.isConnected()) {
+  if (browserInstance?.connected) {
     return browserInstance;
   }
 
@@ -20,7 +20,7 @@ async function getBrowser(): Promise<Browser> {
   return browserInstance;
 }
 
-async function closeBrowser(): Promise<void> {
+export async function closeBrowser(): Promise<void> {
   if (browserInstance) {
     try {
       await browserInstance.close();
@@ -147,7 +147,8 @@ export async function generatePDF(html: string, options: PDFOptions = {}): Promi
 </body>
 </html>`;
 
-    await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
+    await page.setContent(fullHtml, { waitUntil: 'load' });
+    await page.waitForNetworkIdle();
 
     const pdf = await page.pdf({
       format: 'A4',

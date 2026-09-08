@@ -10,6 +10,7 @@ import type {
   ConfirmationOption,
   ConfirmationAuditEntry,
   AgentDashboard,
+  TaskExecutionState,
 } from '@/types/agent';
 import type { Customer, Supplier, SupplierFollowUpLog, SupplierFollowUpOutcome } from '@/types';
 import { agentRuntimeApi, customerApi, rfqApi, supplierApi, supplierQuoteApi, aiApi } from '@/api/client';
@@ -113,6 +114,54 @@ function normalizePhone(value: string | undefined): string {
   return (value || '').replace(/\D/g, '');
 }
 
+export function resolveUniqueSupplierIdentity(
+  requested: { name?: string; email?: string; phone?: string },
+  candidates: Supplier[]
+): Supplier | undefined {
+  const normalizedName = normalizeText(requested.name);
+  const normalizedEmail = normalizeText(requested.email);
+  const normalizedPhoneValue = normalizePhone(requested.phone);
+  const exactMatches = candidates.filter((candidate) => {
+    const candidateName = normalizeText(candidate.name);
+    const candidateEmail = normalizeText(candidate.email);
+    const candidatePhone = normalizePhone(candidate.phone);
+
+    // Exact identity fields only. A substring name or a shared country-code
+    // prefix is not sufficient to select a supplier.
+    return Boolean(
+      (normalizedEmail && candidateEmail === normalizedEmail)
+      || (normalizedPhoneValue && candidatePhone === normalizedPhoneValue)
+      || (normalizedName && candidateName === normalizedName)
+    );
+  });
+
+  const uniqueMatches = new Map(exactMatches.map((candidate) => [candidate.id, candidate]));
+  return uniqueMatches.size === 1 ? [...uniqueMatches.values()][0] : undefined;
+}
+
+const NON_EXECUTION_MARKERS = ['manual_workflow_required', 'not_dispatched'] as const;
+
+/** A hand-off is not a successful runtime side effect. */
+export function getTaskExecutionState(data: AgentData | undefined): TaskExecutionState | undefined {
+  if (!data) return undefined;
+
+  const directState = data.executionState;
+  if (typeof directState === 'string' && (NON_EXECUTION_MARKERS as readonly string[]).includes(directState)) {
+    return directState as TaskExecutionState;
+  }
+
+  for (const key of ['approvalStatus', 'orderStatus', 'notificationStatus', 'dispatchStatus']) {
+    const marker = data[key];
+    if (typeof marker === 'string' && (NON_EXECUTION_MARKERS as readonly string[]).includes(marker)) {
+      return marker as TaskExecutionState;
+    }
+  }
+
+  return undefined;
+}
+
+export const AGENT_RUNTIME_EXECUTION_ENABLED = false;
+
 function createRuntimeTaskId(): string {
   return `task_${crypto.randomUUID()}`;
 }
@@ -122,9 +171,6 @@ class AgentOrchestrator {
   private tasks: Map<string, AgentTask> = new Map();
   private listeners: Set<(task: AgentTask) => void> = new Set();
   private confirmingTasks: Set<string> = new Set();
-  private syncTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-  private syncInFlight: Map<string, Promise<void>> = new Map();
-  private syncRetryRequested: Set<string> = new Set();
   private hydrationPromise: Promise<void> | null = null;
   private hasHydrated = false;
 
@@ -144,52 +190,6 @@ class AgentOrchestrator {
 
   private notify(task: AgentTask): void {
     this.listeners.forEach((callback) => callback(task));
-    this.queueTaskSync(task.id);
-  }
-
-  private queueTaskSync(taskId: string): void {
-    const existingTimer = this.syncTimers.get(taskId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-    }
-
-    const timer = setTimeout(() => {
-      this.syncTimers.delete(taskId);
-      void this.flushTaskSync(taskId);
-    }, 80);
-
-    this.syncTimers.set(taskId, timer);
-  }
-
-  private async flushTaskSync(taskId: string): Promise<void> {
-    if (this.syncInFlight.has(taskId)) {
-      this.syncRetryRequested.add(taskId);
-      return;
-    }
-
-    const syncPromise = this.persistTask(taskId)
-      .finally(() => {
-        this.syncInFlight.delete(taskId);
-
-        if (this.syncRetryRequested.has(taskId)) {
-          this.syncRetryRequested.delete(taskId);
-          this.queueTaskSync(taskId);
-        }
-      });
-
-    this.syncInFlight.set(taskId, syncPromise);
-    await syncPromise;
-  }
-
-  private async persistTask(taskId: string): Promise<void> {
-    const task = this.tasks.get(taskId);
-    if (!task) return;
-
-    try {
-      await agentRuntimeApi.syncTask(task);
-    } catch (error) {
-      console.warn('Failed to sync agent runtime task', error);
-    }
   }
 
   private emitSnapshot(): void {
@@ -256,7 +256,7 @@ class AgentOrchestrator {
     const suppliers = (await supplierApi.getAll({
       search,
       page: 1,
-      limit: 20,
+      limit: 100,
       sort: 'performanceScore',
       direction: 'desc',
     })).data;
@@ -275,36 +275,18 @@ class AgentOrchestrator {
       }
     }
 
-    const currentSuppliers = await this.getAvailableSuppliers(supplier.name);
+    const searchTerms = [supplier.email, supplier.phone, supplier.name]
+      .filter((value): value is string => Boolean(value?.trim()));
+    if (searchTerms.length === 0) return undefined;
 
-    const normalizedName = normalizeText(supplier.name);
-    const normalizedEmail = normalizeText(supplier.email);
-    const normalizedPhoneValue = normalizePhone(supplier.phone);
+    const candidatePages = await Promise.all(
+      searchTerms.map((searchTerm) => this.getAvailableSuppliers(searchTerm))
+    );
+    const currentSuppliers = [...new Map(
+      candidatePages.flat().map((candidate) => [candidate.id, candidate])
+    ).values()];
 
-    const matchedSupplier = currentSuppliers.find((candidate) => {
-      const candidateName = normalizeText(candidate.name);
-      const candidateEmail = normalizeText(candidate.email);
-      const candidatePhone = normalizePhone(candidate.phone);
-
-      if (normalizedName && (candidateName === normalizedName || candidateName.includes(normalizedName) || normalizedName.includes(candidateName))) {
-        return true;
-      }
-
-      if (normalizedEmail && candidateEmail === normalizedEmail) {
-        return true;
-      }
-
-      if (normalizedPhoneValue && candidatePhone === normalizedPhoneValue) {
-        return true;
-      }
-
-      if (normalizedPhoneValue.startsWith('86') && candidatePhone.startsWith('86')) {
-        return true;
-      }
-
-      return false;
-    });
-
+    const matchedSupplier = resolveUniqueSupplierIdentity(supplier, currentSuppliers);
     if (matchedSupplier) {
       return matchedSupplier;
     }
@@ -470,18 +452,25 @@ class AgentOrchestrator {
       id: createRuntimeTaskId(),
       trigger,
       type,
-      status: 'running',
+      status: AGENT_RUNTIME_EXECUTION_ENABLED ? 'running' : 'pending',
       currentStepIndex: 0,
       steps,
       context,
       createdAt: new Date(),
       updatedAt: new Date(),
+      runtimeTrust: 'legacy_untrusted',
+      executionState: AGENT_RUNTIME_EXECUTION_ENABLED ? undefined : 'manual_workflow_required',
+      error: AGENT_RUNTIME_EXECUTION_ENABLED
+        ? undefined
+        : '客户端助手任务执行已暂停；请通过人工业务流程完成此操作。',
     };
 
     this.tasks.set(task.id, task);
     this.notify(task);
 
-    this.executeTask(task.id);
+    if (AGENT_RUNTIME_EXECUTION_ENABLED) {
+      void this.executeTask(task.id);
+    }
 
     return task;
   }
@@ -541,6 +530,15 @@ class AgentOrchestrator {
     const task = this.tasks.get(taskId);
     if (!task) return;
 
+    if (!AGENT_RUNTIME_EXECUTION_ENABLED) {
+      task.status = 'pending';
+      task.executionState = 'manual_workflow_required';
+      task.error = '客户端助手任务执行已暂停；请通过人工业务流程完成此操作。';
+      task.updatedAt = new Date();
+      this.notify(task);
+      return;
+    }
+
     while (task.currentStepIndex < task.steps.length) {
       const step = task.steps[task.currentStepIndex];
 
@@ -567,7 +565,22 @@ class AgentOrchestrator {
         const result = await this.executeCapability(step.capability, step.action, task.context);
 
         if (result.success) {
+          const executionState = getTaskExecutionState(result.data);
+          if (executionState) {
+            step.status = 'pending';
+            step.executionState = executionState;
+            step.result = result.data;
+            task.executionState = executionState;
+            task.context = { ...task.context, ...result.data, executionState };
+            task.status = 'pending';
+            task.error = undefined;
+            task.updatedAt = new Date();
+            this.notify(task);
+            return;
+          }
+
           step.status = 'completed';
+          step.executionState = 'executed';
           step.completedAt = new Date();
           step.result = result.data;
           task.context = { ...task.context, ...result.data };
@@ -692,6 +705,11 @@ class AgentOrchestrator {
 
   async confirmTask(taskId: string, optionId: string, additionalData?: Record<string, unknown>): Promise<void> {
     if (this.confirmingTasks.has(taskId)) return;
+
+    if (!AGENT_RUNTIME_EXECUTION_ENABLED) {
+      throw new Error('客户端助手确认已暂停；请通过人工业务流程完成此操作。');
+    }
+
     this.confirmingTasks.add(taskId);
 
     try {
@@ -1191,10 +1209,18 @@ class AgentOrchestrator {
     today.setHours(0, 0, 0, 0);
 
     const runningTasks = tasks.filter((t) => t.status === 'running');
-    const pendingTasks = tasks.filter((t) => t.status === 'pending');
+    const pendingTasks = tasks.filter(
+      (t) => t.status === 'pending'
+        || t.executionState === 'manual_workflow_required'
+        || t.executionState === 'not_dispatched'
+    );
     const waitingConfirmationTasks = tasks.filter((t) => t.status === 'waiting_confirmation');
     const completedToday = tasks.filter(
-      (t) => t.status === 'completed' && t.completedAt && t.completedAt >= today
+      (t) => t.status === 'completed'
+        && t.executionState !== 'manual_workflow_required'
+        && t.executionState !== 'not_dispatched'
+        && t.completedAt
+        && t.completedAt >= today
     );
     const failedToday = tasks.filter(
       (t) => t.status === 'failed' && t.updatedAt >= today
@@ -1211,8 +1237,16 @@ class AgentOrchestrator {
       },
       pipeline: {
         emailsReceived: tasks.filter((t) => t.type === 'email_received').length,
-        rfqsCreated: tasks.filter((t) => t.type === 'rfq_created' || t.context.rfqId).length,
-        quotationsSent: tasks.filter((t) => t.type === 'quotation_sent' || t.context.quotationId).length,
+        rfqsCreated: tasks.filter(
+          (t) => t.executionState !== 'manual_workflow_required'
+            && t.executionState !== 'not_dispatched'
+            && (t.type === 'rfq_created' || t.context.rfqId)
+        ).length,
+        quotationsSent: tasks.filter(
+          (t) => t.executionState !== 'manual_workflow_required'
+            && t.executionState !== 'not_dispatched'
+            && (t.type === 'quotation_sent' || t.context.quotationId)
+        ).length,
         ordersCompleted: completedToday.filter((t) => t.type === 'order_completed').length,
       },
       pendingConfirmations: this.getPendingConfirmations(),
@@ -1278,6 +1312,7 @@ class AgentOrchestrator {
 
     if (manualStep) {
       manualStep.status = 'completed';
+      manualStep.executionState = 'executed';
       manualStep.startedAt ??= completedAt;
       manualStep.completedAt = completedAt;
       manualStep.result = {
@@ -1292,6 +1327,7 @@ class AgentOrchestrator {
 
     task.currentStepIndex = task.steps.length;
     task.status = 'completed';
+    task.executionState = 'executed';
     task.completedAt = completedAt;
     task.updatedAt = completedAt;
     task.context = {

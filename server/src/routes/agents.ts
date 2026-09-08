@@ -1,18 +1,20 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
+import type { AuthRequest } from '../middleware/auth.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
-import { agentCreateSchema, agentRuntimeTaskSyncSchema, agentUpdateSchema } from '../lib/validation.js';
+import { agentCreateSchema, agentUpdateSchema } from '../lib/validation.js';
 import { classifyRFQEmail, generateQuoteAnalysis, generateCompletion, logAgentAction } from '../lib/aiService.js';
 import { logger } from '../lib/logger.js';
 import { emitWebhookEvent } from '../lib/webhookService.js';
-import { assertProductFeatureEnabled } from '../lib/productFeatures.js';
+import { normalizeRole } from '../lib/capabilityPolicy.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
 const requireAgentManagementRole = requireCapability('agent', 'manage');
 const requireAgentRunCapability = requireCapability('agent', 'run');
+const requireAgentReadCapability = requireCapability('agent', 'read');
 
 type RuntimePrismaClient = Prisma.TransactionClient | typeof prisma;
 
@@ -26,36 +28,14 @@ function parseRuntimeJson<T>(value: string | null | undefined, fallback: T): T {
   }
 }
 
-function buildRuntimeStepRecordId(taskId: string, stepId: string): string {
-  return `${taskId}::${stepId}`;
-}
-
 function extractRuntimeStepId(recordId: string): string {
   const separatorIndex = recordId.indexOf('::');
   return separatorIndex >= 0 ? recordId.slice(separatorIndex + 2) : recordId;
 }
 
-function buildRuntimeConfirmationRecordId(taskId: string, confirmationId: string): string {
-  return `${taskId}::${confirmationId}`;
-}
-
 function extractRuntimeConfirmationId(recordId: string): string {
   const separatorIndex = recordId.indexOf('::');
   return separatorIndex >= 0 ? recordId.slice(separatorIndex + 2) : recordId;
-}
-
-function stringifyRuntimeJson(value: unknown, fallback: string): string {
-  if (value === undefined) return fallback;
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return fallback;
-  }
-}
-
-function toDate(value?: string | null): Date | undefined {
-  return value ? new Date(value) : undefined;
 }
 
 async function getRuntimeTaskById(client: RuntimePrismaClient, id: string) {
@@ -72,59 +52,70 @@ async function getRuntimeTaskById(client: RuntimePrismaClient, id: string) {
 
 type AgentRuntimeTaskRecord = NonNullable<Awaited<ReturnType<typeof getRuntimeTaskById>>>;
 
-type RuntimeConfirmationAuditRecord = {
-  confirmationId?: string;
-  taskId?: string;
-  stepId?: string;
-  type?: string;
-  optionId?: string;
-  action?: string;
-  optionLabel?: string;
-  optionLabelZh?: string;
-  optionLabelEn?: string;
-  confirmedAt?: string;
-  confirmedBy?: string;
-  note?: string;
-  reasonCode?: string;
-  reasonLabel?: string;
-  reasonLabelZh?: string;
-  reasonLabelEn?: string;
-};
+type RuntimeTrust = 'server_trusted' | 'legacy_untrusted';
+type RuntimeExecutionState = 'manual_workflow_required' | 'not_dispatched';
 
-function getLatestRuntimeConfirmationAudit(context: unknown): RuntimeConfirmationAuditRecord | undefined {
-  if (!context || typeof context !== 'object') {
-    return undefined;
-  }
-
-  const latestConfirmation = (context as Record<string, unknown>).latestConfirmation;
-  if (!latestConfirmation || typeof latestConfirmation !== 'object') {
-    return undefined;
-  }
-
-  const audit = latestConfirmation as RuntimeConfirmationAuditRecord;
-  if (!audit.confirmationId || !audit.confirmedAt) {
-    return undefined;
-  }
-
-  return audit;
+function getRuntimeTrust(_context: unknown): RuntimeTrust {
+  // The legacy table has no server-owned attribution column. Context/result data
+  // may have been written by the old client PUT endpoint, so it cannot establish
+  // ownership or trust. A future server-controlled task creation path must add
+  // independent metadata before this can return server_trusted.
+  return 'legacy_untrusted';
 }
 
-function isSameRuntimeConfirmationAudit(
-  previousAudit?: RuntimeConfirmationAuditRecord,
-  nextAudit?: RuntimeConfirmationAuditRecord
-): boolean {
-  if (!previousAudit || !nextAudit) {
-    return false;
+function getRuntimeExecutionStateFromData(data: unknown): RuntimeExecutionState | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+
+  const directState = (data as Record<string, unknown>).executionState;
+  if (directState === 'manual_workflow_required' || directState === 'not_dispatched') {
+    return directState;
   }
 
-  return (
-    previousAudit.confirmationId === nextAudit.confirmationId &&
-    previousAudit.optionId === nextAudit.optionId &&
-    previousAudit.confirmedAt === nextAudit.confirmedAt
-  );
+  for (const key of ['approvalStatus', 'orderStatus', 'notificationStatus', 'dispatchStatus']) {
+    const marker = (data as Record<string, unknown>)[key];
+    if (marker === 'manual_workflow_required' || marker === 'not_dispatched') {
+      return marker;
+    }
+  }
+
+  return undefined;
+}
+
+function getRuntimeExecutionState(task: AgentRuntimeTaskRecord): RuntimeExecutionState | undefined {
+  const context = parseRuntimeJson(task.context, {});
+  const result = task.result ? parseRuntimeJson(task.result, {}) : undefined;
+  return getRuntimeExecutionStateFromData(context)
+    || getRuntimeExecutionStateFromData(result)
+    || task.steps.reduce<RuntimeExecutionState | undefined>(
+      (state, step) => state || getRuntimeExecutionStateFromData(step.result ? parseRuntimeJson(step.result, {}) : undefined),
+      undefined
+    );
+}
+
+function isPrivilegedRuntimeReader(user: NonNullable<AuthRequest['user']>): boolean {
+  return normalizeRole(user.role) === 'admin';
+}
+
+function canReadRuntimeTask(user: NonNullable<AuthRequest['user']>, _context: unknown): boolean {
+  // Until D15 supplies server-owned attribution, only the explicit admin role
+  // may inspect legacy history. Capability manage/read does not grant history
+  // access because it cannot establish task ownership.
+  return isPrivilegedRuntimeReader(user);
+}
+
+function getAuthenticatedRuntimeReader(req: AuthRequest): NonNullable<AuthRequest['user']> {
+  if (!req.user) {
+    throw new AppError('未授权，请先登录', 401, 'AUTH_UNAUTHORIZED');
+  }
+
+  return req.user;
 }
 
 function mapRuntimeTask(task: AgentRuntimeTaskRecord) {
+  const context = parseRuntimeJson(task.context, {});
+  const result = task.result ? parseRuntimeJson(task.result, {}) : undefined;
+  const executionState = getRuntimeExecutionState(task);
+
   return {
     id: task.id,
     trigger: {
@@ -135,17 +126,21 @@ function mapRuntimeTask(task: AgentRuntimeTaskRecord) {
     type: task.type,
     status: task.status,
     currentStepIndex: task.currentStepIndex,
-    steps: task.steps.map((step) => ({
-      id: extractRuntimeStepId(step.id),
-      capability: step.capability,
-      action: step.action,
-      params: parseRuntimeJson(step.params, {}),
-      status: step.status,
-      result: step.result ? parseRuntimeJson(step.result, {}) : undefined,
-      error: step.error || undefined,
-      startedAt: step.startedAt?.toISOString(),
-      completedAt: step.completedAt?.toISOString(),
-    })),
+    steps: task.steps.map((step) => {
+      const stepResult = step.result ? parseRuntimeJson(step.result, {}) : undefined;
+      return {
+        id: extractRuntimeStepId(step.id),
+        capability: step.capability,
+        action: step.action,
+        params: parseRuntimeJson(step.params, {}),
+        status: step.status,
+        executionState: getRuntimeExecutionStateFromData(stepResult),
+        result: stepResult,
+        error: step.error || undefined,
+        startedAt: step.startedAt?.toISOString(),
+        completedAt: step.completedAt?.toISOString(),
+      };
+    }),
     confirmationNode: task.confirmation
       ? {
           id: extractRuntimeConfirmationId(task.confirmation.id),
@@ -165,8 +160,10 @@ function mapRuntimeTask(task: AgentRuntimeTaskRecord) {
           confirmedBy: task.confirmation.confirmedBy || undefined,
         }
       : undefined,
-    context: parseRuntimeJson(task.context, {}),
-    result: task.result ? parseRuntimeJson(task.result, {}) : undefined,
+    context,
+    result,
+    executionState,
+    runtimeTrust: getRuntimeTrust(context),
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
     completedAt: task.completedAt?.toISOString(),
@@ -176,7 +173,9 @@ function mapRuntimeTask(task: AgentRuntimeTaskRecord) {
 
 router.get(
   '/runtime/tasks',
+  requireAgentReadCapability,
   asyncHandler(async (req, res) => {
+    const reader = getAuthenticatedRuntimeReader(req as AuthRequest);
     const limitValue = parseInt(String(req.query.limit || '50'), 10);
     const limit = Number.isNaN(limitValue) ? 50 : Math.min(Math.max(limitValue, 1), 100);
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
@@ -197,19 +196,26 @@ router.get(
       take: limit,
     });
 
+    const visibleTasks = tasks.filter((task) => {
+      const context = parseRuntimeJson(task.context, {});
+      return canReadRuntimeTask(reader, context);
+    });
+
     res.json({
       success: true,
-      data: tasks.map(mapRuntimeTask),
+      data: visibleTasks.map(mapRuntimeTask),
     });
   })
 );
 
 router.get(
   '/runtime/tasks/:id',
+  requireAgentReadCapability,
   asyncHandler(async (req, res) => {
+    const reader = getAuthenticatedRuntimeReader(req as AuthRequest);
     const task = await getRuntimeTaskById(prisma, req.params.id);
 
-    if (!task) {
+    if (!task || !canReadRuntimeTask(reader, parseRuntimeJson(task.context, {}))) {
       throw new AppError('运行时任务不存在', 404);
     }
 
@@ -222,7 +228,9 @@ router.get(
 
 router.get(
   '/runtime/dashboard',
-  asyncHandler(async (_req, res) => {
+  requireAgentReadCapability,
+  asyncHandler(async (req, res) => {
+    const reader = getAuthenticatedRuntimeReader(req as AuthRequest);
     const recentTasks = await prisma.agentRuntimeTask.findMany({
       include: {
         steps: {
@@ -231,35 +239,36 @@ router.get(
         confirmation: true,
       },
       orderBy: { updatedAt: 'desc' },
-      take: 20,
     });
 
-    const recentTaskPayload = recentTasks.map(mapRuntimeTask);
+    const visibleTasks = recentTasks.filter((task) => canReadRuntimeTask(reader, parseRuntimeJson(task.context, {})));
+    const recentTaskPayload = visibleTasks.slice(0, 20).map(mapRuntimeTask);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const taskCounts = {
+      total: visibleTasks.length,
+      running: visibleTasks.filter((task) => task.status === 'running').length,
+      pending: visibleTasks.filter(
+        (task) => task.status === 'pending' || getRuntimeExecutionState(task)
+      ).length,
+      waitingConfirmation: visibleTasks.filter((task) => task.status === 'waiting_confirmation').length,
+      completedToday: visibleTasks.filter(
+        (task) => task.status === 'completed'
+          && !getRuntimeExecutionState(task)
+          && task.completedAt
+          && task.completedAt >= today
+      ).length,
+      failedToday: visibleTasks.filter(
+        (task) => task.status === 'failed' && task.updatedAt >= today
+      ).length,
+    };
 
     res.json({
       success: true,
       data: {
         tasks: {
-          total: await prisma.agentRuntimeTask.count(),
-          running: await prisma.agentRuntimeTask.count({ where: { status: 'running' } }),
-          pending: await prisma.agentRuntimeTask.count({ where: { status: 'pending' } }),
-          waitingConfirmation: await prisma.agentRuntimeTask.count({ where: { status: 'waiting_confirmation' } }),
-          completedToday: await prisma.agentRuntimeTask.count({
-            where: {
-              status: 'completed',
-              completedAt: {
-                gte: new Date(new Date().setHours(0, 0, 0, 0)),
-              },
-            },
-          }),
-          failedToday: await prisma.agentRuntimeTask.count({
-            where: {
-              status: 'failed',
-              updatedAt: {
-                gte: new Date(new Date().setHours(0, 0, 0, 0)),
-              },
-            },
-          }),
+          ...taskCounts,
         },
         recentTasks: recentTaskPayload,
         pendingConfirmations: recentTaskPayload
@@ -272,167 +281,15 @@ router.get(
 
 router.put(
   '/runtime/tasks/:id',
-  validateBody(agentRuntimeTaskSyncSchema),
+  requireAgentRunCapability,
   asyncHandler(async (req, res) => {
-    const payload = req.body;
-
-    if (req.params.id !== payload.id) {
-      throw new AppError('路径任务ID与请求体任务ID不一致', 400);
-    }
-
-    if (payload.context?.demoMode === true) {
-      assertProductFeatureEnabled('agentDemo');
-    }
-
-    const task = await prisma.$transaction(async (tx) => {
-      const existingTask = await getRuntimeTaskById(tx, payload.id);
-      const previousContext = existingTask ? parseRuntimeJson<Record<string, unknown>>(existingTask.context, {}) : {};
-      const previousLatestConfirmation = getLatestRuntimeConfirmationAudit(previousContext);
-      const nextLatestConfirmation = getLatestRuntimeConfirmationAudit(payload.context);
-
-      await tx.agentRuntimeTask.upsert({
-        where: { id: payload.id },
-        update: {
-          triggerType: payload.trigger.type,
-          triggerSource: payload.trigger.source,
-          triggerReferenceId: payload.trigger.referenceId,
-          type: payload.type,
-          status: payload.status,
-          currentStepIndex: payload.currentStepIndex,
-          context: stringifyRuntimeJson(payload.context, '{}'),
-          result: payload.result ? stringifyRuntimeJson(payload.result, '{}') : null,
-          error: payload.error,
-          createdAt: new Date(payload.createdAt),
-          updatedAt: new Date(payload.updatedAt),
-          completedAt: toDate(payload.completedAt) || null,
-        },
-        create: {
-          id: payload.id,
-          triggerType: payload.trigger.type,
-          triggerSource: payload.trigger.source,
-          triggerReferenceId: payload.trigger.referenceId,
-          type: payload.type,
-          status: payload.status,
-          currentStepIndex: payload.currentStepIndex,
-          context: stringifyRuntimeJson(payload.context, '{}'),
-          result: payload.result ? stringifyRuntimeJson(payload.result, '{}') : null,
-          error: payload.error,
-          createdAt: new Date(payload.createdAt),
-          updatedAt: new Date(payload.updatedAt),
-          completedAt: toDate(payload.completedAt) || null,
-        },
-      });
-
-      await tx.agentRuntimeStep.deleteMany({ where: { taskId: payload.id } });
-
-      if (payload.steps.length > 0) {
-        await tx.agentRuntimeStep.createMany({
-          data: payload.steps.map((step: typeof payload.steps[number], index: number) => ({
-            id: buildRuntimeStepRecordId(payload.id, step.id),
-            taskId: payload.id,
-            sequence: index,
-            capability: step.capability,
-            action: step.action,
-            params: stringifyRuntimeJson(step.params, '{}'),
-            status: step.status,
-            result: step.result ? stringifyRuntimeJson(step.result, '{}') : null,
-            error: step.error,
-            startedAt: toDate(step.startedAt) || null,
-            completedAt: toDate(step.completedAt) || null,
-          })),
-        });
-      }
-
-      if (payload.confirmationNode) {
-        await tx.agentRuntimeConfirmation.upsert({
-          where: { taskId: payload.id },
-          update: {
-            id: buildRuntimeConfirmationRecordId(payload.id, payload.confirmationNode.id),
-            stepId: payload.confirmationNode.stepId,
-            type: payload.confirmationNode.type,
-            title: payload.confirmationNode.title,
-            titleZh: payload.confirmationNode.titleZh,
-            titleEn: payload.confirmationNode.titleEn,
-            description: payload.confirmationNode.description,
-            descriptionZh: payload.confirmationNode.descriptionZh,
-            descriptionEn: payload.confirmationNode.descriptionEn,
-            data: stringifyRuntimeJson(payload.confirmationNode.data, '{}'),
-            options: stringifyRuntimeJson(payload.confirmationNode.options, '[]'),
-            selectedOption: payload.confirmationNode.selectedOption,
-            confirmedAt: toDate(payload.confirmationNode.confirmedAt) || null,
-            confirmedBy: payload.confirmationNode.confirmedBy,
-          },
-          create: {
-            id: buildRuntimeConfirmationRecordId(payload.id, payload.confirmationNode.id),
-            taskId: payload.id,
-            stepId: payload.confirmationNode.stepId,
-            type: payload.confirmationNode.type,
-            title: payload.confirmationNode.title,
-            titleZh: payload.confirmationNode.titleZh,
-            titleEn: payload.confirmationNode.titleEn,
-            description: payload.confirmationNode.description,
-            descriptionZh: payload.confirmationNode.descriptionZh,
-            descriptionEn: payload.confirmationNode.descriptionEn,
-            data: stringifyRuntimeJson(payload.confirmationNode.data, '{}'),
-            options: stringifyRuntimeJson(payload.confirmationNode.options, '[]'),
-            selectedOption: payload.confirmationNode.selectedOption,
-            confirmedAt: toDate(payload.confirmationNode.confirmedAt) || null,
-            confirmedBy: payload.confirmationNode.confirmedBy,
-          },
-        });
-      } else {
-        await tx.agentRuntimeConfirmation.deleteMany({ where: { taskId: payload.id } });
-      }
-
-      if (nextLatestConfirmation && !isSameRuntimeConfirmationAudit(previousLatestConfirmation, nextLatestConfirmation)) {
-        await tx.agentLog.create({
-          data: {
-            agentId: payload.id,
-            action: 'CONFIRMATION_RECORDED',
-            input: stringifyRuntimeJson(
-              {
-                taskId: payload.id,
-                taskType: payload.type,
-                confirmationId: nextLatestConfirmation.confirmationId,
-                stepId: nextLatestConfirmation.stepId,
-                type: nextLatestConfirmation.type,
-                optionId: nextLatestConfirmation.optionId,
-                action: nextLatestConfirmation.action,
-                confirmedAt: nextLatestConfirmation.confirmedAt,
-                confirmedBy: nextLatestConfirmation.confirmedBy,
-                note: nextLatestConfirmation.note,
-                reasonCode: nextLatestConfirmation.reasonCode,
-              },
-              '{}'
-            ),
-            output: stringifyRuntimeJson(
-              {
-                optionLabel: nextLatestConfirmation.optionLabel,
-                optionLabelZh: nextLatestConfirmation.optionLabelZh,
-                optionLabelEn: nextLatestConfirmation.optionLabelEn,
-                reasonLabel: nextLatestConfirmation.reasonLabel,
-                reasonLabelZh: nextLatestConfirmation.reasonLabelZh,
-                reasonLabelEn: nextLatestConfirmation.reasonLabelEn,
-                taskStatus: payload.status,
-              },
-              '{}'
-            ),
-            status: 'SUCCESS',
-          },
-        });
-      }
-
-      return getRuntimeTaskById(tx, payload.id);
-    });
-
-    if (!task) {
-      throw new AppError('运行时任务同步失败', 500);
-    }
-
-    res.json({
-      success: true,
-      data: mapRuntimeTask(task),
-    });
+    void req;
+    void res;
+    throw new AppError(
+      '客户端运行时任务状态同步已禁用；请使用服务端受控任务接口或人工业务流程',
+      410,
+      'BAD_REQUEST'
+    );
   })
 );
 

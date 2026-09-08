@@ -1,5 +1,14 @@
 export type TaskStatus = 'pending' | 'running' | 'waiting_confirmation' | 'completed' | 'failed' | 'cancelled';
 
+/**
+ * A task can be visible in the workbench without having executed a real
+ * business side effect. Keep this separate from TaskStatus so a manual hold
+ * cannot be counted as a successful run.
+ */
+export type TaskExecutionState = 'executed' | 'manual_workflow_required' | 'not_dispatched';
+
+export type RuntimeTrust = 'server_trusted' | 'legacy_untrusted';
+
 export type TaskType =
   | 'email_received'
   | 'rfq_created'
@@ -115,6 +124,7 @@ export interface TaskStep {
   params: AgentRecord;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
   result?: AgentData;
+  executionState?: TaskExecutionState;
   error?: string;
   startedAt?: Date;
   completedAt?: Date;
@@ -164,6 +174,8 @@ export interface AgentTask {
   confirmationNode?: ConfirmationNode;
   context: AgentData;
   result?: AgentData;
+  executionState?: TaskExecutionState;
+  runtimeTrust?: RuntimeTrust;
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;

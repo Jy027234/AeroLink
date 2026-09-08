@@ -7,7 +7,7 @@ on:
     branches: [main, master, develop]
 
 jobs:
-  secret-scan:
+  secret_scan:
     name: Secret Scan
     runs-on: ubuntu-latest
     steps:
@@ -20,8 +20,168 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  ci_contract:
+    name: CI Workflow Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+          cache: 'npm'
+          cache-dependency-path: ./package-lock.json
+
+      - name: Verify Node runtime
+        run: node scripts/ci/check-node-runtime.mjs
+
+      - name: Verify CI workflow contract
+        run: node scripts/ci/check-workflow-contract.mjs
+
+  audit_frontend:
+    name: Frontend Dependency Audit
+    runs-on: ubuntu-latest
+    outputs:
+      production: ${{ steps.audit_summary.outputs.production }}
+      development: ${{ steps.audit_summary.outputs.development }}
+      status: ${{ steps.audit_summary.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+          cache: 'npm'
+          cache-dependency-path: ./package-lock.json
+
+      - name: Verify Node runtime
+        run: node scripts/ci/check-node-runtime.mjs
+
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
+        run: npm ci
+
+      - name: Audit production dependencies
+        id: audit_production
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci/run-npm-audit.mjs --mode production --label frontend --output-dir ci-artifacts/audit/frontend
+
+      - name: Audit production and development dependencies
+        id: audit_development
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci/run-npm-audit.mjs --mode development --label frontend --output-dir ci-artifacts/audit/frontend
+
+      - name: Upload frontend audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-audit-frontend-${{ github.sha }}
+          path: ci-artifacts/audit/frontend/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summarize frontend audit result
+        id: audit_summary
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PRODUCTION_OUTCOME: ${{ steps.audit_production.outcome }}
+          DEVELOPMENT_OUTCOME: ${{ steps.audit_development.outcome }}
+        run: |
+          if [[ "$INSTALL_OUTCOME" == "success" && "$PRODUCTION_OUTCOME" == "success" ]]; then
+            echo "production=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "production=fail" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$INSTALL_OUTCOME" == "success" && "$DEVELOPMENT_OUTCOME" == "success" ]]; then
+            echo "development=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "development=fail" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$INSTALL_OUTCOME" == "success" && "$PRODUCTION_OUTCOME" == "success" && "$DEVELOPMENT_OUTCOME" == "success" ]]; then
+            echo "status=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=fail" >> "$GITHUB_OUTPUT"
+          fi
+
+  audit_backend:
+    name: Backend Dependency Audit
+    runs-on: ubuntu-latest
+    outputs:
+      production: ${{ steps.audit_summary.outputs.production }}
+      development: ${{ steps.audit_summary.outputs.development }}
+      status: ${{ steps.audit_summary.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+          cache: 'npm'
+          cache-dependency-path: ./server/package-lock.json
+
+      - name: Verify Node runtime
+        run: node scripts/ci/check-node-runtime.mjs
+
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
+        working-directory: ./server
+        run: npm ci
+
+      - name: Audit production dependencies
+        id: audit_production
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci/run-npm-audit.mjs --package-dir server --mode production --label backend --output-dir ci-artifacts/audit/backend
+
+      - name: Audit production and development dependencies
+        id: audit_development
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci/run-npm-audit.mjs --package-dir server --mode development --label backend --output-dir ci-artifacts/audit/backend
+
+      - name: Upload backend audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-audit-backend-${{ github.sha }}
+          path: ci-artifacts/audit/backend/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summarize backend audit result
+        id: audit_summary
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          PRODUCTION_OUTCOME: ${{ steps.audit_production.outcome }}
+          DEVELOPMENT_OUTCOME: ${{ steps.audit_development.outcome }}
+        run: |
+          if [[ "$INSTALL_OUTCOME" == "success" && "$PRODUCTION_OUTCOME" == "success" ]]; then
+            echo "production=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "production=fail" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$INSTALL_OUTCOME" == "success" && "$DEVELOPMENT_OUTCOME" == "success" ]]; then
+            echo "development=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "development=fail" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$INSTALL_OUTCOME" == "success" && "$PRODUCTION_OUTCOME" == "success" && "$DEVELOPMENT_OUTCOME" == "success" ]]; then
+            echo "status=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=fail" >> "$GITHUB_OUTPUT"
+          fi
+
   backend:
-    name: Backend Tests
+    name: Backend Functional Verification
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -33,15 +193,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.2'
           cache: 'npm'
           cache-dependency-path: ./server/package-lock.json
 
+      - name: Verify Node runtime
+        working-directory: .
+        run: node scripts/ci/check-node-runtime.mjs
+
       - name: Install dependencies
         run: npm ci
-
-      - name: Audit production dependencies
-        run: npm audit --registry=https://registry.npmjs.org
 
       - name: Generate Prisma Client
         run: npx prisma generate
@@ -56,7 +217,7 @@ jobs:
         run: npm run observability:retention-check
 
   frontend:
-    name: Frontend Tests
+    name: Frontend Functional Verification
     runs-on: ubuntu-latest
 
     steps:
@@ -65,18 +226,21 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.2'
           cache: 'npm'
           cache-dependency-path: ./package-lock.json
+
+      - name: Verify Node runtime
+        run: node scripts/ci/check-node-runtime.mjs
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit production dependencies
-        run: npm audit --registry=https://registry.npmjs.org
-
       - name: Validate OpenAPI contract and generated types
         run: npm run api:check
+
+      - name: Verify vendored presentation distribution
+        run: node scripts/ci/check-vendored-pptxgen.mjs
 
       - name: Validate feature boundaries
         run: npm run features:check
@@ -127,9 +291,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.2'
           cache: 'npm'
           cache-dependency-path: ./package-lock.json
+
+      - name: Verify Node runtime
+        run: node scripts/ci/check-node-runtime.mjs
 
       - name: Install frontend dependencies
         run: npm ci
@@ -174,3 +341,76 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+
+  release_gate:
+    name: Release Gate
+    runs-on: ubuntu-latest
+    needs: [secret_scan, ci_contract, audit_frontend, audit_backend, backend, frontend, e2e]
+    if: always()
+    steps:
+      - name: Evaluate complete CI evidence
+        env:
+          SECRET_SCAN_RESULT: ${{ needs.secret_scan.result }}
+          CI_CONTRACT_RESULT: ${{ needs.ci_contract.result }}
+          AUDIT_FRONTEND_RESULT: ${{ needs.audit_frontend.result }}
+          AUDIT_FRONTEND_PRODUCTION: ${{ needs.audit_frontend.outputs.production }}
+          AUDIT_FRONTEND_DEVELOPMENT: ${{ needs.audit_frontend.outputs.development }}
+          AUDIT_BACKEND_RESULT: ${{ needs.audit_backend.result }}
+          AUDIT_BACKEND_PRODUCTION: ${{ needs.audit_backend.outputs.production }}
+          AUDIT_BACKEND_DEVELOPMENT: ${{ needs.audit_backend.outputs.development }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          set -u
+          mkdir -p ci-evidence
+          {
+            echo "AeroLink CI release evidence"
+            echo "SHA: $GITHUB_SHA"
+            echo "Workflow: $GITHUB_RUN_ID"
+            echo
+            echo "secret_scan=$SECRET_SCAN_RESULT"
+            echo "ci_contract=$CI_CONTRACT_RESULT"
+            echo "audit_frontend_job=$AUDIT_FRONTEND_RESULT"
+            echo "audit_frontend_production=$AUDIT_FRONTEND_PRODUCTION"
+            echo "audit_frontend_development=$AUDIT_FRONTEND_DEVELOPMENT"
+            echo "audit_backend_job=$AUDIT_BACKEND_RESULT"
+            echo "audit_backend_production=$AUDIT_BACKEND_PRODUCTION"
+            echo "audit_backend_development=$AUDIT_BACKEND_DEVELOPMENT"
+            echo "backend=$BACKEND_RESULT"
+            echo "frontend=$FRONTEND_RESULT"
+            echo "e2e=$E2E_RESULT"
+          } | tee ci-evidence/release-gate.txt
+
+          failed=0
+          for result in \
+            "$SECRET_SCAN_RESULT" \
+            "$CI_CONTRACT_RESULT" \
+            "$AUDIT_FRONTEND_RESULT" \
+            "$AUDIT_BACKEND_RESULT" \
+            "$BACKEND_RESULT" \
+            "$FRONTEND_RESULT" \
+            "$E2E_RESULT"; do
+            if [[ "$result" != "success" ]]; then failed=1; fi
+          done
+          for audit in \
+            "$AUDIT_FRONTEND_PRODUCTION" \
+            "$AUDIT_FRONTEND_DEVELOPMENT" \
+            "$AUDIT_BACKEND_PRODUCTION" \
+            "$AUDIT_BACKEND_DEVELOPMENT"; do
+            if [[ "$audit" != "pass" ]]; then failed=1; fi
+          done
+          if [[ "$failed" -ne 0 ]]; then
+            echo "Release gate failed: every required job and audit layer must pass; failures and skips remain blocking."
+            exit 1
+          fi
+          echo "Release gate passed: all functional, E2E, secret, contract, and layered audit evidence passed."
+
+      - name: Upload release gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-release-gate-${{ github.sha }}
+          path: ci-evidence/release-gate.txt
+          if-no-files-found: error
+          retention-days: 30
