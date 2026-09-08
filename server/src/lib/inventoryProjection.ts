@@ -28,6 +28,8 @@ export function serializeInventoryDetail(
     partNumber: item.partNumber,
     description: item.description,
     quantity: detail.quantity,
+    allocatedQuantity: detail.allocatedQuantity,
+    availableQuantity: detail.status === 'AVAILABLE' ? Math.max(0, detail.quantity - detail.allocatedQuantity) : 0,
     serialNumber: detail.serialNumber,
     batchNumber: detail.batchNumber,
     partCategory: item.partCategory,

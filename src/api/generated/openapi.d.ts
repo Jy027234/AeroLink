@@ -4893,6 +4893,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/inventory-allocations/reserve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/reserve
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsReserve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/assign
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsAssign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/release
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/quotation-lines/{quotationLineId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/inventory-allocations/quotation-lines/:quotationLineId
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        get: operations["getInventoryAllocationsQuotationLinesQuotationLineId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/order-lines/{orderLineId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/inventory-allocations/order-lines/:orderLineId
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        get: operations["getInventoryAllocationsOrderLinesOrderLineId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/quality-review/{assignmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/inventory-allocations/quality-review/:assignmentId
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        get: operations["getInventoryAllocationsQualityReviewAssignmentId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/quality-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/quality-reviews
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsQualityReviews"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/consume
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsConsume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shipment-tracking": {
         parameters: {
             query?: never;
@@ -6812,6 +6972,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            readonly allocatedQuantity?: number;
         } & {
             [key: string]: unknown;
         };
@@ -6852,6 +7013,7 @@ export interface components {
                 createdAt: string;
                 /** Format: date-time */
                 updatedAt: string;
+                readonly allocatedQuantity?: number;
             } & {
                 [key: string]: unknown;
             })[];
@@ -6896,6 +7058,7 @@ export interface components {
                 createdAt: string;
                 /** Format: date-time */
                 updatedAt: string;
+                readonly allocatedQuantity?: number;
             } & {
                 [key: string]: unknown;
             })[];
@@ -7780,6 +7943,8 @@ export interface components {
             storageTempMax?: number;
             hazardClass?: string;
             notes?: string;
+            readonly allocatedQuantity?: number;
+            readonly availableQuantity?: number;
         } & {
             [key: string]: unknown;
         };
@@ -11541,6 +11706,10 @@ export interface components {
         QuotationAcceptanceLine: {
             quotationLineId: string;
             quantity: number;
+            allocations?: {
+                allocationId: string;
+                quantity: number;
+            }[];
         };
         QuotationRevision: {
             readonly id: string;
@@ -11584,6 +11753,177 @@ export interface components {
             data: components["schemas"]["QuotationRevisionCreated"];
         } & {
             [key: string]: unknown;
+        };
+        InventoryItemSafePatch: {
+            partNumber?: string;
+            description?: string;
+            partCategory?: string;
+            trackingType?: string;
+            unitOfMeasure?: string;
+            manufacturer?: string | null;
+            manufacturerCageCode?: string | null;
+            ataChapter?: string | null;
+            alternatePartNumbers?: string | null;
+            countryOfOrigin?: string | null;
+            hsCode?: string | null;
+        };
+        InventoryAllocationAssignment: {
+            id: string;
+            orderLineId: string;
+            assignedQuantity: number;
+            releasedQuantity: number;
+            consumedQuantity: number;
+            activeQuantity: number;
+        };
+        InventoryAllocation: {
+            id: string;
+            quotationLineId: string;
+            inventoryDetailId: string;
+            allocatedQuantity: number;
+            releasedQuantity: number;
+            consumedQuantity: number;
+            activeQuantity: number;
+            unassignedQuantity: number;
+            assignedActiveQuantity: number;
+            /** Format: date-time */
+            expiresAt: string | null;
+            assignments: components["schemas"]["InventoryAllocationAssignment"][];
+        };
+        QuotationLineAllocationView: {
+            quotationLineId: string;
+            quantity: number;
+            acceptedQuantity: number;
+            reservedQuantity: number;
+            unassignedQuantity: number;
+            assignedActiveQuantity: number;
+            activeQuantity: number;
+            allocations: components["schemas"]["InventoryAllocation"][];
+        };
+        OrderLineAllocationView: {
+            id: string;
+            quotationLineId: string;
+            quantity: number;
+            outboundQuantity: number;
+            assignments: {
+                id: string;
+                orderLineId: string;
+                assignedQuantity: number;
+                releasedQuantity: number;
+                consumedQuantity: number;
+                activeQuantity: number;
+                allocationId: string;
+                inventoryDetailId: string;
+            }[];
+        };
+        InventoryAllocationReserve: {
+            quotationLineId: string;
+            orderLineId?: string;
+            allocations: {
+                inventoryDetailId: string;
+                quantity: number;
+            }[];
+        };
+        InventoryAllocationAssign: {
+            orderLineId: string;
+            allocations: {
+                allocationId: string;
+                quantity: number;
+            }[];
+        };
+        InventoryAllocationRelease: {
+            allocationId: string;
+            assignmentId?: string;
+            quantity: number;
+            reason: string;
+        };
+        InventoryAllocationCommandResult: {
+            commandId: string;
+            replayed: boolean;
+            quotationLineId: string;
+            orderLineId?: string | null;
+            allocationId?: string;
+            assignmentId?: string | null;
+            releasedQuantity?: number;
+            reason?: string;
+            createdAllocationIds?: string[];
+            createdAssignmentIds?: string[];
+            allocations: components["schemas"]["InventoryAllocation"][];
+        };
+        AllocationQualityReviewCreate: {
+            assignmentId: string;
+            quantity: number;
+            snapshotHash: string;
+            approved: boolean;
+            evidenceIds: string[];
+            verifiedSerialNumber: string;
+            verifiedBatchNumber: string;
+            certificateIdentity?: {
+                id?: string;
+                certificateId?: string;
+                certificateNumber?: string;
+                certificateType?: string;
+                partNumber?: string;
+                serialNumber?: string | null;
+                batchNumber?: string | null;
+                fileHash?: string | null;
+            };
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+            reason: string;
+        };
+        AllocationQualityReviewCreated: {
+            id: string;
+            approved: boolean;
+            /** Format: date-time */
+            reviewedAt: string;
+            quantity: number;
+        };
+        AllocationQualityPreview: {
+            snapshotHash: string;
+            snapshot: {
+                /** @constant */
+                schemaVersion: 1;
+                assignment: Record<string, never>;
+                allocation: Record<string, never>;
+                orderLine: Record<string, never>;
+                inventory: Record<string, never>;
+                plannedQuantity: number;
+            } & {
+                [key: string]: unknown;
+            };
+            review: null | {
+                id: string;
+                approved: boolean;
+                snapshotHash: string;
+                /** Format: date-time */
+                consumedAt: string | null;
+                /** Format: date-time */
+                reviewedAt: string;
+                quantity: number;
+            };
+        };
+        InventoryAllocationConsume: {
+            assignmentId: string;
+            quantity: number;
+            reviewId: string;
+            notes?: string;
+        };
+        InventoryAllocationConsumed: {
+            assignmentId: string;
+            allocationId: string;
+            inventoryDetailId: string;
+            quantity: number;
+            beforeQuantity: number;
+            afterQuantity: number;
+            transactionId: string;
+            orderId: string;
+            orderStatus: string;
+            allocationVersion: number;
+            assignmentVersion: number;
         };
     };
     responses: {
@@ -20248,7 +20588,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: components["requestBodies"]["InventoryItemUpdate"];
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryItemSafePatch"];
+            };
+        };
         responses: {
             200: components["responses"]["InventoryItemRaw"];
             400: components["responses"]["Error"];
@@ -20431,6 +20775,300 @@ export interface operations {
         requestBody: components["requestBodies"]["InventoryOutbound"];
         responses: {
             201: components["responses"]["InventoryTransactionAction"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsReserve: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryAllocationReserve"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["InventoryAllocationCommandResult"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsAssign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryAllocationAssign"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["InventoryAllocationCommandResult"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryAllocationRelease"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["InventoryAllocationCommandResult"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getInventoryAllocationsQuotationLinesQuotationLineId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quotationLineId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["QuotationLineAllocationView"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getInventoryAllocationsOrderLinesOrderLineId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderLineId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["OrderLineAllocationView"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getInventoryAllocationsQualityReviewAssignmentId: {
+        parameters: {
+            query: {
+                quantity: number;
+            };
+            header?: never;
+            path: {
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["AllocationQualityPreview"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsQualityReviews: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AllocationQualityReviewCreate"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["AllocationQualityReviewCreated"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsConsume: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryAllocationConsume"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["InventoryAllocationConsumed"];
+                    };
+                };
+            };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];

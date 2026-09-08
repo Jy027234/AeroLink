@@ -174,6 +174,10 @@
       "description": "Routes mounted under inventoryTransactions"
     },
     {
+      "name": "inventoryAllocations",
+      "description": "Routes mounted under inventoryAllocations"
+    },
+    {
       "name": "shipmentTracking",
       "description": "Routes mounted under shipmentTracking"
     },
@@ -1947,7 +1951,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 315
+          "line": 316
         },
         "security": [
           {
@@ -2050,7 +2054,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 679
+          "line": 680
         },
         "security": [
           {
@@ -2116,7 +2120,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 490
+          "line": 491
         },
         "security": [
           {
@@ -2261,7 +2265,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 555
+          "line": 556
         },
         "security": [
           {
@@ -2321,7 +2325,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 590
+          "line": 591
         },
         "security": [
           {
@@ -2381,7 +2385,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 744
+          "line": 745
         },
         "security": [
           {
@@ -2442,7 +2446,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 767
+          "line": 768
         },
         "security": [
           {
@@ -2517,7 +2521,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 793
+          "line": 794
         },
         "security": [
           {
@@ -2591,7 +2595,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 843
+          "line": 844
         },
         "security": [
           {
@@ -2665,7 +2669,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 899
+          "line": 900
         },
         "security": [
           {
@@ -2739,7 +2743,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 957
+          "line": 959
         },
         "security": [
           {
@@ -2813,7 +2817,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 1022
+          "line": 1025
         },
         "security": [
           {
@@ -2887,7 +2891,7 @@
         "x-aerolink-owner": "P2-01/quotations",
         "x-aerolink-source": {
           "file": "server/src/routes/quotations.ts",
-          "line": 1096
+          "line": 1100
         },
         "security": [
           {
@@ -4204,7 +4208,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 455
+          "line": 456
         },
         "security": [
           {
@@ -4276,7 +4280,7 @@
         "x-aerolink-owner": "P2-01/inventory",
         "x-aerolink-source": {
           "file": "server/src/routes/inventory.ts",
-          "line": 559
+          "line": 561
         },
         "security": [
           {
@@ -11949,7 +11953,7 @@
         "x-aerolink-owner": "P2-01/documents",
         "x-aerolink-source": {
           "file": "server/src/routes/documents.ts",
-          "line": 69
+          "line": 88
         },
         "security": [
           {
@@ -12025,7 +12029,7 @@
         "x-aerolink-owner": "P2-01/documents",
         "x-aerolink-source": {
           "file": "server/src/routes/documents.ts",
-          "line": 94
+          "line": 113
         },
         "security": [
           {
@@ -12085,7 +12089,7 @@
         "x-aerolink-owner": "P2-01/documents",
         "x-aerolink-source": {
           "file": "server/src/routes/documents.ts",
-          "line": 108
+          "line": 127
         },
         "security": [
           {
@@ -19585,7 +19589,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 12
+          "line": 36
         },
         "security": [
           {
@@ -19672,7 +19676,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 69
+          "line": 93
         },
         "security": [
           {
@@ -19738,7 +19742,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 39
+          "line": 63
         },
         "security": [
           {
@@ -19798,7 +19802,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 54
+          "line": 78
         },
         "security": [
           {
@@ -19856,7 +19860,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 92
+          "line": 116
         },
         "security": [
           {
@@ -19914,7 +19918,14 @@
           }
         },
         "requestBody": {
-          "$ref": "#/components/requestBodies/InventoryItemUpdate"
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryItemSafePatch"
+              }
+            }
+          }
         }
       }
     },
@@ -20274,7 +20285,7 @@
         "x-aerolink-owner": "P2-01/inventoryTransactions",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryTransactions.ts",
-          "line": 156
+          "line": 157
         },
         "security": [
           {
@@ -20340,7 +20351,7 @@
         "x-aerolink-owner": "P2-01/inventoryTransactions",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryTransactions.ts",
-          "line": 185
+          "line": 187
         },
         "security": [
           {
@@ -20392,6 +20403,724 @@
         "requestBody": {
           "$ref": "#/components/requestBodies/InventoryOutbound"
         }
+      }
+    },
+    "/api/inventory-allocations/reserve": {
+      "post": {
+        "operationId": "postInventoryAllocationsReserve",
+        "tags": [
+          "inventoryAllocations"
+        ],
+        "summary": "POST /api/inventory-allocations/reserve",
+        "description": "Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryAllocations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryAllocations.ts",
+          "line": 65
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Allocation operation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/InventoryAllocationCommandResult"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryAllocationReserve"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/inventory-allocations/assign": {
+      "post": {
+        "operationId": "postInventoryAllocationsAssign",
+        "tags": [
+          "inventoryAllocations"
+        ],
+        "summary": "POST /api/inventory-allocations/assign",
+        "description": "Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryAllocations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryAllocations.ts",
+          "line": 76
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Allocation operation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/InventoryAllocationCommandResult"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryAllocationAssign"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/inventory-allocations/release": {
+      "post": {
+        "operationId": "postInventoryAllocationsRelease",
+        "tags": [
+          "inventoryAllocations"
+        ],
+        "summary": "POST /api/inventory-allocations/release",
+        "description": "Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryAllocations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryAllocations.ts",
+          "line": 87
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allocation operation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/InventoryAllocationCommandResult"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryAllocationRelease"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/inventory-allocations/quotation-lines/{quotationLineId}": {
+      "get": {
+        "operationId": "getInventoryAllocationsQuotationLinesQuotationLineId",
+        "tags": [
+          "inventoryAllocations"
+        ],
+        "summary": "GET /api/inventory-allocations/quotation-lines/:quotationLineId",
+        "description": "Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryAllocations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryAllocations.ts",
+          "line": 98
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "quotationLineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allocation operation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/QuotationLineAllocationView"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/inventory-allocations/order-lines/{orderLineId}": {
+      "get": {
+        "operationId": "getInventoryAllocationsOrderLinesOrderLineId",
+        "tags": [
+          "inventoryAllocations"
+        ],
+        "summary": "GET /api/inventory-allocations/order-lines/:orderLineId",
+        "description": "Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryAllocations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryAllocations.ts",
+          "line": 103
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orderLineId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allocation operation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/OrderLineAllocationView"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/inventory-allocations/quality-review/{assignmentId}": {
+      "get": {
+        "operationId": "getInventoryAllocationsQualityReviewAssignmentId",
+        "tags": [
+          "inventoryAllocations"
+        ],
+        "summary": "GET /api/inventory-allocations/quality-review/:assignmentId",
+        "description": "Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryAllocations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryAllocations.ts",
+          "line": 116
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "assignmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "quantity",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allocation operation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AllocationQualityPreview"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/inventory-allocations/quality-reviews": {
+      "post": {
+        "operationId": "postInventoryAllocationsQualityReviews",
+        "tags": [
+          "inventoryAllocations"
+        ],
+        "summary": "POST /api/inventory-allocations/quality-reviews",
+        "description": "Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryAllocations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryAllocations.ts",
+          "line": 128
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Allocation operation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AllocationQualityReviewCreated"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllocationQualityReviewCreate"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/inventory-allocations/consume": {
+      "post": {
+        "operationId": "postInventoryAllocationsConsume",
+        "tags": [
+          "inventoryAllocations"
+        ],
+        "summary": "POST /api/inventory-allocations/consume",
+        "description": "Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inventoryAllocations",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inventoryAllocations.ts",
+          "line": 140
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allocation operation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/InventoryAllocationConsumed"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryAllocationConsume"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
       }
     },
     "/api/shipment-tracking": {
@@ -22057,7 +22786,7 @@
         "x-aerolink-owner": "P2-01/health",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 241
+          "line": 243
         },
         "security": [],
         "parameters": [],
@@ -22104,7 +22833,7 @@
         "x-aerolink-owner": "P2-01/metrics",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 245
+          "line": 247
         },
         "security": [
           {
@@ -29227,6 +29956,12 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "allocatedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "readOnly": true
           }
         },
         "additionalProperties": true
@@ -29400,6 +30135,12 @@
                 "updatedAt": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "allocatedQuantity": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647,
+                  "readOnly": true
                 }
               },
               "additionalProperties": true
@@ -29583,6 +30324,12 @@
                 "updatedAt": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "allocatedQuantity": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647,
+                  "readOnly": true
                 }
               },
               "additionalProperties": true
@@ -32499,6 +33246,18 @@
           },
           "notes": {
             "type": "string"
+          },
+          "allocatedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "readOnly": true
+          },
+          "availableQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "readOnly": true
           }
         },
         "additionalProperties": true
@@ -45887,6 +46646,30 @@
           "quantity": {
             "type": "integer",
             "minimum": 1
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "allocationId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "allocationId",
+                "quantity"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 100
           }
         },
         "additionalProperties": false
@@ -46076,12 +46859,847 @@
           }
         },
         "additionalProperties": true
+      },
+      "InventoryItemSafePatch": {
+        "type": "object",
+        "properties": {
+          "partNumber": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "partCategory": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trackingType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "unitOfMeasure": {
+            "type": "string",
+            "minLength": 1
+          },
+          "manufacturer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "manufacturerCageCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ataChapter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "alternatePartNumbers": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "countryOfOrigin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hsCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "InventoryAllocationAssignment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "orderLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "assignedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "releasedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "consumedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "activeQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "id",
+          "orderLineId",
+          "assignedQuantity",
+          "releasedQuantity",
+          "consumedQuantity",
+          "activeQuantity"
+        ],
+        "additionalProperties": false
+      },
+      "InventoryAllocation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quotationLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inventoryDetailId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "allocatedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "releasedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "consumedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "activeQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "unassignedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "assignedActiveQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventoryAllocationAssignment"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "quotationLineId",
+          "inventoryDetailId",
+          "allocatedQuantity",
+          "releasedQuantity",
+          "consumedQuantity",
+          "activeQuantity",
+          "unassignedQuantity",
+          "assignedActiveQuantity",
+          "expiresAt",
+          "assignments"
+        ],
+        "additionalProperties": false
+      },
+      "QuotationLineAllocationView": {
+        "type": "object",
+        "properties": {
+          "quotationLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "acceptedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "reservedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "unassignedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "assignedActiveQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "activeQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventoryAllocation"
+            }
+          }
+        },
+        "required": [
+          "quotationLineId",
+          "quantity",
+          "acceptedQuantity",
+          "reservedQuantity",
+          "unassignedQuantity",
+          "assignedActiveQuantity",
+          "activeQuantity",
+          "allocations"
+        ],
+        "additionalProperties": false
+      },
+      "OrderLineAllocationView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quotationLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "outboundQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "orderLineId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "assignedQuantity": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "releasedQuantity": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "consumedQuantity": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "activeQuantity": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "allocationId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "inventoryDetailId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "orderLineId",
+                "assignedQuantity",
+                "releasedQuantity",
+                "consumedQuantity",
+                "activeQuantity",
+                "allocationId",
+                "inventoryDetailId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "quotationLineId",
+          "quantity",
+          "outboundQuantity",
+          "assignments"
+        ],
+        "additionalProperties": false
+      },
+      "InventoryAllocationReserve": {
+        "type": "object",
+        "properties": {
+          "quotationLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "orderLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "inventoryDetailId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "inventoryDetailId",
+                "quantity"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "quotationLineId",
+          "allocations"
+        ],
+        "additionalProperties": false
+      },
+      "InventoryAllocationAssign": {
+        "type": "object",
+        "properties": {
+          "orderLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "allocationId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "allocationId",
+                "quantity"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "orderLineId",
+          "allocations"
+        ],
+        "additionalProperties": false
+      },
+      "InventoryAllocationRelease": {
+        "type": "object",
+        "properties": {
+          "allocationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "assignmentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "allocationId",
+          "quantity",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "InventoryAllocationCommandResult": {
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "quotationLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "orderLineId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allocationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "assignmentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "releasedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "reason": {
+            "type": "string"
+          },
+          "createdAllocationIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "createdAssignmentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventoryAllocation"
+            }
+          }
+        },
+        "required": [
+          "commandId",
+          "replayed",
+          "quotationLineId",
+          "allocations"
+        ],
+        "additionalProperties": false
+      },
+      "AllocationQualityReviewCreate": {
+        "type": "object",
+        "properties": {
+          "assignmentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 20
+          },
+          "verifiedSerialNumber": {
+            "type": "string"
+          },
+          "verifiedBatchNumber": {
+            "type": "string"
+          },
+          "certificateIdentity": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "certificateId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "certificateNumber": {
+                "type": "string"
+              },
+              "certificateType": {
+                "type": "string"
+              },
+              "partNumber": {
+                "type": "string"
+              },
+              "serialNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "batchNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fileHash": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "identity": {
+                "type": "boolean"
+              },
+              "documents": {
+                "type": "boolean"
+              },
+              "conditionAndLife": {
+                "type": "boolean"
+              },
+              "customerRequirements": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "identity",
+              "documents",
+              "conditionAndLife",
+              "customerRequirements"
+            ],
+            "additionalProperties": false
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "assignmentId",
+          "quantity",
+          "snapshotHash",
+          "approved",
+          "evidenceIds",
+          "verifiedSerialNumber",
+          "verifiedBatchNumber",
+          "checks",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "AllocationQualityReviewCreated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "reviewedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "id",
+          "approved",
+          "reviewedAt",
+          "quantity"
+        ],
+        "additionalProperties": false
+      },
+      "AllocationQualityPreview": {
+        "type": "object",
+        "properties": {
+          "snapshotHash": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "snapshot": {
+            "type": "object",
+            "required": [
+              "schemaVersion",
+              "assignment",
+              "allocation",
+              "orderLine",
+              "inventory",
+              "plannedQuantity"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "const": 1
+              },
+              "assignment": {
+                "type": "object"
+              },
+              "allocation": {
+                "type": "object"
+              },
+              "orderLine": {
+                "type": "object"
+              },
+              "inventory": {
+                "type": "object"
+              },
+              "plannedQuantity": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              }
+            },
+            "additionalProperties": true
+          },
+          "review": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "approved": {
+                    "type": "boolean"
+                  },
+                  "snapshotHash": {
+                    "type": "string"
+                  },
+                  "consumedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "reviewedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  }
+                },
+                "required": [
+                  "id",
+                  "approved",
+                  "snapshotHash",
+                  "consumedAt",
+                  "reviewedAt",
+                  "quantity"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "snapshotHash",
+          "snapshot",
+          "review"
+        ],
+        "additionalProperties": false
+      },
+      "InventoryAllocationConsume": {
+        "type": "object",
+        "properties": {
+          "assignmentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "reviewId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "assignmentId",
+          "quantity",
+          "reviewId"
+        ],
+        "additionalProperties": false
+      },
+      "InventoryAllocationConsumed": {
+        "type": "object",
+        "properties": {
+          "assignmentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "allocationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inventoryDetailId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "beforeQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "afterQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "transactionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "orderId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "orderStatus": {
+            "type": "string"
+          },
+          "allocationVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "assignmentVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "assignmentId",
+          "allocationId",
+          "inventoryDetailId",
+          "quantity",
+          "beforeQuantity",
+          "afterQuantity",
+          "transactionId",
+          "orderId",
+          "orderStatus",
+          "allocationVersion",
+          "assignmentVersion"
+        ],
+        "additionalProperties": false
       }
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
-      "mountCount": 54,
-      "operationCount": 320
+      "mountCount": 55,
+      "operationCount": 328
     }
   }
 }

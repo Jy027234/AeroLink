@@ -79,6 +79,9 @@ model User {
   sessions              UserSession[]
   securityEvents        SecurityEvent[]
   fulfillmentReviews      FulfillmentReview[]
+  inventoryAllocations    InventoryAllocation[]
+  allocationAssignments   AllocationAssignment[]
+  inventoryAllocationEvents InventoryAllocationEvent[]
 
   @@map("users")
 }
@@ -426,6 +429,8 @@ model InventoryDetail {
 
   // 数量与状态
   quantity          Int      @default(1)
+  // Modern active allocation projection; physical quantity changes only on movement.
+  allocatedQuantity Int      @default(0)
   conditionCode     String   @default("NE")
   status            String   @default("AVAILABLE")
 
@@ -491,6 +496,7 @@ model InventoryDetail {
   supplier          Supplier? @relation(fields: [supplierId], references: [id])
   certificates      Certificate[]
   inventoryTransactions InventoryTransaction[]
+  allocations       InventoryAllocation[]
 
   // 唯一约束：同一件号下序号唯一；同一件号+批次+状态+仓库组合唯一
   fulfillmentReviews FulfillmentReview[]
@@ -919,6 +925,7 @@ model QuotationLine {
   rfqLine             RfqLine        @relation(fields: [rfqLineId], references: [id], onDelete: Restrict)
   sourceSupplierQuote SupplierQuote? @relation(fields: [sourceSupplierQuoteId], references: [id], onDelete: SetNull)
   orderLines          OrderLine[]
+  allocations         InventoryAllocation[]
 
   @@unique([quotationId, lineNo])
   @@index([rfqLineId])
@@ -1059,6 +1066,7 @@ model OrderLine {
 
   order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
   quotationLine QuotationLine @relation(fields: [quotationLineId], references: [id], onDelete: Restrict)
+  allocationAssignments AllocationAssignment[]
 
   @@unique([orderId, lineNo])
   @@index([quotationLineId])
@@ -1071,6 +1079,7 @@ model FulfillmentReview {
   id                String    @id @default(uuid())
   orderId           String
   inventoryDetailId String
+  assignmentId      String?
   quantity          Int
   approved          Boolean
   snapshotHash      String
@@ -1085,8 +1094,10 @@ model FulfillmentReview {
   order           Order           @relation(fields: [orderId], references: [id], onDelete: Restrict)
   inventoryDetail InventoryDetail @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
   reviewer        User            @relation(fields: [reviewedById], references: [id], onDelete: Restrict)
+  assignment      AllocationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
 
   @@index([orderId, inventoryDetailId, reviewedAt])
+  @@index([assignmentId, reviewedAt])
   @@map("fulfillment_reviews")
 }
 
@@ -1110,6 +1121,85 @@ model TransactionStatusHistory {
 }
 
 // ===== 新增：库存事务表（Phase 5：支持部分发货）=====
+model InventoryAllocation {
+  id                String @id @default(uuid())
+  quotationLineId   String
+  inventoryDetailId String
+  allocatedQuantity Int
+  releasedQuantity  Int @default(0)
+  consumedQuantity  Int @default(0)
+  version           Int @default(1)
+  expiresAt         DateTime?
+  commandId         String
+  commandLineNo     Int
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  quotationLine QuotationLine @relation(fields: [quotationLineId], references: [id], onDelete: Restrict)
+  inventoryDetail InventoryDetail @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
+  creator User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  assignments AllocationAssignment[]
+  events InventoryAllocationEvent[]
+  transactions InventoryTransaction[]
+
+  @@unique([commandId, commandLineNo])
+  @@index([quotationLineId])
+  @@index([inventoryDetailId])
+  @@index([expiresAt])
+  @@map("inventory_allocations")
+}
+
+model AllocationAssignment {
+  id               String @id @default(uuid())
+  allocationId     String
+  orderLineId      String
+  assignedQuantity Int
+  releasedQuantity Int @default(0)
+  consumedQuantity Int @default(0)
+  version          Int @default(1)
+  commandId        String
+  commandLineNo    Int
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  allocation InventoryAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  orderLine OrderLine @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
+  creator User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  events InventoryAllocationEvent[]
+  transactions InventoryTransaction[]
+  fulfillmentReviews FulfillmentReview[]
+
+  @@unique([commandId, commandLineNo])
+  @@index([allocationId])
+  @@index([orderLineId])
+  @@map("allocation_assignments")
+}
+
+model InventoryAllocationEvent {
+  id           String @id @default(uuid())
+  allocationId String
+  assignmentId String?
+  kind         String
+  quantity     Int
+  before       Json
+  after        Json
+  commandId    String
+  eventNo      Int
+  actorId      String?
+  createdAt    DateTime @default(now())
+
+  allocation InventoryAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  assignment AllocationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  actor User? @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([allocationId, createdAt])
+  @@index([assignmentId, createdAt])
+  @@map("inventory_allocation_events")
+}
+
 model InventoryTransaction {
   id                String   @id @default(uuid())
   inventoryDetailId String
@@ -1121,6 +1211,8 @@ model InventoryTransaction {
   // 关联单据
   orderId           String?
   quotationId       String?
+  allocationId      String?
+  assignmentId      String?
   referenceNo       String?  // 出库单号/入库单号
   referenceType     String?  // 'ORDER', 'QUOTATION', 'MANUAL', 'SYSTEM'
 
@@ -1130,9 +1222,13 @@ model InventoryTransaction {
 
   inventoryDetail   InventoryDetail @relation(fields: [inventoryDetailId], references: [id])
   order             Order?          @relation(fields: [orderId], references: [id])
+  allocation        InventoryAllocation? @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  assignment        AllocationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
 
   @@index([inventoryDetailId, createdAt])
   @@index([orderId])
+  @@index([allocationId])
+  @@index([assignmentId])
   @@index([type, createdAt])
   @@map("inventory_transactions")
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -54,9 +54,10 @@ import {
 import { useAcceptQuotation, useApproveQuotation, useCreateQuotation, useQuotation, useQuotations, useSendQuotation, useSubmitQuotation, useWithdrawQuotation } from '@/features/quotations';
 import { useRFQ, useRFQs } from '@/features/rfqs';
 import { useDispatchNotification, useDocumentTemplates } from '@/features/integrations';
-import { documentApi, quotationApi } from '@/api/client';
+import { documentApi, inventoryAllocationApi, quotationApi, type LineInventoryAvailability } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { PriceRecommendationPanel } from '@/components/PriceRecommendationPanel';
+import { InventoryAllocationPanel } from '@/components/InventoryAllocationPanel';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -342,6 +343,18 @@ function QuoteDetailDialog({
               <div className="flex items-center justify-between rounded-lg bg-blue-50 p-4">
                 <span className="text-gray-600">{tx('报价总价', 'Quote Total')}</span>
                 <span className="text-xl font-bold text-blue-600">${formatQuoteMoney(activeQuote.totalPrice)}</span>
+              </div>
+              <div className="space-y-3">
+                {(activeQuote.lines ?? []).map((line) => (
+                  <InventoryAllocationPanel
+                    key={`allocation-${line.id}`}
+                    mode="quotation"
+                    quotationLineId={line.id}
+                    partNumber={line.partNumber}
+                    quantity={line.quantity}
+                    onChanged={detailQuery.refetch}
+                  />
+                ))}
               </div>
             </div>
           ) : (
@@ -1606,12 +1619,16 @@ function ConvertToOrderDialog({
   const [confirmationNote, setConfirmationNote] = useState('');
   const [templateId, setTemplateId] = useState(defaultTemplateId);
   const [acceptedQuantities, setAcceptedQuantities] = useState<Record<string, number>>({});
+  const [allocationViews, setAllocationViews] = useState<Record<string, LineInventoryAvailability | null>>({});
+  const [allocationSelections, setAllocationSelections] = useState<Record<string, Record<string, number>>>({});
+  const [allocationLoadError, setAllocationLoadError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { accept } = useAcceptQuotation();
+  const can = useCapabilityStore((state) => state.can);
   const detailQuery = useQuotation(isOpen && initialQuote ? initialQuote.id : '');
   const quote = detailQuery.data?.id === initialQuote?.id ? detailQuery.data : initialQuote;
   const { locale } = useTranslation();
-  const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
+  const tx = useCallback((zh: string, en: string) => (locale === 'zh-CN' ? zh : en), [locale]);
 
   useEffect(() => {
     setTemplateId(defaultTemplateId);
@@ -1620,21 +1637,69 @@ function ConvertToOrderDialog({
   useEffect(() => {
     if (!quote || !isModernQuotation(quote)) {
       setAcceptedQuantities({});
+      setAllocationViews({});
+      setAllocationSelections({});
+      setAllocationLoadError('');
       return;
     }
     setAcceptedQuantities(Object.fromEntries((quote.lines ?? []).map((line) => [line.id, lineRemainingQuantity(line)])));
+    setAllocationSelections({});
   }, [quote]);
+
+  useEffect(() => {
+    let active = true;
+    if (!isOpen || !quote || !isModernQuotation(quote)) {
+      setAllocationViews({});
+      setAllocationSelections({});
+      setAllocationLoadError('');
+      return () => { active = false; };
+    }
+    setAllocationLoadError('');
+    const lines = quote.lines ?? [];
+    void Promise.all(lines.map(async (line) => {
+      try {
+        return [line.id, await inventoryAllocationApi.getQuotationLine(line.id)] as const;
+      } catch {
+        return [line.id, null] as const;
+      }
+    })).then((entries) => {
+      if (!active) return;
+      const next = Object.fromEntries(entries) as Record<string, LineInventoryAvailability | null>;
+      setAllocationViews(next);
+      if (entries.length > 0 && entries.every(([, value]) => value === null)) {
+        setAllocationLoadError(tx('无法读取行级库存预留；如仍需处理请刷新。', 'Line allocation data could not be loaded; refresh before continuing.'));
+      }
+    });
+    return () => { active = false; };
+  }, [isOpen, quote?.id, quote?.version, quote?.lines, tx]);
 
   if (!quote) return null;
 
   const modernQuote = isModernQuotation(quote);
   const quoteLines = quote.lines ?? [];
   const selectedLineAcceptances = quoteLines
-    .map((line) => ({
-      quotationLineId: line.id,
-      quantity: Math.max(0, Math.min(lineRemainingQuantity(line), acceptedQuantities[line.id] ?? 0)),
-    }))
+    .map((line) => {
+      const allocations = (allocationViews[line.id]?.allocations ?? [])
+        .map((allocation) => ({
+          allocationId: allocation.id,
+          quantity: Math.max(0, Math.min(allocation.unassignedQuantity, allocationSelections[line.id]?.[allocation.id] ?? 0)),
+        }))
+        .filter((allocation) => allocation.quantity > 0);
+      return {
+        quotationLineId: line.id,
+        quantity: Math.max(0, Math.min(lineRemainingQuantity(line), acceptedQuantities[line.id] ?? 0)),
+        ...(allocations.length > 0 ? { allocations } : {}),
+      };
+    })
     .filter((line) => line.quantity > 0);
+  const allocationRequirement = quoteLines.map((line) => {
+    const selectedQuantity = Math.max(0, Math.min(lineRemainingQuantity(line), acceptedQuantities[line.id] ?? 0));
+    const selectedAllocations = (allocationViews[line.id]?.allocations ?? []).reduce((sum, allocation) => sum + Math.max(0, Math.min(allocation.unassignedQuantity, allocationSelections[line.id]?.[allocation.id] ?? 0)), 0);
+    const reserved = allocationViews[line.id]?.reservedQuantity ?? line.reservedQuantity;
+    const required = Math.max(0, reserved - (lineRemainingQuantity(line) - selectedQuantity));
+    return { line, selectedQuantity, selectedAllocations, required, missingView: reserved > 0 && !allocationViews[line.id] };
+  });
+  const allocationIssue = allocationRequirement.find((item) => item.selectedQuantity > 0 && (item.missingView || item.selectedAllocations < item.required));
   const selectedAmount = quoteLines.reduce((sum, line) => {
     const unitPrice = lineDisplayUnitPrice(line);
     const quantity = Math.max(0, Math.min(lineRemainingQuantity(line), acceptedQuantities[line.id] ?? 0));
@@ -1644,6 +1709,12 @@ function ConvertToOrderDialog({
   const handleSubmit = async () => {
     if (modernQuote && (quoteLines.length === 0 || selectedLineAcceptances.length === 0)) {
       toast.error(tx('请至少填写一条剩余数量大于 0 的报价行。', 'Enter an acceptance quantity for at least one quotation line with remaining quantity.'));
+      return;
+    }
+    if (modernQuote && allocationIssue) {
+      toast.error(can('inventory.manage')
+        ? tx(`第 ${allocationIssue.line.lineNo} 行需要明确选择至少 ${allocationIssue.required} EA 的未分配库存。`, `Line ${allocationIssue.line.lineNo} requires explicit selection of at least ${allocationIssue.required} unassigned inventory.`)
+        : tx('该报价已有库存预留，需要库存管理员明确选择分配后才能成交。', 'This quote has reserved inventory. An inventory manager must explicitly assign it before acceptance.'));
       return;
     }
     setIsSubmitting(true);
@@ -1705,24 +1776,57 @@ function ConvertToOrderDialog({
                 {quoteLines.map((line) => {
                   const remaining = lineRemainingQuantity(line);
                   const selected = Math.max(0, Math.min(remaining, acceptedQuantities[line.id] ?? 0));
+                  const view = allocationViews[line.id];
+                  const requirement = allocationRequirement.find((item) => item.line.id === line.id);
                   return (
-                    <div key={line.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3">
-                      <span className="font-mono">{line.partNumber}</span>
-                      <span>{tx('剩余', 'Remaining')}: {remaining}</span>
-                      <Input
-                        aria-label={`${line.partNumber} ${tx('接受数量', 'Acceptance quantity')}`}
-                        className="h-8 w-24 bg-white"
-                        type="number"
-                        min={0}
-                        max={remaining}
-                        step={1}
-                        value={selected}
-                        onChange={(event) => {
-                          const parsed = Number.parseInt(event.target.value, 10);
-                          const quantity = Number.isFinite(parsed) ? Math.min(remaining, Math.max(0, parsed)) : 0;
-                          setAcceptedQuantities((previous) => ({ ...previous, [line.id]: quantity }));
-                        }}
-                      />
+                    <div key={line.id} className="space-y-2">
+                      <div className="grid grid-cols-[1fr_auto_auto] items-center gap-3">
+                        <span className="font-mono">{line.partNumber}</span>
+                        <span>{tx('剩余', 'Remaining')}: {remaining}</span>
+                        <Input
+                          aria-label={`${line.partNumber} ${tx('接受数量', 'Acceptance quantity')}`}
+                          className="h-8 w-24 bg-white"
+                          type="number"
+                          min={0}
+                          max={remaining}
+                          step={1}
+                          value={selected}
+                          onChange={(event) => {
+                            const parsed = Number.parseInt(event.target.value, 10);
+                            const accepted = Number.isFinite(parsed) ? Math.min(remaining, Math.max(0, parsed)) : 0;
+                            setAcceptedQuantities((previous) => ({ ...previous, [line.id]: accepted }));
+                          }}
+                        />
+                      </div>
+                      {view?.allocations && view.allocations.length > 0 && <div className="space-y-1 rounded border border-blue-100 bg-white p-2 text-xs">
+                        <p className="font-medium text-blue-900">{tx('已预留库存：请明确选择转入本次订单的父分配', 'Reserved inventory: explicitly select parent allocations for this order')}</p>
+                        {view.allocations.map((allocation, index) => {
+                          const selectedAllocationQuantity = allocationSelections[line.id]?.[allocation.id] ?? 0;
+                          return <div key={allocation.id} className="grid grid-cols-[1fr_6rem] items-center gap-2">
+                            <span>{tx(`父分配 ${index + 1}`, `Parent allocation ${index + 1}`)} · <span className="font-mono">{allocation.id.slice(-8)}</span> · {tx('未分配', 'Unassigned')} {allocation.unassignedQuantity}</span>
+                            <Input
+                              aria-label={`${line.partNumber} ${tx('父分配', 'Parent allocation')} ${index + 1}`}
+                              className="h-7 bg-white"
+                              type="number"
+                              min={0}
+                              max={allocation.unassignedQuantity}
+                              step={1}
+                              value={selectedAllocationQuantity}
+                              disabled={!can('inventory.manage')}
+                              onChange={(event) => {
+                                const parsed = Number.parseInt(event.target.value, 10);
+                                const selectedAmount = Number.isFinite(parsed) ? Math.min(allocation.unassignedQuantity, Math.max(0, parsed)) : 0;
+                                setAllocationSelections((previous) => ({
+                                  ...previous,
+                                  [line.id]: { ...(previous[line.id] ?? {}), [allocation.id]: selectedAmount },
+                                }));
+                              }}
+                            />
+                          </div>;
+                        })}
+                        {requirement && requirement.required > 0 && <p className="text-amber-700">{can('inventory.manage') ? tx(`本行至少需要选择 ${requirement.required} EA。`, `Select at least ${requirement.required} EA for this line.`) : tx('需要库存管理员明确分配；当前用户无 inventory.manage 权限。', 'An inventory manager must assign the reserved stock; the current user lacks inventory.manage.')}</p>}
+                      </div>}
+                      {requirement?.missingView && <p className="text-xs text-amber-700">{allocationLoadError || tx('无法确认本行预留是否需要转入，请刷新后再提交。', 'The line reservation state could not be confirmed. Refresh before submitting.')}</p>}
                     </div>
                   );
                 })}

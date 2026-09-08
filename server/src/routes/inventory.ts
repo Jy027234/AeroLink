@@ -445,6 +445,7 @@ router.post(
           resourceId: detail.id,
         };
       },
+      { isolationLevel: 'Serializable' },
     );
 
     applyIdempotencyHeaders(res, execution);
@@ -549,6 +550,7 @@ router.patch(
           resourceId: updated.id,
         };
       },
+      { isolationLevel: 'Serializable' },
     );
 
     applyIdempotencyHeaders(res, execution);
@@ -587,6 +589,7 @@ router.delete(
           resourceId: deleted.id,
         };
       },
+      { isolationLevel: 'Serializable' },
     );
 
     applyIdempotencyHeaders(res, execution);

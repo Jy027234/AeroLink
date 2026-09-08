@@ -10,6 +10,13 @@ import { createInitialStatusHistory, StateTransitionConflictError } from '../../
 import { enqueueBusinessEvent } from '../../lib/outboxService.js';
 import { assertActiveQuotationRevision } from '../../lib/quotationRevisionPolicy.js';
 import { freezeQuotationDocument } from '../../lib/quotationDocumentService.js';
+import { assignLineInventory } from '../inventoryQuality/index.js';
+
+export type LineAcceptance = {
+  quotationLineId: string;
+  quantity: number;
+  allocations?: Array<{ allocationId: string; quantity: number }>;
+};
 
 export type LineQuoteInput = {
   rfqLineId: string; partNumber: string; quantity: number; unitPrice: number; costPrice: number;
@@ -257,7 +264,7 @@ export async function approveLineQuotation(args: {
 
 export async function acceptLineQuotation(args: {
   tx: Tx; quotation: LineQuotation; actorId: string; version: number;
-  lines: Array<{ quotationLineId: string; quantity: number }>;
+  lines: LineAcceptance[];
   poNumber?: string; deliveryDate?: string; confirmationNote?: string;
 }) {
   const { tx, quotation, actorId } = args;
@@ -278,6 +285,14 @@ export async function acceptLineQuotation(args: {
     assertQuantity(acceptance.quantity);
     const line = byId.get(acceptance.quotationLineId);
     if (!line || acceptance.quantity > line.quantity - line.acceptedQuantity) fail('所选报价行不存在或成交数量超过剩余报价数量');
+    const assignedQuantity = (acceptance.allocations ?? []).reduce((sum, allocation) => {
+      assertQuantity(allocation.quantity);
+      return sum + allocation.quantity;
+    }, 0);
+    if (assignedQuantity > acceptance.quantity) fail('转入订单的预留数量不能超过本次成交数量');
+    if (line.reservedQuantity - assignedQuantity > line.quantity - line.acceptedQuantity - acceptance.quantity) {
+      fail('成交后未分配预留将超过剩余报价数量，请明确选择转入订单的库存分配');
+    }
     const demand = rfq.lines.find(item => item.id === line.rfqLineId);
     const sold = await tx.orderLine.aggregate({ where: { quotationLine: { rfqLineId: line.rfqLineId }, order: { status: { not: 'CANCELLED' } } }, _sum: { quantity: true } });
     if (!demand || demand.status !== 'OPEN' || (sold._sum.quantity ?? 0) + acceptance.quantity > demand.quantity) fail('成交数量超过需求行剩余数量');
@@ -316,6 +331,16 @@ export async function acceptLineQuotation(args: {
   const allAccepted = quotation.lines.every(line => line.acceptedQuantity + (args.lines.find(accepted => accepted.quotationLineId === line.id)?.quantity ?? 0) === line.quantity);
   const nextStatus = allAccepted ? 'ACCEPTED' : quotation.status === 'SENT' ? 'SENT' : 'APPROVED';
   await tx.quotation.update({ where: { id: quotation.id }, data: { status: nextStatus, statusEnum: nextStatus, orderId: order.id, orderNumber } });
+  if (args.lines.some(line => line.allocations?.length)) {
+    const actor = await tx.user.findUnique({ where: { id: actorId }, select: { id: true, role: true, department: true, isActive: true } });
+    if (!actor?.isActive) throw new AppError('当前用户不可用', 403, 'AUTH_FORBIDDEN');
+    for (const acceptance of args.lines) {
+      if (!acceptance.allocations?.length) continue;
+      const orderLine = order.lines.find(line => line.quotationLineId === acceptance.quotationLineId)!;
+      await assignLineInventory({ tx, actor, orderLineId: orderLine.id, allocations: acceptance.allocations,
+        commandId: `accept:${order.id}:${orderLine.id}` });
+    }
+  }
   await createInitialStatusHistory(tx, { entityType: 'ORDER', entityId: order.id, toStatus: 'SO_CREATED', actorId, reasonCode: 'PARTIAL_QUOTATION_ACCEPTED', version: order.version });
   await tx.transactionStatusHistory.create({ data: { entityType: 'QUOTATION', entityId: quotation.id, fromStatus: quotation.status, toStatus: nextStatus, actorId, reasonCode: 'QUOTATION_LINES_ACCEPTED', version: quotation.version + 1 } });
   const updatedQuotation = await loadLineQuotation(tx, quotation.id);

@@ -146,6 +146,7 @@ router.post(
           resourceId: result.transaction.id,
         };
       },
+      { isolationLevel: 'Serializable' },
     );
 
     applyIdempotencyHeaders(res, execution);
@@ -175,6 +176,7 @@ router.post(
           resourceId: result.transaction.id,
         };
       },
+      { isolationLevel: 'Serializable' },
     );
 
     applyIdempotencyHeaders(res, execution);

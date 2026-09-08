@@ -67,6 +67,7 @@ import { cn } from '@/lib/utils';
 import { downloadBlob } from '@/lib/downloadBlob';
 import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
+import { InventoryAllocationPanel } from '@/components/InventoryAllocationPanel';
 import { toast } from 'sonner';
 import { QualityReviewPanel } from './QualityReviewPanel';
 import type { Order, OrderStatus } from '@/types';
@@ -716,7 +717,20 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
                   </TableRow>)}</TableBody>
                 </Table>
               </div>
-              <p className="text-sm text-amber-800">{tx('逐行库存分配和质量出库尚未开放，当前订单可核对成交明细与合同。', 'Line allocation and quality outbound are not available yet. Review the accepted lines and contract here.')}</p>
+              <div className="space-y-3">
+                {activeOrder.lines?.map((line) => (
+                  <InventoryAllocationPanel
+                    key={`allocation-${line.id}`}
+                    mode="order"
+                    quotationLineId={line.quotationLineId}
+                    orderLineId={line.id}
+                    partNumber={line.partNumber}
+                    quantity={line.quantity}
+                    outboundQuantity={line.outboundQuantity}
+                    onChanged={refetchDetail}
+                  />
+                ))}
+              </div>
             </div>
           ) : (
           <div className="p-4 border rounded-lg">

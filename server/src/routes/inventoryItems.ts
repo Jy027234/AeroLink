@@ -1,12 +1,37 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
+import { z } from 'zod';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { requireCapability } from '../middleware/capability.js';
+import { validateBody } from '../middleware/validate.js';
 import { canViewInventoryCost } from '../lib/costVisibility.js';
 import { projectInventoryItem } from '../lib/inventoryProjection.js';
+import { assertInventoryItemIdentityMutable } from '../modules/inventoryQuality/service.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
+
+const optionalNullableText = z.string().nullable().optional();
+
+/**
+ * InventoryItem is a shared identity row.  PATCH intentionally accepts only
+ * its scalar metadata; relation objects, generated timestamps, and IDs must
+ * never reach Prisma's nested-write surface.
+ */
+export const inventoryItemUpdateSchema = z.object({
+  partNumber: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  partCategory: z.string().min(1).optional(),
+  trackingType: z.string().min(1).optional(),
+  manufacturer: optionalNullableText,
+  manufacturerCageCode: optionalNullableText,
+  ataChapter: optionalNullableText,
+  alternatePartNumbers: optionalNullableText,
+  unitOfMeasure: z.string().min(1).optional(),
+  countryOfOrigin: optionalNullableText,
+  hsCode: optionalNullableText,
+}).strict();
 
 // GET / - list all inventory items
 router.get(
@@ -92,14 +117,47 @@ router.post(
 router.patch(
   '/:id',
   requireCapability('inventory', 'manage'),
+  validateBody(inventoryItemUpdateSchema),
   asyncHandler(async (req, res) => {
-    const existing = await prisma.inventoryItem.findUnique({ where: { id: req.params.id } });
-    if (!existing) throw new AppError('InventoryItem not found', 404);
+    const input = req.body as z.infer<typeof inventoryItemUpdateSchema>;
+    const item = await prisma.$transaction(async (tx) => {
+      const existing = await tx.inventoryItem.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          partNumber: true,
+          trackingType: true,
+          updatedAt: true,
+          details: {
+            where: { allocatedQuantity: { gt: 0 } },
+            select: { id: true, allocatedQuantity: true },
+          },
+        },
+      });
+      if (!existing) throw new AppError('InventoryItem not found', 404, 'RESOURCE_NOT_FOUND');
 
-    const item = await prisma.inventoryItem.update({
-      where: { id: req.params.id },
-      data: req.body,
-    });
+      const hasActiveModernAllocation = existing.details.length > 0;
+      const partNumberChanges = input.partNumber !== undefined && input.partNumber !== existing.partNumber;
+      const trackingTypeChanges = input.trackingType !== undefined && input.trackingType !== existing.trackingType;
+      if (hasActiveModernAllocation && (partNumberChanges || trackingTypeChanges)) {
+        throw new AppError('存在现代库存分配时不能修改主件件号或追踪类型', 409, 'RESOURCE_CONFLICT');
+      }
+      if (partNumberChanges || trackingTypeChanges) {
+        await assertInventoryItemIdentityMutable(tx, existing.id);
+      }
+
+      const updated = await tx.inventoryItem.updateMany({
+        where: { id: existing.id, updatedAt: existing.updatedAt },
+        data: input,
+      });
+      if (updated.count !== 1) {
+        throw new AppError('库存主件已被其他操作修改，请刷新后重试', 409, 'STATE_CONFLICT');
+      }
+
+      const result = await tx.inventoryItem.findUnique({ where: { id: existing.id } });
+      if (!result) throw new AppError('InventoryItem not found', 404, 'RESOURCE_NOT_FOUND');
+      return result;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     res.json(item);
   })
 );

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 function createPrismaMock() {
   const tx = {
+    $executeRawUnsafe: vi.fn().mockResolvedValue(0),
     idempotencyRecord: {
       create: vi.fn().mockResolvedValue({ id: 'idem-1' }),
       update: vi.fn().mockResolvedValue({ id: 'idem-1', status: 'COMPLETED' }),
@@ -28,6 +29,18 @@ describe('idempotencyService', () => {
     prismaMock = createPrismaMock();
     vi.doMock('./prisma.js', () => ({ default: prismaMock }));
     ({ runIdempotentOperation, buildIdempotencyContext } = await import('./idempotencyService.js'));
+  });
+
+  it.each([undefined, 'allocation-key'])('surfaces deferred validation failure before returning a result (key=%s)', async key => {
+    const failure = new Error('Allocation projection is inconsistent');
+    prismaMock.__tx.$executeRawUnsafe.mockRejectedValue(failure);
+    const operation = vi.fn().mockResolvedValue({ payload: { id: 'must-not-return' }, statusCode: 201 });
+    await expect(runIdempotentOperation({ actorId: 'user-1', scope: 'POST:/inventory-allocations/reserve',
+      key, requestHash: 'request-hash' }, operation, {
+      isolationLevel: 'Serializable', validateDeferredConstraints: true,
+    })).rejects.toBe(failure);
+    expect(prismaMock.__tx.$executeRawUnsafe).toHaveBeenCalledWith('SET CONSTRAINTS ALL IMMEDIATE');
+    expect(prismaMock.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'Serializable' });
   });
 
   it('stores the first successful result in the same transaction as the business mutation', async () => {
@@ -147,6 +160,21 @@ describe('idempotencyService', () => {
 
     expect(result).toMatchObject({ payload: { id: 'order-1' }, statusCode: 200, replayed: false });
     expect(prismaMock.__tx.idempotencyRecord.create).not.toHaveBeenCalled();
+  });
+
+  it('retries a rolled-back serializable allocation conflict before returning its result', async () => {
+    const operation = vi.fn().mockRejectedValueOnce({ code: 'P2034' }).mockResolvedValue({ payload: { id: 'allocation-1' } });
+    const result = await runIdempotentOperation({ actorId: 'user-1', scope: 'reserve', requestHash: 'hash' }, operation as never,
+      { isolationLevel: 'Serializable', validateDeferredConstraints: true });
+    expect(operation).toHaveBeenCalledTimes(2);
+    expect(result.payload).toEqual({ id: 'allocation-1' });
+  });
+
+  it('bounds allocation retries and reports a retryable conflict', async () => {
+    const operation = vi.fn().mockRejectedValue({ code: 'P2034' });
+    await expect(runIdempotentOperation({ actorId: 'user-1', scope: 'reserve', requestHash: 'hash' }, operation as never,
+      { isolationLevel: 'Serializable', validateDeferredConstraints: true })).rejects.toMatchObject({ statusCode: 409, code: 'STATE_CONFLICT' });
+    expect(operation).toHaveBeenCalledTimes(3);
   });
 
   it('rejects a control character in an Idempotency-Key', () => {

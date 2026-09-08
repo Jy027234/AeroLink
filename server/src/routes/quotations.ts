@@ -782,7 +782,7 @@ router.post(
         return { payload: { ...projectQuotationMoney(result.quotation), status: 'draft', previousQuotationId: result.previousQuotationId },
           statusCode: 201, resourceType: 'QUOTATION', resourceId: result.quotation.id };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, validateDeferredConstraints: true },
     );
     const scope = await resolveQuotationResponseScope(actor, String((execution.payload as { id: string }).id));
     applyIdempotencyHeaders(res, execution);
@@ -1001,6 +1001,7 @@ router.post(
           resourceId: updatedQuotation.id,
         };
       },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, validateDeferredConstraints: true },
     );
 
     const responseScope = await resolveQuotationResponseScope(
@@ -1075,6 +1076,7 @@ router.post(
           resourceId: updatedQuotation.id,
         };
       },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, validateDeferredConstraints: true },
     );
 
     const responseScope = await resolveQuotationResponseScope(

@@ -1434,6 +1434,8 @@ export interface MultiLineQuotationAcceptInput {
   lines: Array<{
     quotationLineId: string;
     quantity: number;
+    /** Optional explicit inventory parents assigned to the new order line. */
+    allocations?: Array<{ allocationId: string; quantity: number }>;
   }>;
   version: number;
   poNumber?: string;
@@ -1443,6 +1445,99 @@ export interface MultiLineQuotationAcceptInput {
   reasonCode?: string;
   reason?: string;
 }
+
+// ===== D12 modern line inventory allocation API =====
+
+export interface InventoryAllocationAssignmentView {
+  id: string;
+  orderLineId: string;
+  assignedQuantity: number;
+  releasedQuantity: number;
+  consumedQuantity: number;
+  activeQuantity: number;
+  allocationId?: string;
+  inventoryDetailId?: string;
+}
+
+export interface InventoryAllocationView {
+  id: string;
+  quotationLineId: string;
+  inventoryDetailId: string;
+  allocatedQuantity: number;
+  releasedQuantity: number;
+  consumedQuantity: number;
+  activeQuantity: number;
+  unassignedQuantity: number;
+  assignedActiveQuantity: number;
+  expiresAt: string | null;
+  assignments: InventoryAllocationAssignmentView[];
+}
+
+export interface LineInventoryAvailability {
+  quotationLineId: string;
+  quantity: number;
+  acceptedQuantity: number;
+  reservedQuantity: number;
+  unassignedQuantity: number;
+  assignedActiveQuantity: number;
+  activeQuantity: number;
+  allocations: InventoryAllocationView[];
+}
+
+export interface OrderLineInventoryAvailability {
+  id: string;
+  quotationLineId: string;
+  quantity: number;
+  outboundQuantity: number;
+  assignments: InventoryAllocationAssignmentView[];
+}
+
+export interface AllocationQualityReviewSnapshot {
+  schemaVersion: number;
+  assignment: { id: string; allocationId: string; orderLineId: string; version: number; assignedQuantity: number; releasedQuantity: number; consumedQuantity: number };
+  allocation: { id: string; quotationLineId: string; inventoryDetailId: string; version: number; allocatedQuantity: number; releasedQuantity: number; consumedQuantity: number };
+  order: { id: string; quotationId: string; version: number; status: string; lineItemsMode: boolean; customerId: string; quantity: number; outboundQuantity: number; certificateRequired: boolean; certificateType: string | null; inspectionRequired: boolean; saleType: string };
+  orderLine: { id: string; orderId: string; lineNo: number; quotationLineId: string; partNumber: string; uom: string; quantity: number; outboundQuantity: number; outboundStatus: string; inventoryDetailId: string | null; serialNumber: string | null; batchNumber: string | null; currency: string };
+  quotationLine: { id: string; quotationId: string; lineNo: number; rfqLineId: string; partNumber: string; uom: string; quantity: number; acceptedQuantity: number; reservedQuantity: number; status: string; currency: string };
+  rfqLine: { id: string; rfqId: string; lineNo: number; partNumber: string; quantity: number; uom?: string; conditionCode: string; certificateRequired: boolean; certificateType: string | null; requiredDate?: string; status: string; updatedAt?: string };
+  rfq: { id: string; version: number; lineItemsMode: boolean; conditionCode: string; certificateRequired: boolean; certificateType: string | null };
+  inventory: { id: string; inventoryItemId: string; partNumber: string; trackingType: string; type: string; serialNumber: string | null; batchNumber: string | null; conditionCode: string; quantity: number; allocatedQuantity: number; status: string; certificateType: string; certificateNumber: string | null; certificateFileUrl: string | null; lifeLimited: boolean; remainingHours: number | null; remainingCycles: number | null; shelfLifeDate?: string | null; shelfLifeDays: number | null; nextOverhaulDue?: string | null; storageCondition: string | null; updatedAt?: string; itemUpdatedAt?: string };
+  certificates: Array<{ id: string; certificateNumber: string; partNumber: string; serialNumber: string | null; batchNumber: string | null; certificateType: string; status: string; expiryDate: string | null; fileUrl: string | null; fileHash: string | null; updatedAt?: string }>;
+  plannedQuantity: number;
+}
+
+export interface AllocationQualityReviewContext {
+  snapshotHash: string;
+  snapshot: AllocationQualityReviewSnapshot;
+  review: { id: string; approved: boolean; snapshotHash: string; consumedAt: string | null; reviewedAt: string; quantity: number } | null;
+}
+
+export interface AllocationQualityReviewInput {
+  assignmentId: string;
+  quantity: number;
+  snapshotHash: string;
+  approved: boolean;
+  evidenceIds: string[];
+  verifiedSerialNumber: string;
+  verifiedBatchNumber: string;
+  checks: { identity: boolean; documents: boolean; conditionAndLife: boolean; customerRequirements: boolean };
+  reason: string;
+  certificateIdentity?: { id?: string; certificateId?: string; certificateNumber?: string; certificateType?: string; partNumber?: string; serialNumber?: string | null; batchNumber?: string | null; fileHash?: string | null };
+}
+
+export interface AllocationQualityReviewResult { id: string; approved: boolean; reviewedAt: string; quantity: number }
+export interface AllocationConsumeResult { assignmentId: string; allocationId: string; inventoryDetailId: string; quantity: number; beforeQuantity: number; afterQuantity: number; transactionId: string; orderId: string; orderStatus: string; allocationVersion: number; assignmentVersion: number }
+
+export const inventoryAllocationApi = {
+  getQuotationLine: async (quotationLineId: string) => request<LineInventoryAvailability>(`/inventory-allocations/quotation-lines/${encodeURIComponent(quotationLineId)}`),
+  getOrderLine: async (orderLineId: string) => request<OrderLineInventoryAvailability>(`/inventory-allocations/order-lines/${encodeURIComponent(orderLineId)}`),
+  reserve: async (payload: { quotationLineId: string; orderLineId?: string; allocations: Array<{ inventoryDetailId: string; quantity: number }> }) => request<LineInventoryAvailability>('/inventory-allocations/reserve', { method: 'POST', body: JSON.stringify(payload) }),
+  assign: async (payload: { orderLineId: string; allocations: Array<{ allocationId: string; quantity: number }> }) => request<LineInventoryAvailability>('/inventory-allocations/assign', { method: 'POST', body: JSON.stringify(payload) }),
+  release: async (payload: { allocationId: string; assignmentId?: string; quantity: number; reason: string }) => request<LineInventoryAvailability>('/inventory-allocations/release', { method: 'POST', body: JSON.stringify(payload) }),
+  getQualityReview: async (assignmentId: string, quantity: number) => request<AllocationQualityReviewContext>(`/inventory-allocations/quality-review/${encodeURIComponent(assignmentId)}?quantity=${encodeURIComponent(String(quantity))}`),
+  createQualityReview: async (payload: AllocationQualityReviewInput) => request<AllocationQualityReviewResult>('/inventory-allocations/quality-reviews', { method: 'POST', body: JSON.stringify(payload) }),
+  consume: async (payload: { assignmentId: string; quantity: number; reviewId: string; notes?: string }) => request<AllocationConsumeResult>('/inventory-allocations/consume', { method: 'POST', body: JSON.stringify(payload) }),
+};
 
 /**
  * The legacy branch of QuotationCreateRequest used by commercial revisions.

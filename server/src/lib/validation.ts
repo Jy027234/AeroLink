@@ -177,7 +177,9 @@ export const quotationWithdrawSchema = z.object({
 });
 
 export const quotationAcceptSchema = z.object({
-  lines: z.array(z.object({ quotationLineId: z.string().min(1), quantity: z.number().int().positive() }).strict()).min(1).max(100).optional(),
+  lines: z.array(z.object({ quotationLineId: z.string().min(1), quantity: z.number().int().positive(),
+    allocations: z.array(z.object({ allocationId: z.string().min(1), quantity: z.number().int().positive().max(2147483647) }).strict()).min(1).max(100).optional(),
+  }).strict()).min(1).max(100).optional(),
   ...stateTransitionMetadataSchema,
   poNumber: z.string().optional(),
   deliveryDate: z.string().optional(),

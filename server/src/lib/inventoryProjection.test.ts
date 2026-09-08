@@ -5,6 +5,7 @@ const detail = {
   id: 'detail-1',
   inventoryItemId: 'item-1',
   quantity: 4,
+  allocatedQuantity: 2,
   conditionCode: 'NE',
   status: 'AVAILABLE',
   serialNumber: null,
@@ -68,6 +69,8 @@ const detail = {
 describe('inventory cost projection', () => {
   it('keeps quantity/source fields but omits unit cost by default', () => {
     const safe = serializeInventoryDetail(detail as never);
+    expect(safe.allocatedQuantity).toBe(2);
+    expect(safe.availableQuantity).toBe(2);
     const privileged = serializeInventoryDetail(detail as never, { includeCost: true });
 
     expect(safe).toMatchObject({ id: 'detail-1', partNumber: 'PN-1', quantity: 4 });

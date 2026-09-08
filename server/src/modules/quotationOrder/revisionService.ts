@@ -4,7 +4,7 @@ import { assertActiveQuotationRevision } from '../../lib/quotationRevisionPolicy
 import { StateTransitionConflictError } from '../../lib/transactionStateService.js';
 import { enqueueBusinessEvent } from '../../lib/outboxService.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
-import { releaseInventoryReservation } from '../inventoryQuality/index.js';
+import { releaseInventoryReservation, releaseUnassignedQuotationInventory } from '../inventoryQuality/index.js';
 import { createQuotationAggregate, type CreateQuotationArgs } from './service.js';
 
 type RevisionInput<T = CreateQuotationArgs> = T extends unknown
@@ -66,7 +66,10 @@ export async function reviseQuotationAggregate(args: {
       }
     }
   }
-  if (original.reservedQuantity > 0) {
+  if (original.lineItemsMode) {
+    await releaseUnassignedQuotationInventory({ tx, quotationId: original.id, actorId: args.actorId,
+      reason: `商业修订：${args.reason}`, commandId: `revision:${original.id}:${args.version}` });
+  } else if (original.reservedQuantity > 0) {
     await releaseInventoryReservation(tx, { quotationId: original.id, actorId: args.actorId,
       notes: `商业修订释放原报价预留：${args.reason}`, updateQuotation: false });
     await tx.quotation.update({ where: { id: original.id }, data: { reservedQuantity: 0 } });

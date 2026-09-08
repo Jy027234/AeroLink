@@ -13,6 +13,116 @@ export function assertInventoryQuantityAdjustmentAllowed(status: string, quantit
   }
 }
 
+function hasActiveAllocation(allocatedQuantity: unknown): allocatedQuantity is number {
+  return typeof allocatedQuantity === 'number' && Number.isInteger(allocatedQuantity) && allocatedQuantity > 0;
+}
+
+function assertNoActiveAllocation(allocatedQuantity: unknown) {
+  if (hasActiveAllocation(allocatedQuantity)) {
+    throw new AppError('库存明细存在现代分配，不能使用旧库存入口处理数量或预留', 409, 'RESOURCE_CONFLICT');
+  }
+}
+
+function hasIdentityMutation(detailData: Prisma.InventoryDetailUncheckedUpdateInput) {
+  return ['serialNumber', 'batchNumber', 'conditionCode'].some((field) => (
+    Object.prototype.hasOwnProperty.call(detailData, field)
+  ));
+}
+
+function hasStatusMutation(detailData: Prisma.InventoryDetailUncheckedUpdateInput) {
+  return Object.prototype.hasOwnProperty.call(detailData, 'status');
+}
+
+function hasSharedItemIdentityMutation(itemData: Prisma.InventoryItemUpdateInput) {
+  return ['partNumber', 'trackingType'].some((field) => (
+    Object.prototype.hasOwnProperty.call(itemData, field)
+  ));
+}
+
+function hasProtectedDetailMutation(detailData: Prisma.InventoryDetailUncheckedUpdateInput) {
+  return ['quantity', 'status', 'serialNumber', 'batchNumber', 'conditionCode'].some((field) => (
+    Object.prototype.hasOwnProperty.call(detailData, field)
+  ));
+}
+
+function requestedStatus(detailData: Prisma.InventoryDetailUncheckedUpdateInput) {
+  const value = detailData.status;
+  return typeof value === 'string' ? value.toUpperCase() : undefined;
+}
+
+function updateValue(value: unknown) {
+  if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'set')) {
+    return (value as { set?: unknown }).set;
+  }
+  return value;
+}
+
+function fieldChanged(existing: unknown, update: unknown) {
+  return updateValue(update) !== existing;
+}
+
+function removeUnchangedDetailIdentity(
+  existing: { serialNumber?: unknown; batchNumber?: unknown; conditionCode?: unknown },
+  detailData: Prisma.InventoryDetailUncheckedUpdateInput,
+) {
+  const next = { ...detailData } as Record<string, unknown>;
+  for (const field of ['serialNumber', 'batchNumber', 'conditionCode'] as const) {
+    if (Object.prototype.hasOwnProperty.call(next, field)
+      && !fieldChanged(existing[field], next[field])) {
+      delete next[field];
+    }
+  }
+  return next as Prisma.InventoryDetailUncheckedUpdateInput;
+}
+
+/**
+ * Physical identity is an audit fact after an allocation or a legacy outbound.
+ * Released/consumed allocations remain rows, so checking allocatedQuantity alone
+ * is insufficient and would allow a caller to erase the identity history.
+ */
+export async function assertInventoryDetailIdentityMutable(
+  tx: Prisma.TransactionClient,
+  detailId: string,
+) {
+  const [allocation, outbound] = await Promise.all([
+    tx.inventoryAllocation.findFirst({
+      where: { inventoryDetailId: detailId },
+      select: { id: true },
+    }),
+    tx.inventoryTransaction.findFirst({
+      where: { inventoryDetailId: detailId, type: 'OUTBOUND' },
+      select: { id: true },
+    }),
+  ]);
+  if (allocation || outbound) {
+    throw new AppError('库存明细已有分配或出库历史，不能修改序列号、批次或条件状态', 409, 'RESOURCE_CONFLICT');
+  }
+}
+
+/**
+ * InventoryItem is shared by all of its details. Once any detail has a
+ * allocation or inventory ledger row, changing the shared part identity would
+ * rewrite the meaning of historical records for sibling details as well.
+ */
+export async function assertInventoryItemIdentityMutable(
+  tx: Prisma.TransactionClient,
+  inventoryItemId: string,
+) {
+  const [allocation, transaction] = await Promise.all([
+    tx.inventoryAllocation.findFirst({
+      where: { inventoryDetail: { inventoryItemId } },
+      select: { id: true },
+    }),
+    tx.inventoryTransaction.findFirst({
+      where: { inventoryDetail: { inventoryItemId } },
+      select: { id: true },
+    }),
+  ]);
+  if (allocation || transaction) {
+    throw new AppError('同一件号下已有分配或库存流水，不能修改共享主件件号或追踪类型', 409, 'RESOURCE_CONFLICT');
+  }
+}
+
 export function normalizeInventoryCode(value: unknown, fallback: string) {
   return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : fallback;
 }
@@ -35,7 +145,9 @@ export async function createInventoryAggregate(
     update: {},
   });
   const detail = await tx.inventoryDetail.create({
-    data: { ...args.detail, inventoryItemId: item.id },
+    // Allocation ownership is established only by the server-side allocation
+    // service. A receipt can never seed a client-supplied modern allocation.
+    data: { ...args.detail, allocatedQuantity: 0, inventoryItemId: item.id },
     include: args.include,
   });
 
@@ -72,17 +184,91 @@ export async function updateInventoryAggregate(
 ) {
   const existing = await tx.inventoryDetail.findUnique({ where: { id: args.id }, include: args.include });
   if (!existing) throw new AppError('库存不存在', 404, 'RESOURCE_NOT_FOUND');
-  assertInventoryQuantityAdjustmentAllowed(existing.status, args.quantityProvided);
+  if (Object.prototype.hasOwnProperty.call(args.detailData, 'allocatedQuantity')) {
+    throw new AppError('allocatedQuantity只能由服务端分配流程维护', 400, 'VALIDATION_ERROR');
+  }
+
+  // Supplying the current identity value is a no-op. Remove it before the
+  // protected update so an active allocation is not rejected for an identity
+  // write that does not actually change anything.
+  const detailData = removeUnchangedDetailIdentity(existing, args.detailData);
+  const quantityProvided = args.quantityProvided || Object.prototype.hasOwnProperty.call(detailData, 'quantity');
+  assertInventoryQuantityAdjustmentAllowed(existing.status, quantityProvided);
+  const protectedDetailMutation = hasProtectedDetailMutation(detailData);
+  const detailIdentityMutation = hasIdentityMutation(detailData);
+  let itemIdentityMutation = false;
+  if (hasSharedItemIdentityMutation(args.itemData)) {
+    const itemIdentity = (existing as typeof existing & {
+      inventoryItem?: { partNumber?: unknown; trackingType?: unknown } | null;
+    }).inventoryItem ?? await tx.inventoryItem.findUnique({
+      where: { id: existing.inventoryItemId },
+      select: { partNumber: true, trackingType: true },
+    });
+    itemIdentityMutation = ['partNumber', 'trackingType'].some((field) => (
+      Object.prototype.hasOwnProperty.call(args.itemData, field)
+      && fieldChanged(itemIdentity?.[field as 'partNumber' | 'trackingType'], args.itemData[field as 'partNumber' | 'trackingType'])
+    ));
+  }
+  const identityMutation = detailIdentityMutation || itemIdentityMutation;
+  const statusMutation = hasStatusMutation(detailData);
+  const nextStatus = requestedStatus(detailData);
+  const activeAllocation = hasActiveAllocation(existing.allocatedQuantity);
+  const safeQuarantineStatusMutation = activeAllocation
+    && statusMutation
+    && nextStatus === 'QUARANTINED'
+    && !quantityProvided
+    && !identityMutation;
+  if (activeAllocation && statusMutation && !safeQuarantineStatusMutation) {
+    throw new AppError('存在现代分配时只能将库存标记为 QUARANTINED，不能伪造预留或释放状态', 409, 'RESOURCE_CONFLICT');
+  }
+  if ((quantityProvided || identityMutation) && hasActiveAllocation(existing.allocatedQuantity)) {
+    throw new AppError('库存明细存在现代分配，不能修改数量或物理身份', 409, 'RESOURCE_CONFLICT');
+  }
+
+  if (detailIdentityMutation) {
+    await assertInventoryDetailIdentityMutable(tx, args.id);
+  }
+
+  if (itemIdentityMutation) {
+    const activeDetail = await tx.inventoryDetail.findFirst({
+      where: { inventoryItemId: existing.inventoryItemId, allocatedQuantity: { gt: 0 } },
+      select: { id: true },
+    });
+    if (activeDetail) {
+      throw new AppError('同一件号下已有现代分配，不能修改共享主件身份', 409, 'RESOURCE_CONFLICT');
+    }
+    await assertInventoryItemIdentityMutable(tx, existing.inventoryItemId);
+  }
 
   if (Object.keys(args.itemData).length > 0) {
     await tx.inventoryItem.update({ where: { id: existing.inventoryItemId }, data: args.itemData });
   }
 
-  const updated = await tx.inventoryDetail.update({
-    where: { id: args.id },
-    data: args.detailData,
-    include: args.include,
-  });
+  let updated;
+  if (Object.keys(detailData).length === 0) {
+    updated = existing;
+  } else if (protectedDetailMutation) {
+    const detailWhere: Prisma.InventoryDetailWhereInput = {
+      id: args.id,
+      allocatedQuantity: safeQuarantineStatusMutation ? { gt: 0 } : 0,
+      ...(quantityProvided ? { quantity: existing.quantity } : {}),
+      ...(existing.updatedAt ? { updatedAt: existing.updatedAt } : {}),
+    };
+    const updatedDetail = await tx.inventoryDetail.updateMany({
+      where: detailWhere,
+      data: detailData,
+    });
+    if (updatedDetail.count !== 1) throw new StateTransitionConflictError();
+    updated = await tx.inventoryDetail.findUnique({ where: { id: args.id }, include: args.include });
+    if (!updated) throw new StateTransitionConflictError();
+  } else {
+    updated = await tx.inventoryDetail.update({
+      where: { id: args.id },
+      data: detailData,
+      include: args.include,
+    });
+  }
+  if (!updated) throw new StateTransitionConflictError();
   const quantityDelta = args.quantity === undefined ? 0 : args.quantity - existing.quantity;
   if (quantityDelta !== 0) {
     await tx.inventoryTransaction.create({
@@ -127,6 +313,14 @@ export async function deleteInventoryAggregate(
     throw new AppError('库存明细已有流水或证书关联，不能物理删除', 409, 'RESOURCE_CONFLICT');
   }
 
+  const allocation = await tx.inventoryAllocation.findFirst({
+    where: { inventoryDetailId: detail.id },
+    select: { id: true },
+  });
+  if (allocation) {
+    throw new AppError('库存明细已有现代分配历史，不能物理删除', 409, 'RESOURCE_CONFLICT');
+  }
+
   await tx.inventoryDetail.delete({ where: { id: detail.id } });
   const remainingDetails = await tx.inventoryDetail.count({ where: { inventoryItemId: detail.inventoryItemId } });
   if (remainingDetails === 0) {
@@ -165,6 +359,7 @@ export async function reserveInventoryForQuotation(
 
   if (!detail) throw new AppError('库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+  assertNoActiveAllocation(detail.allocatedQuantity);
   assertActiveQuotationRevision(quotation);
   if (quotation.lineItemsMode) throw new AppError('多行报价需要行级数量分配，暂不能使用旧整单库存接口', 409, 'RESOURCE_CONFLICT');
   if (!RESERVABLE_QUOTATION_STATUSES.has(quotation.status)) {
@@ -202,7 +397,7 @@ export async function reserveInventoryForQuotation(
   }
 
   const reservedDetail = await tx.inventoryDetail.updateMany({
-    where: { id: detail.id, status: 'AVAILABLE', quantity: { gte: args.quantity } },
+    where: { id: detail.id, status: 'AVAILABLE', allocatedQuantity: 0, quantity: { gte: args.quantity } },
     data: { status: 'RESERVED' },
   });
   if (reservedDetail.count !== 1) throw new StateTransitionConflictError();
@@ -328,12 +523,13 @@ export async function releaseInventoryReservation(
     tx.order.findFirst({ where: { quotationId: quotation.id } }),
   ]);
   if (!detail) throw new AppError('预留库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
+  assertNoActiveAllocation(detail.allocatedQuantity);
   if (existingOrder) throw new AppError('报价已生成订单，不能直接释放库存预留', 409, 'INVALID_STATE_TRANSITION');
   if (detail.status !== 'RESERVED') throw new AppError('库存明细不是预留状态，无法释放', 409, 'RESOURCE_CONFLICT');
   assertPartNumberMatches(detail.inventoryItem.partNumber, quotation.partNumber, '报价');
 
   const releasedDetail = await tx.inventoryDetail.updateMany({
-    where: { id: detail.id, status: 'RESERVED' },
+    where: { id: detail.id, status: 'RESERVED', allocatedQuantity: 0 },
     data: { status: 'AVAILABLE' },
   });
   if (releasedDetail.count !== 1) throw new StateTransitionConflictError();
@@ -422,6 +618,7 @@ export async function outboundInventoryForOrder(
 
   if (!detail) throw new AppError('库存明细不存在', 404, 'RESOURCE_NOT_FOUND');
   if (!order) throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
+  assertNoActiveAllocation(detail.allocatedQuantity);
   if (order.lineItemsMode) throw new AppError('多行订单需要行级质量审核与出库，暂不能使用旧整单库存接口', 409, 'RESOURCE_CONFLICT');
   if (!OUTBOUND_ORDER_STATUSES.has(order.status)) {
     throw new AppError('当前订单状态不能执行出库', 409, 'INVALID_STATE_TRANSITION');
@@ -458,7 +655,13 @@ export async function outboundInventoryForOrder(
   const shouldShipOrder = nextOutboundStatus === 'COMPLETED';
 
   const updatedDetail = await tx.inventoryDetail.updateMany({
-    where: { id: detail.id, status: detail.status, quantity: detail.quantity, updatedAt: detail.updatedAt },
+    where: {
+      id: detail.id,
+      status: detail.status,
+      quantity: detail.quantity,
+      allocatedQuantity: 0,
+      updatedAt: detail.updatedAt,
+    },
     data: { quantity: afterQuantity, status: nextInventoryStatus },
   });
   if (updatedDetail.count !== 1) throw new StateTransitionConflictError();

@@ -211,6 +211,8 @@ export interface InventoryDetail {
   batchNumber?: string;
   // 数量与状态
   quantity: number;
+  /** Modern allocation projection. Hidden from callers without cost access. */
+  allocatedQuantity?: number;
   conditionCode: InventoryStatus;
   status: InventoryDetailStatus;
   // 位置

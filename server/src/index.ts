@@ -52,6 +52,7 @@ import aiRoutes from './routes/ai.js';
 import reportsRoutes from './routes/reports.js';
 import inventoryItemRoutes from './routes/inventoryItems.js';
 import inventoryTransactionRoutes from './routes/inventoryTransactions.js';
+import inventoryAllocationRoutes from './routes/inventoryAllocations.js';
 import shipmentTrackingRoutes from './routes/shipmentTracking.js';
 import inquiryRoutes from './routes/inquiries.js';
 import exchangeVmiRoutes from './routes/exchangeVmi.js';
@@ -228,6 +229,7 @@ app.use('/api/ai', authenticate, aiRoutes);
 app.use('/api/reports', authenticate, reportsRoutes);
 app.use('/api/inventory-items', authenticate, auditLogger({ resourceType: 'INVENTORY', actions: ['CREATE', 'UPDATE', 'DELETE'] }), inventoryItemRoutes);
 app.use('/api/inventory-transactions', authenticate, auditLogger({ resourceType: 'INVENTORY', actions: ['CREATE', 'UPDATE', 'DELETE'] }), inventoryTransactionRoutes);
+app.use('/api/inventory-allocations', authenticate, auditLogger({ resourceType: 'INVENTORY', actions: ['CREATE', 'UPDATE', 'DELETE'] }), inventoryAllocationRoutes);
 app.use('/api/shipment-tracking', authenticate, auditLogger({ resourceType: 'ORDER', actions: ['CREATE', 'UPDATE', 'DELETE'] }), shipmentTrackingRoutes);
 app.use('/api/inquiries', authenticate, auditLogger({ resourceType: 'RFQ', actions: ['CREATE', 'UPDATE', 'DELETE'] }), inquiryRoutes);
 app.use('/api/exchange-vmi', authenticate, auditLogger({ resourceType: 'INVENTORY', actions: ['CREATE', 'UPDATE', 'DELETE'] }), exchangeVmiRoutes);
@@ -300,6 +302,7 @@ const inlineWorker: WorkerRuntime | null = isMainModule && process.env.SOCKET_OU
       runWebhookRetries: false,
       runIdempotencyCleanup: false,
       runEmailSync: false,
+      runAllocationExpiry: false,
     })
   : null;
 

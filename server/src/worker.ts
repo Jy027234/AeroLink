@@ -7,6 +7,7 @@ import {
 } from './lib/outboxService.js';
 import { pruneExpiredIdempotencyRecords } from './lib/idempotencyService.js';
 import { processDueEmailSyncs } from './lib/inboundEmailSyncService.js';
+import { expireUnassignedAllocations } from './modules/inventoryQuality/allocationExpiry.js';
 
 export interface WorkerRuntime {
   stop: () => Promise<void>;
@@ -17,6 +18,7 @@ export interface WorkerOptions {
   outboxIntervalMs?: number;
   idempotencyIntervalMs?: number;
   emailSyncIntervalMs?: number;
+  allocationExpiryIntervalMs?: number;
   batchSize?: number;
   workerId?: string;
   shutdownTimeoutMs?: number;
@@ -25,6 +27,7 @@ export interface WorkerOptions {
   runWebhookRetries?: boolean;
   runIdempotencyCleanup?: boolean;
   runEmailSync?: boolean;
+  runAllocationExpiry?: boolean;
 }
 
 /**
@@ -38,6 +41,7 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
   const outboxIntervalMs = options.outboxIntervalMs ?? 5_000;
   const idempotencyIntervalMs = options.idempotencyIntervalMs ?? 6 * 60 * 60 * 1000;
   const emailSyncIntervalMs = options.emailSyncIntervalMs ?? 30_000;
+  const allocationExpiryIntervalMs = options.allocationExpiryIntervalMs ?? 60_000;
   const batchSize = options.batchSize ?? 30;
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? 30_000;
   const workerId = options.workerId?.trim() || process.env.WORKER_ID?.trim() || `worker-${crypto.randomUUID()}`;
@@ -45,6 +49,8 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
   const runWebhookRetriesEnabled = options.runWebhookRetries ?? true;
   const runIdempotencyCleanupEnabled = options.runIdempotencyCleanup ?? true;
   const runEmailSyncEnabled = options.runEmailSync ?? true;
+  const runAllocationExpiryEnabled = options.runAllocationExpiry ?? true;
+  let allocationExpiryRunning = false;
   const inFlight = new Set<Promise<void>>();
   let stopped = false;
 
@@ -83,6 +89,14 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
     () => processDueEmailSyncs(Math.min(10, batchSize), workerId),
     'inbound-email-sync',
   );
+  const runAllocationExpiry = () => {
+    if (allocationExpiryRunning) return;
+    runTask(async () => {
+      allocationExpiryRunning = true;
+      try { await expireUnassignedAllocations({ limit: batchSize }); }
+      finally { allocationExpiryRunning = false; }
+    }, 'allocation-expiry');
+  };
 
   const webhookTimer = runWebhookRetriesEnabled ? setInterval(runWebhooks, webhookIntervalMs) : null;
   const outboxTimer = setInterval(runOutbox, outboxIntervalMs);
@@ -90,11 +104,13 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
     ? setInterval(runIdempotencyCleanup, idempotencyIntervalMs)
     : null;
   const emailSyncTimer = runEmailSyncEnabled ? setInterval(runEmailSync, emailSyncIntervalMs) : null;
+  const allocationExpiryTimer = runAllocationExpiryEnabled ? setInterval(runAllocationExpiry, allocationExpiryIntervalMs) : null;
 
   if (runWebhookRetriesEnabled) runWebhooks();
   runOutbox();
   if (runIdempotencyCleanupEnabled) runIdempotencyCleanup();
   if (runEmailSyncEnabled) runEmailSync();
+  if (runAllocationExpiryEnabled) runAllocationExpiry();
 
   return {
     stop: async () => {
@@ -104,6 +120,7 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
       clearInterval(outboxTimer);
       if (idempotencyTimer) clearInterval(idempotencyTimer);
       if (emailSyncTimer) clearInterval(emailSyncTimer);
+      if (allocationExpiryTimer) clearInterval(allocationExpiryTimer);
       const deadline = Date.now() + Math.max(0, shutdownTimeoutMs);
       while (inFlight.size > 0 && Date.now() < deadline) {
         const remainingMs = deadline - Date.now();

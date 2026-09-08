@@ -119,6 +119,7 @@ function createOrder() {
 
 function createPrismaMock() {
   const tx = {
+    $executeRawUnsafe: vi.fn().mockResolvedValue(0),
     quotation: { findUnique: vi.fn(), create: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     order: { findFirst: vi.fn(), findUnique: vi.fn() },
     emailAccount: { findFirst: vi.fn() },
@@ -404,7 +405,7 @@ describe('Quotation workflow routes', () => {
       releasedInventoryDetailId: 'inv001',
     });
     expect(prismaMock.__tx.inventoryDetail.updateMany).toHaveBeenCalledWith({
-      where: { id: 'inv001', status: 'RESERVED' },
+      where: { id: 'inv001', status: 'RESERVED', allocatedQuantity: 0 },
       data: { status: 'AVAILABLE' },
     });
     expect(prismaMock.__tx.inventoryTransaction.create).toHaveBeenCalledWith({

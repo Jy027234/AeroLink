@@ -13,7 +13,8 @@ import {
 } from '../../lib/money.js';
 import { isRfqStatusTransitionAllowed, normalizeRfqStatus } from '../../lib/rfqStateMachine.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
-import { releaseInventoryReservation } from '../inventoryQuality/index.js';
+import { releaseInventoryReservation, releaseUnassignedQuotationInventory } from '../inventoryQuality/index.js';
+import type { LineAcceptance } from './lineService.js';
 import {
   createInitialStatusHistory,
   StateTransitionConflictError,
@@ -666,7 +667,7 @@ export async function acceptQuotationAggregate(args: {
   reasonCode?: string;
   reason?: string;
   expectedVersion?: number;
-  lines?: Array<{ quotationLineId: string; quantity: number }>;
+  lines?: LineAcceptance[];
   authorize?: QuotationAuthorization;
   createOrder?: typeof createOrderFromQuotation;
   ensureContractDocument: EnsureContractDocument;
@@ -1030,13 +1031,13 @@ export async function withdrawQuotationAggregate(args: {
   }
 
   let releasedReservation: {
-    inventoryDetailId: string;
-    partNumber: string;
+    inventoryDetailId?: string;
+    partNumber?: string;
     quantity: number;
     reservedQuantity: number;
-    transactionId: string;
+    transactionId?: string;
   } | undefined;
-  if (quotation.inventoryDetailId && quotation.reservedQuantity > 0) {
+  if (!quotation.lineItemsMode && quotation.inventoryDetailId && quotation.reservedQuantity > 0) {
     const released = await releaseInventoryReservation(args.tx, {
       quotationId: quotation.id,
       notes: args.reason,
@@ -1053,7 +1054,7 @@ export async function withdrawQuotationAggregate(args: {
   }
 
   const withdrawnAt = new Date();
-  const updatedQuotation = await transitionQuotationStatus(args.tx, {
+  let updatedQuotation = await transitionQuotationStatus(args.tx, {
     id: quotation.id,
     currentStatus: quotation.status,
     currentVersion: quotation.version,
@@ -1068,6 +1069,14 @@ export async function withdrawQuotationAggregate(args: {
       ...(releasedReservation ? { reservedQuantity: 0 } : {}),
     },
   });
+  if (quotation.lineItemsMode) {
+    const released = await releaseUnassignedQuotationInventory({ tx: args.tx, quotationId: quotation.id,
+      actorId: args.actorId, reason: `撤回报价：${args.reason}`, commandId: `withdraw:${quotation.id}:${quotation.version}` });
+    if (released.releasedQuantity > 0) releasedReservation = {
+      quantity: released.releasedQuantity, reservedQuantity: released.releasedQuantity,
+    };
+    updatedQuotation = await args.tx.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+  }
   await args.tx.outboundEmail.update({
     where: { id: latestSentEmail.id },
     data: {
