@@ -21,9 +21,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.2'
           cache: 'npm'
           cache-dependency-path: ./package-lock.json
+
+      - name: Verify Node runtime and workflow contract
+        run: |
+          node scripts/ci/check-node-runtime.mjs
+          node scripts/ci/check-workflow-contract.mjs
 
       - name: Install frontend dependencies
         run: npm ci

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const workflowPath = path.join(repositoryRoot, '.github', 'workflows', 'ci.yml');
 const workflow = await readFile(workflowPath, 'utf8');
+const buildWorkflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'deploy.yml'), 'utf8');
 const auditScript = await readFile(path.join(repositoryRoot, 'scripts', 'ci', 'run-npm-audit.mjs'), 'utf8');
 const errors = [];
 
@@ -20,6 +21,13 @@ const requiredNodeVersion = '22.23.2';
 const requiredNodeRange = '>=22.23.2 <23';
 const exactNodeSetupCount = (workflow.match(/node-version:\s*['"]22\.23\.2['"]/g) ?? []).length;
 if (exactNodeSetupCount < 5) errors.push(`expected exact Node ${requiredNodeVersion} setup in every Node job, found ${exactNodeSetupCount}`);
+for (const [label, source] of [['CI', workflow], ['Build and Verify', buildWorkflow]]) {
+  const versions = [...source.matchAll(/^\s*node-version:\s*['"]?([^'"\s]+)['"]?\s*$/gm)].map(match => match[1]);
+  if (!versions.length || versions.some(version => version !== requiredNodeVersion)) {
+    errors.push(`${label} must use exact Node ${requiredNodeVersion} for every Node setup`);
+  }
+  if (!source.includes('check-node-runtime.mjs')) errors.push(`${label} must verify its Node runtime`);
+}
 
 const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8'));
 const serverPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'server', 'package.json'), 'utf8'));
