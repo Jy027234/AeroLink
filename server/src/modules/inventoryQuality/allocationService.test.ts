@@ -22,6 +22,7 @@ const sales = { id: 'sales-1', role: 'SALES', department: 'Sales' };
 
 function noReturnHold() {
   return {
+    stockReceiptLine: { findMany: vi.fn().mockResolvedValue([]) },
     returnHold: {
       findFirst: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValue([]),

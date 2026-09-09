@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Prisma } from '@prisma/client';
 vi.mock('../lib/prisma.js', () => ({ default: { returnHold: { findFirst: vi.fn() } } }));
 import prisma from '../lib/prisma.js';
-import { canReadStoredObject, canReadReturnEvidence } from './files.js';
+import { canReadStoredObject, canReadStoredObjectDownload, canReadReturnEvidence } from './files.js';
 
 describe('stored object authorization', () => {
   it('allows the owner and privileged operators only', () => {
@@ -10,6 +11,41 @@ describe('stored object authorization', () => {
     expect(canReadStoredObject({ ownerId: null }, { id: 'user-2', role: 'sales' })).toBe(false);
     expect(canReadStoredObject({ ownerId: null }, { id: 'user-2', role: 'manager' })).toBe(true);
     expect(canReadStoredObject({ ownerId: null }, { id: 'user-2', role: 'ADMIN' })).toBe(true);
+    expect(canReadStoredObject({ ownerId: 'user-1', domain: 'stock_receipt' }, { id: 'user-1', role: 'sales' })).toBe(false);
+    expect(canReadStoredObject({ ownerId: null, domain: 'stock_receipt' }, { id: 'user-2', role: 'ADMIN' })).toBe(false);
+  });
+});
+
+describe('dedicated receipt download authorization', () => {
+  const hash = 'a'.repeat(64);
+  const evidence = [{ id: 'proof', version: 3, sha256: hash, status: 'AVAILABLE' as const }];
+  const receipt = { id: 'receipt-1', evidence, purchaseCommitment: { order: { id: 'order-1', quotation: {
+    createdBy: 'sales-1', creator: { department: 'Sales' },
+  } } } };
+  const object = { id: 'proof', ownerId: 'other-user', domain: 'stock_receipt', resourceId: 'receipt-1', version: 3, sha256: hash, status: 'AVAILABLE' };
+
+  it('uses receipt ACL and does not grant generic owner/admin access', async () => {
+    const tx = {
+      stockReceipt: { findUnique: vi.fn().mockResolvedValue(receipt) },
+      storedObject: { findMany: vi.fn() },
+    } as unknown as Prisma.TransactionClient;
+    await expect(canReadStoredObjectDownload(tx, object, { id: 'quality-1', role: 'QUALITY_MANAGER' }))
+      .resolves.toBe(true);
+    await expect(canReadStoredObjectDownload(tx, object, { id: 'admin-1', role: 'ADMIN' }))
+      .resolves.toBe(true);
+    await expect(canReadStoredObjectDownload(tx, object, { id: 'other-user', role: 'SALES' }))
+      .resolves.toBe(false);
+  });
+
+  it('does not let a purchase cost object fall through to receipt or generic ACL', async () => {
+    const tx = {
+      stockReceipt: { findUnique: vi.fn() },
+      purchaseCommitment: { findUnique: vi.fn().mockResolvedValue(null) },
+      storedObject: { findMany: vi.fn() },
+    } as unknown as Prisma.TransactionClient;
+    await expect(canReadStoredObjectDownload(tx, { ...object, domain: 'purchase_commitment', resourceId: 'purchase-1' }, { id: 'admin-1', role: 'ADMIN' }))
+      .resolves.toBe(false);
+    expect(tx.stockReceipt.findUnique).not.toHaveBeenCalled();
   });
 });
 

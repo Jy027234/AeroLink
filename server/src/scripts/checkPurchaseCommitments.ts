@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import type { CapabilityActor } from '../lib/capabilityPolicy.js';
+import { captureQuotationLineCost, buildCommercialApprovalSnapshot } from '../lib/lineQuotationPolicy.js';
+import { buildQuotationApprovalSnapshot, QUOTATION_APPROVAL_POLICY_VERSION } from '../lib/quotationApprovalPolicy.js';
 import { createPurchaseCommitment, transitionPurchaseCommitment } from '../modules/procurementSettlement/purchaseCommands.js';
 import type { PurchaseLineInput } from '../modules/procurementSettlement/purchaseSources.js';
 
@@ -12,10 +14,12 @@ import type { PurchaseLineInput } from '../modules/procurementSettlement/purchas
  * command service writes only the webhook/socket outbox rows in the same
  * transaction; no delivery side effect is performed here.
  */
-const expectedDatabase = 'aerolink_procurement_test_commands_20260909';
+const expectedDatabase = process.env.AEROLINK_PURCHASE_RECEIPT_FIXTURE === 'true'
+  ? 'aerolink_procurement_test_receipts_20260909' : 'aerolink_procurement_test_commands_20260909';
 const databaseUrl = new URL(process.env.DATABASE_URL || 'postgresql://invalid/');
 if (process.env.AEROLINK_PURCHASE_COMMANDS_INTEGRATION !== 'true'
   || !['localhost', '127.0.0.1'].includes(databaseUrl.hostname)
+  || databaseUrl.port !== '55970'
   || databaseUrl.pathname !== `/${expectedDatabase}`) {
   throw new Error(`Explicit opt-in and local ${expectedDatabase} database required`);
 }
@@ -104,6 +108,15 @@ try {
       department: 'Sales',
     },
   });
+  const financeApprover = await db.user.create({
+    data: {
+      email: `d14-command-finance-${tag}@example.invalid`,
+      name: `D14 synthetic finance approver ${tag}`,
+      password: 'synthetic-only',
+      role: 'FINANCE',
+      department: 'Finance',
+    },
+  });
   const administrator = await db.user.create({
     data: {
       email: `d14-command-admin-${tag}@example.invalid`,
@@ -129,6 +142,7 @@ try {
   const partNumber = `D14-CMD-PN-${tag}`;
   const rfq = await db.rFQ.create({
     data: {
+      lineItemsMode: true,
       rfqNumber: `D14-CMD-RFQ-${tag}`,
       customerId: customer.id,
       partNumber,
@@ -189,6 +203,7 @@ try {
           marginPercent: new Prisma.Decimal('37.5000'),
           currency: 'USD',
           status: 'APPROVED',
+          acceptedQuantity: 2,
         },
       },
     },
@@ -209,6 +224,8 @@ try {
       totalAmountDecimal: new Prisma.Decimal('8000.0000'),
       status: 'SO_CREATED',
       statusEnum: 'SO_CREATED',
+      certificateRequired: false,
+      inspectionRequired: false,
       lines: {
         create: {
           lineNo: 1,
@@ -226,6 +243,92 @@ try {
   });
   const orderLine = order.lines[0];
   assert.ok(orderLine, 'synthetic order line was not created');
+
+  // Complete the commercial side of the synthetic fixture before exercising
+  // procurement receipt quality. The helper creates the real MANUAL cost
+  // source shape; the approval snapshot helpers create the exact FINANCE
+  // line-approval evidence used by D12, rather than a hand-written JSON blob.
+  const manualCostReason = 'Synthetic D14 manual cost evidence for receipt integration';
+  const preparedQuotation = await transact(async (tx) => {
+    const capturedCost = await captureQuotationLineCost({
+      tx,
+      rfqId: rfq.id,
+      rfqLine,
+      quotationId: quotation.id,
+      input: {
+        partNumber,
+        quantity: 2,
+        costPrice: 2500,
+        currency: 'USD',
+        costSourceType: 'MANUAL',
+        costSourceReason: manualCostReason,
+      },
+    });
+    await tx.quotation.update({
+      where: { id: quotation.id },
+      data: {
+        costSourceType: capturedCost.costSourceType,
+        costSourceId: capturedCost.costSourceId,
+        costSourceReason: capturedCost.costSourceReason,
+        costSourceSnapshotJson: capturedCost.costSourceSnapshotJson,
+        costSourceCapturedAt: capturedCost.costSourceCapturedAt,
+        status: 'ACCEPTED',
+        statusEnum: 'ACCEPTED',
+        approvedBy: financeApprover.id,
+        approvedAt: now,
+        acceptedAt: now,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      },
+    });
+    await tx.quotationLine.update({
+      where: { id: quotationLine.id },
+      data: {
+        costSourceType: capturedCost.costSourceType,
+        costSourceId: capturedCost.costSourceId,
+        costSourceReason: capturedCost.costSourceReason,
+        costSourceSnapshotJson: capturedCost.costSourceSnapshotJson,
+        costSourceCapturedAt: capturedCost.costSourceCapturedAt,
+        acceptedQuantity: 2,
+        status: 'ACCEPTED',
+      },
+    });
+    const current = await tx.quotation.findUniqueOrThrow({
+      where: { id: quotation.id },
+      include: { lines: true, rfq: true },
+    });
+    const approvalSnapshot = buildCommercialApprovalSnapshot({
+      headerTerms: buildQuotationApprovalSnapshot(current),
+      lines: current.lines,
+    });
+    await tx.approval.create({
+      data: {
+        quotationId: current.id,
+        level: 'FINANCE',
+        requiredLevel: 'FINANCE',
+        policyVersion: `${QUOTATION_APPROVAL_POLICY_VERSION}-lines-v1`,
+        reviewedVersion: current.version,
+        snapshotJson: JSON.stringify(approvalSnapshot),
+        approverId: financeApprover.id,
+        action: 'APPROVE',
+        comment: 'Synthetic independent FINANCE approval for D12 receipt coverage',
+      },
+    });
+    return current;
+  });
+  assert.equal(preparedQuotation.lines[0]?.acceptedQuantity, 2);
+  assert.equal(preparedQuotation.status, 'ACCEPTED');
+  assert.equal(preparedQuotation.costSourceType, 'MANUAL');
+  assert.equal(preparedQuotation.costSourceId, null);
+  assert.equal(preparedQuotation.costSourceReason, manualCostReason);
+  const quotationApproval = await db.approval.findFirstOrThrow({
+    where: { quotationId: quotation.id, action: 'APPROVE' },
+    orderBy: { createdAt: 'desc' },
+  });
+  assert.equal(quotationApproval.level, 'FINANCE');
+  assert.equal(quotationApproval.approverId, financeApprover.id);
+  assert.equal(quotationApproval.policyVersion, `${QUOTATION_APPROVAL_POLICY_VERSION}-lines-v1`);
+
   const supplierQuote = await db.supplierQuote.create({
     data: {
       rfqId: rfq.id,
@@ -423,6 +526,11 @@ try {
   assert.equal(boundProof.version, 2);
   assert.equal(await eventCount(purchaseId), 4);
 
+  if (process.env.AEROLINK_PURCHASE_RECEIPT_FIXTURE === 'true') {
+    console.log(JSON.stringify({ result: 'RECEIPT_FIXTURE_READY', database: expectedDatabase, tag,
+      purchaseCommitmentId: purchaseId, orderId: order.id, quotationId: quotation.id,
+      status: purchase.status, note: 'Stopped before cancellation to leave real confirmed supply for receipt HTTP tests' }, null, 2));
+  } else {
   await transact(tx => transitionPurchaseCommitment({
     tx,
     actor: buyerActor,
@@ -479,12 +587,21 @@ try {
     result: 'PASS',
     database: expectedDatabase,
     tag,
+    rfqId: rfq.id,
+    quotationId: quotation.id,
+    quotationLineId: quotationLine.id,
+    quotationApprovalId: quotationApproval.id,
+    financeApproverId: financeApprover.id,
     orderId: order.id,
     purchaseCommitmentId: purchaseId,
     statuses: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'CANCELLED'],
     eventCount: await eventCount(purchaseId),
     checks: [
       'modern RFQ/quotation/order/source identity seed',
+      'D12 quotation line acceptedQuantity=2 with explicit ACCEPTED status',
+      'order/RFQ certificate requirement explicitly disabled for certificate-free synthetic receipt',
+      'MANUAL quotation cost source captured through the production helper',
+      'independent FINANCE quotation approval snapshot built through production helpers',
       'Decimal(18,4) USD source and server-calculated total',
       'create command idempotency replay without duplicate event',
       'submit command idempotency replay without duplicate event',
@@ -498,6 +615,7 @@ try {
     ],
     rejected: [wrongSource, wrongCurrency, overage],
   }, null, 2));
+  }
 } finally {
   await db.$disconnect();
 }

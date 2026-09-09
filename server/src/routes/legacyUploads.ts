@@ -32,6 +32,10 @@ export function getLegacyUploadDecision(
 
   if (!storedObject) return privileged ? 'allow' : 'not_found';
   if (storedObject.status !== 'AVAILABLE') return 'not_found';
+  // Dedicated business evidence must use its current-snapshot ACL through
+  // /api/files. The legacy object-key path has no receipt/order context and
+  // must never fall back to owner, manager or admin access.
+  if (storedObject.domain === 'purchase_commitment' || storedObject.domain === 'stock_receipt') return 'forbidden';
   return canReadStoredObject(storedObject, user) ? 'allow' : 'forbidden';
 }
 

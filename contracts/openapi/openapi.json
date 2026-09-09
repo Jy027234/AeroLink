@@ -186,6 +186,10 @@
       "description": "Routes mounted under purchaseCommitments"
     },
     {
+      "name": "stockReceipts",
+      "description": "Routes mounted under stockReceipts"
+    },
+    {
       "name": "shipmentTracking",
       "description": "Routes mounted under shipmentTracking"
     },
@@ -9385,7 +9389,7 @@
         "x-aerolink-owner": "P2-01/files",
         "x-aerolink-source": {
           "file": "server/src/routes/files.ts",
-          "line": 51
+          "line": 87
         },
         "security": [
           {
@@ -20425,7 +20429,7 @@
         "x-aerolink-owner": "P2-01/inventoryAllocations",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAllocations.ts",
-          "line": 65
+          "line": 67
         },
         "security": [
           {
@@ -20518,7 +20522,7 @@
         "x-aerolink-owner": "P2-01/inventoryAllocations",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAllocations.ts",
-          "line": 76
+          "line": 78
         },
         "security": [
           {
@@ -20611,7 +20615,7 @@
         "x-aerolink-owner": "P2-01/inventoryAllocations",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAllocations.ts",
-          "line": 87
+          "line": 89
         },
         "security": [
           {
@@ -20704,7 +20708,7 @@
         "x-aerolink-owner": "P2-01/inventoryAllocations",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAllocations.ts",
-          "line": 98
+          "line": 100
         },
         "security": [
           {
@@ -20785,7 +20789,7 @@
         "x-aerolink-owner": "P2-01/inventoryAllocations",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAllocations.ts",
-          "line": 103
+          "line": 105
         },
         "security": [
           {
@@ -20866,7 +20870,7 @@
         "x-aerolink-owner": "P2-01/inventoryAllocations",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAllocations.ts",
-          "line": 116
+          "line": 118
         },
         "security": [
           {
@@ -20957,7 +20961,7 @@
         "x-aerolink-owner": "P2-01/inventoryAllocations",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAllocations.ts",
-          "line": 128
+          "line": 130
         },
         "security": [
           {
@@ -21050,7 +21054,7 @@
         "x-aerolink-owner": "P2-01/inventoryAllocations",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryAllocations.ts",
-          "line": 140
+          "line": 142
         },
         "security": [
           {
@@ -22098,6 +22102,464 @@
         },
         "requestBody": {
           "$ref": "#/components/requestBodies/PurchaseCommitmentTransition"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/stock-receipts": {
+      "get": {
+        "operationId": "getStockReceipts",
+        "tags": [
+          "stockReceipts"
+        ],
+        "summary": "GET /api/stock-receipts",
+        "description": "Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/stockReceipts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/stockReceipts.ts",
+          "line": 38
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt command or operational view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "orderId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "receipts": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/StockReceipt"
+                          }
+                        }
+                      },
+                      "required": [
+                        "orderId",
+                        "receipts"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope",
+        "x-aerolink-strict-query": true
+      },
+      "post": {
+        "operationId": "postStockReceipts",
+        "tags": [
+          "stockReceipts"
+        ],
+        "summary": "POST /api/stock-receipts",
+        "description": "Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/stockReceipts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/stockReceipts.ts",
+          "line": 52
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Receipt command or operational view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/StockReceipt"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockReceiptArrival"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/stock-receipts/lines/{id}/review-context": {
+      "get": {
+        "operationId": "getStockReceiptsLinesIdReviewContext",
+        "tags": [
+          "stockReceipts"
+        ],
+        "summary": "GET /api/stock-receipts/lines/:id/review-context",
+        "description": "Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/stockReceipts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/stockReceipts.ts",
+          "line": 44
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt command or operational view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/StockReceiptReviewContext"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/stock-receipts/{id}": {
+      "get": {
+        "operationId": "getStockReceiptsId",
+        "tags": [
+          "stockReceipts"
+        ],
+        "summary": "GET /api/stock-receipts/:id",
+        "description": "Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/stockReceipts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/stockReceipts.ts",
+          "line": 48
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt command or operational view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/StockReceipt"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/stock-receipts/lines/{id}/review": {
+      "post": {
+        "operationId": "postStockReceiptsLinesIdReview",
+        "tags": [
+          "stockReceipts"
+        ],
+        "summary": "POST /api/stock-receipts/lines/:id/review",
+        "description": "Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/stockReceipts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/stockReceipts.ts",
+          "line": 62
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt command or operational view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/StockReceipt"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockReceiptReview"
+              }
+            }
+          }
         },
         "x-aerolink-contract-level": "baseline-json-envelope"
       }
@@ -23765,7 +24227,7 @@
         "x-aerolink-owner": "P2-01/health",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 247
+          "line": 249
         },
         "security": [],
         "parameters": [],
@@ -23812,7 +24274,7 @@
         "x-aerolink-owner": "P2-01/metrics",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 251
+          "line": 253
         },
         "security": [
           {
@@ -48141,6 +48603,18 @@
             "type": "string",
             "minLength": 1
           },
+          "stockReceiptLineId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceReturnHoldId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "allocatedQuantity": {
             "type": "integer",
             "minimum": 0,
@@ -48189,6 +48663,8 @@
           "id",
           "quotationLineId",
           "inventoryDetailId",
+          "stockReceiptLineId",
+          "sourceReturnHoldId",
           "allocatedQuantity",
           "releasedQuantity",
           "consumedQuantity",
@@ -48366,13 +48842,37 @@
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 2147483647
+                },
+                "stockReceiptLineId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourceReturnHoldId": {
+                  "type": "string",
+                  "minLength": 1
                 }
               },
               "required": [
                 "inventoryDetailId",
                 "quantity"
               ],
-              "additionalProperties": false
+              "additionalProperties": false,
+              "not": {
+                "properties": {
+                  "stockReceiptLineId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sourceReturnHoldId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "stockReceiptLineId",
+                  "sourceReturnHoldId"
+                ]
+              }
             },
             "minItems": 1,
             "maxItems": 100
@@ -48853,6 +49353,852 @@
           "orderStatus",
           "allocationVersion",
           "assignmentVersion"
+        ],
+        "additionalProperties": false
+      },
+      "StockReceiptPhysical": {
+        "type": "object",
+        "properties": {
+          "partNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "uom": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "trackingType": {
+            "enum": [
+              "SERIAL",
+              "BATCH"
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "batchNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conditionCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "certificateReferences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "fileHash": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "id",
+                "fileHash"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 100
+          },
+          "certificateType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "certificateNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lifeLimited": {
+            "type": "boolean"
+          },
+          "remainingHours": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "remainingCycles": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "shelfLifeDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "shelfLifeDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "nextOverhaulDue": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "storageCondition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "partNumber",
+          "uom",
+          "trackingType",
+          "quantity",
+          "conditionCode"
+        ],
+        "additionalProperties": false
+      },
+      "StockReceiptStorage": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "warehouse": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "shelf": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "location",
+          "warehouse"
+        ],
+        "additionalProperties": false
+      },
+      "StockReceiptArrival": {
+        "type": "object",
+        "properties": {
+          "purchaseCommitmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "purchaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "supplierDeliveryReference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "purchaseCommitmentLineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "physical": {
+                  "$ref": "#/components/schemas/StockReceiptPhysical"
+                },
+                "storage": {
+                  "$ref": "#/components/schemas/StockReceiptStorage"
+                }
+              },
+              "required": [
+                "purchaseCommitmentLineId",
+                "physical",
+                "storage"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "purchaseCommitmentId",
+          "purchaseVersion",
+          "supplierDeliveryReference",
+          "reason",
+          "evidenceIds",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "StockReceiptReview": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "decision": {
+            "enum": [
+              "ACCEPTED",
+              "REJECTED"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "identity": {
+                "type": "boolean"
+              },
+              "documents": {
+                "type": "boolean"
+              },
+              "conditionAndLife": {
+                "type": "boolean"
+              },
+              "customerRequirements": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "identity",
+              "documents",
+              "conditionAndLife",
+              "customerRequirements"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "version",
+          "snapshotHash",
+          "decision",
+          "reason",
+          "checks"
+        ],
+        "additionalProperties": false
+      },
+      "StockReceiptLine": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "lineNo": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "purchaseCommitmentLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "status": {
+            "enum": [
+              "PENDING_REVIEW",
+              "ACCEPTED",
+              "REJECTED"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "identitySnapshot": {
+            "type": "object",
+            "properties": {
+              "schemaVersion": {
+                "const": 1
+              },
+              "purchaseCommitmentLineId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "orderLineId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "quotationLineId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "rfqLineId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "partNumber": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "uom": {
+                "type": "string"
+              },
+              "serialNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "batchNumber": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "conditionCode": {
+                "type": "string"
+              },
+              "trackingType": {
+                "enum": [
+                  "SERIAL",
+                  "BATCH"
+                ]
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "purchaseCommitmentLineId",
+              "orderLineId",
+              "quotationLineId",
+              "rfqLineId",
+              "partNumber",
+              "uom",
+              "serialNumber",
+              "batchNumber",
+              "conditionCode",
+              "trackingType"
+            ],
+            "additionalProperties": false
+          },
+          "qualitySnapshot": {
+            "type": "object",
+            "properties": {
+              "physical": {
+                "$ref": "#/components/schemas/StockReceiptPhysical"
+              },
+              "storage": {
+                "$ref": "#/components/schemas/StockReceiptStorage"
+              }
+            },
+            "required": [
+              "physical",
+              "storage"
+            ],
+            "additionalProperties": false
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-fA-F0-9]{64}$"
+                },
+                "status": {
+                  "const": "AVAILABLE"
+                }
+              },
+              "required": [
+                "id",
+                "version",
+                "sha256",
+                "status"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "reviewedById": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reviewedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "reviewReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inventoryDetailId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "lineNo",
+          "purchaseCommitmentLineId",
+          "quantity",
+          "status",
+          "version",
+          "identitySnapshot",
+          "qualitySnapshot",
+          "evidence",
+          "reviewedById",
+          "reviewedAt",
+          "reviewReason",
+          "inventoryDetailId",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "StockReceipt": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "receiptNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "purchaseCommitmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "receivedById": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "supplierDeliveryReference": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-fA-F0-9]{64}$"
+                },
+                "status": {
+                  "const": "AVAILABLE"
+                }
+              },
+              "required": [
+                "id",
+                "version",
+                "sha256",
+                "status"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "purchaseCommitment": {
+            "type": "object",
+            "properties": {
+              "orderId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "commitmentNumber": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "supplierId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "orderId",
+              "commitmentNumber",
+              "supplierId"
+            ],
+            "additionalProperties": false
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockReceiptLine"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "receiptNumber",
+          "purchaseCommitmentId",
+          "version",
+          "receivedById",
+          "receivedAt",
+          "supplierDeliveryReference",
+          "reason",
+          "evidence",
+          "createdAt",
+          "updatedAt",
+          "purchaseCommitment",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "StockReceiptReviewContext": {
+        "type": "object",
+        "properties": {
+          "receiptLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "status": {
+            "enum": [
+              "PENDING_REVIEW",
+              "ACCEPTED",
+              "REJECTED"
+            ]
+          },
+          "snapshotHash": {
+            "type": "string"
+          },
+          "snapshot": {
+            "type": "object",
+            "properties": {
+              "receiptId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "receiptLineId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "receiptVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "identity": {
+                "type": "object",
+                "properties": {
+                  "schemaVersion": {
+                    "const": 1
+                  },
+                  "purchaseCommitmentLineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "orderLineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "quotationLineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "rfqLineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "partNumber": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "uom": {
+                    "type": "string"
+                  },
+                  "serialNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "batchNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "conditionCode": {
+                    "type": "string"
+                  },
+                  "trackingType": {
+                    "enum": [
+                      "SERIAL",
+                      "BATCH"
+                    ]
+                  }
+                },
+                "required": [
+                  "schemaVersion",
+                  "purchaseCommitmentLineId",
+                  "orderLineId",
+                  "quotationLineId",
+                  "rfqLineId",
+                  "partNumber",
+                  "uom",
+                  "serialNumber",
+                  "batchNumber",
+                  "conditionCode",
+                  "trackingType"
+                ],
+                "additionalProperties": false
+              },
+              "physical": {
+                "type": "object",
+                "properties": {
+                  "physical": {
+                    "$ref": "#/components/schemas/StockReceiptPhysical"
+                  },
+                  "storage": {
+                    "$ref": "#/components/schemas/StockReceiptStorage"
+                  }
+                },
+                "required": [
+                  "physical",
+                  "storage"
+                ],
+                "additionalProperties": false
+              },
+              "requirements": {
+                "type": "object",
+                "description": "Server-built current quality facts; no commercial fields.",
+                "additionalProperties": true
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[a-fA-F0-9]{64}$"
+                    },
+                    "status": {
+                      "const": "AVAILABLE"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "version",
+                    "sha256",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "receiptId",
+              "receiptLineId",
+              "version",
+              "receiptVersion",
+              "identity",
+              "physical",
+              "requirements",
+              "evidence"
+            ],
+            "additionalProperties": false
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "path",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "canAccept": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "receiptLineId",
+          "version",
+          "status",
+          "snapshotHash",
+          "snapshot",
+          "issues",
+          "canAccept"
         ],
         "additionalProperties": false
       },
@@ -51000,8 +52346,8 @@
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
-      "mountCount": 57,
-      "operationCount": 342
+      "mountCount": 58,
+      "operationCount": 347
     }
   }
 }

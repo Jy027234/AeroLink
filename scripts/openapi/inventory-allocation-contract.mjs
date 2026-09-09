@@ -22,6 +22,7 @@ export function applyInventoryAllocationContract(paths, core) {
   const assignment = object({ id, orderLineId: id, assignedQuantity: count, releasedQuantity: count, consumedQuantity: count, activeQuantity: count });
   core.schemas.InventoryAllocationAssignment = assignment;
   core.schemas.InventoryAllocation = object({ id, quotationLineId: id, inventoryDetailId: id,
+    stockReceiptLineId: { type: ['string', 'null'] }, sourceReturnHoldId: { type: ['string', 'null'] },
     allocatedQuantity: count, releasedQuantity: count, consumedQuantity: count, activeQuantity: count,
     unassignedQuantity: count, assignedActiveQuantity: count, expiresAt: { ...date, type: ['string', 'null'] },
     assignments: array(ref('InventoryAllocationAssignment')) });
@@ -30,7 +31,10 @@ export function applyInventoryAllocationContract(paths, core) {
     allocations: array(ref('InventoryAllocation')) });
   core.schemas.OrderLineAllocationView = object({ id, quotationLineId: id, quantity: count, outboundQuantity: count,
     assignments: array(object({ ...assignment.properties, allocationId: id, inventoryDetailId: id })) });
-  core.schemas.InventoryAllocationReserve = object({ quotationLineId: id, orderLineId: id, allocations: slices('inventoryDetailId') }, ['quotationLineId', 'allocations']);
+  core.schemas.InventoryAllocationReserve = object({ quotationLineId: id, orderLineId: id, allocations: {
+    ...array({ ...object({ inventoryDetailId: id, quantity, stockReceiptLineId: id, sourceReturnHoldId: id }, ['inventoryDetailId', 'quantity']),
+      not: { properties: { stockReceiptLineId: id, sourceReturnHoldId: id }, required: ['stockReceiptLineId', 'sourceReturnHoldId'] } }), minItems: 1, maxItems: 100,
+  } }, ['quotationLineId', 'allocations']);
   core.schemas.InventoryAllocationAssign = object({ orderLineId: id, allocations: slices('allocationId') });
   core.schemas.InventoryAllocationRelease = object({ allocationId: id, assignmentId: id, quantity,
     reason: { ...text, minLength: 1, maxLength: 1000 } }, ['allocationId', 'quantity', 'reason']);

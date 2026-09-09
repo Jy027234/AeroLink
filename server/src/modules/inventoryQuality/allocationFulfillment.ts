@@ -7,6 +7,7 @@ import { enqueueBusinessEvent } from '../../lib/outboxService.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { StateTransitionConflictError, transitionOrderStatus } from '../../lib/transactionStateService.js';
 import { allocationQuantities } from './allocationQuantities.js';
+import { loadAcceptedReceiptCertificates } from '../procurementSettlement/receiptCertificateSources.js';
 
 /**
  * D12's modern fulfillment path deliberately returns only operational facts.
@@ -321,7 +322,7 @@ async function findAssignment(tx: Prisma.TransactionClient, assignmentId: string
 }
 
 async function loadCertificates(tx: Prisma.TransactionClient, detailId: string, orderId: string) {
-  return tx.certificate.findMany({
+  const directlyLinked = await tx.certificate.findMany({
     where: { OR: [{ inventoryDetailId: detailId }, { orderId }] },
     orderBy: { id: 'asc' },
     select: {
@@ -338,6 +339,17 @@ async function loadCertificates(tx: Prisma.TransactionClient, detailId: string, 
       updatedAt: true,
     },
   });
+  const receiptLinked = await loadAcceptedReceiptCertificates(tx, detailId);
+  const byId = new Map<string, AllocationCertificate>();
+  for (const certificate of directlyLinked) byId.set(certificate.id, certificate);
+  for (const certificate of receiptLinked) {
+    const previous = byId.get(certificate.id);
+    if (previous && previous.fileHash !== certificate.fileHash) {
+      throw new AppError('同一证书的当前文件指纹来源不一致', 409, 'ALLOCATION_INCONSISTENT');
+    }
+    byId.set(certificate.id, certificate);
+  }
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function buildContext(record: AllocationContextRecord, certificates: AllocationCertificate[], quantity: number): AllocationFulfillmentContext {

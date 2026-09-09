@@ -14,7 +14,9 @@ const router = Router();
 const id = z.string().min(1);
 const quantity = z.number().int().positive().max(2147483647);
 const reserveSchema = z.object({ quotationLineId: id, orderLineId: id.optional(),
-  allocations: z.array(z.object({ inventoryDetailId: id, quantity }).strict()).min(1).max(100) }).strict();
+  allocations: z.array(z.object({ inventoryDetailId: id, quantity,
+    stockReceiptLineId: id.optional(), sourceReturnHoldId: id.optional() }).strict()
+    .refine(row => !(row.stockReceiptLineId && row.sourceReturnHoldId), '只能指定一个实物来源')).min(1).max(100) }).strict();
 const assignSchema = z.object({ orderLineId: id,
   allocations: z.array(z.object({ allocationId: id, quantity }).strict()).min(1).max(100) }).strict();
 const releaseSchema = z.object({ allocationId: id, assignmentId: id.optional(), quantity,

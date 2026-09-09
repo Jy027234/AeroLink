@@ -64,17 +64,17 @@ async function replay(tx: Tx, actor: CapabilityActor, commandId: string, request
 async function assertCoverage(tx: Tx, purchase: Purchase) {
   for (const line of purchase.lines) {
     const orderLine = await tx.orderLine.findUnique({ where: { id: line.orderLineId }, select: {
-      quantity: true, allocationAssignments: { select: { id: true, assignedQuantity: true, releasedQuantity: true, consumedQuantity: true } },
+      quantity: true, allocationAssignments: { select: { id: true, assignedQuantity: true, releasedQuantity: true, consumedQuantity: true,
+        allocation: { select: { stockReceiptLine: { select: { purchaseCommitmentLineId: true } } } } } },
       purchaseCommitmentLines: { where: { purchaseCommitment: { status: { in: ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'CLOSED'] } } },
         select: { id: true, quantity: true, cancelledQuantity: true, receivedQuantity: true, directShippedQuantity: true } },
     } });
     if (!orderLine) conflict('销售来源行不存在');
-    // Receipt provenance will replace this explicit non-purchase mapping when
-    // the receipt adapter is introduced; no receipt command is exposed yet.
     deriveProcurementCoverage({ orderQuantity: orderLine.quantity,
       purchases: orderLine.purchaseCommitmentLines.some(row => row.id === line.id)
         ? orderLine.purchaseCommitmentLines : [...orderLine.purchaseCommitmentLines, line],
-      assignments: orderLine.allocationAssignments.map(row => ({ ...row, purchaseLineId: null })) });
+      assignments: orderLine.allocationAssignments.map(row => ({ ...row,
+        purchaseLineId: row.allocation.stockReceiptLine?.purchaseCommitmentLineId ?? null })) });
   }
 }
 
@@ -163,6 +163,8 @@ export async function transitionPurchaseCommitment(args: { tx: Tx; actor: Capabi
       supplierReferenceNo: text(args.supplierReferenceNo!, '供应商确认编号', 200), confirmationEvidence: json(evidence) };
   } else {
     if (purchase.lines.some(line => line.receivedQuantity || line.directShippedQuantity)) conflict('已有收货或直发事实，需要取消剩余量流程，不能整单取消');
+    if (await tx.stockReceiptLine.count({ where: { purchaseCommitmentLineId: { in: purchase.lines.map(line => line.id) },
+      status: 'PENDING_REVIEW' } })) conflict('尚有待检到货，须先处理质检事实再取消采购');
     data = { ...data, status: 'CANCELLED' };
   }
   const updated = await tx.purchaseCommitment.updateMany({ where: { id: purchase.id, version: args.version, status: purchase.status }, data });

@@ -4,7 +4,7 @@ import { AuthRequest } from './auth.js';
 import { logger } from '../lib/logger.js';
 
 export type AuditActionType = 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'APPROVE' | 'REJECT' | 'REPLAY';
-export type AuditResourceType = 'RFQ' | 'QUOTATION' | 'ORDER' | 'INVENTORY' | 'CUSTOMER' | 'SUPPLIER' | 'CERTIFICATE' | 'SETTINGS' | 'WORKFLOW' | 'OUTBOX' | 'PURCHASE_COMMITMENT';
+export type AuditResourceType = 'RFQ' | 'QUOTATION' | 'ORDER' | 'INVENTORY' | 'CUSTOMER' | 'SUPPLIER' | 'CERTIFICATE' | 'SETTINGS' | 'WORKFLOW' | 'OUTBOX' | 'PURCHASE_COMMITMENT' | 'STOCK_RECEIPT';
 
 interface AuditLoggerOptions {
   resourceType: AuditResourceType;

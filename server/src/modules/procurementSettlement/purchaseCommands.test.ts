@@ -24,9 +24,11 @@ function fixture() {
     currency: 'USD', totalCost: new Prisma.Decimal(5000), paymentTerms: 'Net 30', lines: [line] };
   const order = { id: 'order', status: 'SO_CREATED', version: 1, lineItemsMode: true,
     quotation: { createdBy: 'sales', creator: { department: 'Sales' } } };
-  const orderLine = { quantity: 2, allocationAssignments: [] as Array<{ id: string; assignedQuantity: number; releasedQuantity: number; consumedQuantity: number }>,
+  const orderLine = { quantity: 2, allocationAssignments: [] as Array<{ id: string; assignedQuantity: number; releasedQuantity: number; consumedQuantity: number;
+    allocation: { stockReceiptLine: null | { purchaseCommitmentLineId: string } } }>,
     purchaseCommitmentLines: [] as typeof line[] };
   const mocks = { $queryRaw: vi.fn().mockResolvedValue([]), order: { findUnique: vi.fn().mockResolvedValue(order), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    stockReceiptLine: { count: vi.fn().mockResolvedValue(0) },
     supplier: { findUnique: vi.fn().mockResolvedValue({ id: 'supplier', status: 'active' }) },
     purchaseCommitment: { findUnique: vi.fn().mockResolvedValue(purchase), create: vi.fn().mockResolvedValue(purchase), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     purchaseCommitmentEvent: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({}) },
@@ -68,8 +70,13 @@ describe('purchase command state and authority', () => {
   });
   it('rejects purchase coverage already occupied by inventory, including consumed stock', async () => {
     const f = fixture();
-    f.orderLine.allocationAssignments.push({ id: 'assignment', assignedQuantity: 1, releasedQuantity: 0, consumedQuantity: 1 });
+    f.orderLine.allocationAssignments.push({ id: 'assignment', assignedQuantity: 1, releasedQuantity: 0, consumedQuantity: 1, allocation: { stockReceiptLine: null } });
     await expect(f.command('SUBMIT')).rejects.toMatchObject({ code: 'ALLOCATION_INCONSISTENT' });
+    expect(f.mocks.purchaseCommitment.updateMany).not.toHaveBeenCalled();
+  });
+  it('requires pending physical arrivals to be reviewed before cancelling a purchase', async () => {
+    const f = fixture(); f.purchase.status = 'CONFIRMED'; f.mocks.stockReceiptLine.count.mockResolvedValue(1);
+    await expect(f.command('CANCEL')).rejects.toThrow(/待检到货/);
     expect(f.mocks.purchaseCommitment.updateMany).not.toHaveBeenCalled();
   });
   it('allows independent manager approval at 5000 without rewriting the frozen snapshot', async () => {

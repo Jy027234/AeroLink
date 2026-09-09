@@ -23,6 +23,7 @@ import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { allocationQuantities } from './allocationQuantities.js';
 import { assertInventoryUseAllowed } from './returnGuards.js';
 import { lockPurchaseCoverageLines, assertAdditionalStockCoverage } from '../procurementSettlement/purchaseCoverage.js';
+import { resolveReceiptAllocationSource, type AllocationSourceInput } from '../procurementSettlement/receiptAllocationAccess.js';
 
 /**
  * D12's allocation service is intentionally separate from the legacy
@@ -34,7 +35,7 @@ import { lockPurchaseCoverageLines, assertAdditionalStockCoverage } from '../pro
 
 type Tx = Prisma.TransactionClient;
 
-export type AllocationInput = {
+export type AllocationInput = AllocationSourceInput & {
   inventoryDetailId: string;
   quantity: number;
 };
@@ -59,6 +60,8 @@ export type AllocationSafeView = {
   id: string;
   quotationLineId: string;
   inventoryDetailId: string;
+  stockReceiptLineId: string | null;
+  sourceReturnHoldId: string | null;
   allocatedQuantity: number;
   releasedQuantity: number;
   consumedQuantity: number;
@@ -107,7 +110,10 @@ function normalizeAllocations(input: readonly AllocationInput[]) {
     if (!item || typeof item !== 'object') fail(`allocations[${index}]无效`, 'VALIDATION_ERROR');
     const inventoryDetailId = assertId(item.inventoryDetailId, `allocations[${index}].inventoryDetailId`);
     assertPositiveInteger(item.quantity, `allocations[${index}].quantity`);
-    return { inventoryDetailId, quantity: item.quantity };
+    const stockReceiptLineId = item.stockReceiptLineId === undefined ? undefined : assertId(item.stockReceiptLineId, 'stockReceiptLineId');
+    const sourceReturnHoldId = item.sourceReturnHoldId === undefined ? undefined : assertId(item.sourceReturnHoldId, 'sourceReturnHoldId');
+    if (stockReceiptLineId && sourceReturnHoldId) fail('库存分配只能指定一个实物来源', 'VALIDATION_ERROR');
+    return { inventoryDetailId, quantity: item.quantity, stockReceiptLineId, sourceReturnHoldId };
   });
   const ids = new Set<string>();
   for (const item of normalized) {
@@ -400,6 +406,8 @@ function safeAllocation(allocation: {
   id: string;
   quotationLineId: string;
   inventoryDetailId: string;
+  stockReceiptLineId?: string | null;
+  sourceReturnHoldId?: string | null;
   allocatedQuantity: number;
   releasedQuantity: number;
   consumedQuantity: number;
@@ -430,6 +438,8 @@ function safeAllocation(allocation: {
     id: allocation.id,
     quotationLineId: allocation.quotationLineId,
     inventoryDetailId: allocation.inventoryDetailId,
+    stockReceiptLineId: allocation.stockReceiptLineId ?? null,
+    sourceReturnHoldId: allocation.sourceReturnHoldId ?? null,
     allocatedQuantity: allocation.allocatedQuantity,
     releasedQuantity: allocation.releasedQuantity,
     consumedQuantity: allocation.consumedQuantity,
@@ -628,7 +638,9 @@ async function replayReserve(
   for (const [index, item] of requested.entries()) {
     const parent = parents[index];
     if (!parent || parent.commandLineNo !== index + 1 || parent.quotationLineId !== args.quotationLineId
-      || parent.inventoryDetailId !== item.inventoryDetailId || parent.allocatedQuantity !== item.quantity) commandMismatch();
+      || parent.inventoryDetailId !== item.inventoryDetailId || parent.allocatedQuantity !== item.quantity
+      || (parent.stockReceiptLineId ?? null) !== (item.stockReceiptLineId ?? null)
+      || (parent.sourceReturnHoldId ?? null) !== (item.sourceReturnHoldId ?? null)) commandMismatch();
     // A later assign command is a new fact and must not change the replay
     // shape of the original reserve command.  Only an assignment carrying
     // this same command ID belongs to the reserve operation itself.
@@ -693,6 +705,7 @@ export async function reserveLineInventory(args: {
   }
 
   const requestedTotal = requested.reduce((total, item) => total + item.quantity, 0);
+  const sources = await Promise.all(requested.map(item => resolveReceiptAllocationSource(args.tx, { ...item, orderLineId })));
   const commercialOpen = line.quantity - line.acceptedQuantity;
   if (!orderLine && requestedTotal > commercialOpen - projection.unassignedQuantity) {
     fail('报价行未成交余量不足，不能新增未分配库存预留');
@@ -700,11 +713,13 @@ export async function reserveLineInventory(args: {
   if (orderLine) {
     const existingOrderAssignments = await args.tx.allocationAssignment.findMany({
       where: { orderLineId: orderLine.id },
-      select: { assignedQuantity: true, releasedQuantity: true, consumedQuantity: true },
+      select: { assignedQuantity: true, releasedQuantity: true, consumedQuantity: true,
+        allocation: { select: { stockReceiptLine: { select: { purchaseCommitmentLineId: true } } } } },
     });
     const assigned = existingOrderAssignments.reduce((sum, item) => sum + assignmentActive(item), 0);
     await assertAdditionalStockCoverage(args.tx, { orderLineId: orderLine.id, orderQuantity: orderLine.quantity,
-      assignments: existingOrderAssignments, additionalQuantity: requestedTotal });
+      assignments: existingOrderAssignments.map(row => ({ ...row, purchaseLineId: row.allocation.stockReceiptLine?.purchaseCommitmentLineId ?? null })),
+      additionalAssignments: requested.map((row, index) => ({ quantity: row.quantity, purchaseLineId: sources[index].purchaseLineId })) });
     if (requestedTotal > orderLine.quantity - orderLine.outboundQuantity - assigned) {
       fail('订单行待履约数量不足，不能新增库存分配');
     }
@@ -737,6 +752,8 @@ export async function reserveLineInventory(args: {
       data: {
         quotationLineId: line.id,
         inventoryDetailId: detail.id,
+        stockReceiptLineId: sources[index].stockReceiptLineId,
+        sourceReturnHoldId: sources[index].sourceReturnHoldId,
         allocatedQuantity: item.quantity,
         expiresAt: line.quotation.expiryDate,
         commandId,
@@ -857,7 +874,8 @@ export async function assignLineInventory(args: {
   const orderLine = await loadOrderLine(args.tx, orderLineId);
   const parentRows = await args.tx.inventoryAllocation.findMany({
     where: { id: { in: requested.map(item => item.allocationId) } },
-    include: { assignments: { orderBy: { id: 'asc' } }, inventoryDetail: { include: { inventoryItem: true } } },
+    include: { assignments: { orderBy: { id: 'asc' } }, inventoryDetail: { include: { inventoryItem: true } },
+      stockReceiptLine: { include: { purchaseCommitmentLine: { select: { orderLineId: true } } } } },
     orderBy: { id: 'asc' },
   });
   if (parentRows.length !== requested.length) fail('库存分配不存在', 'RESOURCE_NOT_FOUND');
@@ -878,12 +896,15 @@ export async function assignLineInventory(args: {
   if (line.quotation.id !== orderLine.order.quotationId) fail('订单与报价不匹配');
   const existingOrderAssignments = await args.tx.allocationAssignment.findMany({
     where: { orderLineId },
-    select: { assignedQuantity: true, releasedQuantity: true, consumedQuantity: true },
+    select: { assignedQuantity: true, releasedQuantity: true, consumedQuantity: true,
+      allocation: { select: { stockReceiptLine: { select: { purchaseCommitmentLineId: true } } } } },
   });
   let activeOrderAssigned = existingOrderAssignments.reduce((sum, item) => sum + assignmentActive(item), 0);
   const requestedTotal = requested.reduce((sum, item) => sum + item.quantity, 0);
   await assertAdditionalStockCoverage(args.tx, { orderLineId, orderQuantity: orderLine.quantity,
-    assignments: existingOrderAssignments, additionalQuantity: requestedTotal });
+    assignments: existingOrderAssignments.map(row => ({ ...row, purchaseLineId: row.allocation.stockReceiptLine?.purchaseCommitmentLineId ?? null })),
+    additionalAssignments: requested.map(row => ({ quantity: row.quantity,
+      purchaseLineId: parentById.get(row.allocationId)!.stockReceiptLine?.purchaseCommitmentLineId ?? null })) });
   if (requestedTotal > orderLine.quantity - orderLine.outboundQuantity - activeOrderAssigned) {
     fail('订单行待履约数量不足，不能新增库存分配');
   }
@@ -891,6 +912,9 @@ export async function assignLineInventory(args: {
     const parent = parentById.get(item.allocationId);
     if (!parent) fail('库存分配不存在', 'RESOURCE_NOT_FOUND');
     if (parent.quotationLineId !== line.id) fail('库存分配与报价行不匹配');
+    if (parent.stockReceiptLine && parent.stockReceiptLine.purchaseCommitmentLine.orderLineId !== orderLineId) {
+      fail('原始采购库存只能履约对应的销售行');
+    }
     const summary = allocationQuantities({
       allocatedQuantity: parent.allocatedQuantity,
       releasedQuantity: parent.releasedQuantity,

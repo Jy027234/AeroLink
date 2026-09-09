@@ -1,11 +1,12 @@
 import { Router } from 'express';
+import type { Prisma } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import prisma from '../lib/prisma.js';
 import { objectStorage } from '../lib/objectStorage.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { recordOperationalAlert } from '../lib/alerting.js';
 import { hasCapability, type CapabilityActor } from '../lib/capabilityPolicy.js';
-import { canReadPurchaseEvidence } from '../modules/procurementSettlement/index.js';
+import { assertCanReadReceiptEvidence, canReadPurchaseEvidence } from '../modules/procurementSettlement/index.js';
 
 const router = Router();
 
@@ -15,10 +16,45 @@ export function canReadStoredObject(
 ) {
   // Commercial documents require current order scope and cost access, even
   // for their uploader or a manager using an old /uploads link.
-  if (storedObject.domain === 'purchase_commitment') return false;
+  if (storedObject.domain === 'purchase_commitment' || storedObject.domain === 'stock_receipt') return false;
   const role = user?.role?.toLowerCase();
   const privileged = role === 'admin' || role === 'manager';
   return privileged || Boolean(user?.id && storedObject.ownerId === user.id);
+}
+
+type DownloadStoredObject = {
+  id: string;
+  ownerId: string | null;
+  domain: string | null;
+  resourceId: string | null;
+  version: number;
+  sha256: string;
+  status: string;
+};
+
+/**
+ * Resolve the authorization policy for the current download path. Dedicated
+ * business domains must be checked before the generic owner/operator policy;
+ * otherwise an uploaded owner or admin could bypass the receipt evidence ACL.
+ */
+export async function canReadStoredObjectDownload(
+  tx: Prisma.TransactionClient,
+  storedObject: DownloadStoredObject,
+  user: CapabilityActor | undefined,
+): Promise<boolean> {
+  if (storedObject.domain === 'purchase_commitment') {
+    return canReadPurchaseEvidence(tx, storedObject, user);
+  }
+  if (storedObject.domain === 'stock_receipt') {
+    try {
+      await assertCanReadReceiptEvidence(tx, storedObject, user);
+      return true;
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'AUTH_FORBIDDEN') return false;
+      throw error;
+    }
+  }
+  return canReadStoredObject(storedObject, user) || await canReadReturnEvidence(storedObject, user);
 }
 
 export function contentDisposition(filename?: string | null) {
@@ -53,9 +89,7 @@ router.get('/:id', asyncHandler(async (req: AuthRequest, res) => {
   if (!storedObject || storedObject.status !== 'AVAILABLE') {
     throw new AppError('文件不存在或不可用', 404, 'RESOURCE_NOT_FOUND');
   }
-  const allowed = storedObject.domain === 'purchase_commitment'
-    ? await canReadPurchaseEvidence(prisma, storedObject, req.user)
-    : canReadStoredObject(storedObject, req.user) || await canReadReturnEvidence(storedObject, req.user);
+  const allowed = await canReadStoredObjectDownload(prisma, storedObject, req.user);
   if (!allowed) {
     throw new AppError('无权访问此文件', 403, 'AUTH_FORBIDDEN');
   }

@@ -7,6 +7,7 @@ import { applyTransactionLineContract } from './transaction-line-contract.mjs';
 import { applyCommercialCostContract } from './commercial-cost-contract.mjs';
 import { applyQuotationRevisionContract } from './quotation-revision-contract.mjs';
 import { applyInventoryAllocationContract } from './inventory-allocation-contract.mjs';
+import { applyStockReceiptContract } from './stock-receipt-contract.mjs';
 import { applyShipmentContract } from './shipment-contract.mjs';
 import { applyPurchaseCommitmentContract } from './purchase-commitment-contract.mjs';
 
@@ -3973,6 +3974,7 @@ export function buildScaffold() {
   applyCommercialCostContract(core);
   applyQuotationRevisionContract(paths, core);
   applyInventoryAllocationContract(paths, core);
+  applyStockReceiptContract(paths, core);
   applyShipmentContract(paths, core);
   applyPurchaseCommitmentContract(paths, core);
 

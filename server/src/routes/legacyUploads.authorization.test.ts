@@ -18,4 +18,11 @@ describe('legacy upload authorization', () => {
   it('does not resurrect deleted or unavailable objects', () => {
     expect(getLegacyUploadDecision({ ownerId: 'owner-1', status: 'DELETED' }, { id: 'owner-1', role: 'sales' })).toBe('not_found');
   });
+
+  it('rejects dedicated receipt and purchase evidence through legacy object-key links', () => {
+    for (const domain of ['stock_receipt', 'purchase_commitment']) {
+      expect(getLegacyUploadDecision({ ownerId: 'owner-1', status: 'AVAILABLE', domain }, { id: 'owner-1', role: 'sales' })).toBe('forbidden');
+      expect(getLegacyUploadDecision({ ownerId: 'owner-1', status: 'AVAILABLE', domain }, { id: 'admin-1', role: 'ADMIN' })).toBe('forbidden');
+    }
+  });
 });

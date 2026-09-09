@@ -127,6 +127,7 @@ router.patch(
           id: true,
           partNumber: true,
           trackingType: true,
+          unitOfMeasure: true,
           updatedAt: true,
           details: {
             where: { allocatedQuantity: { gt: 0 } },
@@ -139,10 +140,11 @@ router.patch(
       const hasActiveModernAllocation = existing.details.length > 0;
       const partNumberChanges = input.partNumber !== undefined && input.partNumber !== existing.partNumber;
       const trackingTypeChanges = input.trackingType !== undefined && input.trackingType !== existing.trackingType;
-      if (hasActiveModernAllocation && (partNumberChanges || trackingTypeChanges)) {
+      const unitChanges = input.unitOfMeasure !== undefined && input.unitOfMeasure !== existing.unitOfMeasure;
+      if (hasActiveModernAllocation && (partNumberChanges || trackingTypeChanges || unitChanges)) {
         throw new AppError('存在现代库存分配时不能修改主件件号或追踪类型', 409, 'RESOURCE_CONFLICT');
       }
-      if (partNumberChanges || trackingTypeChanges) {
+      if (partNumberChanges || trackingTypeChanges || unitChanges) {
         await assertInventoryItemIdentityMutable(tx, existing.id);
       }
 

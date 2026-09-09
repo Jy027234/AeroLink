@@ -5317,6 +5317,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stock-receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock-receipts
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        get: operations["getStockReceipts"];
+        put?: never;
+        /**
+         * POST /api/stock-receipts
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        post: operations["postStockReceipts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock-receipts/lines/{id}/review-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock-receipts/lines/:id/review-context
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        get: operations["getStockReceiptsLinesIdReviewContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock-receipts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock-receipts/:id
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        get: operations["getStockReceiptsId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock-receipts/lines/{id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/stock-receipts/lines/:id/review
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        post: operations["postStockReceiptsLinesIdReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shipment-tracking": {
         parameters: {
             query?: never;
@@ -12043,6 +12127,8 @@ export interface components {
             id: string;
             quotationLineId: string;
             inventoryDetailId: string;
+            stockReceiptLineId: string | null;
+            sourceReturnHoldId: string | null;
             allocatedQuantity: number;
             releasedQuantity: number;
             consumedQuantity: number;
@@ -12085,6 +12171,8 @@ export interface components {
             allocations: {
                 inventoryDetailId: string;
                 quantity: number;
+                stockReceiptLineId?: string;
+                sourceReturnHoldId?: string;
             }[];
         };
         InventoryAllocationAssign: {
@@ -12188,6 +12276,182 @@ export interface components {
             orderStatus: string;
             allocationVersion: number;
             assignmentVersion: number;
+        };
+        StockReceiptPhysical: {
+            partNumber: string;
+            uom: string;
+            /** @enum {unknown} */
+            trackingType: "SERIAL" | "BATCH";
+            quantity: number;
+            serialNumber?: string | null;
+            batchNumber?: string | null;
+            conditionCode: string;
+            certificateReferences?: {
+                id: string;
+                fileHash: string;
+            }[];
+            certificateType?: string | null;
+            certificateNumber?: string | null;
+            lifeLimited?: boolean;
+            remainingHours?: number | null;
+            remainingCycles?: number | null;
+            /** Format: date-time */
+            shelfLifeDate?: string | null;
+            shelfLifeDays?: number | null;
+            /** Format: date-time */
+            nextOverhaulDue?: string | null;
+            storageCondition?: string | null;
+        };
+        StockReceiptStorage: {
+            location: string;
+            warehouse: string;
+            shelf?: string | null;
+        };
+        StockReceiptArrival: {
+            purchaseCommitmentId: string;
+            purchaseVersion: number;
+            supplierDeliveryReference: string;
+            reason: string;
+            evidenceIds: string[];
+            lines: {
+                purchaseCommitmentLineId: string;
+                physical: components["schemas"]["StockReceiptPhysical"];
+                storage: components["schemas"]["StockReceiptStorage"];
+            }[];
+        };
+        StockReceiptReview: {
+            version: number;
+            snapshotHash: string;
+            /** @enum {unknown} */
+            decision: "ACCEPTED" | "REJECTED";
+            reason: string;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+        };
+        StockReceiptLine: {
+            id: string;
+            lineNo: number;
+            purchaseCommitmentLineId: string;
+            quantity: number;
+            /** @enum {unknown} */
+            status: "PENDING_REVIEW" | "ACCEPTED" | "REJECTED";
+            version: number;
+            identitySnapshot: {
+                /** @constant */
+                schemaVersion: 1;
+                purchaseCommitmentLineId: string;
+                orderLineId: string;
+                quotationLineId: string;
+                rfqLineId: string;
+                partNumber: string;
+                uom: string;
+                serialNumber: string | null;
+                batchNumber: string | null;
+                conditionCode: string;
+                /** @enum {unknown} */
+                trackingType: "SERIAL" | "BATCH";
+            };
+            qualitySnapshot: {
+                physical: components["schemas"]["StockReceiptPhysical"];
+                storage: components["schemas"]["StockReceiptStorage"];
+            };
+            evidence: {
+                id: string;
+                version: number;
+                sha256: string;
+                /** @constant */
+                status: "AVAILABLE";
+            }[];
+            reviewedById: string | null;
+            /** Format: date-time */
+            reviewedAt: string | null;
+            reviewReason: string | null;
+            inventoryDetailId: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        StockReceipt: {
+            id: string;
+            receiptNumber: string;
+            purchaseCommitmentId: string;
+            version: number;
+            receivedById: string;
+            /** Format: date-time */
+            receivedAt: string;
+            supplierDeliveryReference: string;
+            reason: string | null;
+            evidence: {
+                id: string;
+                version: number;
+                sha256: string;
+                /** @constant */
+                status: "AVAILABLE";
+            }[];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            purchaseCommitment: {
+                orderId: string;
+                commitmentNumber: string;
+                supplierId: string;
+            };
+            lines: components["schemas"]["StockReceiptLine"][];
+        };
+        StockReceiptReviewContext: {
+            receiptLineId: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "PENDING_REVIEW" | "ACCEPTED" | "REJECTED";
+            snapshotHash: string;
+            snapshot: {
+                receiptId: string;
+                receiptLineId: string;
+                version: number;
+                receiptVersion: number;
+                identity: {
+                    /** @constant */
+                    schemaVersion: 1;
+                    purchaseCommitmentLineId: string;
+                    orderLineId: string;
+                    quotationLineId: string;
+                    rfqLineId: string;
+                    partNumber: string;
+                    uom: string;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    conditionCode: string;
+                    /** @enum {unknown} */
+                    trackingType: "SERIAL" | "BATCH";
+                };
+                physical: {
+                    physical: components["schemas"]["StockReceiptPhysical"];
+                    storage: components["schemas"]["StockReceiptStorage"];
+                };
+                /** @description Server-built current quality facts; no commercial fields. */
+                requirements: {
+                    [key: string]: unknown;
+                };
+                evidence: {
+                    id: string;
+                    version: number;
+                    sha256: string;
+                    /** @constant */
+                    status: "AVAILABLE";
+                }[];
+            };
+            issues: {
+                code: string;
+                path: string;
+                message: string;
+            }[];
+            canAccept: boolean;
         };
         ShipmentEvidence: {
             id: string;
@@ -22205,6 +22469,191 @@ export interface operations {
         requestBody: components["requestBodies"]["PurchaseCommitmentTransition"];
         responses: {
             200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getStockReceipts: {
+        parameters: {
+            query: {
+                orderId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt command or operational view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: {
+                            orderId: string;
+                            receipts: components["schemas"]["StockReceipt"][];
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postStockReceipts: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockReceiptArrival"];
+            };
+        };
+        responses: {
+            /** @description Receipt command or operational view. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["StockReceipt"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getStockReceiptsLinesIdReviewContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt command or operational view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["StockReceiptReviewContext"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getStockReceiptsId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt command or operational view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["StockReceipt"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postStockReceiptsLinesIdReview: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockReceiptReview"];
+            };
+        };
+        responses: {
+            /** @description Receipt command or operational view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["StockReceipt"];
+                    };
+                };
+            };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];

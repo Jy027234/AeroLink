@@ -101,6 +101,7 @@ function fixture() {
       }),
     },
     certificate: { findMany: vi.fn().mockResolvedValue([]) },
+    stockReceiptLine: { findMany: vi.fn().mockResolvedValue([]) },
     storedObject: { findMany: vi.fn().mockResolvedValue([file]) },
     fulfillmentReview: {
       create: vi.fn().mockImplementation(async ({ data }: any) => ({ id: 'review-1', ...data })),
@@ -162,6 +163,51 @@ describe('D12 allocation fulfillment', () => {
     expect(JSON.stringify(context)).not.toContain('unitPrice');
     expect(context.snapshotHash).toMatch(/^[a-f0-9]{64}$/);
     void fixtureState;
+  });
+
+  it('includes certificates from the exact accepted receipt snapshot even when Certificate has no order/detail owner', async () => {
+    const f = fixture();
+    f.mocks.stockReceiptLine.findMany.mockResolvedValue([{
+      id: 'receipt-line-1', status: 'ACCEPTED',
+      purchaseCommitmentLine: { purchaseCommitment: { supplierId: 'supplier-1', orderId: 'order-1' } },
+      qualitySnapshot: {
+        physical: { certificateReferences: [{ id: 'supplier-certificate-1', fileHash: 'receipt-hash-1' }] },
+      },
+    }]);
+    f.mocks.certificate.findMany.mockImplementation(async (args: any) => {
+      if (!args.where?.id?.in) return [];
+      return [{
+        id: 'supplier-certificate-1', certificateNumber: 'CERT-1', partNumber: 'PN-1', serialNumber: null,
+        supplierId: 'supplier-1', orderId: null, inventoryDetailId: null,
+        batchNumber: 'B1', certificateType: 'FAA-8130-3', status: 'ISSUED', expiryDate: null,
+        fileUrl: '/certificates/cert-1.pdf', fileHash: 'receipt-hash-1', updatedAt: new Date('2026-09-09T00:00:00Z'),
+      }];
+    });
+
+    const context = await getAllocationFulfillmentContext(f.tx, 'assignment-1', 2);
+    expect(context.certificates).toEqual([expect.objectContaining({ id: 'supplier-certificate-1', fileHash: 'receipt-hash-1' })]);
+    expect(context.snapshot.certificates).toEqual([expect.objectContaining({ id: 'supplier-certificate-1', fileHash: 'receipt-hash-1' })]);
+    expect(f.mocks.certificate.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['supplier-certificate-1'] } },
+    }));
+  });
+
+  it('fails the D12 context when an accepted receipt certificate hash no longer matches', async () => {
+    const f = fixture();
+    f.mocks.stockReceiptLine.findMany.mockResolvedValue([{
+      id: 'receipt-line-1', status: 'ACCEPTED',
+      qualitySnapshot: {
+        physical: { certificateReferences: [{ id: 'supplier-certificate-1', fileHash: 'receipt-hash-1' }] },
+      },
+    }]);
+    f.mocks.certificate.findMany.mockImplementation(async (args: any) => args.where?.id?.in ? [{
+      id: 'supplier-certificate-1', certificateNumber: 'CERT-1', partNumber: 'PN-1', serialNumber: null,
+      batchNumber: 'B1', certificateType: 'FAA-8130-3', status: 'ISSUED', expiryDate: null,
+      fileUrl: '/certificates/cert-1.pdf', fileHash: 'changed-hash', updatedAt: new Date('2026-09-09T00:00:00Z'),
+    }] : []);
+
+    await expect(getAllocationFulfillmentContext(f.tx, 'assignment-1', 2))
+      .rejects.toMatchObject({ code: 'QUALITY_REVIEW_STALE' });
   });
 
   it('requires an independent quality reviewer and records evidence fingerprints', async () => {

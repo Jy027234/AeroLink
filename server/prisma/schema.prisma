@@ -64,6 +64,12 @@ enum PurchaseCommitmentFulfillmentMode {
   SUPPLIER_DIRECT
 }
 
+enum StockReceiptLineStatus {
+  PENDING_REVIEW
+  ACCEPTED
+  REJECTED
+}
+
 model User {
   id          String    @id @default(uuid())
   email       String    @unique
@@ -107,6 +113,9 @@ model User {
   purchaseCommitmentsApproved   PurchaseCommitment[] @relation("PurchaseCommitmentApprover")
   purchaseCommitmentsConfirmed  PurchaseCommitment[] @relation("PurchaseCommitmentConfirmer")
   purchaseCommitmentEvents      PurchaseCommitmentEvent[]
+  stockReceiptsReceived         StockReceipt[] @relation("StockReceiptReceiver")
+  stockReceiptLinesReviewed     StockReceiptLine[] @relation("StockReceiptLineReviewer")
+  stockReceiptEvents            StockReceiptEvent[]
 
   @@map("users")
 }
@@ -457,6 +466,10 @@ model InventoryDetail {
   quantity          Int      @default(1)
   // Modern active allocation projection; physical quantity changes only on movement.
   allocatedQuantity Int      @default(0)
+  // LEGACY is the only value for ordinary/manual inventory.  An accepted
+  // stock receipt uses its immutable StockReceiptLine id to keep each arrival
+  // lot separate even when the item/batch/warehouse tuple repeats.
+  stockLotKey       String   @default("LEGACY")
   conditionCode     String   @default("NE")
   status            String   @default("AVAILABLE")
 
@@ -524,12 +537,13 @@ model InventoryDetail {
   inventoryTransactions InventoryTransaction[]
   allocations       InventoryAllocation[]
   returnHolds       ReturnHold[]
+  stockReceiptLines StockReceiptLine[]
 
-  // 唯一约束：同一件号下序号唯一；同一件号+批次+状态+仓库组合唯一
+  // 唯一约束：同一件号下序号唯一；同一件号+批次+状态+仓库+来源批次组合唯一
   fulfillmentReviews FulfillmentReview[]
 
   @@unique([inventoryItemId, serialNumber], name: "unique_serial_per_item")
-  @@unique([inventoryItemId, batchNumber, conditionCode, warehouse], name: "unique_batch_per_item")
+  @@unique([inventoryItemId, batchNumber, conditionCode, warehouse, stockLotKey], name: "unique_batch_per_item")
   @@map("inventory_details")
 }
 
@@ -1151,6 +1165,7 @@ model PurchaseCommitment {
   confirmedBy User?       @relation("PurchaseCommitmentConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict)
   lines       PurchaseCommitmentLine[]
   events      PurchaseCommitmentEvent[]
+  stockReceipts StockReceipt[]
 
   @@index([orderId, status])
   @@index([supplierId, status])
@@ -1182,6 +1197,7 @@ model PurchaseCommitmentLine {
   purchaseCommitment PurchaseCommitment @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
   orderLine          OrderLine          @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
   sourceSupplierQuote SupplierQuote?     @relation(fields: [sourceSupplierQuoteId], references: [id], onDelete: Restrict)
+  stockReceiptLines StockReceiptLine[]
 
   @@unique([purchaseCommitmentId, lineNo])
   @@unique([purchaseCommitmentId, orderLineId])
@@ -1208,6 +1224,88 @@ model PurchaseCommitmentEvent {
   @@index([purchaseCommitmentId, eventNo])
   @@index([actorId, createdAt])
   @@map("purchase_commitment_events")
+}
+
+// A supplier arrival is an immutable fact attached to one purchase commitment.
+// Review decisions live on each physical receipt line so one arrival may be
+// split into multiple batches while pending/rejected quantities remain auditable.
+model StockReceipt {
+  id                         String   @id @default(uuid())
+  purchaseCommitmentId       String
+  receiptNumber              String   @unique
+  commandId                  String   @unique
+  requestHash                String
+  version                    Int      @default(1)
+  receivedById               String
+  receivedAt                 DateTime @default(now())
+  supplierDeliveryReference  String
+  reason                     String?
+  evidence                   Json
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  purchaseCommitment PurchaseCommitment @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  receivedBy        User               @relation("StockReceiptReceiver", fields: [receivedById], references: [id], onDelete: Restrict)
+  lines             StockReceiptLine[]
+  events            StockReceiptEvent[]
+
+  @@index([purchaseCommitmentId, receivedAt])
+  @@index([receivedById, receivedAt])
+  @@unique([purchaseCommitmentId, supplierDeliveryReference])
+  @@map("stock_receipts")
+}
+
+model StockReceiptLine {
+  id                       String                @id @default(uuid())
+  receiptId                String
+  lineNo                   Int
+  purchaseCommitmentLineId String
+  quantity                 Int
+  status                   StockReceiptLineStatus @default(PENDING_REVIEW)
+  identitySnapshot         Json
+  qualitySnapshot          Json
+  evidence                 Json
+  version                  Int                   @default(1)
+  reviewedById             String?
+  reviewedAt               DateTime?
+  reviewReason             String?
+  inventoryDetailId        String?               @unique
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+
+  receipt                StockReceipt          @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  purchaseCommitmentLine PurchaseCommitmentLine @relation(fields: [purchaseCommitmentLineId], references: [id], onDelete: Restrict)
+  reviewedBy             User?                 @relation("StockReceiptLineReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  inventoryDetail        InventoryDetail?       @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
+  inventoryTransaction   InventoryTransaction?  @relation("StockReceiptLineInbound")
+  allocations            InventoryAllocation[]  @relation("InventoryAllocationReceiptSource")
+
+  @@unique([receiptId, lineNo])
+  @@index([purchaseCommitmentLineId])
+  @@index([inventoryDetailId])
+  @@index([status, reviewedAt])
+  @@map("stock_receipt_lines")
+}
+
+model StockReceiptEvent {
+  id             String   @id @default(uuid())
+  stockReceiptId String
+  kind           String
+  quantity       Int
+  commandId      String
+  eventNo        Int
+  requestHash    String
+  actorId        String?
+  data           Json
+  createdAt      DateTime @default(now())
+
+  stockReceipt StockReceipt @relation(fields: [stockReceiptId], references: [id], onDelete: Restrict)
+  actor        User?        @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([stockReceiptId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("stock_receipt_events")
 }
 
 // Immutable human quality review for one planned outbound quantity.
@@ -1263,6 +1361,8 @@ model InventoryAllocation {
   id                String @id @default(uuid())
   quotationLineId   String
   inventoryDetailId String
+  stockReceiptLineId String?
+  sourceReturnHoldId String?
   allocatedQuantity Int
   releasedQuantity  Int @default(0)
   consumedQuantity  Int @default(0)
@@ -1276,6 +1376,8 @@ model InventoryAllocation {
 
   quotationLine QuotationLine @relation(fields: [quotationLineId], references: [id], onDelete: Restrict)
   inventoryDetail InventoryDetail @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
+  stockReceiptLine StockReceiptLine? @relation("InventoryAllocationReceiptSource", fields: [stockReceiptLineId], references: [id], onDelete: Restrict)
+  sourceReturnHold ReturnHold? @relation("InventoryAllocationReturnSource", fields: [sourceReturnHoldId], references: [id], onDelete: Restrict)
   creator User @relation(fields: [createdById], references: [id], onDelete: Restrict)
   assignments AllocationAssignment[]
   events InventoryAllocationEvent[]
@@ -1284,6 +1386,8 @@ model InventoryAllocation {
   @@unique([commandId, commandLineNo])
   @@index([quotationLineId])
   @@index([inventoryDetailId])
+  @@index([stockReceiptLineId])
+  @@index([sourceReturnHoldId])
   @@index([expiresAt])
   @@map("inventory_allocations")
 }
@@ -1342,6 +1446,7 @@ model InventoryAllocationEvent {
 model InventoryTransaction {
   id                String   @id @default(uuid())
   inventoryDetailId String
+  stockReceiptLineId String? @unique
   type              String   // 'INBOUND', 'OUTBOUND', 'ADJUSTMENT', 'TRANSFER', 'RETURN'
   quantity          Int      // 正数表示增加库存，负数表示减少库存
   beforeQuantity    Int      // 变动前数量
@@ -1361,6 +1466,7 @@ model InventoryTransaction {
   createdAt         DateTime @default(now())
 
   inventoryDetail   InventoryDetail @relation(fields: [inventoryDetailId], references: [id])
+  stockReceiptLine   StockReceiptLine? @relation("StockReceiptLineInbound", fields: [stockReceiptLineId], references: [id], onDelete: Restrict)
   order             Order?          @relation(fields: [orderId], references: [id])
   allocation        InventoryAllocation? @relation(fields: [allocationId], references: [id], onDelete: Restrict)
   assignment        AllocationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
@@ -1649,6 +1755,7 @@ model ReturnHold {
   releasedBy      User?               @relation("ReturnHoldReleaser", fields: [releasedById], references: [id], onDelete: Restrict)
   returnTransaction InventoryTransaction? @relation("ReturnHoldTransaction", fields: [returnTransactionId], references: [id], onDelete: Restrict)
   events          ReturnEvent[]
+  sourceAllocations InventoryAllocation[] @relation("InventoryAllocationReturnSource")
 
   @@index([shipmentLineId])
   @@index([inventoryDetailId])

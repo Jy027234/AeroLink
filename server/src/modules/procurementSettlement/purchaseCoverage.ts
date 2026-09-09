@@ -10,13 +10,14 @@ export async function lockPurchaseCoverageLines(tx: Prisma.TransactionClient, id
 
 export async function assertAdditionalStockCoverage(tx: Prisma.TransactionClient, args: {
   orderLineId: string; orderQuantity: number;
-  assignments: Array<Omit<ProcurementStockAssignment, 'id' | 'purchaseLineId'>>;
-  additionalQuantity: number;
+  assignments: Array<Omit<ProcurementStockAssignment, 'id' | 'purchaseLineId'> & { purchaseLineId?: string | null }>;
+  additionalAssignments: Array<{ quantity: number; purchaseLineId: string | null }>;
 }) {
   const purchases = await tx.purchaseCommitmentLine.findMany({ where: { orderLineId: args.orderLineId,
     purchaseCommitment: { status: { in: ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'CLOSED'] } } },
     select: { id: true, quantity: true, cancelledQuantity: true, receivedQuantity: true, directShippedQuantity: true } });
   return deriveProcurementCoverage({ orderQuantity: args.orderQuantity, purchases,
-    assignments: [...args.assignments.map((row, index) => ({ ...row, id: `existing:${index}`, purchaseLineId: null })),
-      { id: 'requested', purchaseLineId: null, assignedQuantity: args.additionalQuantity, releasedQuantity: 0, consumedQuantity: 0 }] });
+    assignments: [...args.assignments.map((row, index) => ({ ...row, id: `existing:${index}`, purchaseLineId: row.purchaseLineId ?? null })),
+      ...args.additionalAssignments.map((row, index) => ({ id: `requested:${index}`, purchaseLineId: row.purchaseLineId,
+        assignedQuantity: row.quantity, releasedQuantity: 0, consumedQuantity: 0 }))] });
 }

@@ -24,6 +24,44 @@ function noReturnHold() {
 }
 
 describe('inventoryQuality service policy', () => {
+  it('records accepted procurement inventory with an explicit unique receipt ledger source', async () => {
+    const mocks = { inventoryItem: { upsert: vi.fn().mockResolvedValue({ id: 'item' }) },
+      inventoryDetail: { create: vi.fn().mockResolvedValue({ id: 'detail', quantity: 2 }) },
+      inventoryTransaction: { create: vi.fn() } };
+    await createInventoryAggregate(mocks as unknown as Prisma.TransactionClient, {
+      item: { partNumber: 'PN', description: 'Part' }, detail: { quantity: 2, location: 'A', unitCost: 1 },
+      include: {}, actorId: 'quality', receipt: { stockReceiptLineId: 'receipt-line', receiptNumber: 'SR-1' },
+    });
+    expect(mocks.inventoryDetail.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ stockLotKey: 'receipt-line', allocatedQuantity: 0 }) }));
+    expect(mocks.inventoryTransaction.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      stockReceiptLineId: 'receipt-line', referenceType: 'PURCHASE_RECEIPT', referenceNo: 'SR-1',
+      type: 'INBOUND', beforeQuantity: 0, afterQuantity: 2, quantity: 2,
+    }) });
+  });
+
+  it('does not let generic inventory writes replenish or re-identify receipt stock', async () => {
+    const mocks = { inventoryDetail: { findUnique: vi.fn().mockResolvedValue({ id: 'detail', stockLotKey: 'receipt-line',
+      quantity: 1, allocatedQuantity: 0, status: 'AVAILABLE', serialNumber: 'SN', batchNumber: 'B' }), update: vi.fn() } };
+    const base = { id: 'detail', itemData: {}, include: {}, actorId: 'operator' };
+    await expect(updateInventoryAggregate(mocks as unknown as Prisma.TransactionClient, { ...base, detailData: { quantity: 2 },
+      quantityProvided: true, quantity: 2 })).rejects.toThrow(/受控出入库/);
+    await expect(updateInventoryAggregate(mocks as unknown as Prisma.TransactionClient, { ...base, detailData: { serialNumber: 'OTHER' },
+      quantityProvided: false })).rejects.toThrow(/受控出入库/);
+    expect(mocks.inventoryDetail.update).not.toHaveBeenCalled();
+  });
+
+  it('does not route receipt stock through legacy reservation or outbound commands', async () => {
+    const mocks = { inventoryDetail: { findUnique: vi.fn().mockResolvedValue({ id: 'detail', stockLotKey: 'receipt-line',
+      quantity: 1, allocatedQuantity: 0, status: 'AVAILABLE' }) },
+      quotation: { findUnique: vi.fn().mockResolvedValue({ id: 'quote' }) },
+      order: { findUnique: vi.fn().mockResolvedValue({ id: 'order' }) } };
+    const tx = mocks as unknown as Prisma.TransactionClient;
+    await expect(reserveInventoryForQuotation(tx, { inventoryDetailId: 'detail', quotationId: 'quote', quantity: 1, actorId: 'operator' }))
+      .rejects.toThrow(/订单行分配/);
+    await expect(outboundInventoryForOrder(tx, { inventoryDetailId: 'detail', orderId: 'order', quantity: 1, actorId: 'operator' }))
+      .rejects.toThrow(/订单行分配/);
+  });
   it('rejects quantity changes for reserved inventory and normalizes codes', () => {
     expect(() => assertInventoryQuantityAdjustmentAllowed('RESERVED', true)).toThrowError(/不能直接调整数量/);
     expect(() => assertInventoryQuantityAdjustmentAllowed('AVAILABLE', true)).not.toThrow();
