@@ -82,6 +82,7 @@ export const receiptPhysicalSchema = z.object({
 
 export type ReceiptPhysicalInput = z.input<typeof receiptPhysicalSchema>;
 export type ReceiptPhysical = z.output<typeof receiptPhysicalSchema>;
+export type ReceiptFulfillmentMode = 'STOCK_RECEIPT' | 'SUPPLIER_DIRECT';
 
 export type ReceiptIdentitySnapshot = {
   schemaVersion: 1;
@@ -171,7 +172,7 @@ export type ReceiptPurchaseSnapshot = {
   cancelledQuantity: number;
   receivedQuantity: number;
   directShippedQuantity: number;
-  fulfillmentMode: 'STOCK_RECEIPT' | 'SUPPLIER_DIRECT';
+  fulfillmentMode: ReceiptFulfillmentMode;
   identitySnapshot: ReceiptIdentitySnapshot;
 };
 
@@ -387,7 +388,7 @@ type NormalizedReceiptQualityInput = Omit<ReceiptQualityInput, 'physical' | 'pur
   purchase: ReceiptPurchaseSnapshot;
 };
 
-function assertSourceContext(input: NormalizedReceiptQualityInput) {
+function assertSourceContext(input: NormalizedReceiptQualityInput, expectedFulfillmentMode: ReceiptFulfillmentMode = 'STOCK_RECEIPT') {
   const { chain, purchase } = input;
   const order = chain.order;
   const orderLine = chain.orderLine;
@@ -412,7 +413,9 @@ function assertSourceContext(input: NormalizedReceiptQualityInput) {
   assertCurrency(quotation.currency, '报价币种');
   assertCurrency(orderLine.currency, '订单行币种');
   assertCurrency(quotationLine.currency, '报价行币种');
-  if (purchase.fulfillmentMode !== 'STOCK_RECEIPT') sourceConflict('当前收货质量链只支持 STOCK_RECEIPT');
+  if (purchase.fulfillmentMode !== expectedFulfillmentMode) {
+    sourceConflict(`当前质量链要求 ${expectedFulfillmentMode} 履约方式`);
+  }
 
   if (purchase.orderId !== order.id || orderLine.orderId !== order.id || purchase.orderLineId !== orderLine.id) {
     sourceConflict('采购承诺、订单和订单行来源关系不一致');
@@ -455,7 +458,12 @@ function assertSourceContext(input: NormalizedReceiptQualityInput) {
   if (purchase.cancelledQuantity + purchase.receivedQuantity + purchase.directShippedQuantity > purchase.quantity) {
     sourceConflict('采购承诺取消、收货及直发数量超过承诺数量');
   }
-  if (purchase.directShippedQuantity !== 0) sourceConflict('当前收货链禁止非零直发数量');
+  if (expectedFulfillmentMode === 'STOCK_RECEIPT' && purchase.directShippedQuantity !== 0) {
+    sourceConflict('当前收货链禁止非零直发数量');
+  }
+  if (expectedFulfillmentMode === 'SUPPLIER_DIRECT' && purchase.receivedQuantity !== 0) {
+    sourceConflict('当前直发质量链禁止已有库存收货数量');
+  }
   safeQuantity(orderLine.quantity, '订单行数量', true);
   safeQuantity(quotationLine.quantity, '报价行数量', true);
   safeQuantity(quotationLine.acceptedQuantity, '报价行成交数量', true);
@@ -526,7 +534,10 @@ function collectCertificateIssues(
     if (!sameNullable(row.batchNumber, physical.batchNumber)) {
       addIssue(issues, 'CERTIFICATE_BATCH_MISMATCH', `certificateReferences.${reference.id}`, '证书批次与到货实物不一致');
     }
-    if (row.supplierId !== input.purchase.supplierId || (row.orderId !== null && row.orderId !== input.purchase.orderId)) {
+    const scopeMismatch = input.purchase.fulfillmentMode === 'SUPPLIER_DIRECT'
+      ? row.supplierId !== input.purchase.supplierId || row.orderId !== input.purchase.orderId
+      : row.supplierId !== input.purchase.supplierId || (row.orderId !== null && row.orderId !== input.purchase.orderId);
+    if (scopeMismatch) {
       addIssue(issues, 'CERTIFICATE_SCOPE_MISMATCH', `certificateReferences.${reference.id}`, '证书 supplier/order 归属与采购销售来源不一致');
     }
     if (row.inventoryDetailId) {
@@ -622,8 +633,11 @@ function certificateSnapshot(row: ReceiptCertificateRow) {
   };
 }
 
-function buildNormalizedReceiptQualitySnapshot(input: NormalizedReceiptQualityInput): ReceiptQualitySnapshot {
-  assertSourceContext(input);
+function buildNormalizedReceiptQualitySnapshot(
+  input: NormalizedReceiptQualityInput,
+  expectedFulfillmentMode: ReceiptFulfillmentMode = 'STOCK_RECEIPT',
+): ReceiptQualitySnapshot {
+  assertSourceContext(input, expectedFulfillmentMode);
   const physical = input.physical;
   const references = [...physical.certificateReferences].sort((left, right) => left.id.localeCompare(right.id));
   const referencedIds = new Set(references.map((reference) => reference.id));
@@ -742,7 +756,7 @@ export const buildReceiptQualityHash = buildReceiptQualitySnapshotHash;
 
 export function validateReceiptQuality(
   input: ReceiptQualityInput,
-  options: { phase?: ReceiptQualityPhase; now?: Date | string } = {},
+  options: { phase?: ReceiptQualityPhase; now?: Date | string; expectedFulfillmentMode?: ReceiptFulfillmentMode } = {},
 ): ReceiptQualityValidation {
   const phase = options.phase ?? 'ACCEPT';
   if (phase !== 'ARRIVAL' && phase !== 'ACCEPT') {
@@ -755,11 +769,15 @@ export function validateReceiptQuality(
     physical: normalizedPhysical,
     purchase: normalizedPurchase,
   };
-  assertSourceContext(normalizedInput);
+  const expectedFulfillmentMode = options.expectedFulfillmentMode ?? 'STOCK_RECEIPT';
+  if (expectedFulfillmentMode !== 'STOCK_RECEIPT' && expectedFulfillmentMode !== 'SUPPLIER_DIRECT') {
+    throw new AppError('质量校验履约方式无效', 400, 'VALIDATION_ERROR');
+  }
+  assertSourceContext(normalizedInput, expectedFulfillmentMode);
   const now = dateOrNull(options.now ?? input.now ?? new Date(), '质量校验当前时间');
   if (!now) throw new AppError('质量校验当前时间不能为空', 400, 'VALIDATION_ERROR');
   const issues = collectQualityIssues(normalizedInput, normalizedPhysical, now);
-  const snapshot = buildNormalizedReceiptQualitySnapshot(normalizedInput);
+  const snapshot = buildNormalizedReceiptQualitySnapshot(normalizedInput, expectedFulfillmentMode);
   const snapshotHash = hashReceiptQualitySnapshot(snapshot);
   if (phase === 'ACCEPT' && issues.length > 0) {
     const evidence = issues.some((issue) => issue.code.startsWith('CERTIFICATE_'));

@@ -1,6 +1,12 @@
 import { calculateMoneyTotal, normalizeMoney, type MoneyInput } from './money.js';
 import { isExplicitDemandPart } from './transactionLinePreflight.js';
 import { assertLineCostSnapshot } from './lineQuotationPolicy.js';
+import {
+  reconcileDirectDeliveryProjection,
+  type DirectDeliveryLine,
+  type DirectDeliveryLocalReceipt,
+  type DirectDeliveryPurchaseLine,
+} from './directDeliveryReconciliation.js';
 
 export type ReconciliationIssue = {
   entity: string;
@@ -8,6 +14,8 @@ export type ReconciliationIssue = {
   code: string;
   severity: 'BLOCKER' | 'REVIEW';
   relatedIds?: string[];
+  expected?: number | string;
+  actual?: number | string;
 };
 
 type PhysicalIdentity = { inventoryDetailId: string | null; serialNumber: string | null; batchNumber: string | null };
@@ -124,6 +132,8 @@ export type OrderLineReconciliationRow = PhysicalIdentity & {
   currency: string;
   outboundQuantity: number;
   outboundStatus: string;
+  /** Supplier-direct quantity is optional for legacy fixtures/rows. */
+  directShippedQuantity?: number;
 };
 export type OrderReconciliationRow = PhysicalIdentity & {
   id: string;
@@ -134,6 +144,9 @@ export type OrderReconciliationRow = PhysicalIdentity & {
   totalAmountDecimal: MoneyInput | null;
   outboundQuantity: number;
   outboundStatus: string;
+  /** Supplier-direct quantity is optional for legacy fixtures/rows. */
+  directShippedQuantity?: number;
+  status?: string;
   lines: OrderLineReconciliationRow[];
   lineItemsMode?: boolean;
 };
@@ -145,6 +158,10 @@ export type TransactionLineReconciliationInput = {
   supplierQuotes: SupplierQuoteReconciliationRow[];
   quotations: QuotationReconciliationRow[];
   orders: OrderReconciliationRow[];
+  /** Direct projections are absent from pre-D14 fixtures and then mean zero. */
+  directPurchaseLines?: DirectDeliveryPurchaseLine[];
+  directShipmentLines?: DirectDeliveryLine[];
+  localShipmentReceipts?: DirectDeliveryLocalReceipt[];
 };
 
 function sameMoney(left: MoneyInput | null | undefined, right: MoneyInput | null | undefined): boolean {
@@ -498,6 +515,38 @@ export function reconcileTransactionLines(input: TransactionLineReconciliationIn
     }
   }
 
+  const directReport = reconcileDirectDeliveryProjection({
+    orders: input.orders.map(order => ({
+      id: order.id,
+      quantity: order.quantity,
+      outboundQuantity: order.outboundQuantity,
+      directShippedQuantity: order.directShippedQuantity,
+      lineItemsMode: order.lineItemsMode,
+      status: order.status,
+      lines: order.lines.map(line => ({
+        id: line.id,
+        orderId: line.orderId,
+        quantity: line.quantity,
+        outboundQuantity: line.outboundQuantity,
+        directShippedQuantity: line.directShippedQuantity,
+      })),
+    })),
+    purchaseLines: input.directPurchaseLines,
+    directLines: input.directShipmentLines ?? [],
+    localReceipts: input.localShipmentReceipts,
+  });
+  for (const issue of directReport.issues) {
+    issues.push({
+      entity: issue.entity,
+      id: issue.id,
+      code: issue.code,
+      severity: issue.severity,
+      ...(issue.relatedIds ? { relatedIds: issue.relatedIds } : {}),
+      ...(issue.expected === undefined ? {} : { expected: issue.expected }),
+      ...(issue.actual === undefined ? {} : { actual: issue.actual }),
+    });
+  }
+
   const blockers = issues.filter(issue => issue.severity === 'BLOCKER').length;
   return {
     status: blockers > 0 ? 'BLOCKED' : issues.length > 0 ? 'REVIEW_REQUIRED' : 'PASS',
@@ -515,6 +564,8 @@ export function reconcileTransactionLines(input: TransactionLineReconciliationIn
       quotationLines: input.quotations.reduce((sum, row) => sum + row.lines.length, 0),
       orders: input.orders.length,
       orderLines: input.orders.reduce((sum, row) => sum + row.lines.length, 0),
+      directPurchaseLines: input.directPurchaseLines?.length ?? 0,
+      directShipmentLines: input.directShipmentLines?.length ?? 0,
     },
   };
 }

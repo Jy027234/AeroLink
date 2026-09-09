@@ -8,6 +8,7 @@ import { applyCommercialCostContract } from './commercial-cost-contract.mjs';
 import { applyQuotationRevisionContract } from './quotation-revision-contract.mjs';
 import { applyInventoryAllocationContract } from './inventory-allocation-contract.mjs';
 import { applyStockReceiptContract } from './stock-receipt-contract.mjs';
+import { applyDirectShipmentContract } from './direct-shipment-contract.mjs';
 import { applyShipmentContract } from './shipment-contract.mjs';
 import { applyPurchaseCommitmentContract } from './purchase-commitment-contract.mjs';
 
@@ -584,8 +585,21 @@ function integrationOperationContract(endpoint, openApiPath) {
     case 'GET /api/certificates/:id': operation.responses = response('Certificate'); break;
     case 'POST /api/certificates/issue': operation.requestBody = requestBodyRef('CertificateIssue'); operation.responses = response('Certificate', '201'); break;
     case 'POST /api/certificates/:id/verify': operation.responses = response('CertificateVerification'); break;
-    case 'POST /api/certificates/:id/revoke': operation.requestBody = requestBodyRef('CertificateRevoke'); operation.responses = response('CertificateAction'); break;
-    case 'POST /api/certificates/:id/renew': operation.requestBody = requestBodyRef('CertificateRenew'); operation.responses = response('CertificateAction'); break;
+    case 'POST /api/certificates/:id/revoke':
+      operation.description = 'Requires certificate.issue. Records the authenticated actor and a required reason. A Serializable transaction and current status/updatedAt comparison prevent overwriting concurrent certificate changes.';
+      operation.requestBody = requestBodyRef('CertificateRevoke');
+      operation.responses = response('CertificateAction');
+      break;
+    case 'POST /api/certificates/:id/renew':
+      operation.description = 'Disabled: changing a date cannot renew certificate evidence. Requires certificate.issue; authorized calls return 409 QUALITY_EVIDENCE_REQUIRED without changing any certificate. Obtain a new valid certificate and perform a new quality review.';
+      operation.requestBody = undefined;
+      operation.responses = {
+        '401': { $ref: '#/components/responses/Error' },
+        '403': { $ref: '#/components/responses/Error' },
+        '409': { $ref: '#/components/responses/Error' },
+      };
+      operation.deprecated = true;
+      break;
     case 'GET /api/certificates/:id/download': operation.responses = response('CertificateDownload'); break;
     case 'GET /api/certificates/expiring': operation.responses = response('CertificateExpiring'); break;
     case 'GET /api/webhooks/events': operation.responses = response('WebhookEvents'); break;
@@ -3225,7 +3239,7 @@ function coreComponents() {
       Certificate: certificate,
       CertificateListEnvelope: envelope({ type: 'array', items: schemaRef('Certificate') }, { pagination: schemaRef('Pagination') }),
       CertificateIssueRequest: coreRequestSchema({ templateId: id, inventoryId: id, inventoryDetailId: id, orderId: id, supplierId: id, quotationId: id, partNumber: { type: 'string', minLength: 1 }, serialNumber: { type: 'string' }, description: { type: 'string' }, quantity: { type: 'integer', minimum: 0 }, conditionCode: { type: 'string' }, certificateType: { type: 'string' }, expiryDate: { type: 'string', format: 'date-time' }, issuedBy: { type: 'string' }, issuerCompany: { type: 'string' }, issuerAddress: { type: 'string' }, issuerCertNo: { type: 'string' }, countryOfOrigin: { type: 'string' }, manufactureDate: { type: 'string', format: 'date-time' }, batchNumber: { type: 'string' }, ataChapter: { type: 'string' }, aircraftModel: { type: 'string' } }, ['partNumber']),
-      CertificateRevokeRequest: coreRequestSchema({ reason: { type: 'string' } }),
+      CertificateRevokeRequest: coreRequestSchema({ reason: { type: 'string', minLength: 3, maxLength: 4000 } }, ['reason']),
       CertificateRenewRequest: coreRequestSchema({ newExpiryDate: { type: 'string', format: 'date-time' }, reason: { type: 'string' } }, ['newExpiryDate']),
       CertificateVerificationEnvelope: envelope({ type: 'object', required: ['id', 'certificateNumber', 'status', 'isValid', 'isExpired'], properties: { id, certificateNumber: { type: 'string' }, status: { type: 'string' }, isValid: { type: 'boolean' }, isExpired: { type: 'boolean' }, daysUntilExpiry: { type: ['integer', 'null'] }, verificationTimestamp: dateTime }, additionalProperties: true }),
       CertificateActionEnvelope: envelope({ type: 'object', additionalProperties: true }),
@@ -3975,6 +3989,7 @@ export function buildScaffold() {
   applyQuotationRevisionContract(paths, core);
   applyInventoryAllocationContract(paths, core);
   applyStockReceiptContract(paths, core);
+  applyDirectShipmentContract(paths, core);
   applyShipmentContract(paths, core);
   applyPurchaseCommitmentContract(paths, core);
 

@@ -14,3 +14,9 @@ export { createPurchaseCommitment, transitionPurchaseCommitment, type PurchaseCo
 export { assertStockReceiptOrderScope, getStockReceipt, getOrderStockReceipts } from './stockReceiptAccess.js';
 export { receiptPhysicalSchema } from './receiptQuality.js';
 export { receiptStorageSchema, receivePurchaseStock, getStockReceiptReviewContext, reviewPurchaseStock } from './stockReceiptCommands.js';
+export { assertDirectShipmentOrderScope, getDirectShipment, getOrderDirectShipments } from './directShipmentAccess.js';
+export { assertCanReadDirectShipmentEvidence } from './directShipmentEvidence.js';
+export { createDirectShipment, getDirectShipmentReviewContext, reviewDirectShipment,
+  dispatchDirectShipment, cancelDirectShipment, receiveDirectShipment } from './directShipmentCommands.js';
+export { createDirectShipmentSchema, reviewDirectShipmentSchema, directShipmentActionSchema,
+  directShipmentReceiptSchema } from './directShipmentInputs.js';

@@ -147,7 +147,17 @@ export function InventoryAllocationPanel({
         setDetailsError('');
       } catch (requestError) {
         setDetails([]);
-        setDetailsError(requestError instanceof Error ? requestError.message : tx('库存明细加载失败', 'Failed to load inventory details'));
+        const statusCode = requestError && typeof requestError === 'object' && 'statusCode' in requestError
+          ? (requestError as { statusCode?: unknown }).statusCode
+          : undefined;
+        if (statusCode === 404) {
+          // A missing inventory catalog row is a normal empty-stock state for
+          // a new part or a supplier-direct-only order. Keep the actionable
+          // empty-state copy below instead of showing a red transport error.
+          setDetailsError('');
+        } else {
+          setDetailsError(requestError instanceof Error ? requestError.message : tx('库存明细加载失败', 'Failed to load inventory details'));
+        }
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : tx('库存分配数据加载失败', 'Failed to load allocation data'));
@@ -178,6 +188,10 @@ export function InventoryAllocationPanel({
     ? orderAssignments.reduce((total, assignment) => total + assignmentActive(assignment), 0)
     : (availability?.assignedActiveQuantity ?? 0);
   const outbound = isOrder ? (orderView?.outboundQuantity ?? outboundQuantity ?? 0) : sumConsumed(allocationViews);
+  const directShipped = isOrder ? (orderView?.directShippedQuantity ?? 0) : 0;
+  const localFulfillmentRemaining = isOrder ? Math.max(0, demand - outbound - directShipped - assigned) : Number.POSITIVE_INFINITY;
+  const selectedDetailReserveLimit = selectedDetail ? Math.min(selectedDetailAvailable, localFulfillmentRemaining) : 0;
+  const selectedAllocationAssignLimit = selectedAllocation ? Math.min(selectedAllocation.unassignedQuantity, localFulfillmentRemaining) : 0;
 
   useEffect(() => {
     if (!selectedDetailId && availableDetails.length === 1) {
@@ -211,7 +225,7 @@ export function InventoryAllocationPanel({
 
   const handleReserve = async () => {
     const reserveAmount = positiveInteger(reserveQuantity);
-    if (!selectedDetail || reserveAmount <= 0 || reserveAmount > selectedDetailAvailable) return;
+    if (!selectedDetail || reserveAmount <= 0 || reserveAmount > selectedDetailReserveLimit) return;
     await runAction('reserve', async () => {
       await inventoryAllocationApi.reserve({
         quotationLineId,
@@ -227,7 +241,7 @@ export function InventoryAllocationPanel({
   const handleAssign = async () => {
     if (!isOrder || !orderLineId || !selectedAllocation) return;
     const amount = positiveInteger(actionQuantity);
-    if (amount <= 0 || amount > selectedAllocation.unassignedQuantity) return;
+    if (amount <= 0 || amount > selectedAllocationAssignLimit) return;
     await runAction('assign', async () => {
       await inventoryAllocationApi.assign({ orderLineId, allocations: [{ allocationId: selectedAllocation.id, quantity: amount }] });
       toast.success(tx('库存分配成功', 'Inventory assigned'));
@@ -346,10 +360,10 @@ export function InventoryAllocationPanel({
     });
   };
 
-  const canReserve = canManage && Boolean(selectedDetail) && positiveInteger(reserveQuantity) > 0 && positiveInteger(reserveQuantity) <= selectedDetailAvailable;
+  const canReserve = canManage && Boolean(selectedDetail) && selectedDetailReserveLimit > 0 && positiveInteger(reserveQuantity) > 0 && positiveInteger(reserveQuantity) <= selectedDetailReserveLimit;
   const selectedReleaseMax = selectedAssignment ? assignmentActive(selectedAssignment) : selectedAllocation ? selectedAllocation.unassignedQuantity : 0;
   const canRelease = canManage && selectedReleaseMax > 0 && positiveInteger(actionQuantity) > 0 && positiveInteger(actionQuantity) <= selectedReleaseMax && releaseReason.trim().length > 0;
-  const canAssign = canManage && isOrder && Boolean(selectedAllocation) && positiveInteger(actionQuantity) > 0 && positiveInteger(actionQuantity) <= (selectedAllocation?.unassignedQuantity ?? 0);
+  const canAssign = canManage && isOrder && Boolean(selectedAllocation) && selectedAllocationAssignLimit > 0 && positiveInteger(actionQuantity) > 0 && positiveInteger(actionQuantity) <= selectedAllocationAssignLimit;
   const labels = {
     identity: tx('已核对件号、状态及序号/批次', 'Physical identity, condition and serial/batch checked'),
     documents: tx('已核对交付文件与实物一致', 'Delivery documents match the physical item'),
@@ -372,11 +386,12 @@ export function InventoryAllocationPanel({
       {error && <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       {loading ? <div className="flex items-center gap-2 py-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" />{tx('加载分配数据...', 'Loading allocation data...')}</div> : (
         <>
-          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+          <div className={cn('grid grid-cols-2 gap-2 text-sm', isOrder ? 'sm:grid-cols-5' : 'sm:grid-cols-4')}>
             <div className="rounded border bg-white p-2"><span className="block text-xs text-gray-500">{tx('需求', 'Demand')}</span><strong>{demand} EA</strong></div>
             <div className="rounded border bg-white p-2"><span className="block text-xs text-gray-500">{tx('未分配', 'Unassigned')}</span><strong>{unassigned} EA</strong></div>
             <div className="rounded border bg-white p-2"><span className="block text-xs text-gray-500">{tx('已分配', 'Assigned')}</span><strong>{assigned} EA</strong></div>
-            <div className="rounded border bg-white p-2"><span className="block text-xs text-gray-500">{tx('已出库', 'Outbound')}</span><strong>{outbound} EA</strong></div>
+            <div className="rounded border bg-white p-2"><span className="block text-xs text-gray-500">{tx('本地已出库', 'Local outbound')}</span><strong>{outbound} EA</strong></div>
+            {isOrder && <div className="rounded border bg-white p-2"><span className="block text-xs text-gray-500">{tx('供应商直发', 'Direct shipped')}</span><strong>{directShipped} EA</strong></div>}
           </div>
 
           {canManage && (
@@ -399,7 +414,7 @@ export function InventoryAllocationPanel({
                   )}
                   {!detailsLoading && availableDetails.length === 0 && <p className="text-xs text-amber-700">{detailsError || tx('没有可用库存明细，请先刷新或补充库存。', 'No available inventory detail. Refresh or add stock first.')}</p>}
                 </div>
-                <div className="space-y-1"><Label>{tx('数量', 'Quantity')}</Label><Input type="number" min={1} max={selectedDetailAvailable || undefined} step={1} value={reserveQuantity} onChange={(event) => setReserveQuantity(event.target.value)} /></div>
+                <div className="space-y-1"><Label>{tx('数量', 'Quantity')}</Label><Input type="number" min={1} max={selectedDetailReserveLimit || undefined} step={1} value={reserveQuantity} onChange={(event) => setReserveQuantity(event.target.value)} /></div>
                 <Button onClick={() => void handleReserve()} disabled={!canReserve || Boolean(busy)}>{busy === 'reserve' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{tx('预留', 'Reserve')}</Button>
               </div>
             </div>
@@ -436,7 +451,7 @@ export function InventoryAllocationPanel({
               <p className="text-sm font-medium">{tx('订单分配、释放与出库', 'Order assignment, release and outbound')}</p>
               {canManage && selectedAllocation && selectedAllocation.unassignedQuantity > 0 && <div className="flex flex-wrap items-end gap-2 rounded bg-blue-50 p-2 text-sm">
                 <div><p className="text-xs text-gray-500">{tx('选择父分配', 'Selected parent')}</p><p className="font-mono text-xs">{selectedAllocation.id}</p></div>
-                <Label className="w-28">{tx('分配数量', 'Assign qty')}<Input type="number" min={1} max={selectedAllocation.unassignedQuantity} step={1} value={actionQuantity} onChange={(event) => setActionQuantity(event.target.value)} /></Label>
+                <Label className="w-28">{tx('分配数量', 'Assign qty')}<Input type="number" min={1} max={selectedAllocationAssignLimit || undefined} step={1} value={actionQuantity} onChange={(event) => setActionQuantity(event.target.value)} /></Label>
                 <Button size="sm" onClick={() => void handleAssign()} disabled={!canAssign || Boolean(busy)}>{busy === 'assign' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{tx('分配到订单行', 'Assign to order')}</Button>
               </div>}
               {orderAssignments.length === 0 ? <p className="text-xs text-gray-500">{tx('本订单行尚无子分配。', 'No child assignment exists for this order line.')}</p> : orderAssignments.map((assignment) => {

@@ -163,6 +163,7 @@ describe('documentTemplateService', () => {
         serialNumber: null,
         batchNumber: null,
         outboundQuantity: 0,
+        directShippedQuantity: 0,
         outboundStatus: 'PENDING',
       },
     });

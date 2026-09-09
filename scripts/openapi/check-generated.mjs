@@ -141,6 +141,31 @@ function assertContractShape(contract) {
   if (!created?.allOf?.some((entry) => entry.required?.includes('previousQuotationId'))) {
     failContract('QuotationRevisionCreated must require previousQuotationId');
   }
+
+  const certificateRevoke = contract.paths?.['/api/certificates/{id}/revoke']?.post;
+  if (certificateRevoke?.responses?.['200']?.$ref !== '#/components/responses/CertificateAction'
+    || certificateRevoke?.requestBody?.$ref !== '#/components/requestBodies/CertificateRevoke'
+    || !certificateRevoke.description?.includes('required reason')) {
+    failContract('certificate revoke must retain its strict reason-bearing action contract');
+  }
+  const revokeSchema = schemas.CertificateRevokeRequest;
+  if (revokeSchema?.additionalProperties !== false
+    || !revokeSchema.required?.includes('reason')
+    || revokeSchema.properties?.reason?.minLength !== 3
+    || revokeSchema.properties?.reason?.maxLength !== 4000) {
+    failContract('CertificateRevokeRequest must require a bounded reason on a strict object');
+  }
+
+  const certificateRenew = contract.paths?.['/api/certificates/{id}/renew']?.post;
+  if (!certificateRenew?.deprecated
+    || !certificateRenew.description?.startsWith('Disabled:')
+    || certificateRenew.requestBody
+    || Object.keys(certificateRenew.responses ?? {}).some(status => /^2\d\d$/.test(status))
+    || certificateRenew.responses?.['401']?.$ref !== '#/components/responses/Error'
+    || certificateRenew.responses?.['403']?.$ref !== '#/components/responses/Error'
+    || certificateRenew.responses?.['409']?.$ref !== '#/components/responses/Error') {
+    failContract('certificate renew must remain disabled and return only authorization/conflict errors');
+  }
 }
 
 try {

@@ -69,6 +69,7 @@ import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
 import { InventoryAllocationPanel } from '@/components/InventoryAllocationPanel';
 import { ShipmentPanel } from '@/components/ShipmentPanel';
+import { ProcurementPanel } from '@/components/procurement/ProcurementPanel';
 import { toast } from 'sonner';
 import { QualityReviewPanel } from './QualityReviewPanel';
 import type { Order, OrderStatus } from '@/types';
@@ -647,9 +648,9 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className={cn('max-h-[80vh] overflow-y-auto', isEditing ? 'max-w-4xl' : 'max-w-2xl')}>
+      <DialogContent className={cn('max-h-[80vh] overflow-y-auto p-3 sm:p-6 [&>*]:min-w-0', isEditing || activeOrder?.lineItemsMode ? 'sm:max-w-4xl' : 'sm:max-w-2xl')}>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 break-all">
             <ClipboardList className="w-5 h-5" />
             {isEditing ? tx('编辑订单', 'Edit Order') : tx('订单详情', 'Order Details')} - {activeOrder?.orderNumber}
           </DialogTitle>
@@ -680,18 +681,18 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
           )}
 
           {/* Basic information */}
-          <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+          <div className="grid grid-cols-1 gap-4 p-4 bg-gray-50 rounded-lg sm:grid-cols-2 [&>*]:min-w-0 [&_p]:break-words">
             <div>
               <p className="text-sm text-gray-500">{tx('销售订单号', 'Sales Order Number')}</p>
               <p className="font-mono font-semibold">{activeOrder?.soNumber}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">{tx('采购订单号', 'Purchase Order Number')}</p>
+              <p className="text-sm text-gray-500">{tx('客户采购单号', 'Customer PO number')}</p>
               <p className="font-mono">{activeOrder?.poNumber || '-'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500">{tx('客户', 'Customer')}</p>
-              <p className="font-semibold">{activeOrder?.customerName}</p>
+              <p className="font-semibold">{activeOrder?.customerName || order.customerName}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500">{tx('金额', 'Amount')}</p>
@@ -701,7 +702,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 
           {/* Part information */}
           {activeOrder?.lineItemsMode ? (
-            <div className="space-y-3 rounded-lg border p-4">
+            <div className="space-y-3 rounded-lg border p-2 sm:p-4">
               <p className="font-semibold">{tx('本订单成交明细', 'Accepted lines in this order')}</p>
               <div className="overflow-x-auto">
                 <Table>
@@ -709,12 +710,14 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
                     <TableHead>{tx('件号', 'Part')}</TableHead><TableHead>{tx('数量', 'Quantity')}</TableHead>
                     <TableHead>{tx('单价 USD', 'Unit price USD')}</TableHead><TableHead>{tx('行金额 USD', 'Line total USD')}</TableHead>
                     <TableHead>{tx('已出库', 'Outbound')}</TableHead>
+                    <TableHead>{tx('供应商已直发', 'Supplier dispatched')}</TableHead>
                   </TableRow></TableHeader>
                   <TableBody>{activeOrder.lines?.map(line => <TableRow key={line.id}>
                     <TableCell className="font-mono">{line.partNumber}</TableCell><TableCell>{line.quantity} {line.uom}</TableCell>
                     <TableCell>{Number(line.unitPrice).toLocaleString(undefined, { maximumFractionDigits: 4 })}</TableCell>
                     <TableCell>{Number(line.lineTotal).toLocaleString(undefined, { maximumFractionDigits: 4 })}</TableCell>
                     <TableCell>{line.outboundQuantity} / {line.quantity}</TableCell>
+                    <TableCell>{line.directShippedQuantity ?? 0} / {line.quantity}</TableCell>
                   </TableRow>)}</TableBody>
                 </Table>
               </div>
@@ -732,6 +735,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
                   />
                 ))}
                 {activeOrder.id && <ShipmentPanel orderId={activeOrder.id} onChanged={refetchDetail} />}
+                {activeOrder.id && <ProcurementPanel key={activeOrder.id} order={activeOrder} onChanged={refetchDetail} />}
               </div>
             </div>
           ) : (
@@ -1553,6 +1557,7 @@ export function Orders() {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8"
+                              aria-label={tx('查看订单详情', 'View order details')}
                               onClick={() => handleViewDetail(order)}
                             >
                               <Eye className="w-4 h-4" />

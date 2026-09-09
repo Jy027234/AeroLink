@@ -29,6 +29,7 @@ function fixture() {
     purchaseCommitmentLines: [] as typeof line[] };
   const mocks = { $queryRaw: vi.fn().mockResolvedValue([]), order: { findUnique: vi.fn().mockResolvedValue(order), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     stockReceiptLine: { count: vi.fn().mockResolvedValue(0) },
+    supplierDirectShipment: { count: vi.fn().mockResolvedValue(0) },
     supplier: { findUnique: vi.fn().mockResolvedValue({ id: 'supplier', status: 'active' }) },
     purchaseCommitment: { findUnique: vi.fn().mockResolvedValue(purchase), create: vi.fn().mockResolvedValue(purchase), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     purchaseCommitmentEvent: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({}) },
@@ -78,6 +79,12 @@ describe('purchase command state and authority', () => {
     const f = fixture(); f.purchase.status = 'CONFIRMED'; f.mocks.stockReceiptLine.count.mockResolvedValue(1);
     await expect(f.command('CANCEL')).rejects.toThrow(/待检到货/);
     expect(f.mocks.purchaseCommitment.updateMany).not.toHaveBeenCalled();
+  });
+  it('requires a prepared direct plan to be cancelled before its purchase', async () => {
+    const f = fixture(); f.purchase.status = 'CONFIRMED'; f.mocks.supplierDirectShipment.count.mockResolvedValue(1);
+    await expect(f.command('CANCEL')).rejects.toThrow(/先取消直发计划/);
+    expect(f.mocks.purchaseCommitment.updateMany).not.toHaveBeenCalled();
+    expect(f.mocks.purchaseCommitmentLine.update).not.toHaveBeenCalled();
   });
   it('allows independent manager approval at 5000 without rewriting the frozen snapshot', async () => {
     const f = fixture(); f.pending();

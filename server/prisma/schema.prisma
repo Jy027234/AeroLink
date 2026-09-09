@@ -64,6 +64,20 @@ enum PurchaseCommitmentFulfillmentMode {
   SUPPLIER_DIRECT
 }
 
+enum SupplierDirectShipmentStatus {
+  PREPARED
+  CANCELLED
+  DISPATCHED
+  PARTIALLY_RECEIVED
+  DELIVERED
+}
+
+enum SupplierDirectShipmentReviewStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
 enum StockReceiptLineStatus {
   PENDING_REVIEW
   ACCEPTED
@@ -113,6 +127,11 @@ model User {
   purchaseCommitmentsApproved   PurchaseCommitment[] @relation("PurchaseCommitmentApprover")
   purchaseCommitmentsConfirmed  PurchaseCommitment[] @relation("PurchaseCommitmentConfirmer")
   purchaseCommitmentEvents      PurchaseCommitmentEvent[]
+  supplierDirectShipmentsCreated   SupplierDirectShipment[] @relation("SupplierDirectShipmentCreator")
+  supplierDirectShipmentsDispatched SupplierDirectShipment[] @relation("SupplierDirectShipmentDispatcher")
+  supplierDirectShipmentsCancelled  SupplierDirectShipment[] @relation("SupplierDirectShipmentCanceller")
+  supplierDirectShipmentLinesReviewed SupplierDirectShipmentLine[] @relation("SupplierDirectShipmentLineReviewer")
+  supplierDirectShipmentEvents       SupplierDirectShipmentEvent[] @relation("SupplierDirectShipmentEventActor")
   stockReceiptsReceived         StockReceipt[] @relation("StockReceiptReceiver")
   stockReceiptLinesReviewed     StockReceiptLine[] @relation("StockReceiptLineReviewer")
   stockReceiptEvents            StockReceiptEvent[]
@@ -1071,6 +1090,7 @@ model Order {
 
   // Phase 5: 部分发货支持
   outboundQuantity  Int      @default(0)
+  directShippedQuantity Int    @default(0)
   outboundStatus    String   @default("PENDING")
 
   customer    Customer           @relation(fields: [customerId], references: [id])
@@ -1083,6 +1103,7 @@ model Order {
   lines                 OrderLine[]
   fulfillmentReviews    FulfillmentReview[]
   purchaseCommitments   PurchaseCommitment[]
+  supplierDirectShipments SupplierDirectShipment[]
 
   @@index([status, createdAt])
   @@map("orders")
@@ -1101,6 +1122,7 @@ model OrderLine {
   lineTotal         Decimal  @db.Decimal(18, 4)
   currency          String   @default("USD")
   outboundQuantity  Int      @default(0)
+  directShippedQuantity Int    @default(0)
   outboundStatus    String   @default("PENDING")
   inventoryDetailId String?
   serialNumber      String?
@@ -1166,6 +1188,7 @@ model PurchaseCommitment {
   lines       PurchaseCommitmentLine[]
   events      PurchaseCommitmentEvent[]
   stockReceipts StockReceipt[]
+  supplierDirectShipments SupplierDirectShipment[]
 
   @@index([orderId, status])
   @@index([supplierId, status])
@@ -1198,12 +1221,106 @@ model PurchaseCommitmentLine {
   orderLine          OrderLine          @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
   sourceSupplierQuote SupplierQuote?     @relation(fields: [sourceSupplierQuoteId], references: [id], onDelete: Restrict)
   stockReceiptLines StockReceiptLine[]
+  supplierDirectShipmentLines SupplierDirectShipmentLine[]
 
   @@unique([purchaseCommitmentId, lineNo])
   @@unique([purchaseCommitmentId, orderLineId])
   @@index([orderLineId])
   @@index([sourceSupplierQuoteId])
   @@map("purchase_commitment_lines")
+}
+
+model SupplierDirectShipment {
+  id                    String   @id @default(uuid())
+  shipmentNumber        String   @unique
+  purchaseCommitmentId  String
+  orderId               String
+  carrier               String
+  trackingNumber        String
+  origin                String
+  destination           String
+  reason                String
+  evidence              Json
+  status                SupplierDirectShipmentStatus @default(PREPARED)
+  version               Int      @default(1)
+  commandId             String   @unique
+  requestHash           String
+  createdById            String
+  dispatchedById        String?
+  dispatchedAt          DateTime?
+  cancelledById         String?
+  cancelledAt           DateTime?
+  cancellationReason    String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  purchaseCommitment    PurchaseCommitment @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  order                 Order              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  createdBy             User               @relation("SupplierDirectShipmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  dispatchedBy          User?              @relation("SupplierDirectShipmentDispatcher", fields: [dispatchedById], references: [id], onDelete: Restrict)
+  cancelledBy           User?              @relation("SupplierDirectShipmentCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  lines                 SupplierDirectShipmentLine[]
+  events                SupplierDirectShipmentEvent[]
+
+  @@index([purchaseCommitmentId, status])
+  @@index([orderId, status])
+  @@map("supplier_direct_shipments")
+}
+
+model SupplierDirectShipmentLine {
+  id                    String   @id @default(uuid())
+  shipmentId            String
+  lineNo                Int
+  purchaseCommitmentLineId String
+  quantity              Int
+  physicalSnapshot      Json
+  reviewStatus          SupplierDirectShipmentReviewStatus @default(PENDING_REVIEW)
+  reviewedById          String?
+  reviewedAt            DateTime?
+  reviewReason          String?
+  checks                Json?
+  reviewSnapshot        Json?
+  reviewSnapshotHash    String?
+  reviewEvidence        Json     @default("[]")
+  receivedQuantity      Int      @default(0)
+  serialClaimKey        String?  @unique(map: "supplier_direct_shipment_line_serial_claim_key")
+  version               Int      @default(1)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  shipment              SupplierDirectShipment @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  purchaseCommitmentLine PurchaseCommitmentLine @relation(fields: [purchaseCommitmentLineId], references: [id], onDelete: Restrict)
+  reviewedBy            User?                  @relation("SupplierDirectShipmentLineReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  events                SupplierDirectShipmentEvent[]
+
+  @@unique([shipmentId, lineNo])
+  @@index([purchaseCommitmentLineId, reviewStatus])
+  @@index([shipmentId, reviewStatus])
+  @@map("supplier_direct_shipment_lines")
+}
+
+model SupplierDirectShipmentEvent {
+  id                String   @id @default(uuid())
+  shipmentId        String
+  shipmentLineId    String?
+  kind              String
+  quantity          Int
+  actorId           String
+  commandId         String
+  eventNo           Int
+  requestHash       String
+  data              Json
+  createdAt         DateTime @default(now())
+
+  shipment          SupplierDirectShipment @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  shipmentLine      SupplierDirectShipmentLine? @relation(fields: [shipmentLineId], references: [id], onDelete: Restrict)
+  actor             User @relation("SupplierDirectShipmentEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo], map: "supplier_direct_shipment_event_command_event_key")
+  @@index([shipmentId, eventNo])
+  @@index([shipmentLineId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("supplier_direct_shipment_events")
 }
 
 model PurchaseCommitmentEvent {

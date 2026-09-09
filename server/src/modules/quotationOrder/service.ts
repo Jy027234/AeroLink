@@ -1311,6 +1311,7 @@ export function mapOrderResponse(order: Order & { customer: Customer }) {
     serialNumber: order.serialNumber || undefined,
     batchNumber: order.batchNumber || undefined,
     outboundQuantity: order.outboundQuantity,
+    directShippedQuantity: order.directShippedQuantity,
     outboundStatus: order.outboundStatus,
   };
 }

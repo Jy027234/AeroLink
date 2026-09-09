@@ -29,7 +29,7 @@ export function applyInventoryAllocationContract(paths, core) {
   core.schemas.QuotationLineAllocationView = object({ quotationLineId: id, quantity: count, acceptedQuantity: count,
     reservedQuantity: count, unassignedQuantity: count, assignedActiveQuantity: count, activeQuantity: count,
     allocations: array(ref('InventoryAllocation')) });
-  core.schemas.OrderLineAllocationView = object({ id, quotationLineId: id, quantity: count, outboundQuantity: count,
+  core.schemas.OrderLineAllocationView = object({ id, quotationLineId: id, quantity: count, outboundQuantity: count, directShippedQuantity: count,
     assignments: array(object({ ...assignment.properties, allocationId: id, inventoryDetailId: id })) });
   core.schemas.InventoryAllocationReserve = object({ quotationLineId: id, orderLineId: id, allocations: {
     ...array({ ...object({ inventoryDetailId: id, quantity, stockReceiptLineId: id, sourceReturnHoldId: id }, ['inventoryDetailId', 'quantity']),

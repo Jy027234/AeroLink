@@ -105,7 +105,7 @@ router.get('/quotation-lines/:quotationLineId', requireCapability('quotation', '
 router.get('/order-lines/:orderLineId', requireCapability('order', 'read'), asyncHandler(async (req: AuthRequest, res) => {
   await assertLineAccess(req.user!, { orderLineId: req.params.orderLineId }, false);
   const line = await prisma.orderLine.findUniqueOrThrow({ where: { id: req.params.orderLineId },
-    select: { id: true, quotationLineId: true, quantity: true, outboundQuantity: true } });
+    select: { id: true, quotationLineId: true, quantity: true, outboundQuantity: true, directShippedQuantity: true } });
   const rows = await prisma.allocationAssignment.findMany({ where: { orderLineId: line.id }, orderBy: { id: 'asc' }, select: {
     id: true, orderLineId: true, assignedQuantity: true, releasedQuantity: true, consumedQuantity: true, allocationId: true,
     allocation: { select: { inventoryDetailId: true } },

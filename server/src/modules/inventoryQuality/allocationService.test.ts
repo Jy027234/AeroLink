@@ -65,7 +65,7 @@ function lineFixture(overrides: Record<string, unknown> = {}) {
   return line;
 }
 
-function withdrawnExpiredOrderFixture() {
+function withdrawnExpiredOrderFixture(directShippedQuantity = 0) {
   const line = lineFixture({
     quantity: 2,
     acceptedQuantity: 2,
@@ -115,6 +115,7 @@ function withdrawnExpiredOrderFixture() {
     partNumber: line.partNumber,
     quantity: 1,
     outboundQuantity: 0,
+    directShippedQuantity,
     serialNumber: null,
     batchNumber: null,
     order: {
@@ -343,6 +344,77 @@ describe('modern inventory allocation service', () => {
     expect(result.replayed).toBe(false);
     expect('createdAllocationIds' in result && result.createdAllocationIds).toEqual(['allocation-1']);
     expect(tx.inventoryDetail.updateMany).toHaveBeenCalled();
+  });
+
+  it('does not allocate local inventory beyond an already direct-shipped order quantity', async () => {
+    const { line, orderLine } = withdrawnExpiredOrderFixture(1);
+    const tx = {
+      ...noReturnHold(),
+      quotationLine: { findUnique: vi.fn().mockResolvedValue(line) },
+      orderLine: { findUnique: vi.fn().mockResolvedValue(orderLine) },
+      inventoryAllocation: { findMany: vi.fn().mockResolvedValue([]) },
+      allocationAssignment: { findMany: vi.fn().mockResolvedValue([]) },
+      inventoryDetail: { findUnique: vi.fn() },
+    } as unknown as Prisma.TransactionClient;
+
+    await expect(reserveLineInventory({
+      tx,
+      actor: manager,
+      quotationLineId: line.id,
+      orderLineId: orderLine.id,
+      allocations: [{ inventoryDetailId: 'detail-1', quantity: 1 }],
+      commandId: 'direct-capacity-boundary',
+    })).rejects.toThrow('订单行待履约数量不足');
+    expect(tx.inventoryDetail.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('does not assign a reserved parent beyond the order line direct-shipped capacity', async () => {
+    const { line, orderLine } = withdrawnExpiredOrderFixture(1);
+    line.quantity = 2;
+    line.acceptedQuantity = 2;
+    line.reservedQuantity = 2;
+    line.rfqLine.quantity = 2;
+    orderLine.quantity = 2;
+    const quotation = line.quotation as Record<string, any>;
+    quotation.reservedQuantity = 2;
+    quotation.status = 'APPROVED';
+    quotation.expiryDate = new Date('2099-01-01T00:00:00.000Z');
+    quotation.validityDeadline = new Date('2099-01-01T00:00:00.000Z');
+    const snapshotLine = { ...line } as Record<string, any>;
+    delete snapshotLine.quotation;
+    quotation.lines = [snapshotLine];
+    quotation.approvals = [{
+      action: 'APPROVE',
+      policyVersion: `${QUOTATION_APPROVAL_POLICY_VERSION}-lines-v1`,
+      snapshotJson: JSON.stringify(buildCommercialApprovalSnapshot({
+        headerTerms: buildQuotationApprovalSnapshot(quotation),
+        lines: quotation.lines,
+      })),
+    }];
+    const parent = {
+      id: 'allocation-direct-capacity', quotationLineId: line.id, inventoryDetailId: 'detail-1',
+      allocatedQuantity: 2, releasedQuantity: 0, consumedQuantity: 0, version: 1, expiresAt: null,
+      assignments: [], stockReceiptLine: null,
+      inventoryDetail: { id: 'detail-1', quantity: 2, allocatedQuantity: 2, status: 'AVAILABLE', type: 'OWN',
+        conditionCode: 'NE', serialNumber: null, batchNumber: null, shelfLifeDate: null, shelfLifeDays: null,
+        nextOverhaulDue: null, lifeLimited: false, remainingHours: null, remainingCycles: null,
+        inventoryItem: { partNumber: 'PN-1', trackingType: 'BATCH' } },
+    };
+    const tx = {
+      ...noReturnHold(),
+      quotationLine: { findUnique: vi.fn().mockResolvedValue(line) },
+      orderLine: { findUnique: vi.fn().mockResolvedValue(orderLine) },
+      inventoryAllocation: { findMany: vi.fn().mockResolvedValue([parent]) },
+      allocationAssignment: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as Prisma.TransactionClient;
+
+    await expect(assignLineInventory({
+      tx,
+      actor: manager,
+      orderLineId: orderLine.id,
+      allocations: [{ allocationId: parent.id, quantity: 2 }],
+      commandId: 'direct-assign-capacity-boundary',
+    })).rejects.toThrow('订单行待履约数量不足');
   });
 
   it('keeps sales actors out of physical allocation writes', async () => {

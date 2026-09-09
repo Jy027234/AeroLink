@@ -653,7 +653,7 @@ export interface Order {
   lines?: Array<{
     id: string; lineNo: number; quotationLineId: string; partNumber: string;
     quantity: number; uom: string; unitPrice: string | number; lineTotal: string | number;
-    currency: string; outboundQuantity: number; outboundStatus: string;
+    currency: string; outboundQuantity: number; outboundStatus: string; directShippedQuantity?: number;
   }>;
   id: string;
   orderNumber: string;
@@ -717,6 +717,7 @@ export interface Order {
   batchNumber?: string;
   // Phase 5: 部分发货支持
   outboundQuantity?: number;
+  directShippedQuantity?: number;
   outboundStatus?: 'PENDING' | 'PARTIAL' | 'COMPLETED';
 }
 

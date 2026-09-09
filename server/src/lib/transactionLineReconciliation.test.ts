@@ -38,6 +38,41 @@ describe('transaction line reconciliation', () => {
     expect(input).toEqual(before);
   });
 
+  it('reconciles an active supplier-direct line against the purchase and order projections', () => {
+    const input = fixture();
+    input.orders[0].directShippedQuantity = 1;
+    input.orders[0].lines[0].directShippedQuantity = 1;
+    input.directPurchaseLines = [{
+      id: 'pcl1', purchaseCommitmentId: 'pc1', orderLineId: 'ol1', quantity: 1,
+      cancelledQuantity: 0, receivedQuantity: 0, directShippedQuantity: 1, fulfillmentMode: 'SUPPLIER_DIRECT',
+    }];
+    input.directShipmentLines = [{
+      id: 'dsl1', shipmentId: 'ds1', shipmentStatus: 'DISPATCHED', orderId: 'o1', orderLineId: 'ol1',
+      purchaseCommitmentId: 'pc1', purchaseCommitmentLineId: 'pcl1', quantity: 1, receivedQuantity: 0, reviewStatus: 'APPROVED',
+    }];
+    expect(reconcileTransactionLines(input)).toMatchObject({ status: 'PASS', blockers: 0 });
+  });
+
+  it('blocks direct projection drift even when legacy local outbound facts still match', () => {
+    const input = fixture();
+    input.orders[0].directShippedQuantity = 1;
+    input.orders[0].lines[0].directShippedQuantity = 0;
+    input.directPurchaseLines = [{
+      id: 'pcl1', purchaseCommitmentId: 'pc1', orderLineId: 'ol1', quantity: 1,
+      cancelledQuantity: 0, receivedQuantity: 0, directShippedQuantity: 0, fulfillmentMode: 'SUPPLIER_DIRECT',
+    }];
+    input.directShipmentLines = [{
+      id: 'dsl1', shipmentId: 'ds1', shipmentStatus: 'DISPATCHED', orderId: 'o1', orderLineId: 'ol1',
+      purchaseCommitmentId: 'pc1', purchaseCommitmentLineId: 'pcl1', quantity: 1, receivedQuantity: 0, reviewStatus: 'APPROVED',
+    }];
+    const report = reconcileTransactionLines(input);
+    expect(report.status).toBe('BLOCKED');
+    expect(report.issues.map(issue => issue.code)).toEqual(expect.arrayContaining([
+      'DIRECT_SHIPPED_PURCHASE_LINE_MISMATCH',
+      'DIRECT_SHIPPED_LINE_MISMATCH',
+    ]));
+  });
+
   it('blocks missing or duplicate one-row records and cross-document ownership', () => {
     const input = fixture();
     input.quotations[0].lines.push({ ...input.quotations[0].lines[0], id: 'ql2', lineNo: 2 });

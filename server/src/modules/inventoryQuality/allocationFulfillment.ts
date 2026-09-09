@@ -512,7 +512,7 @@ function assertQuantityFacts(record: AllocationContextRecord, quantity: number, 
   if (assignmentActive < quantity || allocationActive < quantity || assignmentSummary.assignedActiveQuantity < quantity) {
     blocked('本次计划数量超过该分配的活动数量', 'QUALITY_REVIEW_BLOCKED');
   }
-  if (orderLine.quantity - orderLine.outboundQuantity < quantity) {
+  if (orderLine.quantity - orderLine.outboundQuantity - (orderLine.directShippedQuantity ?? 0) < quantity) {
     blocked('计划数量超过订单行待出库数量', 'QUALITY_REVIEW_BLOCKED');
   }
   if (record.allocation.inventoryDetail.quantity < quantity) {
@@ -777,12 +777,12 @@ async function assertReviewStillValid(tx: Prisma.TransactionClient, context: All
   return review;
 }
 
-type OrderLineProjection = { id: string; quantity: number; outboundQuantity: number; outboundStatus: string };
+type OrderLineProjection = { id: string; quantity: number; outboundQuantity: number; outboundStatus: string; directShippedQuantity: number };
 
 async function getOrderLineProjectionRows(tx: Prisma.TransactionClient, orderId: string, pending?: { orderLineId: string; quantity: number }) {
   const lines = await tx.orderLine.findMany({
     where: { orderId },
-    select: { id: true, quantity: true, outboundQuantity: true, outboundStatus: true },
+    select: { id: true, quantity: true, outboundQuantity: true, outboundStatus: true, directShippedQuantity: true },
     orderBy: { lineNo: 'asc' },
   });
   if (lines.length === 0) blocked('订单缺少订单行，不能执行分配出库', 'ALLOCATION_INCONSISTENT');
@@ -797,7 +797,7 @@ async function getOrderLineProjectionRows(tx: Prisma.TransactionClient, orderId:
   for (const line of lines) {
     const consumed = consumedByLine.get(line.id) ?? 0;
     const expectedOutbound = line.id === pending?.orderLineId ? line.outboundQuantity + pending.quantity : line.outboundQuantity;
-    if (consumed !== expectedOutbound || consumed > line.quantity) blocked('订单行出库投影与 Allocation 消费事实不一致', 'ALLOCATION_INCONSISTENT');
+    if (consumed !== expectedOutbound || consumed + (line.directShippedQuantity ?? 0) > line.quantity) blocked('订单行出库投影与 Allocation 消费事实不一致', 'ALLOCATION_INCONSISTENT');
   }
   return { lines, consumedByLine };
 }
@@ -832,8 +832,9 @@ async function updateOrderProjections(
   const totalOutbound = nextLines.reduce((sum, line) => sum + line.outboundQuantity, 0);
   const totalQuantity = nextLines.reduce((sum, line) => sum + line.quantity, 0);
   if (totalOutbound > totalQuantity || totalOutbound > context.orderLine.order.quantity) blocked('订单累计出库数量无效', 'ALLOCATION_INCONSISTENT');
-  const allLinesComplete = nextLines.every((line) => line.outboundQuantity === line.quantity);
-  const nextOutboundStatus = totalOutbound === 0 ? 'PENDING' : allLinesComplete ? 'COMPLETED' : 'PARTIAL';
+  const allLinesComplete = nextLines.every((line) => line.outboundQuantity + (line.directShippedQuantity ?? 0) === line.quantity);
+  const allLocalLinesComplete = nextLines.every((line) => line.outboundQuantity === line.quantity);
+  const nextOutboundStatus = totalOutbound === 0 ? 'PENDING' : allLocalLinesComplete ? 'COMPLETED' : 'PARTIAL';
   const order = context.orderLine.order;
   if (allLinesComplete) {
     return transitionOrderStatus(tx, {

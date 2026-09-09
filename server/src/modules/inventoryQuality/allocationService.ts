@@ -720,7 +720,7 @@ export async function reserveLineInventory(args: {
     await assertAdditionalStockCoverage(args.tx, { orderLineId: orderLine.id, orderQuantity: orderLine.quantity,
       assignments: existingOrderAssignments.map(row => ({ ...row, purchaseLineId: row.allocation.stockReceiptLine?.purchaseCommitmentLineId ?? null })),
       additionalAssignments: requested.map((row, index) => ({ quantity: row.quantity, purchaseLineId: sources[index].purchaseLineId })) });
-    if (requestedTotal > orderLine.quantity - orderLine.outboundQuantity - assigned) {
+    if (requestedTotal > orderLine.quantity - orderLine.outboundQuantity - (orderLine.directShippedQuantity ?? 0) - assigned) {
       fail('订单行待履约数量不足，不能新增库存分配');
     }
   }
@@ -905,7 +905,7 @@ export async function assignLineInventory(args: {
     assignments: existingOrderAssignments.map(row => ({ ...row, purchaseLineId: row.allocation.stockReceiptLine?.purchaseCommitmentLineId ?? null })),
     additionalAssignments: requested.map(row => ({ quantity: row.quantity,
       purchaseLineId: parentById.get(row.allocationId)!.stockReceiptLine?.purchaseCommitmentLineId ?? null })) });
-  if (requestedTotal > orderLine.quantity - orderLine.outboundQuantity - activeOrderAssigned) {
+  if (requestedTotal > orderLine.quantity - orderLine.outboundQuantity - (orderLine.directShippedQuantity ?? 0) - activeOrderAssigned) {
     fail('订单行待履约数量不足，不能新增库存分配');
   }
   for (const item of requested) {

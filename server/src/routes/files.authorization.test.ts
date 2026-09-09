@@ -13,6 +13,8 @@ describe('stored object authorization', () => {
     expect(canReadStoredObject({ ownerId: null }, { id: 'user-2', role: 'ADMIN' })).toBe(true);
     expect(canReadStoredObject({ ownerId: 'user-1', domain: 'stock_receipt' }, { id: 'user-1', role: 'sales' })).toBe(false);
     expect(canReadStoredObject({ ownerId: null, domain: 'stock_receipt' }, { id: 'user-2', role: 'ADMIN' })).toBe(false);
+    expect(canReadStoredObject({ ownerId: 'user-1', domain: 'supplier_direct_shipment' }, { id: 'user-1', role: 'sales' })).toBe(false);
+    expect(canReadStoredObject({ ownerId: null, domain: 'supplier_direct_shipment' }, { id: 'user-2', role: 'ADMIN' })).toBe(false);
   });
 });
 

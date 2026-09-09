@@ -202,6 +202,7 @@ export function applyTransactionLineContract(paths, core) {
     lineTotal: moneyStringSchema('Decimal line total serialized as a string.'),
     currency: str,
     outboundQuantity: { type: 'integer', minimum: 0 },
+    directShippedQuantity: { type: 'integer', minimum: 0, readOnly: true },
     outboundStatus: str,
     inventoryDetailId: { type: ['string', 'null'] },
     serialNumber: nullable,
@@ -225,6 +226,7 @@ export function applyTransactionLineContract(paths, core) {
     readOnly: true,
     description: 'True when order line facts are authoritative.',
   };
+  core.schemas.Order.properties.directShippedQuantity = { type: 'integer', minimum: 0, readOnly: true };
   core.schemas.Order.properties.lines = {
     type: 'array',
     readOnly: true,

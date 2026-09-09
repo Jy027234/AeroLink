@@ -20,7 +20,7 @@ describe('legacy upload authorization', () => {
   });
 
   it('rejects dedicated receipt and purchase evidence through legacy object-key links', () => {
-    for (const domain of ['stock_receipt', 'purchase_commitment']) {
+    for (const domain of ['stock_receipt', 'purchase_commitment', 'supplier_direct_shipment']) {
       expect(getLegacyUploadDecision({ ownerId: 'owner-1', status: 'AVAILABLE', domain }, { id: 'owner-1', role: 'sales' })).toBe('forbidden');
       expect(getLegacyUploadDecision({ ownerId: 'owner-1', status: 'AVAILABLE', domain }, { id: 'admin-1', role: 'ADMIN' })).toBe('forbidden');
     }

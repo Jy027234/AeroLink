@@ -5,9 +5,9 @@ import { createShipment, getOrderShipments, receiveShipment } from './shipmentSe
 
 const actor = { id: 'manager', role: 'MANAGER', department: 'Sales' };
 function fixture() {
-  const order = { id: 'order', status: 'SHIPPED', version: 1, lineItemsMode: true, quantity: 4, outboundQuantity: 4,
+  const order = { id: 'order', status: 'SHIPPED', version: 1, lineItemsMode: true, quantity: 4, outboundQuantity: 4, directShippedQuantity: 0,
     quotation: { createdBy: 'sales', creator: { department: 'Sales' } },
-    lines: [{ id: 'oline', quantity: 4, outboundQuantity: 4 }] };
+    lines: [{ id: 'oline', quantity: 4, outboundQuantity: 4, directShippedQuantity: 0 }] };
   const detail = { id: 'detail', inventoryItemId: 'item', serialNumber: null, batchNumber: 'B1', conditionCode: 'NE',
     warehouse: null, location: 'A1', certificateType: 'NONE', certificateNumber: null, certificateFileUrl: null,
     lifeLimited: false, remainingHours: null, remainingCycles: null, shelfLifeDate: null, shelfLifeDays: null,
@@ -33,6 +33,7 @@ function fixture() {
     shipmentEvent: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({ id: 'event' }) },
     storedObject: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     certificate: { findMany: vi.fn().mockResolvedValue([]) },
+    supplierDirectShipmentLine: { findMany: vi.fn().mockResolvedValue([]) },
   };
   const tx = mocks as unknown as Prisma.TransactionClient;
   const input = { tx, actor, orderId: 'order', carrier: 'Carrier', trackingNumber: 'T1', origin: 'A', destination: 'B',
@@ -103,6 +104,32 @@ describe('modern shipment sources', () => {
     expect(view.delivery).toMatchObject({ complete: false, requiredQuantity: 4, receivedQuantity: 1 });
     expect(view.outboundTransactions[0]).toMatchObject({ boundQuantity: 2, availableQuantity: 2 });
     expect(JSON.stringify(view)).not.toMatch(/unitCost|costPrice|totalAmount|requestHash|commandId/);
+  });
+  it('marks a mixed local and supplier-direct order complete only after both sources are received', async () => {
+    const f = fixture();
+    f.order.quantity = 6;
+    f.order.outboundQuantity = 4;
+    f.order.directShippedQuantity = 2;
+    f.order.lines[0].quantity = 6;
+    f.order.lines[0].outboundQuantity = 4;
+    f.order.lines[0].directShippedQuantity = 2;
+    f.created.lines[0].quantity = 4;
+    f.created.lines[0].receivedQuantity = 4;
+    f.mocks.shipment.findMany.mockResolvedValue([f.created]);
+    f.mocks.supplierDirectShipmentLine.findMany.mockResolvedValue([{
+      quantity: 2,
+      receivedQuantity: 2,
+      reviewStatus: 'APPROVED',
+      purchaseCommitmentLine: { orderLineId: 'oline' },
+    }]);
+
+    const view = await getOrderShipments({ tx: f.tx, actor: { id: 'quality', role: 'QUALITY_MANAGER' }, orderId: 'order' });
+
+    expect(f.mocks.supplierDirectShipmentLine.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ purchaseCommitmentLine: { orderLineId: { in: ['oline'] } } }),
+    }));
+    expect(view.delivery).toMatchObject({ complete: true, requiredQuantity: 6, receivedQuantity: 6, remainingQuantity: 0 });
+    expect(view.outboundTransactions[0]).toMatchObject({ quantity: 4, boundQuantity: 4 });
   });
   it('enforces current order scope for operational users', async () => {
     const f = fixture();

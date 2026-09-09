@@ -1489,6 +1489,7 @@ export interface OrderLineInventoryAvailability {
   quotationLineId: string;
   quantity: number;
   outboundQuantity: number;
+  directShippedQuantity: number;
   assignments: InventoryAllocationAssignmentView[];
 }
 

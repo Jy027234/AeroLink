@@ -29,13 +29,13 @@ function fixture() {
   };
   const order = {
     id: 'order-1', orderNumber: 'SO-1', quotationId: 'quotation-1', customerId: 'customer-1',
-    quantity: 4, outboundQuantity: 0, outboundStatus: 'PENDING', status: 'SO_CREATED',
+    quantity: 4, outboundQuantity: 0, directShippedQuantity: 0, outboundStatus: 'PENDING', status: 'SO_CREATED',
     statusEnum: 'SO_CREATED', version: 1, lineItemsMode: true, saleType: 'Sale',
     certificateRequired: false, certificateType: null, inspectionRequired: false, quotation,
   };
   const orderLine = {
     id: 'order-line-1', orderId: 'order-1', lineNo: 1, quotationLineId: 'quotation-line-1',
-    partNumber: 'PN-1', uom: 'EA', quantity: 4, outboundQuantity: 0, outboundStatus: 'PENDING',
+    partNumber: 'PN-1', uom: 'EA', quantity: 4, outboundQuantity: 0, directShippedQuantity: 0, outboundStatus: 'PENDING',
     inventoryDetailId: null, serialNumber: null, batchNumber: 'B1', currency: 'USD', order, quotationLine,
   };
   const detail = {
@@ -129,6 +129,7 @@ function fixture() {
     },
     transactionStatusHistory: { create: vi.fn() },
     outboxEvent: { create: vi.fn().mockImplementation(async ({ data }: any) => ({ id: `outbox-${data.channel}`, ...data })) },
+    supplierDirectShipmentLine: { findMany: vi.fn().mockResolvedValue([]) },
   };
   const tx = mocks as unknown as Prisma.TransactionClient;
   return { tx, mocks, txState, file };

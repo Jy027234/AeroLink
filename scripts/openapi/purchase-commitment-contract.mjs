@@ -57,7 +57,10 @@ export function applyPurchaseCommitmentContract(paths, core) {
   core.schemas.PurchaseCommitmentManualSource = manualSource;
   core.schemas.PurchaseCommitmentSource = {
     oneOf: [schemaRef('PurchaseCommitmentSupplierQuoteSource'), schemaRef('PurchaseCommitmentManualSource')],
-    discriminator: { propertyName: 'type' },
+    discriminator: { propertyName: 'type', mapping: {
+      SUPPLIER_QUOTE: '#/components/schemas/PurchaseCommitmentSupplierQuoteSource',
+      MANUAL: '#/components/schemas/PurchaseCommitmentManualSource',
+    } },
     description: 'Strict source union. Manual cost always requires verified USD and private purchase evidence.',
   };
   core.schemas.PurchaseCommitmentLineCreateRequest = {

@@ -7,6 +7,7 @@ import { enqueueBusinessEvent } from '../../lib/outboxService.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
 import { calculateShippableQuantities, deriveOrderDeliveryProgress } from './shipmentQuantities.js';
 import { bindShipmentEvidence } from './shipmentEvidence.js';
+import { readDirectDeliveryProjection } from '../../lib/directDeliveryProjection.js';
 
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
@@ -30,9 +31,9 @@ function text(value: string, label: string) {
 
 export async function assertShipmentOrderAccess(tx: Tx, actor: CapabilityActor, orderId: string, manage = false) {
   const order = await tx.order.findUnique({ where: { id: orderId }, select: {
-    id: true, status: true, version: true, lineItemsMode: true, quantity: true, outboundQuantity: true,
+    id: true, status: true, version: true, lineItemsMode: true, quantity: true, outboundQuantity: true, directShippedQuantity: true,
     quotation: { select: { createdBy: true, creator: { select: { department: true } } } },
-    lines: { select: { id: true, quantity: true, outboundQuantity: true }, orderBy: { lineNo: 'asc' } },
+    lines: { select: { id: true, quantity: true, outboundQuantity: true, directShippedQuantity: true }, orderBy: { lineNo: 'asc' } },
   } });
   if (!order) throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
   const scope = { ownerId: order.quotation.createdBy, department: order.quotation.creator.department };
@@ -162,10 +163,12 @@ export async function getOrderShipments(args: { tx: Tx; actor: CapabilityActor; 
     args.tx.shipment.findMany({ where: { orderId: order.id }, include: shipmentInclude, orderBy: { shippedAt: 'asc' } }),
   ]);
   const boundLines = shipments.flatMap(shipment => shipment.lines);
+  const direct = await readDirectDeliveryProjection(args.tx, order.lines.map(line => line.id));
   const balances = calculateShippableQuantities(sources.map(row => ({ id: row.id, quantity: -row.quantity })),
     boundLines.map(line => ({ id: line.id, outboundTransactionId: line.outboundTransactionId, quantity: line.quantity })));
   const delivery = deriveOrderDeliveryProgress(order.lines.map(line => ({ orderLineId: line.id, quantity: line.quantity,
-    receivedQuantity: boundLines.filter(shipmentLine => shipmentLine.orderLineId === line.id).reduce((sum, row) => sum + row.receivedQuantity, 0) })));
+    receivedQuantity: boundLines.filter(shipmentLine => shipmentLine.orderLineId === line.id).reduce((sum, row) => sum + row.receivedQuantity, 0)
+      + (direct.get(line.id)?.received ?? 0) })));
   return { order: { id: order.id, status: order.status, version: order.version },
     outboundTransactions: sources.map(source => {
       const balance = balances.byOutboundTransaction.find(row => row.outboundTransactionId === source.id)!;
@@ -270,7 +273,8 @@ export async function receiveShipment(args: { tx: Tx; actor: CapabilityActor; sh
   if (changed.count !== 1) throw new StateTransitionConflictError();
   const view = await getOrderShipments({ tx, actor, orderId: order.id });
   if (view.delivery.complete && !['DELIVERED', 'COMPLETED'].includes(order.status.toUpperCase())) {
-    if (order.outboundQuantity !== order.quantity || order.lines.some(line => line.outboundQuantity !== line.quantity)) fail('订单签收与实际出库数量不一致');
+    if (order.outboundQuantity + (order.directShippedQuantity ?? 0) !== order.quantity
+      || order.lines.some(line => line.outboundQuantity + (line.directShippedQuantity ?? 0) !== line.quantity)) fail('订单签收与实际本地出库及供应商直发数量不一致');
     await transitionOrderStatus(tx, { id: order.id, currentVersion: order.version + 1, currentStatus: order.status,
       nextStatus: 'DELIVERED', actorId: actor.id, reasonCode: 'SHIPMENT_RECEIPTS_COMPLETED', reason: input.reason });
   }

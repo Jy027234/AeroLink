@@ -5402,6 +5402,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/direct-shipments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/direct-shipments
+         * @description Reads supplier-direct shipment projections under inventory.read and current order scope. No commercial cost/source fields are returned.
+         */
+        get: operations["getDirectShipments"];
+        put?: never;
+        /**
+         * POST /api/direct-shipments
+         * @description Creates a supplier-direct shipment plan from explicit purchase lines and physical facts. Cost/source fields are not accepted or returned.
+         */
+        post: operations["postDirectShipments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/lines/{id}/review-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/direct-shipments/lines/:id/review-context
+         * @description Reads current supplier-direct quality facts under quality_review.approve and current order scope.
+         */
+        get: operations["getDirectShipmentsLinesIdReviewContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/direct-shipments/:id
+         * @description Reads one supplier-direct shipment under inventory.read and current order scope.
+         */
+        get: operations["getDirectShipmentsId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/lines/{id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/direct-shipments/lines/:id/review
+         * @description Records an independent supplier-direct quality decision with current evidence and snapshot checks.
+         */
+        post: operations["postDirectShipmentsLinesIdReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/{id}/dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/direct-shipments/:id/dispatch
+         * @description Dispatches an independently approved supplier-direct shipment under current order scope.
+         */
+        post: operations["postDirectShipmentsIdDispatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/direct-shipments/:id/cancel
+         * @description Cancels an un-dispatched supplier-direct shipment plan under current order scope.
+         */
+        post: operations["postDirectShipmentsIdCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/lines/{id}/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/direct-shipments/lines/:id/receipt
+         * @description Records an explicit customer receipt quantity and evidence for a supplier-direct shipment line.
+         */
+        post: operations["postDirectShipmentsLinesIdReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shipment-tracking": {
         parameters: {
             query?: never;
@@ -8117,6 +8261,7 @@ export interface components {
             eSignatureSupplier?: string;
             /** @description True when order line facts are authoritative. */
             readonly lineItemsMode?: boolean;
+            readonly directShippedQuantity?: number;
             /** @description Authoritative order lines ordered by lineNo. */
             readonly lines?: components["schemas"]["OrderLine"][];
         } & {
@@ -11918,6 +12063,7 @@ export interface components {
             lineTotal: string;
             currency: string;
             outboundQuantity: number;
+            readonly directShippedQuantity?: number;
             outboundStatus: string;
             inventoryDetailId?: string | null;
             serialNumber?: string | null;
@@ -12155,6 +12301,7 @@ export interface components {
             quotationLineId: string;
             quantity: number;
             outboundQuantity: number;
+            directShippedQuantity: number;
             assignments: {
                 id: string;
                 orderLineId: string;
@@ -12454,6 +12601,243 @@ export interface components {
             }[];
             canAccept: boolean;
         };
+        DirectShipmentEvidence: {
+            id: string;
+            version: number;
+            sha256: string;
+            /** @constant */
+            status: "AVAILABLE";
+        };
+        DirectShipmentChecks: {
+            identity: boolean;
+            documents: boolean;
+            conditionAndLife: boolean;
+            customerRequirements: boolean;
+        };
+        DirectShipmentCertificate: {
+            id: string;
+            certificateNumber: string;
+            partNumber: string;
+            serialNumber: string | null;
+            batchNumber: string | null;
+            certificateType: string;
+            status: string;
+            /** Format: date-time */
+            expiryDate: string | null;
+            fileHash: string | null;
+            supplierId: string | null;
+            orderId: string | null;
+            inventoryDetailId: string | null;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        DirectShipmentQualitySnapshot: {
+            /** @constant */
+            schemaVersion: 1;
+            chain: {
+                order: {
+                    id: string;
+                    quotationId: string;
+                    lineItemsMode: boolean;
+                    currency: string;
+                    saleType?: string | null;
+                    certificateRequired: boolean;
+                    certificateType: string | null;
+                    inspectionRequired: boolean;
+                };
+                orderLine: {
+                    id: string;
+                    orderId: string;
+                    quotationLineId: string;
+                    partNumber: string;
+                    uom: string;
+                    quantity: number;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    currency: string;
+                };
+                quotation: {
+                    id: string;
+                    rfqId: string;
+                    currency: string;
+                };
+                quotationLine: {
+                    id: string;
+                    quotationId: string;
+                    rfqLineId: string;
+                    partNumber: string;
+                    uom: string;
+                    quantity: number;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    currency: string;
+                };
+                rfqLine: {
+                    id: string;
+                    rfqId: string;
+                    partNumber: string;
+                    uom: string;
+                    quantity: number;
+                    conditionCode: string;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    certificateRequired: boolean;
+                    certificateType: string | null;
+                    alternatePartNumbers?: string | null;
+                };
+                rfq?: {
+                    id: string;
+                    lineItemsMode?: boolean;
+                };
+            };
+            purchase: {
+                purchaseCommitmentId: string;
+                purchaseCommitmentLineId: string;
+                orderId: string;
+                supplierId: string;
+                orderLineId: string;
+                partNumber: string;
+                uom: string;
+                quantity: number;
+                /** @constant */
+                fulfillmentMode: "SUPPLIER_DIRECT";
+                identitySnapshot: {
+                    /** @constant */
+                    schemaVersion: 1;
+                    orderLineId: string;
+                    quotationLineId: string;
+                    rfqLineId: string;
+                    partNumber: string;
+                    uom: string;
+                    conditionCode: string;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    certificateRequired: boolean;
+                    certificateType: string | null;
+                    /** @enum {unknown} */
+                    trackingType?: "SERIAL" | "BATCH";
+                };
+            };
+            physical: components["schemas"]["StockReceiptPhysical"];
+            certificates: components["schemas"]["DirectShipmentCertificate"][];
+        };
+        DirectShipmentCreateRequest: {
+            purchaseCommitmentId: string;
+            purchaseVersion: number;
+            carrier: string;
+            trackingNumber: string;
+            origin: string;
+            destination: string;
+            reason: string;
+            evidenceIds: string[];
+            lines: {
+                purchaseCommitmentLineId: string;
+                physical: components["schemas"]["StockReceiptPhysical"];
+            }[];
+        };
+        DirectShipmentReviewRequest: {
+            version: number;
+            snapshotHash: string;
+            /** @enum {unknown} */
+            decision: "APPROVED" | "REJECTED";
+            reason: string;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+            evidenceIds?: string[];
+        };
+        DirectShipmentActionRequest: {
+            version: number;
+            reason: string;
+        };
+        DirectShipmentReceiptRequest: {
+            version: number;
+            quantity: number;
+            signedBy: string;
+            /** Format: date-time */
+            signedAt: string;
+            reason: string;
+            evidenceIds: string[];
+        };
+        DirectShipmentLine: {
+            id: string;
+            lineNo: number;
+            purchaseCommitmentLineId: string;
+            quantity: number;
+            physicalSnapshot: components["schemas"]["StockReceiptPhysical"];
+            /** @enum {unknown} */
+            reviewStatus: "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+            reviewedById: string | null;
+            /** Format: date-time */
+            reviewedAt: string | null;
+            reviewReason: string | null;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            } | null;
+            reviewEvidence: components["schemas"]["DirectShipmentEvidence"][];
+            receivedQuantity: number;
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        DirectShipment: {
+            id: string;
+            shipmentNumber: string;
+            purchaseCommitmentId: string;
+            orderId: string;
+            carrier: string;
+            trackingNumber: string;
+            origin: string;
+            destination: string;
+            reason: string;
+            evidence: components["schemas"]["DirectShipmentEvidence"][];
+            /** @enum {unknown} */
+            status: "PREPARED" | "CANCELLED" | "DISPATCHED" | "PARTIALLY_RECEIVED" | "DELIVERED";
+            version: number;
+            createdById: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            dispatchedById: string | null;
+            /** Format: date-time */
+            dispatchedAt: string | null;
+            cancelledById: string | null;
+            /** Format: date-time */
+            cancelledAt: string | null;
+            cancellationReason: string | null;
+            lines: components["schemas"]["DirectShipmentLine"][];
+        };
+        DirectShipmentList: {
+            orderId: string;
+            shipments: components["schemas"]["DirectShipment"][];
+        };
+        DirectShipmentReviewContext: {
+            shipmentLineId: string;
+            shipmentId: string;
+            version: number;
+            /** @enum {unknown} */
+            reviewStatus: "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+            snapshot: {
+                quality: components["schemas"]["DirectShipmentQualitySnapshot"];
+                evidence: components["schemas"]["DirectShipmentEvidence"][];
+            };
+            snapshotHash: string;
+            issues: {
+                code: string;
+                path: string;
+                message: string;
+            }[];
+            canApprove: boolean;
+        };
         ShipmentEvidence: {
             id: string;
             version: number;
@@ -12745,7 +13129,7 @@ export interface components {
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            type: "PurchaseCommitmentSupplierQuoteSource";
+            type: "SUPPLIER_QUOTE";
             supplierQuoteId: string;
         };
         PurchaseCommitmentManualSource: {
@@ -12753,7 +13137,7 @@ export interface components {
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            type: "PurchaseCommitmentManualSource";
+            type: "MANUAL";
             /** @description Manual Decimal(18,4) unit cost. */
             unitCost: string;
             /**
@@ -14517,6 +14901,45 @@ export interface components {
                 "application/json": components["schemas"]["QuotationRevisionListEnvelope"];
             };
         };
+        /** @description Safe supplier-direct shipment projection without commercial cost/source fields. */
+        DirectShipment: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["DirectShipment"];
+                };
+            };
+        };
+        /** @description Safe supplier-direct shipment list scoped to one order. */
+        DirectShipmentList: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["DirectShipmentList"];
+                };
+            };
+        };
+        /** @description Current direct-shipment quality facts and review snapshot without commercial cost/source fields. */
+        DirectShipmentReviewContext: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["DirectShipmentReviewContext"];
+                };
+            };
+        };
         /** @description Modern order shipment view; quantity, identity, delivery, and safe quality evidence only. */
         ShipmentOrder: {
             headers: {
@@ -15035,6 +15458,26 @@ export interface components {
         QuotationRevise: {
             content: {
                 "application/json": components["schemas"]["QuotationReviseRequest"];
+            };
+        };
+        DirectShipmentCreate: {
+            content: {
+                "application/json": components["schemas"]["DirectShipmentCreateRequest"];
+            };
+        };
+        DirectShipmentReview: {
+            content: {
+                "application/json": components["schemas"]["DirectShipmentReviewRequest"];
+            };
+        };
+        DirectShipmentAction: {
+            content: {
+                "application/json": components["schemas"]["DirectShipmentActionRequest"];
+            };
+        };
+        DirectShipmentReceipt: {
+            content: {
+                "application/json": components["schemas"]["DirectShipmentReceiptRequest"];
             };
         };
         ShipmentCreate: {
@@ -22649,6 +23092,195 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getDirectShipments: {
+        parameters: {
+            query: {
+                orderId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DirectShipmentList"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipments: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentCreate"];
+        responses: {
+            201: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getDirectShipmentsLinesIdReviewContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DirectShipmentReviewContext"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getDirectShipmentsId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipmentsLinesIdReview: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentReview"];
+        responses: {
+            200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipmentsIdDispatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentAction"];
+        responses: {
+            200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipmentsIdCancel: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentAction"];
+        responses: {
+            200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipmentsLinesIdReceipt: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentReceipt"];
+        responses: {
+            200: components["responses"]["DirectShipment"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];

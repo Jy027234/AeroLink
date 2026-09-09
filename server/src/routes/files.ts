@@ -6,7 +6,7 @@ import { objectStorage } from '../lib/objectStorage.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { recordOperationalAlert } from '../lib/alerting.js';
 import { hasCapability, type CapabilityActor } from '../lib/capabilityPolicy.js';
-import { assertCanReadReceiptEvidence, canReadPurchaseEvidence } from '../modules/procurementSettlement/index.js';
+import { assertCanReadReceiptEvidence, assertCanReadDirectShipmentEvidence, canReadPurchaseEvidence } from '../modules/procurementSettlement/index.js';
 
 const router = Router();
 
@@ -16,7 +16,7 @@ export function canReadStoredObject(
 ) {
   // Commercial documents require current order scope and cost access, even
   // for their uploader or a manager using an old /uploads link.
-  if (storedObject.domain === 'purchase_commitment' || storedObject.domain === 'stock_receipt') return false;
+  if (['purchase_commitment', 'stock_receipt', 'supplier_direct_shipment'].includes(storedObject.domain ?? '')) return false;
   const role = user?.role?.toLowerCase();
   const privileged = role === 'admin' || role === 'manager';
   return privileged || Boolean(user?.id && storedObject.ownerId === user.id);
@@ -42,6 +42,14 @@ export async function canReadStoredObjectDownload(
   storedObject: DownloadStoredObject,
   user: CapabilityActor | undefined,
 ): Promise<boolean> {
+  if (storedObject.domain === 'supplier_direct_shipment') {
+    if (!user) return false;
+    try { await assertCanReadDirectShipmentEvidence(tx, user, storedObject.id); return true; }
+    catch (error) {
+      if (error instanceof AppError && error.code === 'AUTH_FORBIDDEN') return false;
+      throw error;
+    }
+  }
   if (storedObject.domain === 'purchase_commitment') {
     return canReadPurchaseEvidence(tx, storedObject, user);
   }

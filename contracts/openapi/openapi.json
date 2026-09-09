@@ -190,6 +190,10 @@
       "description": "Routes mounted under stockReceipts"
     },
     {
+      "name": "directShipments",
+      "description": "Routes mounted under directShipments"
+    },
+    {
       "name": "shipmentTracking",
       "description": "Routes mounted under shipmentTracking"
     },
@@ -9389,7 +9393,7 @@
         "x-aerolink-owner": "P2-01/files",
         "x-aerolink-source": {
           "file": "server/src/routes/files.ts",
-          "line": 87
+          "line": 95
         },
         "security": [
           {
@@ -12865,7 +12869,7 @@
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
           "file": "server/src/routes/certificates.ts",
-          "line": 34
+          "line": 35
         },
         "security": [
           {
@@ -12986,7 +12990,7 @@
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
           "file": "server/src/routes/certificates.ts",
-          "line": 140
+          "line": 141
         },
         "security": [
           {
@@ -13046,7 +13050,7 @@
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
           "file": "server/src/routes/certificates.ts",
-          "line": 255
+          "line": 256
         },
         "security": [
           {
@@ -13100,7 +13104,7 @@
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
           "file": "server/src/routes/certificates.ts",
-          "line": 452
+          "line": 453
         },
         "security": [
           {
@@ -13163,7 +13167,7 @@
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
           "file": "server/src/routes/certificates.ts",
-          "line": 516
+          "line": 517
         },
         "security": [
           {
@@ -13226,7 +13230,7 @@
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
           "file": "server/src/routes/certificates.ts",
-          "line": 563
+          "line": 571
         },
         "security": [
           {
@@ -13269,7 +13273,7 @@
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
           "file": "server/src/routes/certificates.ts",
-          "line": 618
+          "line": 581
         },
         "security": [
           {
@@ -13329,7 +13333,7 @@
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
           "file": "server/src/routes/certificates.ts",
-          "line": 720
+          "line": 683
         },
         "security": [
           {
@@ -22544,6 +22548,557 @@
         "x-aerolink-contract-level": "baseline-json-envelope"
       }
     },
+    "/api/direct-shipments": {
+      "get": {
+        "operationId": "getDirectShipments",
+        "tags": [
+          "directShipments"
+        ],
+        "summary": "GET /api/direct-shipments",
+        "description": "Reads supplier-direct shipment projections under inventory.read and current order scope. No commercial cost/source fields are returned.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/directShipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/directShipments.ts",
+          "line": 83
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DirectShipmentList"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope",
+        "x-aerolink-strict-query": true
+      },
+      "post": {
+        "operationId": "postDirectShipments",
+        "tags": [
+          "directShipments"
+        ],
+        "summary": "POST /api/direct-shipments",
+        "description": "Creates a supplier-direct shipment plan from explicit purchase lines and physical facts. Cost/source fields are not accepted or returned.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/directShipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/directShipments.ts",
+          "line": 107
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Stable command identity required for retry-safe direct-shipment writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/DirectShipment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/DirectShipmentCreate"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/direct-shipments/lines/{id}/review-context": {
+      "get": {
+        "operationId": "getDirectShipmentsLinesIdReviewContext",
+        "tags": [
+          "directShipments"
+        ],
+        "summary": "GET /api/direct-shipments/lines/:id/review-context",
+        "description": "Reads current supplier-direct quality facts under quality_review.approve and current order scope.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/directShipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/directShipments.ts",
+          "line": 93
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DirectShipmentReviewContext"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/direct-shipments/{id}": {
+      "get": {
+        "operationId": "getDirectShipmentsId",
+        "tags": [
+          "directShipments"
+        ],
+        "summary": "GET /api/direct-shipments/:id",
+        "description": "Reads one supplier-direct shipment under inventory.read and current order scope.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/directShipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/directShipments.ts",
+          "line": 102
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DirectShipment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/direct-shipments/lines/{id}/review": {
+      "post": {
+        "operationId": "postDirectShipmentsLinesIdReview",
+        "tags": [
+          "directShipments"
+        ],
+        "summary": "POST /api/direct-shipments/lines/:id/review",
+        "description": "Records an independent supplier-direct quality decision with current evidence and snapshot checks.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/directShipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/directShipments.ts",
+          "line": 120
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Stable command identity required for retry-safe direct-shipment writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DirectShipment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/DirectShipmentReview"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/direct-shipments/{id}/dispatch": {
+      "post": {
+        "operationId": "postDirectShipmentsIdDispatch",
+        "tags": [
+          "directShipments"
+        ],
+        "summary": "POST /api/direct-shipments/:id/dispatch",
+        "description": "Dispatches an independently approved supplier-direct shipment under current order scope.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/directShipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/directShipments.ts",
+          "line": 151
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Stable command identity required for retry-safe direct-shipment writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DirectShipment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/DirectShipmentAction"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/direct-shipments/{id}/cancel": {
+      "post": {
+        "operationId": "postDirectShipmentsIdCancel",
+        "tags": [
+          "directShipments"
+        ],
+        "summary": "POST /api/direct-shipments/:id/cancel",
+        "description": "Cancels an un-dispatched supplier-direct shipment plan under current order scope.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/directShipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/directShipments.ts",
+          "line": 155
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Stable command identity required for retry-safe direct-shipment writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DirectShipment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/DirectShipmentAction"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/direct-shipments/lines/{id}/receipt": {
+      "post": {
+        "operationId": "postDirectShipmentsLinesIdReceipt",
+        "tags": [
+          "directShipments"
+        ],
+        "summary": "POST /api/direct-shipments/lines/:id/receipt",
+        "description": "Records an explicit customer receipt quantity and evidence for a supplier-direct shipment line.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/directShipments",
+        "x-aerolink-source": {
+          "file": "server/src/routes/directShipments.ts",
+          "line": 159
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "description": "Stable command identity required for retry-safe direct-shipment writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DirectShipment"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/DirectShipmentReceipt"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
     "/api/shipment-tracking": {
       "get": {
         "operationId": "getShipmentTracking",
@@ -24207,7 +24762,7 @@
         "x-aerolink-owner": "P2-01/health",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 249
+          "line": 251
         },
         "security": [],
         "parameters": [],
@@ -24254,7 +24809,7 @@
         "x-aerolink-owner": "P2-01/metrics",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 253
+          "line": 255
         },
         "security": [
           {
@@ -25163,6 +25718,46 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/QuotationReviseRequest"
+            }
+          }
+        }
+      },
+      "DirectShipmentCreate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DirectShipmentCreateRequest"
+            }
+          }
+        }
+      },
+      "DirectShipmentReview": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DirectShipmentReviewRequest"
+            }
+          }
+        }
+      },
+      "DirectShipmentAction": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DirectShipmentActionRequest"
+            }
+          }
+        }
+      },
+      "DirectShipmentReceipt": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DirectShipmentReceiptRequest"
             }
           }
         }
@@ -27061,6 +27656,75 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/QuotationRevisionListEnvelope"
+            }
+          }
+        }
+      },
+      "DirectShipment": {
+        "description": "Safe supplier-direct shipment projection without commercial cost/source fields.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "const": true
+                },
+                "data": {
+                  "$ref": "#/components/schemas/DirectShipment"
+                }
+              },
+              "required": [
+                "success",
+                "data"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "DirectShipmentList": {
+        "description": "Safe supplier-direct shipment list scoped to one order.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "const": true
+                },
+                "data": {
+                  "$ref": "#/components/schemas/DirectShipmentList"
+                }
+              },
+              "required": [
+                "success",
+                "data"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "DirectShipmentReviewContext": {
+        "description": "Current direct-shipment quality facts and review snapshot without commercial cost/source fields.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "const": true
+                },
+                "data": {
+                  "$ref": "#/components/schemas/DirectShipmentReviewContext"
+                }
+              },
+              "required": [
+                "success",
+                "data"
+              ],
+              "additionalProperties": false
             }
           }
         }
@@ -34334,6 +34998,11 @@
             "type": "boolean",
             "readOnly": true,
             "description": "True when order line facts are authoritative."
+          },
+          "directShippedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "readOnly": true
           },
           "lines": {
             "type": "array",
@@ -47759,6 +48428,11 @@
             "type": "integer",
             "minimum": 0
           },
+          "directShippedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "readOnly": true
+          },
           "outboundStatus": {
             "type": "string"
           },
@@ -48737,6 +49411,11 @@
             "minimum": 0,
             "maximum": 2147483647
           },
+          "directShippedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
           "assignments": {
             "type": "array",
             "items": {
@@ -48798,6 +49477,7 @@
           "quotationLineId",
           "quantity",
           "outboundQuantity",
+          "directShippedQuantity",
           "assignments"
         ],
         "additionalProperties": false
@@ -50183,6 +50863,1243 @@
           "snapshot",
           "issues",
           "canAccept"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentEvidence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "status": {
+            "const": "AVAILABLE"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "sha256",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentChecks": {
+        "type": "object",
+        "properties": {
+          "identity": {
+            "type": "boolean"
+          },
+          "documents": {
+            "type": "boolean"
+          },
+          "conditionAndLife": {
+            "type": "boolean"
+          },
+          "customerRequirements": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "identity",
+          "documents",
+          "conditionAndLife",
+          "customerRequirements"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentCertificate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "certificateNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "partNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "serialNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "batchNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "certificateType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expiryDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "fileHash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supplierId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "orderId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inventoryDetailId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "certificateNumber",
+          "partNumber",
+          "serialNumber",
+          "batchNumber",
+          "certificateType",
+          "status",
+          "expiryDate",
+          "fileHash",
+          "supplierId",
+          "orderId",
+          "inventoryDetailId",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentQualitySnapshot": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "const": 1
+          },
+          "chain": {
+            "type": "object",
+            "properties": {
+              "order": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "quotationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "lineItemsMode": {
+                    "type": "boolean"
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  },
+                  "saleType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "certificateRequired": {
+                    "type": "boolean"
+                  },
+                  "certificateType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "inspectionRequired": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "quotationId",
+                  "lineItemsMode",
+                  "currency",
+                  "certificateRequired",
+                  "certificateType",
+                  "inspectionRequired"
+                ],
+                "additionalProperties": false
+              },
+              "orderLine": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "orderId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "quotationLineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "partNumber": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "uom": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "serialNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "batchNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  }
+                },
+                "required": [
+                  "id",
+                  "orderId",
+                  "quotationLineId",
+                  "partNumber",
+                  "uom",
+                  "quantity",
+                  "serialNumber",
+                  "batchNumber",
+                  "currency"
+                ],
+                "additionalProperties": false
+              },
+              "quotation": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "rfqId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  }
+                },
+                "required": [
+                  "id",
+                  "rfqId",
+                  "currency"
+                ],
+                "additionalProperties": false
+              },
+              "quotationLine": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "quotationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "rfqLineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "partNumber": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "uom": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "serialNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "batchNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "currency": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  }
+                },
+                "required": [
+                  "id",
+                  "quotationId",
+                  "rfqLineId",
+                  "partNumber",
+                  "uom",
+                  "quantity",
+                  "serialNumber",
+                  "batchNumber",
+                  "currency"
+                ],
+                "additionalProperties": false
+              },
+              "rfqLine": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "rfqId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "partNumber": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "uom": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "conditionCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "serialNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "batchNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "certificateRequired": {
+                    "type": "boolean"
+                  },
+                  "certificateType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "alternatePartNumbers": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "rfqId",
+                  "partNumber",
+                  "uom",
+                  "quantity",
+                  "conditionCode",
+                  "serialNumber",
+                  "batchNumber",
+                  "certificateRequired",
+                  "certificateType"
+                ],
+                "additionalProperties": false
+              },
+              "rfq": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "lineItemsMode": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "order",
+              "orderLine",
+              "quotation",
+              "quotationLine",
+              "rfqLine"
+            ],
+            "additionalProperties": false
+          },
+          "purchase": {
+            "type": "object",
+            "properties": {
+              "purchaseCommitmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "purchaseCommitmentLineId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "orderId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "supplierId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "orderLineId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "partNumber": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "uom": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "quantity": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "fulfillmentMode": {
+                "const": "SUPPLIER_DIRECT"
+              },
+              "identitySnapshot": {
+                "type": "object",
+                "properties": {
+                  "schemaVersion": {
+                    "const": 1
+                  },
+                  "orderLineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "quotationLineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "rfqLineId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "partNumber": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "uom": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "conditionCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "serialNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "batchNumber": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "certificateRequired": {
+                    "type": "boolean"
+                  },
+                  "certificateType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "trackingType": {
+                    "enum": [
+                      "SERIAL",
+                      "BATCH"
+                    ]
+                  }
+                },
+                "required": [
+                  "schemaVersion",
+                  "orderLineId",
+                  "quotationLineId",
+                  "rfqLineId",
+                  "partNumber",
+                  "uom",
+                  "conditionCode",
+                  "serialNumber",
+                  "batchNumber",
+                  "certificateRequired",
+                  "certificateType"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "purchaseCommitmentId",
+              "purchaseCommitmentLineId",
+              "orderId",
+              "supplierId",
+              "orderLineId",
+              "partNumber",
+              "uom",
+              "quantity",
+              "fulfillmentMode",
+              "identitySnapshot"
+            ],
+            "additionalProperties": false
+          },
+          "physical": {
+            "$ref": "#/components/schemas/StockReceiptPhysical"
+          },
+          "certificates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectShipmentCertificate"
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "chain",
+          "purchase",
+          "physical",
+          "certificates"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentCreateRequest": {
+        "type": "object",
+        "properties": {
+          "purchaseCommitmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "purchaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "carrier": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "trackingNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "origin": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "destination": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "purchaseCommitmentLineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "physical": {
+                  "$ref": "#/components/schemas/StockReceiptPhysical"
+                }
+              },
+              "required": [
+                "purchaseCommitmentLineId",
+                "physical"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "purchaseCommitmentId",
+          "purchaseVersion",
+          "carrier",
+          "trackingNumber",
+          "origin",
+          "destination",
+          "reason",
+          "evidenceIds",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentReviewRequest": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "decision": {
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "identity": {
+                "type": "boolean"
+              },
+              "documents": {
+                "type": "boolean"
+              },
+              "conditionAndLife": {
+                "type": "boolean"
+              },
+              "customerRequirements": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "identity",
+              "documents",
+              "conditionAndLife",
+              "customerRequirements"
+            ],
+            "additionalProperties": false
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 20,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "version",
+          "snapshotHash",
+          "decision",
+          "reason",
+          "checks"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentActionRequest": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "version",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentReceiptRequest": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "signedBy": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "signedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "version",
+          "quantity",
+          "signedBy",
+          "signedAt",
+          "reason",
+          "evidenceIds"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentLine": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "lineNo": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "purchaseCommitmentLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "physicalSnapshot": {
+            "$ref": "#/components/schemas/StockReceiptPhysical"
+          },
+          "reviewStatus": {
+            "enum": [
+              "PENDING_REVIEW",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "reviewedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reviewedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "reviewReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "checks": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "identity": {
+                "type": "boolean"
+              },
+              "documents": {
+                "type": "boolean"
+              },
+              "conditionAndLife": {
+                "type": "boolean"
+              },
+              "customerRequirements": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "identity",
+              "documents",
+              "conditionAndLife",
+              "customerRequirements"
+            ],
+            "additionalProperties": false
+          },
+          "reviewEvidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectShipmentEvidence"
+            }
+          },
+          "receivedQuantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "lineNo",
+          "purchaseCommitmentLineId",
+          "quantity",
+          "physicalSnapshot",
+          "reviewStatus",
+          "reviewedById",
+          "reviewedAt",
+          "reviewReason",
+          "checks",
+          "reviewEvidence",
+          "receivedQuantity",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "shipmentNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "purchaseCommitmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "orderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "carrier": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "trackingNumber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "origin": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "destination": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectShipmentEvidence"
+            }
+          },
+          "status": {
+            "enum": [
+              "PREPARED",
+              "CANCELLED",
+              "DISPATCHED",
+              "PARTIALLY_RECEIVED",
+              "DELIVERED"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "createdById": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dispatchedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "dispatchedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancelledById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "cancelledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancellationReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectShipmentLine"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "shipmentNumber",
+          "purchaseCommitmentId",
+          "orderId",
+          "carrier",
+          "trackingNumber",
+          "origin",
+          "destination",
+          "reason",
+          "evidence",
+          "status",
+          "version",
+          "createdById",
+          "createdAt",
+          "updatedAt",
+          "dispatchedById",
+          "dispatchedAt",
+          "cancelledById",
+          "cancelledAt",
+          "cancellationReason",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentList": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "shipments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectShipment"
+            }
+          }
+        },
+        "required": [
+          "orderId",
+          "shipments"
+        ],
+        "additionalProperties": false
+      },
+      "DirectShipmentReviewContext": {
+        "type": "object",
+        "properties": {
+          "shipmentLineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "reviewStatus": {
+            "enum": [
+              "PENDING_REVIEW",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "snapshot": {
+            "type": "object",
+            "properties": {
+              "quality": {
+                "$ref": "#/components/schemas/DirectShipmentQualitySnapshot"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DirectShipmentEvidence"
+                }
+              }
+            },
+            "required": [
+              "quality",
+              "evidence"
+            ],
+            "additionalProperties": false
+          },
+          "snapshotHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "code",
+                "path",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "canApprove": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "shipmentLineId",
+          "shipmentId",
+          "version",
+          "reviewStatus",
+          "snapshot",
+          "snapshotHash",
+          "issues",
+          "canApprove"
         ],
         "additionalProperties": false
       },
@@ -51811,7 +53728,11 @@
           }
         ],
         "discriminator": {
-          "propertyName": "type"
+          "propertyName": "type",
+          "mapping": {
+            "SUPPLIER_QUOTE": "#/components/schemas/PurchaseCommitmentSupplierQuoteSource",
+            "MANUAL": "#/components/schemas/PurchaseCommitmentManualSource"
+          }
         },
         "description": "Strict source union. Manual cost always requires verified USD and private purchase evidence."
       },
@@ -52330,8 +54251,8 @@
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
-      "mountCount": 58,
-      "operationCount": 347
+      "mountCount": 59,
+      "operationCount": 355
     }
   }
 }
