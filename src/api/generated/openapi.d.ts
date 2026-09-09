@@ -2952,7 +2952,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/certificates/:id/revoke
-         * @description Contracted certificate/document/integration operation. Payloads are bounded to internal metadata and operational controls; secrets and full webhook payloads are never documented as examples.
+         * @description Requires certificate.issue. Records the authenticated actor and a required reason. A Serializable transaction and current status/updatedAt comparison prevent overwriting concurrent certificate changes.
          */
         post: operations["postCertificatesIdRevoke"];
         delete?: never;
@@ -2972,7 +2972,8 @@ export interface paths {
         put?: never;
         /**
          * POST /api/certificates/:id/renew
-         * @description Contracted certificate/document/integration operation. Payloads are bounded to internal metadata and operational controls; secrets and full webhook payloads are never documented as examples.
+         * @deprecated
+         * @description Disabled: changing a date cannot renew certificate evidence. Requires certificate.issue; authorized calls return 409 QUALITY_EVIDENCE_REQUIRED without changing any certificate. Obtain a new valid certificate and perform a new quality review.
          */
         post: operations["postCertificatesIdRenew"];
         delete?: never;
@@ -6711,7 +6712,7 @@ export interface components {
             aircraftModel?: string;
         };
         CertificateRevokeRequest: {
-            reason?: string;
+            reason: string;
         };
         CertificateRenewRequest: {
             /** Format: date-time */
@@ -19385,17 +19386,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: components["requestBodies"]["CertificateRenew"];
+        requestBody?: never;
         responses: {
-            200: components["responses"]["CertificateAction"];
-            400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
             409: components["responses"]["Error"];
-            422: components["responses"]["Error"];
-            429: components["responses"]["Error"];
-            500: components["responses"]["Error"];
         };
     };
     getCertificatesIdDownload: {

@@ -13158,7 +13158,7 @@
           "certificates"
         ],
         "summary": "POST /api/certificates/:id/revoke",
-        "description": "Contracted certificate/document/integration operation. Payloads are bounded to internal metadata and operational controls; secrets and full webhook payloads are never documented as examples.",
+        "description": "Requires certificate.issue. Records the authenticated actor and a required reason. A Serializable transaction and current status/updatedAt comparison prevent overwriting concurrent certificate changes.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
@@ -13221,7 +13221,7 @@
           "certificates"
         ],
         "summary": "POST /api/certificates/:id/renew",
-        "description": "Contracted certificate/document/integration operation. Payloads are bounded to internal metadata and operational controls; secrets and full webhook payloads are never documented as examples.",
+        "description": "Disabled: changing a date cannot renew certificate evidence. Requires certificate.issue; authorized calls return 409 QUALITY_EVIDENCE_REQUIRED without changing any certificate. Obtain a new valid certificate and perform a new quality review.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/certificates",
         "x-aerolink-source": {
@@ -13244,37 +13244,17 @@
           }
         ],
         "responses": {
-          "200": {
-            "$ref": "#/components/responses/CertificateAction"
-          },
-          "400": {
-            "$ref": "#/components/responses/Error"
-          },
           "401": {
             "$ref": "#/components/responses/Error"
           },
           "403": {
             "$ref": "#/components/responses/Error"
           },
-          "404": {
-            "$ref": "#/components/responses/Error"
-          },
           "409": {
-            "$ref": "#/components/responses/Error"
-          },
-          "422": {
-            "$ref": "#/components/responses/Error"
-          },
-          "429": {
-            "$ref": "#/components/responses/Error"
-          },
-          "500": {
             "$ref": "#/components/responses/Error"
           }
         },
-        "requestBody": {
-          "$ref": "#/components/requestBodies/CertificateRenew"
-        }
+        "deprecated": true
       }
     },
     "/api/certificates/{id}/download": {
@@ -29629,10 +29609,14 @@
       },
       "CertificateRevokeRequest": {
         "type": "object",
-        "required": [],
+        "required": [
+          "reason"
+        ],
         "properties": {
           "reason": {
-            "type": "string"
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
           }
         },
         "additionalProperties": false
