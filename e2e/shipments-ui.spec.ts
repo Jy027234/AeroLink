@@ -171,7 +171,7 @@ async function openOrder(page: Page, orderNumber: string) {
   return dialog;
 }
 
-test('manager ships, receives, and quarantines a return, then quality independently releases it', async ({ page, browser, request }) => {
+test('manager ships, receives, and quarantines a return, then quality independently releases it', async ({ page, browser, request, baseURL }) => {
   const fixture = await createModernOrderFixture(request);
   await loginByUi(page, managerUser);
   await openOrders(page);
@@ -228,7 +228,7 @@ test('manager ships, receives, and quarantines a return, then quality independen
   expect(managerHold?.status).toBe('QUARANTINED');
   expect(managerView.shipments.flatMap((shipment) => shipment.lines).reduce((sum, line) => sum + line.returnedQuantity, 0)).toBe(1);
 
-  const qualityContext = await browser.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5222' });
+  const qualityContext = await browser.newContext({ baseURL });
   const qualityPage = await qualityContext.newPage();
   try {
     await loginByUi(qualityPage, qualityUser);

@@ -202,7 +202,7 @@ test('manager explicitly reserves a modern line and assigns the selected parent 
   expect(payload.lines?.[0].allocations?.[0].quantity).toBe(3);
 });
 
-test('quality reviewer approves a modern assignment and manager consumes it in the browser', async ({ page, browser, request }) => {
+test('quality reviewer approves a modern assignment and manager consumes it in the browser', async ({ page, browser, request, baseURL }) => {
   const fixture = await createModernOrderFixture(request);
   await loginByUi(page, 'quality-test@aerolink.com');
   await navigateToOrders(page);
@@ -240,7 +240,7 @@ test('quality reviewer approves a modern assignment and manager consumes it in t
   await expect(qualityPanel.getByRole('button', { name: '确认出库' })).toHaveCount(0);
 
   await qualityDialog.getByRole('button', { name: /关闭|Close/ }).first().click();
-  const managerContext = await browser.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5220' });
+  const managerContext = await browser.newContext({ baseURL });
   const managerPage = await managerContext.newPage();
   try {
     await loginByUi(managerPage);
