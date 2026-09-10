@@ -724,6 +724,12 @@ describe('OpenAPI representative contract invariants', () => {
     const accountBranches = account.oneOf?.map(resolveSchema) ?? [];
     expect(accountBranches).toHaveLength(2);
     expect(accountBranches.map((branch) => branch.properties?.side?.const)).toEqual(['RECEIVABLE', 'PAYABLE']);
+    const receivableAccount = accountBranches.find((branch) => branch.properties?.side?.const === 'RECEIVABLE');
+    expect(receivableAccount?.required).toContain('purchaseCommitmentId');
+    expect(receivableAccount?.properties?.purchaseCommitmentId).toEqual(expect.objectContaining({ type: 'null', readOnly: true }));
+    const amounts = resolveSchema(contract.components.schemas.SettlementAmounts);
+    expect(amounts.required).not.toContain('currency');
+    expect(amounts.properties).not.toHaveProperty('currency');
     expect(JSON.stringify(accountBranches.find((branch) => branch.properties?.side?.const === 'PAYABLE')))
       .toContain('settlement.view_cost');
     expect(contract.components.schemas.SettlementRecord.properties?.evidence?.items)

@@ -13399,11 +13399,6 @@ export interface components {
             readonly createdAt: string;
         };
         SettlementAmounts: {
-            /**
-             * @constant
-             * @enum {unknown}
-             */
-            readonly currency: "USD";
             /** @description USD Decimal(18,4) serialized as a plain decimal string. */
             readonly initialAmount: string;
             /** @description USD Decimal(18,4) serialized as a plain decimal string. */

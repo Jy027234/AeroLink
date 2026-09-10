@@ -54819,7 +54819,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "currency",
           "initialAmount",
           "grossPaid",
           "refunded",
@@ -54831,13 +54830,6 @@
           "pendingRefund"
         ],
         "properties": {
-          "currency": {
-            "const": "USD",
-            "enum": [
-              "USD"
-            ],
-            "readOnly": true
-          },
           "initialAmount": {
             "type": "string",
             "pattern": "^(?:0|[1-9]\\d{0,13})(?:\\.\\d{1,4})?$",

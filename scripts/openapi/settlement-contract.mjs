@@ -104,9 +104,8 @@ export function applySettlementContract(paths, core) {
   const amounts = {
     type: 'object',
     additionalProperties: false,
-    required: ['currency', 'initialAmount', 'grossPaid', 'refunded', 'effectivePaid', 'creditReduction', 'adjustedDue', 'unpaid', 'overpaid', 'pendingRefund'],
+    required: ['initialAmount', 'grossPaid', 'refunded', 'effectivePaid', 'creditReduction', 'adjustedDue', 'unpaid', 'overpaid', 'pendingRefund'],
     properties: {
-      currency: { const: 'USD', enum: ['USD'], readOnly: true },
       initialAmount: { ...amount, readOnly: true },
       grossPaid: { ...amount, readOnly: true },
       refunded: { ...amount, readOnly: true },

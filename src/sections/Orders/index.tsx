@@ -70,6 +70,7 @@ import { ControlledListExportButton } from '@/components/list/ControlledListExpo
 import { InventoryAllocationPanel } from '@/components/InventoryAllocationPanel';
 import { ShipmentPanel } from '@/components/ShipmentPanel';
 import { ProcurementPanel } from '@/components/procurement/ProcurementPanel';
+import { SettlementPanel } from '@/components/procurement/SettlementPanel';
 import { toast } from 'sonner';
 import { QualityReviewPanel } from './QualityReviewPanel';
 import type { Order, OrderStatus } from '@/types';
@@ -736,6 +737,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
                 ))}
                 {activeOrder.id && <ShipmentPanel orderId={activeOrder.id} onChanged={refetchDetail} />}
                 {activeOrder.id && <ProcurementPanel key={activeOrder.id} order={activeOrder} onChanged={refetchDetail} />}
+                {activeOrder.id && <SettlementPanel key={`settlement-${activeOrder.id}`} order={activeOrder} onChanged={refetchDetail} />}
               </div>
             </div>
           ) : (
