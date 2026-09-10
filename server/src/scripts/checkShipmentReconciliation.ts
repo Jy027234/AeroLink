@@ -3,7 +3,10 @@ import { reconcileDirectDeliveryProjection } from '../lib/directDeliveryReconcil
 import { calculateShippableQuantities, calculateShipmentLineQuantities, deriveOrderDeliveryProgress } from '../modules/inventoryQuality/shipmentQuantities.js';
 
 const url = new URL(process.env.DATABASE_URL || 'postgresql://invalid/');
-const isDirectTestDatabase = url.port === '55970' && url.pathname === '/aerolink_procurement_test_direct_20260909';
+const isDirectTestDatabase = url.port === '55970' && [
+  '/aerolink_procurement_test_direct_20260909',
+  '/aerolink_settlement_test_20260910',
+].includes(url.pathname);
 if (process.env.AEROLINK_SHIPMENT_RECONCILIATION !== 'true' || !['localhost', '127.0.0.1'].includes(url.hostname)
   || (!/^\/aerolink_shipment_test_[a-z0-9_]+$/.test(url.pathname) && !isDirectTestDatabase)) {
   throw new Error('Explicit opt-in and dedicated local shipment or direct-shipment test database required');

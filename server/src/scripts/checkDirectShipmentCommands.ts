@@ -23,7 +23,13 @@ import {
  * two-line sale plus a confirmed SUPPLIER_DIRECT purchase commitment, then
  * exercises direct plan, quality review, dispatch and customer receipt facts.
  */
-const expectedDatabase = 'aerolink_procurement_test_direct_20260909';
+// The complete UI chain may create only its synthetic sales starting point on
+// the settlement clone. The broader command/negative suite stays on its own DB.
+const completeUiFixture = process.env.AEROLINK_COMPLETE_TRANSACTION_UI_INTEGRATION === 'true'
+  && process.env.AEROLINK_DIRECT_SHIPMENT_SALES_FIXTURE_ONLY === 'true';
+const expectedDatabase = completeUiFixture
+  ? 'aerolink_settlement_test_20260910'
+  : 'aerolink_procurement_test_direct_20260909';
 const databaseUrlValue = process.env.DATABASE_URL;
 if (process.env.AEROLINK_DIRECT_SHIPMENT_INTEGRATION !== 'true' || !databaseUrlValue) {
   throw new Error(`Explicit AEROLINK_DIRECT_SHIPMENT_INTEGRATION=true and ${expectedDatabase} DATABASE_URL are required`);

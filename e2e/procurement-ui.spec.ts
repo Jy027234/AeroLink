@@ -3,21 +3,26 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { evidencePdf } from './helpers/evidencePdf';
+import { completeStockDelivery } from './helpers/completeStockDelivery';
+import { runSettlementWorkflow } from './helpers/settlementWorkflow';
 
 const requireServer = createRequire(path.resolve('server/package.json'));
 const { PrismaClient } = requireServer('@prisma/client');
 const bcrypt = requireServer('bcryptjs');
 const password = 'Synthetic-Procurement-UI-Only!2026';
-const apiOrigin = 'http://127.0.0.1:3189';
+const completeTransaction = process.env.AEROLINK_COMPLETE_TRANSACTION_UI_INTEGRATION === 'true';
+const apiOrigin = completeTransaction ? 'http://127.0.0.1:3190' : 'http://127.0.0.1:3189';
 test.skip(process.env.AEROLINK_PROCUREMENT_UI_INTEGRATION !== 'true', 'Run with the isolated procurement config and explicit integration opt-in');
 type Fixture = { tag: string; orderId: string; supplierId: string; orderLineIds: string[]; sourceQuoteIds: string[];
-  users: { buyerId: string; approverId: string; qualityId: string } };
+  users: { buyerId: string; approverId: string; qualityId: string; salesId: string } };
 
 async function fixture(): Promise<Fixture> {
   if (process.env.AEROLINK_PROCUREMENT_UI_INTEGRATION !== 'true') throw new Error('Explicit local UI opt-in required');
   const url = new URL(process.env.DATABASE_URL!);
   if (!['127.0.0.1', 'localhost'].includes(url.hostname) || url.port !== '55970'
-    || url.pathname !== '/aerolink_procurement_test_direct_20260909') throw new Error('Refusing other database');
+    || url.pathname !== (completeTransaction ? '/aerolink_settlement_test_20260910'
+      : '/aerolink_procurement_test_direct_20260909')) throw new Error('Refusing other database');
   const { stdout } = await promisify(execFile)(process.execPath,
     ['--import', 'tsx', 'src/scripts/checkDirectShipmentCommands.ts'], {
       cwd: path.resolve('server'), env: { ...process.env, AEROLINK_DIRECT_SHIPMENT_INTEGRATION: 'true',
@@ -26,9 +31,9 @@ async function fixture(): Promise<Fixture> {
   const result = JSON.parse(stdout) as Fixture;
   const db = new PrismaClient();
   try {
-    const ids = [result.users.buyerId, result.users.approverId, result.users.qualityId];
+    const ids = [result.users.buyerId, result.users.approverId, result.users.qualityId, result.users.salesId];
     const rows = await db.user.findMany({ where: { id: { in: ids } } });
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     for (const row of rows) {
       expect(row.email).toContain(`${result.tag}@example.invalid`);
       expect(row.name).toContain('synthetic');
@@ -57,7 +62,7 @@ async function openOrder(page: Page, tag: string, role: 'buyer' | 'approver' | '
 
 async function upload(scope: Locator, label: string, name: string) {
   await scope.getByLabel(label, { exact: true }).setInputFiles({ name, mimeType: 'application/pdf',
-    buffer: Buffer.from(`%PDF-1.4\n% Synthetic procurement UI evidence: ${name}\n`) });
+    buffer: evidencePdf(name) });
   await expect(scope.getByText(name, { exact: true })).toBeVisible();
 }
 
@@ -216,11 +221,13 @@ test('purchase approval and supplier confirmation lead to independent direct qua
   await expect.poll(async () => dialog.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
   await page.screenshot({ path: testInfo.outputPath('direct-received-mobile.png'), fullPage: true });
   const verified = new PrismaClient();
+  let acceptedStockId = '';
   try {
     const currentReceipt = await verified.stockReceipt.findUniqueOrThrow({ where: { id: receipt.id }, include: { lines: true } });
     expect(currentReceipt.lines).toHaveLength(1);
     expect(currentReceipt.lines[0].status).toBe('ACCEPTED');
     const stock = await verified.inventoryDetail.findUniqueOrThrow({ where: { id: currentReceipt.lines[0].inventoryDetailId } });
+    acceptedStockId = stock.id;
     expect(stock.serialNumber).toBe(`SN-DIRECT-${data.tag}`);
     expect(stock.quantity).toBe(1);
     const currentOrder = await verified.order.findUniqueOrThrow({ where: { id: data.orderId } });
@@ -228,4 +235,46 @@ test('purchase approval and supplier confirmation lead to independent direct qua
     expect(currentOrder.outboundQuantity).toBe(0);
     expect(currentOrder.status).toBe('SO_CREATED');
   } finally { await verified.$disconnect(); }
+
+  if (completeTransaction) {
+    const orderNumber = `D14-DIRECT-ORDER-${data.tag}`;
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await completeStockDelivery({ browser, page, orderId: data.orderId, orderNumber,
+      stockId: acceptedStockId, serialNumber: `SN-DIRECT-${data.tag}`, tag: data.tag,
+      password, apiOrigin, testInfo });
+    const settlementContext = await browser.newContext();
+    try {
+      const settlementPage = await settlementContext.newPage();
+      const settlement = await runSettlementWorkflow({ page: settlementPage, browser, testInfo, password, apiOrigin,
+        settleRemainingRefund: true, fixture: { tag: data.tag, orderId: data.orderId, orderNumber,
+          orderAmount: '12000.0000', purchaseId: purchase.id, purchaseNumber: purchase.commitmentNumber,
+          purchaseAmount: '7500.0000', salesEmail: `d14-direct-sales-${data.tag}@example.invalid`,
+          financeEmail: `d14-direct-approver-${data.tag}@example.invalid` } });
+      const audit = new PrismaClient();
+      try {
+        const current = await audit.order.findUniqueOrThrow({ where: { id: data.orderId } });
+        expect(current.status).toBe('DELIVERED');
+        expect(current.quantity).toBe(3);
+        expect(current.outboundQuantity).toBe(1);
+        expect(current.directShippedQuantity).toBe(2);
+        const accounts = await audit.settlementAccount.findMany({ where: { orderId: data.orderId },
+          include: { records: true } });
+        expect(accounts).toHaveLength(2);
+        for (const account of accounts) {
+          expect(account.version).toBe(account.records.length);
+          expect(account.createdById).toBe(data.users.approverId);
+          await audit.$queryRaw`SELECT validate_settlement_account_state_v1(${account.id})::text`;
+        }
+        expect(settlement.ar.amounts.unpaid).toBe('0.0000');
+        expect(settlement.ar.amounts.pendingRefund).toBe('0.0000');
+        expect(settlement.ap.amounts.unpaid).toBe('0.0000');
+        console.log('COMPLETE_TRANSACTION_UI_RESULT', JSON.stringify({
+          orderId: data.orderId, orderNumber, purchaseId: purchase.id, stockId: acceptedStockId,
+          status: current.status, directShipped: current.directShippedQuantity, localOutbound: current.outboundQuantity,
+          arId: settlement.ar.id, apId: settlement.ap.id,
+          receivable: settlement.ar.amounts, payable: settlement.ap.amounts,
+        }));
+      } finally { await audit.$disconnect(); }
+    } finally { await settlementContext.close(); }
+  }
 });
