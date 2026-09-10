@@ -74,16 +74,27 @@ cd "$PROJECT_DIR"
 export BACKEND_IMAGE="${backend_release_image%%:*}" WORKER_IMAGE="${worker_release_image%%:*}" WEB_IMAGE="${web_release_image%%:*}" IMAGE_TAG=latest
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
-worker_container_id="$("${compose[@]}" ps -q worker | tr -d '[:space:]')"
-if [[ -z "$worker_container_id" ]]; then
-  echo "Worker service is not running after release." >&2
-  exit 1
-fi
-running_worker_image_id="$(docker inspect "$worker_container_id" --format '{{.Image}}')"
-if [[ "$running_worker_image_id" != "$worker_release_id" ]]; then
-  echo "Worker container image does not match the release record." >&2
-  exit 1
-fi
+check_running_image() {
+  local service="$1"
+  local expected_image_id="$2"
+  local container_id
+  local running_image_id
+
+  container_id="$("${compose[@]}" ps -q "$service" | tr -d '[:space:]')"
+  if [[ -z "$container_id" ]]; then
+    echo "${service^} service is not running after release." >&2
+    exit 1
+  fi
+  running_image_id="$(docker inspect "$container_id" --format '{{.Image}}')"
+  if [[ "$running_image_id" != "$expected_image_id" ]]; then
+    echo "${service^} container image does not match the release record." >&2
+    exit 1
+  fi
+}
+
+check_running_image backend "$backend_release_id"
+check_running_image worker "$worker_release_id"
+check_running_image web "$web_release_id"
 
 "${compose[@]}" exec -T backend npx prisma migrate status --schema prisma/schema.prisma
 expected_migration_count="$(find "$PROJECT_DIR/server/prisma/migrations" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"

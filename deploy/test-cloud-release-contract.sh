@@ -81,9 +81,13 @@ printf '%s\n' \
   '  esac' \
   '  exit 0' \
   'fi' \
-  'if [[ "$1" == "inspect" && "$2" == "worker-container" ]]; then printf "worker-id\\n"; exit 0; fi' \
+  'if [[ "$1" == "inspect" && "$2" == "backend-container" ]]; then printf "%s\\n" "${BACKEND_RUNNING_IMAGE_ID:-backend-id}"; exit 0; fi' \
+  'if [[ "$1" == "inspect" && "$2" == "worker-container" ]]; then printf "%s\\n" "${WORKER_RUNNING_IMAGE_ID:-worker-id}"; exit 0; fi' \
+  'if [[ "$1" == "inspect" && "$2" == "web-container" ]]; then printf "%s\\n" "${WEB_RUNNING_IMAGE_ID:-web-id}"; exit 0; fi' \
   'if [[ "$1" == "compose" ]]; then' \
+  '  if [[ " $* " == *" ps -q backend "* ]]; then printf "backend-container\\n"; fi' \
   '  if [[ " $* " == *" ps -q worker "* ]]; then printf "worker-container\\n"; fi' \
+  '  if [[ " $* " == *" ps -q web "* ]]; then printf "web-container\\n"; fi' \
   '  if [[ " $* " == *" psql "* ]]; then' \
   '    find "$PROJECT_DIR/server/prisma/migrations" -mindepth 1 -maxdepth 1 -type d | wc -l' \
   '  fi' \
@@ -96,6 +100,14 @@ env PATH="$fake_bin:$PATH" PROJECT_DIR="$PROJECT_DIR" RELEASE_RECORD="$release_r
   bash "$VERIFY_SCRIPT"
 grep -q "^VERIFIED_MIGRATION_COUNT=$(find "$PROJECT_DIR/server/prisma/migrations" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')$" "$release_record" \
   || fail "successful verification did not record the applied migration count"
+
+expect_failure "Backend container image does not match" \
+  env PATH="$fake_bin:$PATH" BACKEND_RUNNING_IMAGE_ID=stale-backend-id PROJECT_DIR="$PROJECT_DIR" \
+    RELEASE_RECORD="$release_record" SOURCE_REF="$SOURCE_REF" bash "$VERIFY_SCRIPT"
+
+expect_failure "Web container image does not match" \
+  env PATH="$fake_bin:$PATH" WEB_RUNNING_IMAGE_ID=stale-web-id PROJECT_DIR="$PROJECT_DIR" \
+    RELEASE_RECORD="$release_record" SOURCE_REF="$SOURCE_REF" bash "$VERIFY_SCRIPT"
 
 rollback_log="$temp_dir/rollback.log"
 printf '%s\n' \
