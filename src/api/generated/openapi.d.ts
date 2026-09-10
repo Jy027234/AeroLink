@@ -7530,6 +7530,8 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             readonly allocatedQuantity?: number;
+            /** @description The accepted purchase receipt line that created this physical detail, when applicable. */
+            readonly stockReceiptLineId?: string;
         } & {
             [key: string]: unknown;
         };

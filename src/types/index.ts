@@ -259,6 +259,8 @@ export interface InventoryDetail {
   supplierId?: string;
   supplierName?: string;
   eta?: string;
+  /** Accepted purchase receipt that created this physical detail, when any. */
+  stockReceiptLineId?: string;
   // 类型
   type: InventoryType;
   createdAt: string;

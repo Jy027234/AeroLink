@@ -1532,7 +1532,7 @@ export interface AllocationConsumeResult { assignmentId: string; allocationId: s
 export const inventoryAllocationApi = {
   getQuotationLine: async (quotationLineId: string) => request<LineInventoryAvailability>(`/inventory-allocations/quotation-lines/${encodeURIComponent(quotationLineId)}`),
   getOrderLine: async (orderLineId: string) => request<OrderLineInventoryAvailability>(`/inventory-allocations/order-lines/${encodeURIComponent(orderLineId)}`),
-  reserve: async (payload: { quotationLineId: string; orderLineId?: string; allocations: Array<{ inventoryDetailId: string; quantity: number }> }) => request<LineInventoryAvailability>('/inventory-allocations/reserve', { method: 'POST', body: JSON.stringify(payload) }),
+  reserve: async (payload: { quotationLineId: string; orderLineId?: string; allocations: Array<{ inventoryDetailId: string; quantity: number; stockReceiptLineId?: string; sourceReturnHoldId?: string }> }) => request<LineInventoryAvailability>('/inventory-allocations/reserve', { method: 'POST', body: JSON.stringify(payload) }),
   assign: async (payload: { orderLineId: string; allocations: Array<{ allocationId: string; quantity: number }> }) => request<LineInventoryAvailability>('/inventory-allocations/assign', { method: 'POST', body: JSON.stringify(payload) }),
   release: async (payload: { allocationId: string; assignmentId?: string; quantity: number; reason: string }) => request<LineInventoryAvailability>('/inventory-allocations/release', { method: 'POST', body: JSON.stringify(payload) }),
   getQualityReview: async (assignmentId: string, quantity: number) => request<AllocationQualityReviewContext>(`/inventory-allocations/quality-review/${encodeURIComponent(assignmentId)}?quantity=${encodeURIComponent(String(quantity))}`),

@@ -87,13 +87,25 @@ export function serializeInventoryDetail(
 /** Remove unit cost from item/detail responses while preserving all stock data. */
 export function projectInventoryItem<T extends { details?: unknown }>(item: T, includeCost: boolean): T {
   const details = item.details;
-  if (includeCost || !Array.isArray(details)) return item;
+  if (!Array.isArray(details)) return item;
 
   return {
     ...item,
     details: details.map((detail) => {
       if (!detail || typeof detail !== 'object') return detail;
-      const { unitCost: _unitCost, ...safeDetail } = detail as Record<string, unknown>;
+      const record = detail as Record<string, unknown> & {
+        stockReceiptLines?: Array<{ id?: unknown }>;
+      };
+      const sourceLines = record.stockReceiptLines;
+      const { stockReceiptLines: _stockReceiptLines, ...withoutSourceRelation } = record;
+      const sourceId = sourceLines?.length === 1 && typeof sourceLines[0]?.id === 'string'
+        ? sourceLines[0].id
+        : undefined;
+      const withSource = sourceId
+        ? { ...withoutSourceRelation, stockReceiptLineId: sourceId }
+        : withoutSourceRelation;
+      if (includeCost) return withSource;
+      const { unitCost: _unitCost, ...safeDetail } = withSource;
       return safeDetail;
     }),
   } as T;

@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   actor: { id: 'manager-1', role: 'MANAGER', department: 'Operations' },
   prisma: {
     inventoryItem: {
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
       findUnique: vi.fn(),
       updateMany: vi.fn(),
     },
@@ -197,5 +199,38 @@ describe('inventory item PATCH boundary', () => {
     expect(response.status).toBe(403);
     expect(response.body.code).toBe('AUTH_FORBIDDEN');
     expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('projects the accepted purchase receipt source for allocation clients', async () => {
+    mocks.prisma.inventoryItem.findFirst.mockResolvedValueOnce({
+      id: 'item-1',
+      partNumber: 'PN-1',
+      details: [{
+        id: 'detail-1',
+        quantity: 1,
+        allocatedQuantity: 0,
+        status: 'AVAILABLE',
+        stockReceiptLines: [{ id: 'receipt-line-1' }],
+      }],
+    });
+
+    const response = await request(buildApp()).get('/api/inventory-items/part/PN-1');
+
+    expect(response.status).toBe(200);
+    expect(response.body.details[0]).toMatchObject({ id: 'detail-1', stockReceiptLineId: 'receipt-line-1' });
+    expect(response.body.details[0]).not.toHaveProperty('stockReceiptLines');
+    expect(mocks.prisma.inventoryItem.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { partNumber: 'PN-1' },
+      include: {
+        details: {
+          include: {
+            stockReceiptLines: {
+              where: { status: 'ACCEPTED' },
+              select: { id: true },
+            },
+          },
+        },
+      },
+    }));
   });
 });

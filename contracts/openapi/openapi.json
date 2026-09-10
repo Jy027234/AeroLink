@@ -32542,6 +32542,12 @@
             "minimum": 0,
             "maximum": 2147483647,
             "readOnly": true
+          },
+          "stockReceiptLineId": {
+            "type": "string",
+            "minLength": 1,
+            "readOnly": true,
+            "description": "The accepted purchase receipt line that created this physical detail, when applicable."
           }
         },
         "additionalProperties": true

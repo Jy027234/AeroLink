@@ -37,7 +37,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 const detail = {
   id: 'detail-1', inventoryItemId: 'item-1', quantity: 4, allocatedQuantity: 0, status: 'AVAILABLE',
-  conditionCode: 'NE', serialNumber: null, batchNumber: 'B-1', warehouse: 'WH-1', location: 'A-01',
+  conditionCode: 'NE', serialNumber: null, batchNumber: 'B-1', warehouse: 'WH-1', location: 'A-01', stockReceiptLineId: 'receipt-line-1',
 } as never;
 
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
@@ -82,6 +82,23 @@ describe('InventoryAllocationPanel', () => {
     expect(reserveButton).toBeDisabled();
     fireEvent.change(reserveInput, { target: { value: '1' } });
     expect(reserveButton).toBeEnabled();
+  });
+
+  it('sends the selected accepted receipt source with a reservation', async () => {
+    render(<InventoryAllocationPanel mode="order" quotationLineId="quotation-line-1" orderLineId="order-line-1" partNumber="PN-1" quantity={5} />);
+
+    expect(await screen.findByText('供应商直发')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'ArrowDown' });
+    fireEvent.click(await screen.findByRole('option', { name: /4 EA/ }));
+    const reserveButton = screen.getByRole('button', { name: '预留', exact: true });
+    await waitFor(() => expect(reserveButton).toBeEnabled());
+    fireEvent.click(reserveButton);
+
+    await waitFor(() => expect(inventoryAllocationApi.reserve).toHaveBeenCalledWith({
+      quotationLineId: 'quotation-line-1',
+      orderLineId: 'order-line-1',
+      allocations: [{ inventoryDetailId: 'detail-1', quantity: 1, stockReceiptLineId: 'receipt-line-1' }],
+    }));
   });
 
   it('treats a missing inventory catalog row as an empty state', async () => {

@@ -93,4 +93,37 @@ describe('inventory cost projection', () => {
     expect(safe).toEqual({ id: 'item-1', partNumber: 'PN-1', details: [{ id: 'detail-1', quantity: 4 }] });
     expect(privileged.details?.[0]).toHaveProperty('unitCost', 123.45);
   });
+
+  it('projects exactly one accepted receipt source without exposing the relation shape', () => {
+    const projected = projectInventoryItem({
+      id: 'item-1',
+      partNumber: 'PN-1',
+      details: [{
+        id: 'detail-1',
+        quantity: 1,
+        unitCost: 123.45,
+        stockReceiptLines: [{ id: 'receipt-line-1' }],
+      }],
+    }, false);
+
+    expect(projected.details).toEqual([{
+      id: 'detail-1',
+      quantity: 1,
+      stockReceiptLineId: 'receipt-line-1',
+    }]);
+    expect(projected.details?.[0]).not.toHaveProperty('stockReceiptLines');
+  });
+
+  it('does not guess a source when the relation is ambiguous', () => {
+    const projected = projectInventoryItem({
+      id: 'item-1',
+      details: [{
+        id: 'detail-1',
+        stockReceiptLines: [{ id: 'receipt-line-1' }, { id: 'receipt-line-2' }],
+      }],
+    }, true);
+
+    expect(projected.details?.[0]).not.toHaveProperty('stockReceiptLineId');
+    expect(projected.details?.[0]).not.toHaveProperty('stockReceiptLines');
+  });
 });

@@ -14,6 +14,21 @@ const router = Router();
 
 const optionalNullableText = z.string().nullable().optional();
 
+// The allocation workflow must be able to carry the immutable physical source
+// of an accepted purchase detail. Keep this relation narrow and accepted-only;
+// callers must never infer a source from stockLotKey or choose an arbitrary
+// relation row.
+const inventoryItemInclude = {
+  details: {
+    include: {
+      stockReceiptLines: {
+        where: { status: 'ACCEPTED' },
+        select: { id: true },
+      },
+    },
+  },
+} satisfies Prisma.InventoryItemInclude;
+
 /**
  * InventoryItem is a shared identity row.  PATCH intentionally accepts only
  * its scalar metadata; relation objects, generated timestamps, and IDs must
@@ -50,7 +65,7 @@ router.get(
 
     const items = await prisma.inventoryItem.findMany({
       where,
-      include: { details: true },
+      include: inventoryItemInclude,
       orderBy: { partNumber: 'asc' },
       skip,
       take: pageSize,
@@ -68,7 +83,7 @@ router.get(
     const includeCost = canViewInventoryCost((req as AuthRequest).user!);
     const item = await prisma.inventoryItem.findFirst({
       where: { partNumber: req.params.partNumber },
-      include: { details: true },
+      include: inventoryItemInclude,
     });
     if (!item) throw new AppError('InventoryItem not found', 404);
     res.json(projectInventoryItem(item, includeCost));
@@ -83,7 +98,7 @@ router.get(
     const includeCost = canViewInventoryCost((req as AuthRequest).user!);
     const item = await prisma.inventoryItem.findUnique({
       where: { id: req.params.id },
-      include: { details: true },
+      include: inventoryItemInclude,
     });
     if (!item) throw new AppError('InventoryItem not found', 404);
     res.json(projectInventoryItem(item, includeCost));

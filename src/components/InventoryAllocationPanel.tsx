@@ -230,7 +230,11 @@ export function InventoryAllocationPanel({
       await inventoryAllocationApi.reserve({
         quotationLineId,
         ...(isOrder && orderLineId ? { orderLineId } : {}),
-        allocations: [{ inventoryDetailId: selectedDetail.id, quantity: reserveAmount }],
+        allocations: [{
+          inventoryDetailId: selectedDetail.id,
+          quantity: reserveAmount,
+          ...(selectedDetail.stockReceiptLineId ? { stockReceiptLineId: selectedDetail.stockReceiptLineId } : {}),
+        }],
       });
       toast.success(tx('库存预留成功', 'Inventory reserved'));
       setSelectedDetailId('');
