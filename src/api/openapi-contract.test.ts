@@ -12,6 +12,7 @@ type Operation = {
 
 type Schema = {
   $ref?: string;
+  description?: string;
   required?: string[];
   properties?: Record<string, any>;
   oneOf?: Schema[];
@@ -651,5 +652,83 @@ describe('OpenAPI representative contract invariants', () => {
     for (const field of ['currency', 'unitCost', 'lineTotal', 'sourceSupplierQuoteId', 'sourceSnapshot']) {
       expect(JSON.stringify(purchaseLine.properties?.[field])).toContain('purchase_commitment.view_cost');
     }
+  });
+
+  it('contracts USD settlement AR/AP projections, immutable records and required idempotency', () => {
+    const list = operation('GET', '/api/settlements');
+    const detail = operation('GET', '/api/settlements/{id}');
+    const create = operation('POST', '/api/settlements');
+    const record = operation('POST', '/api/settlements/{id}/records');
+
+    expect(list['x-aerolink-contract-status']).toBe('contracted');
+    expect(list.responses['200']).toEqual({ $ref: '#/components/responses/SettlementOrderList' });
+    expect(list['x-aerolink-strict-query']).toBe(true);
+    expect(list.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'orderId', in: 'query', required: true }),
+    ]));
+    expect(detail.responses['200']).toEqual({ $ref: '#/components/responses/SettlementAccount' });
+
+    expect(create.requestBody).toEqual({ $ref: '#/components/requestBodies/SettlementCreate' });
+    expect(create.responses['201']).toEqual({ $ref: '#/components/responses/SettlementAccount' });
+    expect(record.requestBody).toEqual({ $ref: '#/components/requestBodies/SettlementRecord' });
+    expect(record.responses['201']).toEqual({ $ref: '#/components/responses/SettlementAccount' });
+    for (const write of [create, record]) {
+      expect(write.parameters).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Idempotency-Key', in: 'header', required: true,
+          schema: expect.objectContaining({ minLength: 1, maxLength: 255 }),
+        }),
+      ]));
+      for (const status of ['400', '401', '403', '404', '409', '422', '429', '500']) {
+        expect(write.responses[status]).toEqual({ $ref: '#/components/responses/Error' });
+      }
+    }
+
+    const createRequest = contract.components.schemas.SettlementCreateRequest;
+    const createBranches = createRequest.oneOf?.map(resolveSchema) ?? [];
+    expect(createBranches).toHaveLength(2);
+    const receivable = createBranches.find((branch) => branch.properties?.side?.const === 'RECEIVABLE');
+    const payable = createBranches.find((branch) => branch.properties?.side?.const === 'PAYABLE');
+    expect(receivable).toBeDefined();
+    expect(payable).toBeDefined();
+    expect(receivable?.required).toEqual(expect.arrayContaining(['side', 'orderId', 'evidenceIds']));
+    expect(receivable?.required).not.toContain('purchaseCommitmentId');
+    expect(receivable?.properties?.purchaseCommitmentId).toBe(false);
+    expect(payable?.required).toEqual(expect.arrayContaining(['side', 'orderId', 'purchaseCommitmentId']));
+    expect(JSON.stringify(payable)).toContain('settlement.view_cost');
+    expect(receivable?.properties).not.toHaveProperty('initialAmount');
+
+    const recordRequest = contract.components.schemas.SettlementRecordRequest;
+    const recordBranches = recordRequest.oneOf?.map(resolveSchema) ?? [];
+    expect(recordBranches).toHaveLength(3);
+    const amountRecord = recordBranches.find((branch) => branch.properties?.kind?.enum?.includes('PAYMENT'));
+    const reversalRecord = recordBranches.find((branch) => branch.properties?.kind?.const === 'REVERSAL');
+    const termsRecord = recordBranches.find((branch) => branch.properties?.kind?.const === 'TERMS');
+    expect(amountRecord?.required).toEqual(expect.arrayContaining(['version', 'kind', 'amount', 'evidenceIds']));
+    expect(amountRecord?.required).not.toContain('reversalOfId');
+    expect(amountRecord?.required).not.toContain('dueDate');
+    expect(reversalRecord?.required).toEqual(expect.arrayContaining(['version', 'kind', 'reversalOfId']));
+    expect(reversalRecord?.required).not.toContain('amount');
+    expect(reversalRecord?.required).not.toContain('dueDate');
+    expect(termsRecord?.required).toEqual(expect.arrayContaining(['version', 'kind', 'dueDate']));
+    expect(termsRecord?.required).not.toContain('amount');
+    expect(termsRecord?.required).not.toContain('reversalOfId');
+    expect(amountRecord?.properties?.amount?.pattern).toBeDefined();
+    const positiveAmountPattern = new RegExp(amountRecord?.properties?.amount?.pattern as string);
+    expect(positiveAmountPattern.test('0.0001')).toBe(true);
+    expect(positiveAmountPattern.test('0')).toBe(false);
+    expect(positiveAmountPattern.test('0.0000')).toBe(false);
+    expect(recordRequest.description).toContain('Append-only');
+
+    const account = contract.components.schemas.SettlementAccount;
+    const accountBranches = account.oneOf?.map(resolveSchema) ?? [];
+    expect(accountBranches).toHaveLength(2);
+    expect(accountBranches.map((branch) => branch.properties?.side?.const)).toEqual(['RECEIVABLE', 'PAYABLE']);
+    expect(JSON.stringify(accountBranches.find((branch) => branch.properties?.side?.const === 'PAYABLE')))
+      .toContain('settlement.view_cost');
+    expect(contract.components.schemas.SettlementRecord.properties?.evidence?.items)
+      .toEqual(expect.objectContaining({ properties: expect.objectContaining({ status: { const: 'AVAILABLE' } }) }));
+    const listSchema = resolveSchema(contract.components.schemas.SettlementOrderList);
+    expect(listSchema.properties?.accounts?.items).toEqual({ $ref: '#/components/schemas/SettlementAccount' });
   });
 });

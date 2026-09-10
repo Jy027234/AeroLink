@@ -5546,6 +5546,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/settlements
+         * @description Lists settlement accounts for one modern order. orderId is the only accepted query parameter; users without settlement.view_cost receive receivables only and never payable/cost data.
+         */
+        get: operations["getSettlements"];
+        put?: never;
+        /**
+         * POST /api/settlements
+         * @description Creates one USD receivable or payable account from current order/purchase facts. The request cannot supply an amount; PAYABLE requires settlement.view_cost and a confirmed purchase commitment.
+         */
+        post: operations["postSettlements"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settlements/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/settlements/:id
+         * @description Reads one current settlement account under order scope. A payable account requires settlement.view_cost; historical records are append-only.
+         */
+        get: operations["getSettlementsId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settlements/{id}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/settlements/:id/records
+         * @description Appends one immutable USD external voucher with a required version CAS. Existing history is never edited; replay and scope are rechecked.
+         */
+        post: operations["postSettlementsIdRecords"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/shipment-tracking": {
         parameters: {
             query?: never;
@@ -13273,6 +13337,257 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        SettlementReceivableSourceSnapshot: {
+            /** @constant */
+            kind: "ORDER";
+            sourceId: string;
+            sourceNumber: string;
+            sourceVersion: number;
+            counterpartyId: string;
+            counterpartyName: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            initialAmount: string;
+            /**
+             * @constant
+             * @enum {unknown}
+             */
+            currency: "USD";
+        };
+        /** @description Private payable source snapshot. Omitted unless settlement.view_cost is granted. */
+        SettlementPayableSourceSnapshot: {
+            /** @constant */
+            kind: "PURCHASE";
+            sourceId: string;
+            sourceNumber: string;
+            sourceVersion: number;
+            counterpartyId: string;
+            counterpartyName: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            initialAmount: string;
+            /**
+             * @constant
+             * @enum {unknown}
+             */
+            currency: "USD";
+        };
+        SettlementRecord: {
+            readonly id: string;
+            /** @enum {string} */
+            readonly kind: "OPEN" | "PAYMENT" | "CREDIT" | "REFUND" | "REVERSAL" | "TERMS";
+            /** @description Settlement account version captured by this immutable record. */
+            readonly version: number;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly amount: string | null;
+            /** Format: date-time */
+            readonly dueDate: string | null;
+            /** Format: date-time */
+            readonly occurredAt: string;
+            readonly externalSystem: string;
+            readonly voucherNumber: string;
+            readonly voucherLine: string;
+            readonly reason: string;
+            readonly evidence: {
+                id: string;
+                version: number;
+                sha256: string;
+                /** @constant */
+                status: "AVAILABLE";
+            }[];
+            readonly reversalOfId: string | null;
+            readonly actorName: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        SettlementAmounts: {
+            /**
+             * @constant
+             * @enum {unknown}
+             */
+            readonly currency: "USD";
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly initialAmount: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly grossPaid: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly refunded: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly effectivePaid: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly creditReduction: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly adjustedDue: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly unpaid: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly overpaid: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly pendingRefund: string;
+        };
+        /** @description Accounts receivable projection. This is the only settlement side returned to users without settlement.view_cost. */
+        SettlementReceivableAccount: {
+            readonly id: string;
+            readonly orderId: string;
+            /**
+             * @constant
+             * @enum {unknown}
+             */
+            readonly currency: "USD";
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly initialAmount: string;
+            /** Format: date-time */
+            readonly dueDate: string;
+            readonly version: number;
+            /** Format: date-time */
+            readonly createdAt: string;
+            readonly amounts: components["schemas"]["SettlementAmounts"];
+            readonly records: components["schemas"]["SettlementRecord"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            side: "RECEIVABLE";
+            readonly purchaseCommitmentId: null;
+            readonly sourceSnapshot: components["schemas"]["SettlementReceivableSourceSnapshot"];
+        };
+        /** @description Accounts payable projection. Every field in this branch requires settlement.view_cost. */
+        SettlementPayableAccount: {
+            readonly id: string;
+            readonly orderId: string;
+            /**
+             * @constant
+             * @enum {unknown}
+             */
+            readonly currency: "USD";
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly initialAmount: string;
+            /** Format: date-time */
+            readonly dueDate: string;
+            readonly version: number;
+            /** Format: date-time */
+            readonly createdAt: string;
+            readonly amounts: components["schemas"]["SettlementAmounts"];
+            readonly records: components["schemas"]["SettlementRecord"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            side: "PAYABLE";
+            readonly purchaseCommitmentId: string;
+            readonly sourceSnapshot: components["schemas"]["SettlementPayableSourceSnapshot"];
+        };
+        SettlementAccount: components["schemas"]["SettlementReceivableAccount"] | components["schemas"]["SettlementPayableAccount"];
+        /** @description Order-scoped settlement accounts. The route filters PAYABLE accounts unless settlement.view_cost is granted. */
+        SettlementOrderList: {
+            readonly orderId: string;
+            readonly accounts: components["schemas"]["SettlementAccount"][];
+        };
+        SettlementReceivableCreateRequest: {
+            orderId: string;
+            /** Format: date-time */
+            dueDate: string;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            side: "RECEIVABLE";
+            purchaseCommitmentId?: never;
+        };
+        /** @description Creates an accounts-payable settlement account from a confirmed USD purchase commitment; requires settlement.view_cost. */
+        SettlementPayableCreateRequest: {
+            orderId: string;
+            /** Format: date-time */
+            dueDate: string;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            side: "PAYABLE";
+            purchaseCommitmentId: string;
+        };
+        /** @description Strict USD settlement account request. Amounts are derived from the current order or confirmed purchase commitment; clients cannot supply an amount. */
+        SettlementCreateRequest: components["schemas"]["SettlementReceivableCreateRequest"] | components["schemas"]["SettlementPayableCreateRequest"];
+        SettlementAmountRecordRequest: {
+            version: number;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "PAYMENT" | "CREDIT" | "REFUND";
+            /** @description Positive USD Decimal(18,4) serialized as a plain decimal string. */
+            amount: string;
+            reversalOfId?: never;
+            dueDate?: never;
+        };
+        SettlementReversalRecordRequest: {
+            version: number;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "REVERSAL";
+            amount?: never;
+            reversalOfId: string;
+            dueDate?: never;
+        };
+        SettlementTermsRecordRequest: {
+            version: number;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "TERMS";
+            amount?: never;
+            reversalOfId?: never;
+            /** Format: date-time */
+            dueDate: string;
+        };
+        /** @description Append-only settlement voucher. version is a required compare-and-set token; history cannot be edited in place. */
+        SettlementRecordRequest: components["schemas"]["SettlementAmountRecordRequest"] | components["schemas"]["SettlementReversalRecordRequest"] | components["schemas"]["SettlementTermsRecordRequest"];
+        SettlementAccountEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["SettlementAccount"];
+        };
+        SettlementOrderListEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["SettlementOrderList"];
+        };
     };
     responses: {
         /** @description Authenticated; refresh token is rotated in an HttpOnly cookie. */
@@ -15010,6 +15325,24 @@ export interface components {
                 "application/json": components["schemas"]["PurchaseCommitmentOrderListEnvelope"];
             };
         };
+        /** @description Current settlement account projection. PAYABLE and its cost/source fields require settlement.view_cost. */
+        SettlementAccount: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["SettlementAccountEnvelope"];
+            };
+        };
+        /** @description Order-scoped AR/AP settlement list. Sales receives AR only; AP requires settlement.view_cost. */
+        SettlementOrderList: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["SettlementOrderListEnvelope"];
+            };
+        };
     };
     parameters: never;
     requestBodies: {
@@ -15513,6 +15846,16 @@ export interface components {
         PurchaseCommitmentConfirm: {
             content: {
                 "application/json": components["schemas"]["PurchaseCommitmentConfirmRequest"];
+            };
+        };
+        SettlementCreate: {
+            content: {
+                "application/json": components["schemas"]["SettlementCreateRequest"];
+            };
+        };
+        SettlementRecord: {
+            content: {
+                "application/json": components["schemas"]["SettlementRecordRequest"];
             };
         };
     };
@@ -23281,6 +23624,98 @@ export interface operations {
         requestBody: components["requestBodies"]["DirectShipmentReceipt"];
         responses: {
             200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getSettlements: {
+        parameters: {
+            query: {
+                orderId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["SettlementOrderList"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSettlements: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe settlement writes; replays are re-authorized against current scope. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["SettlementCreate"];
+        responses: {
+            201: components["responses"]["SettlementAccount"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getSettlementsId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["SettlementAccount"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSettlementsIdRecords: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe settlement writes; replays are re-authorized against current scope. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["SettlementRecord"];
+        responses: {
+            201: components["responses"]["SettlementAccount"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];

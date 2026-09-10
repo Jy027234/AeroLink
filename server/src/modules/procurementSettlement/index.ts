@@ -20,3 +20,7 @@ export { createDirectShipment, getDirectShipmentReviewContext, reviewDirectShipm
   dispatchDirectShipment, cancelDirectShipment, receiveDirectShipment } from './directShipmentCommands.js';
 export { createDirectShipmentSchema, reviewDirectShipmentSchema, directShipmentActionSchema,
   directShipmentReceiptSchema } from './directShipmentInputs.js';
+export { assertSettlementOrderScope, getSettlementAccount, getOrderSettlements } from './settlementAccess.js';
+export { createSettlementAccount, appendSettlementRecord } from './settlementCommands.js';
+export { createSettlementAccountSchema, settlementRecordSchema } from './settlementInputs.js';
+export { assertCanReadSettlementEvidence } from './settlementEvidence.js';

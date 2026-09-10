@@ -84,6 +84,20 @@ enum StockReceiptLineStatus {
   REJECTED
 }
 
+enum SettlementSide {
+  RECEIVABLE
+  PAYABLE
+}
+
+enum SettlementRecordKind {
+  OPEN
+  TERMS
+  PAYMENT
+  CREDIT
+  REFUND
+  REVERSAL
+}
+
 model User {
   id          String    @id @default(uuid())
   email       String    @unique
@@ -135,6 +149,8 @@ model User {
   stockReceiptsReceived         StockReceipt[] @relation("StockReceiptReceiver")
   stockReceiptLinesReviewed     StockReceiptLine[] @relation("StockReceiptLineReviewer")
   stockReceiptEvents            StockReceiptEvent[]
+  settlementAccountsCreated    SettlementAccount[] @relation("SettlementAccountCreator")
+  settlementRecords            SettlementRecord[] @relation("SettlementRecordActor")
 
   @@map("users")
 }
@@ -1104,6 +1120,7 @@ model Order {
   fulfillmentReviews    FulfillmentReview[]
   purchaseCommitments   PurchaseCommitment[]
   supplierDirectShipments SupplierDirectShipment[]
+  settlementAccounts   SettlementAccount[]
 
   @@index([status, createdAt])
   @@map("orders")
@@ -1189,10 +1206,67 @@ model PurchaseCommitment {
   events      PurchaseCommitmentEvent[]
   stockReceipts StockReceipt[]
   supplierDirectShipments SupplierDirectShipment[]
+  settlementAccount SettlementAccount?
 
   @@index([orderId, status])
   @@index([supplierId, status])
   @@map("purchase_commitments")
+}
+
+model SettlementAccount {
+  id                    String         @id @default(uuid())
+  side                  SettlementSide
+  sourceKey             String         @unique
+  orderId               String
+  purchaseCommitmentId  String?        @unique
+  currency              String         @default("USD")
+  initialAmount         Decimal        @db.Decimal(18, 4)
+  sourceSnapshot        Json
+  dueDate               DateTime
+  version               Int            @default(1)
+  createdById           String
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  order                 Order                  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  purchaseCommitment    PurchaseCommitment?    @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  createdBy             User                   @relation("SettlementAccountCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  records               SettlementRecord[]
+
+  @@index([orderId, side])
+  @@index([createdById, createdAt])
+  @@map("settlement_accounts")
+}
+
+model SettlementRecord {
+  id                String               @id @default(uuid())
+  accountId         String
+  kind              SettlementRecordKind
+  accountVersion    Int
+  amount            Decimal?             @db.Decimal(18, 4)
+  dueDate           DateTime?
+  occurredAt        DateTime
+  externalSystem    String
+  voucherNumber     String
+  voucherLine       String
+  reason            String
+  evidence          Json                 @default("[]")
+  reversalOfId      String?              @unique(map: "settlement_records_reversal_of_key")
+  actorId           String
+  commandId         String               @unique
+  requestHash       String
+  createdAt         DateTime             @default(now())
+
+  account           SettlementAccount    @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  reversalOf        SettlementRecord?    @relation("SettlementRecordReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals         SettlementRecord[]   @relation("SettlementRecordReversal")
+  actor             User                 @relation("SettlementRecordActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([accountId, accountVersion], map: "settlement_records_accountId_accountVersion_key")
+  @@unique([externalSystem, voucherNumber, voucherLine], map: "settlement_records_external_voucher_key")
+  @@index([accountId, occurredAt])
+  @@index([actorId, occurredAt])
+  @@map("settlement_records")
 }
 
 model PurchaseCommitmentLine {

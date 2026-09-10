@@ -35,7 +35,7 @@ export function getLegacyUploadDecision(
   // Dedicated business evidence must use its current-snapshot ACL through
   // /api/files. The legacy object-key path has no receipt/order context and
   // must never fall back to owner, manager or admin access.
-  if (['purchase_commitment', 'stock_receipt', 'supplier_direct_shipment'].includes(storedObject.domain ?? '')) return 'forbidden';
+  if (['purchase_commitment', 'stock_receipt', 'supplier_direct_shipment', 'settlement_account'].includes(storedObject.domain ?? '')) return 'forbidden';
   return canReadStoredObject(storedObject, user) ? 'allow' : 'forbidden';
 }
 
