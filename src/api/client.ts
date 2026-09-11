@@ -2833,7 +2833,7 @@ export const webhooksPhase2Api = {
     if (params?.offset) search.set('offset', String(params.offset));
     if (params?.status) search.set('status', params.status);
     const query = search.toString();
-    return request<{ data: WebhookReplayBatch[]; pagination: { limit: number; offset: number; total: number } }>(
+    return requestEnvelope<{ data: WebhookReplayBatch[]; pagination: { limit: number; offset: number; total: number } }>(
       `/webhooks/phase2/replay${query ? `?${query}` : ''}`,
     );
   },
