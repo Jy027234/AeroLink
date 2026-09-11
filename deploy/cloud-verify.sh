@@ -7,6 +7,9 @@ ENV_FILE="${ENV_FILE:-.env.production}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 RELEASE_RECORD="${RELEASE_RECORD:?RELEASE_RECORD is required}"
 SOURCE_REF="${SOURCE_REF:?SOURCE_REF is required and must be the full Git SHA}"
+WORKER_STABILITY_WINDOW_SECONDS="${WORKER_STABILITY_WINDOW_SECONDS:-5}"
+WORKER_STABILITY_MIN_WINDOW_SECONDS=2
+WORKER_STABILITY_MAX_WINDOW_SECONDS=30
 
 require_full_sha() {
   local value="$1"
@@ -15,6 +18,20 @@ require_full_sha() {
     echo "$label must be a 40-character lowercase Git SHA." >&2
     exit 1
   fi
+}
+
+validate_worker_stability_window() {
+  if [[ ! "$WORKER_STABILITY_WINDOW_SECONDS" =~ ^[0-9]{1,2}$ ]]; then
+    echo "WORKER_STABILITY_WINDOW_SECONDS must be an integer between ${WORKER_STABILITY_MIN_WINDOW_SECONDS} and ${WORKER_STABILITY_MAX_WINDOW_SECONDS}; worker stability checks cannot be disabled." >&2
+    exit 1
+  fi
+
+  local window_seconds=$((10#$WORKER_STABILITY_WINDOW_SECONDS))
+  if (( window_seconds < WORKER_STABILITY_MIN_WINDOW_SECONDS || window_seconds > WORKER_STABILITY_MAX_WINDOW_SECONDS )); then
+    echo "WORKER_STABILITY_WINDOW_SECONDS must be an integer between ${WORKER_STABILITY_MIN_WINDOW_SECONDS} and ${WORKER_STABILITY_MAX_WINDOW_SECONDS}; worker stability checks cannot be disabled." >&2
+    exit 1
+  fi
+  WORKER_STABILITY_WINDOW_SECONDS="$window_seconds"
 }
 
 read_record_value() {
@@ -39,6 +56,7 @@ set_record_value() {
 }
 
 require_full_sha "$SOURCE_REF" "SOURCE_REF"
+validate_worker_stability_window
 [[ -s "$RELEASE_RECORD" ]] || { echo "Release record not found: $RELEASE_RECORD" >&2; exit 1; }
 RELEASE_RECORD="$(CDPATH= cd -- "$(dirname -- "$RELEASE_RECORD")" && pwd)/$(basename -- "$RELEASE_RECORD")"
 
@@ -92,8 +110,69 @@ check_running_image() {
   fi
 }
 
+check_worker_stability() {
+  local container_id
+  local worker_state
+  local worker_running
+  local worker_restarting
+  local worker_restart_count
+  local initial_restart_count
+  local sample
+
+  container_id="$("${compose[@]}" ps -q worker | tr -d '[:space:]')"
+  if [[ -z "$container_id" ]]; then
+    echo "Worker service disappeared during stability check." >&2
+    exit 1
+  fi
+
+  if ! worker_state="$(docker inspect "$container_id" --format '{{.State.Running}}|{{.State.Restarting}}|{{.RestartCount}}')"; then
+    echo "Could not inspect Worker container state." >&2
+    exit 1
+  fi
+  IFS='|' read -r worker_running worker_restarting worker_restart_count <<< "$worker_state"
+  if [[ "$worker_running" != true ]]; then
+    echo "Worker container is not running after release." >&2
+    exit 1
+  fi
+  if [[ "$worker_restarting" != false ]]; then
+    echo "Worker container is restarting after release." >&2
+    exit 1
+  fi
+  if [[ ! "$worker_restart_count" =~ ^[0-9]+$ ]]; then
+    echo "Worker container reported an invalid restart count: ${worker_restart_count:-none}." >&2
+    exit 1
+  fi
+  initial_restart_count="$worker_restart_count"
+
+  for (( sample = 1; sample <= WORKER_STABILITY_WINDOW_SECONDS; sample++ )); do
+    sleep 1
+    if ! worker_state="$(docker inspect "$container_id" --format '{{.State.Running}}|{{.State.Restarting}}|{{.RestartCount}}')"; then
+      echo "Could not inspect Worker container state during stability check." >&2
+      exit 1
+    fi
+    IFS='|' read -r worker_running worker_restarting worker_restart_count <<< "$worker_state"
+    if [[ "$worker_running" != true ]]; then
+      echo "Worker container stopped during stability check." >&2
+      exit 1
+    fi
+    if [[ "$worker_restarting" != false ]]; then
+      echo "Worker container entered restarting state during stability check." >&2
+      exit 1
+    fi
+    if [[ ! "$worker_restart_count" =~ ^[0-9]+$ ]]; then
+      echo "Worker container reported an invalid restart count during stability check: ${worker_restart_count:-none}." >&2
+      exit 1
+    fi
+    if [[ "$worker_restart_count" != "$initial_restart_count" ]]; then
+      echo "Worker restart count changed during stability check: expected $initial_restart_count, got $worker_restart_count." >&2
+      exit 1
+    fi
+  done
+}
+
 check_running_image backend "$backend_release_id"
 check_running_image worker "$worker_release_id"
+check_worker_stability
 check_running_image web "$web_release_id"
 
 "${compose[@]}" exec -T backend npx prisma migrate status --schema prisma/schema.prisma
