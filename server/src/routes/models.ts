@@ -146,7 +146,7 @@ async function inTransaction<T>(callback: (tx: ModelClient) => Promise<T>): Prom
       fn: (tx: ModelClient) => Promise<R>,
       options?: { isolationLevel?: Prisma.TransactionIsolationLevel; timeout?: number },
     ) => Promise<R>;
-  }).$transaction;
+  }).$transaction?.bind(prisma);
   // Prisma always provides $transaction. The fallback keeps isolated route
   // tests with a minimal mock deterministic while production remains atomic.
   if (!transaction) return callback(prisma);

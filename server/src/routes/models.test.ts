@@ -90,6 +90,7 @@ describe('model routes', () => {
     expect(response.body.data).not.toHaveProperty('apiKey');
     expect(response.body.data.config).not.toHaveProperty('apiKey');
     expect(mocks.prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.$transaction.mock.contexts[0]).toBe(mocks.prisma);
     expect(mocks.prisma.aIModel.updateMany).toHaveBeenCalledWith({
       where: { isDefault: true },
       data: { isDefault: false },

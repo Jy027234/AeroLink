@@ -118,7 +118,9 @@ async function startFixture(): Promise<Fixture> {
     });
 
     const prompt = messages.map((message) => message.content).join('\n');
-    const extraction = prompt.includes('邮件') || prompt.includes('subject') || prompt.includes('RFQ');
+    // The chat safety prompt also mentions emails/RFQs. Identify the extraction
+    // fixture by its output contract or explicit revision marker instead.
+    const extraction = prompt.includes('partNumbers') || prompt.includes('V2_EXTRACTION_MARKER');
     let content: string;
     if (extraction) {
       content = prompt.includes('V2_EXTRACTION_MARKER')
@@ -360,6 +362,10 @@ async function main() {
     const modelDetail = await callRoute(routeBaseUrl, 'get', `/api/models/${modelId}`);
     successData(modelDetail, 'fixture model detail');
     assertNoSecret(modelDetail, 'fixture model detail');
+    const modelConnection = await callRoute(routeBaseUrl, 'post', `/api/models/${modelId}/test`);
+    const connectionData = successData(modelConnection, 'fixture model connection test');
+    assert(connectionData.status === 'ok', 'fixture model connection test did not succeed');
+    assertNoSecret(modelConnection, 'fixture model connection test');
 
     const agentRows = await callRoute(routeBaseUrl, 'get', '/api/agents/');
     const agents = successData(agentRows, 'agent listing') as unknown as Array<JsonRecord>;
