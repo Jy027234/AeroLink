@@ -66,7 +66,7 @@ try {
     assertInventoryQuantityAdjustmentAllowed(inventory.status, false);
     expectDefined(await tx.inventoryDetail.findUnique({ where: { id: inventory.id } }));
 
-    const existingOrder = await tx.order.findUnique({ where: { quotationId: quotation.id } });
+    const existingOrder = await tx.order.findFirst({ where: { quotationId: quotation.id } });
     if (!existingOrder) {
       const createdOrder = await createOrderFromQuotation({
         tx,

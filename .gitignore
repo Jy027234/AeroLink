@@ -1,8 +1,12 @@
 node_modules
 dist
+# Verified third-party runtime is source input, not a generated project build.
+!vendor/pptxgenjs/dist/
+!vendor/pptxgenjs/dist/**
 test-results
 ppt-screenshots
 server/dist
+server/uploads/
 server/.env
 server/.env.docker
 .env.local

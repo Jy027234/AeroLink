@@ -87,6 +87,8 @@ services:
         PRISMA_SCHEMA_PATH: prisma/schema.prisma
     environment:
       NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
       DATABASE_URL: postgresql://aerolink:${DB_PASSWORD}@postgres:5432/aerolink?schema=public
       EMAIL_MESSAGE_ID_DOMAIN: ${EMAIL_MESSAGE_ID_DOMAIN:-aerolink.local}
       PRISMA_SCHEMA_PATH: prisma/schema.prisma

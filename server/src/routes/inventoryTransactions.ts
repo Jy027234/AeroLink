@@ -1,16 +1,53 @@
 import { Router } from 'express';
+import { z } from 'zod';
+import prisma from '../lib/prisma.js';
+import { validateBody } from '../middleware/validate.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { requireCapability } from '../middleware/capability.js';
+import { assertCapability, requireCapability } from '../middleware/capability.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import {
   inventoryTransactionRepository,
   outboundInventoryForOrder,
   releaseInventoryReservation,
   reserveInventoryForQuotation,
+  getFulfillmentReviewContext,
+  createFulfillmentReview,
 } from '../modules/inventoryQuality/index.js';
 
 const router = Router();
+
+const qualityReviewSchema = z.object({
+  orderId: z.string().min(1), quantity: z.number().int().positive(), snapshotHash: z.string().length(64),
+  approved: z.boolean(), evidenceIds: z.array(z.string().min(1)).max(20),
+  verifiedSerialNumber: z.string(), verifiedBatchNumber: z.string(),
+  checks: z.object({ identity: z.boolean(), documents: z.boolean(), conditionAndLife: z.boolean(), customerRequirements: z.boolean() }).strict(),
+  reason: z.string().trim().min(3).max(4000),
+}).strict();
+
+router.get('/quality-review/:orderId', requireCapability('quality_review', 'read'), asyncHandler(async (req: AuthRequest, res) => {
+  const context = await getFulfillmentReviewContext(prisma, req.params.orderId, Number(req.query.quantity));
+  assertCapability(req.user!, 'quality_review', 'read', { ownerId: context.order.quotation.createdBy, department: context.order.quotation.creator.department });
+  const review = await prisma.fulfillmentReview.findFirst({
+    where: { orderId: req.params.orderId, inventoryDetailId: context.detail.id },
+    orderBy: [{ reviewedAt: 'desc' }, { id: 'desc' }],
+    select: { approved: true, snapshotHash: true, consumedAt: true, reviewedAt: true, quantity: true },
+  });
+  res.json({ success: true, data: { snapshot: context.snapshot, snapshotHash: context.snapshotHash, review } });
+}));
+
+router.post('/quality-reviews', requireCapability('quality_review', 'approve'), validateBody(qualityReviewSchema), asyncHandler(async (req: AuthRequest, res) => {
+  const execution = await runIdempotentOperation(
+    buildIdempotencyContext(req, req.user!.id, 'POST:/inventory-transactions/quality-reviews'),
+    async (tx) => {
+      const review = await createFulfillmentReview(tx, req.body, req.user!);
+      return { payload: { id: review.id, approved: review.approved, reviewedAt: review.reviewedAt, quantity: review.quantity }, statusCode: 201, resourceType: 'FULFILLMENT_REVIEW', resourceId: review.id };
+    },
+    { isolationLevel: 'Serializable' },
+  );
+  applyIdempotencyHeaders(res, execution);
+  res.status(execution.statusCode).json({ success: true, data: execution.payload });
+}));
 
 function serializeTransaction(transaction: {
   id: string;
@@ -109,6 +146,7 @@ router.post(
           resourceId: result.transaction.id,
         };
       },
+      { isolationLevel: 'Serializable' },
     );
 
     applyIdempotencyHeaders(res, execution);
@@ -138,6 +176,7 @@ router.post(
           resourceId: result.transaction.id,
         };
       },
+      { isolationLevel: 'Serializable' },
     );
 
     applyIdempotencyHeaders(res, execution);
@@ -179,6 +218,7 @@ router.post(
           resourceId: result.transaction.id,
         };
       },
+      { isolationLevel: 'Serializable' },
     );
 
     applyIdempotencyHeaders(res, execution);

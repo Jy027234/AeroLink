@@ -18,11 +18,11 @@ function mutationHeaders(token: string, idempotencyKey: string) {
   };
 }
 
-async function login() {
+async function login(email = 'zhang@aerolink.com') {
   const response = await fetch(`${backendBaseUrl}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'zhang@aerolink.com', password: E2E_PASSWORD }),
+    body: JSON.stringify({ email, password: E2E_PASSWORD }),
   });
   expect(response.ok).toBeTruthy();
   const payload = await response.json() as ApiEnvelope<{ token: string }>;
@@ -30,9 +30,10 @@ async function login() {
 }
 
 test('keeps precise quote-to-order and supplier amounts compatible through Decimal shadows', async () => {
-  const token = await login();
+  const token = await login('zhang@aerolink.com');
+  const approverToken = await login('li@aerolink.com');
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const partNumber = `P1-04-MONEY-${suffix}`;
+  const partNumber = '3214-567-100';
 
   const quotationResponse = await fetch(`${backendBaseUrl}/quotations`, {
     method: 'POST',
@@ -44,6 +45,9 @@ test('keeps precise quote-to-order and supplier amounts compatible through Decim
       quantity: 3,
       unitPrice: 12.34565,
       costPrice: 8.10005,
+      currency: 'USD',
+      costSourceType: 'MANUAL',
+      costSourceReason: 'E2E synthetic cost basis for Decimal shadow flow',
       validityDays: 14,
     }),
   });
@@ -79,7 +83,7 @@ test('keeps precise quote-to-order and supplier amounts compatible through Decim
 
   const approveResponse = await fetch(`${backendBaseUrl}/quotations/${quotation.data.id}/approve`, {
     method: 'POST',
-    headers: mutationHeaders(token, `e2e-money-approve-${suffix}`),
+    headers: mutationHeaders(approverToken, `e2e-money-approve-${suffix}`),
     body: JSON.stringify({ action: 'approve', version: submitted.data.version, reasonCode: 'E2E_MONEY_APPROVE' }),
   });
   expect(approveResponse.ok).toBeTruthy();
@@ -144,9 +148,11 @@ test('keeps precise quote-to-order and supplier amounts compatible through Decim
     headers: mutationHeaders(token, `e2e-money-supplier-quote-${suffix}`),
     body: JSON.stringify({
       supplierId: 's001',
+      rfqId: 'rfq002',
       partNumber,
       quantity: 3,
       unitPrice: 10.11115,
+      currency: 'USD',
       leadTimeDays: 7,
     }),
   });

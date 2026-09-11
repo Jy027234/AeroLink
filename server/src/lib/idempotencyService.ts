@@ -170,9 +170,44 @@ class IdempotencyKeyConflictError extends Error {}
 export async function runIdempotentOperation<T>(
   context: IdempotencyContext,
   operation: (tx: Prisma.TransactionClient) => Promise<IdempotentOperationResult<T>>,
+  transactionOptions?: { isolationLevel: Prisma.TransactionIsolationLevel; timeout?: number; validateDeferredConstraints?: boolean },
 ): Promise<IdempotentExecution<T>> {
+  const attempts = transactionOptions?.validateDeferredConstraints ? 3 : 1;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await runIdempotentAttempt(context, operation, transactionOptions);
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+      if (code !== 'P2034') throw error;
+      if (attempt === attempts - 1) {
+        if (attempts === 1) throw error;
+        throw new AppError('库存或交易正在被并发修改，请使用相同幂等键重试', 409, 'STATE_CONFLICT');
+      }
+    }
+  }
+  throw new Error('Unreachable transaction retry state');
+}
+
+async function runIdempotentAttempt<T>(
+  context: IdempotencyContext,
+  operation: (tx: Prisma.TransactionClient) => Promise<IdempotentOperationResult<T>>,
+  transactionOptions?: { isolationLevel: Prisma.TransactionIsolationLevel; timeout?: number; validateDeferredConstraints?: boolean },
+): Promise<IdempotentExecution<T>> {
+  const { validateDeferredConstraints, ...prismaOptions } = transactionOptions ?? {};
+  const options = transactionOptions ? prismaOptions : undefined;
+  const validateBeforeCommit = async (tx: Prisma.TransactionClient) => {
+    if (validateDeferredConstraints) {
+      // Make deferred failures observable before Prisma finishes its callback.
+      // A result must never escape when PostgreSQL will reject the commit.
+      await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+    }
+  };
   if (!context.key) {
-    const operationResult = await prisma.$transaction(operation);
+    const operationResult = await prisma.$transaction(async tx => {
+      const result = await operation(tx);
+      await validateBeforeCommit(tx);
+      return result;
+    }, options);
     return {
       payload: operationResult.payload,
       statusCode: operationResult.statusCode ?? 200,
@@ -213,6 +248,7 @@ export async function runIdempotentOperation<T>(
           resourceId: operationResult.resourceId,
         },
       });
+      await validateBeforeCommit(tx);
 
       return {
         payload: operationResult.payload,
@@ -220,7 +256,7 @@ export async function runIdempotentOperation<T>(
         replayed: false,
         key: keyedContext.key,
       };
-    });
+    }, options);
 
     return execution;
   } catch (error) {
@@ -232,7 +268,7 @@ export async function runIdempotentOperation<T>(
       return await replayExistingOperation<T>(keyedContext);
     } catch (replayError) {
       if (replayError instanceof ExpiredIdempotencyRecordError) {
-        return runIdempotentOperation(context, operation);
+        return runIdempotentOperation(context, operation, transactionOptions);
       }
       throw replayError;
     }

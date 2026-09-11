@@ -63,6 +63,10 @@ import { toast } from 'sonner';
 import type { Inventory, ConditionCode, CertificateType } from '@/types';
 import { getCertConfig, getStatusConfig } from './inventoryConfig';
 
+function formatUnitCost(unitCost: number | null | undefined) {
+  return unitCost == null ? '—' : `$${unitCost.toLocaleString()}`;
+}
+
 function InventoryDetailDialog({
   item,
   isOpen,
@@ -168,7 +172,7 @@ function InventoryDetailDialog({
                 </div>
                 <div>
                   <p className="text-sm text-gray-400">{tx('成本', 'Unit Cost')}</p>
-                  <p className="font-semibold">${item.unitCost.toLocaleString()}</p>
+                  <p className="font-semibold">{formatUnitCost(item.unitCost)}</p>
                 </div>
               </div>
               <div className="space-y-3">
@@ -473,7 +477,7 @@ function InventoryFormDialog({
     unitOfMeasure: item?.unitOfMeasure || 'EA',
     countryOfOrigin: item?.countryOfOrigin || '',
     hsCode: item?.hsCode || '',
-    unitCost: item?.unitCost ?? 0,
+    unitCost: item?.unitCost ?? '',
     type: item?.type || 'own',
     // 时寿件管理（P1）
     lifeLimited: item?.lifeLimited ?? false,
@@ -581,7 +585,7 @@ function InventoryFormDialog({
       unitOfMeasure: item?.unitOfMeasure || 'EA',
       countryOfOrigin: item?.countryOfOrigin || '',
       hsCode: item?.hsCode || '',
-      unitCost: item?.unitCost ?? 0,
+      unitCost: item?.unitCost ?? '',
       type: item?.type || 'own',
       lifeLimited: item?.lifeLimited ?? false,
       totalHours: item?.totalHours ?? '',
@@ -649,10 +653,11 @@ function InventoryFormDialog({
 
     setSaving(true);
     try {
+      const { unitCost, ...formValues } = formData;
       const payload = {
-        ...formData,
+        ...formValues,
         quantity: Number(formData.quantity),
-        unitCost: Number(formData.unitCost),
+        ...(unitCost === '' ? {} : { unitCost: Number(unitCost) }),
         shelfLifeDays: formData.shelfLifeDays === '' ? undefined : Number(formData.shelfLifeDays),
         storageTempMin: formData.storageTempMin === '' ? undefined : Number(formData.storageTempMin),
         storageTempMax: formData.storageTempMax === '' ? undefined : Number(formData.storageTempMax),
@@ -1091,7 +1096,7 @@ function InventoryFormDialog({
                 <Input
                   type="number"
                   value={formData.unitCost}
-                  onChange={(e) => setFormData({ ...formData, unitCost: Number(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, unitCost: e.target.value === '' ? '' : Number(e.target.value) })}
                 />
               </div>
               <div className="space-y-2">
@@ -1546,7 +1551,7 @@ export function InventoryCenter() {
     standardPart: inventorySummary?.standardPart ?? inventoryList.filter((i) => i.partCategory === 'STANDARD_PART').length,
     rawMaterial: inventorySummary?.rawMaterial ?? inventoryList.filter((i) => i.partCategory === 'RAW_MATERIAL').length,
     consumable: inventorySummary?.consumable ?? inventoryList.filter((i) => i.partCategory === 'CONSUMABLE').length,
-    totalValue: inventorySummary?.totalValue ?? inventoryList.reduce((sum, i) => sum + i.unitCost * i.quantity, 0),
+    totalValue: inventorySummary?.totalValue ?? null,
   };
 
   // Select current page
@@ -1629,6 +1634,9 @@ export function InventoryCenter() {
 
   // Resolve selected item data
   const selectedItemsData = Array.from(selectedItemMap.values());
+  const selectedItemsTotal = selectedItemsData.length > 0 && selectedItemsData.every((item) => typeof item.unitCost === 'number')
+    ? selectedItemsData.reduce((sum, item) => sum + (item.unitCost as number) * item.quantity, 0)
+    : null;
 
   const handleAddToInquiry = () => {
     if (selectedItemsData.length === 0) return;
@@ -2144,7 +2152,7 @@ export function InventoryCenter() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-medium">
-                        ${item.unitCost.toLocaleString()}
+                        {formatUnitCost(item.unitCost)}
                       </TableCell>
                       <TableCell className="text-center">
                         <span className={cn('text-xs font-medium', cert.color)}>
@@ -2295,7 +2303,7 @@ export function InventoryCenter() {
           <div className="flex items-center gap-4">
             <span className="font-medium">{selectedItems.size} {tx('已选', 'selected')}</span>
             <span className="text-gray-500">
-              {tx('总价值', 'Total value')}: ${selectedItemsData.reduce((sum, i) => sum + i.unitCost * i.quantity, 0).toLocaleString()}
+              {tx('总价值', 'Total value')}: {selectedItemsTotal == null ? '—' : `$${selectedItemsTotal.toLocaleString()}`}
             </span>
           </div>
           <div className="flex gap-2">

@@ -13,7 +13,7 @@ const legacyStatic = express.static(
   { fallthrough: true },
 );
 
-type LegacyStoredObject = { ownerId: string | null; status: string };
+type LegacyStoredObject = { ownerId: string | null; status: string; domain?: string | null };
 type LegacyUser = { id?: string; role?: string } | undefined;
 export type LegacyUploadDecision = 'allow' | 'forbidden' | 'not_found';
 
@@ -32,6 +32,10 @@ export function getLegacyUploadDecision(
 
   if (!storedObject) return privileged ? 'allow' : 'not_found';
   if (storedObject.status !== 'AVAILABLE') return 'not_found';
+  // Dedicated business evidence must use its current-snapshot ACL through
+  // /api/files. The legacy object-key path has no receipt/order context and
+  // must never fall back to owner, manager or admin access.
+  if (['purchase_commitment', 'stock_receipt', 'supplier_direct_shipment', 'settlement_account'].includes(storedObject.domain ?? '')) return 'forbidden';
   return canReadStoredObject(storedObject, user) ? 'allow' : 'forbidden';
 }
 
@@ -69,6 +73,7 @@ router.use(asyncHandler(async (req: AuthRequest, res, next) => {
     select: {
       objectKey: true,
       ownerId: true,
+      domain: true,
       status: true,
       mimeType: true,
       sizeBytes: true,

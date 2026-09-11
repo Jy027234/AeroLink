@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   acceptQuotationAggregate,
   assertQuotationTransition,
@@ -13,13 +13,133 @@ import {
   updateOrderAggregate,
   withdrawQuotationAggregate,
 } from './service.js';
+import { buildQuotationApprovalSnapshot } from '../../lib/quotationApprovalPolicy.js';
+import { createLineQuotation } from './lineService.js';
+
+const quotationDocumentMocks = vi.hoisted(() => ({
+  freezeQuotationDocument: vi.fn().mockResolvedValue({
+    id: 'quotation-pdf-001',
+    snapshotHash: 'snapshot-hash-001',
+  }),
+  quotationDocumentPdf: vi.fn().mockResolvedValue({
+    document: { id: 'quotation-pdf-001', snapshotHash: 'snapshot-hash-001' },
+    content: Buffer.from('quotation-pdf'),
+  }),
+}));
 
 vi.mock('../../lib/outboxService.js', () => ({
   enqueueBusinessEvent: vi.fn().mockResolvedValue(undefined),
   enqueueOutboundEmail: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock('../../lib/quotationDocumentService.js', () => quotationDocumentMocks);
+
+function addLineDelegates<T extends Record<string, unknown>>(tx: T) {
+  if (!(tx as Record<string, unknown>).order) {
+    Object.assign(tx, { order: { findFirst: vi.fn().mockResolvedValue(null) } });
+  }
+  Object.assign(tx, {
+    rfqLine: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => data),
+      update: vi.fn().mockImplementation(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({ id: where.id, ...data })),
+    },
+    supplierQuote: { findUnique: vi.fn().mockResolvedValue(null) },
+    quotationLine: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => data),
+      update: vi.fn().mockImplementation(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({ id: where.id, ...data })),
+    },
+    orderLine: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => data),
+      update: vi.fn().mockImplementation(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({ id: where.id, ...data })),
+    },
+  });
+  return tx;
+}
+
+function makeSnapshotQuotation(overrides: Record<string, unknown> = {}) {
+  const customer = { id: 'customer-snapshot', name: 'Air China', contactName: 'Buyer', email: 'buyer@example.com' };
+  const quotation = {
+    id: 'quotation-snapshot',
+    quoteNumber: 'QT-SNAPSHOT',
+    partNumber: 'PN-SNAPSHOT',
+    quantity: 1,
+    unitPrice: 100,
+    unitPriceDecimal: null,
+    totalPrice: 100,
+    totalPriceDecimal: null,
+     costPrice: 50,
+     costPriceDecimal: null,
+     costSourceType: 'MANUAL',
+     costSourceId: null,
+     costSourceReason: '测试成本依据',
+     costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 50, partNumber: 'PN-SNAPSHOT', quantity: 1, status: null, supplierId: null, capturedAt: '2027-05-12T09:00:00.000Z', reason: '测试成本依据' }),
+    margin: 50,
+    currency: 'USD',
+    status: 'APPROVED',
+    statusEnum: 'APPROVED',
+    version: 3,
+    createdBy: 'seller-1',
+    creator: { department: 'sales' },
+    customerId: customer.id,
+    customer,
+    expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+    validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
+    rfq: { id: 'rfq-snapshot', urgency: 'AOG' },
+    approvals: [] as Array<Record<string, unknown>>,
+    ...overrides,
+  };
+  quotation.approvals = [{
+    id: 'approval-snapshot',
+    action: 'APPROVE',
+    level: 'MANAGER',
+    requiredLevel: 'MANAGER',
+    policyVersion: '2026-09-08-usd-tier-v1',
+    reviewedVersion: quotation.version,
+    snapshotJson: JSON.stringify(buildQuotationApprovalSnapshot(quotation)),
+    createdAt: new Date('2027-05-12T09:00:00.000Z'),
+  }];
+  return quotation;
+}
 
 describe('quotation/order module service boundary', () => {
+  beforeEach(() => {
+    quotationDocumentMocks.freezeQuotationDocument.mockClear();
+    quotationDocumentMocks.quotationDocumentPdf.mockClear();
+  });
+
+  it('rejects line quotation creation against a legacy RFQ before cost capture or writes', async () => {
+    const create = vi.fn();
+    const tx = {
+      rFQ: { findUnique: vi.fn().mockResolvedValue({ id: 'legacy-rfq', lineItemsMode: false }) },
+      quotation: { create },
+    } as unknown as Prisma.TransactionClient;
+    await expect(createLineQuotation({ tx, actorId: 'seller', authorizeRfq: () => {}, input: {
+      rfqId: 'legacy-rfq', customerId: 'customer', currency: 'USD',
+      lines: [{ rfqLineId: 'line-1', partNumber: 'PN-1', quantity: 1, unitPrice: 100,
+        costPrice: 50, costSourceType: 'MANUAL', costSourceReason: 'Manual evidence' }],
+    } })).rejects.toMatchObject({ statusCode: 409 });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rejects scalar quotation creation against an explicit line-mode RFQ before writing', async () => {
+    const create = vi.fn();
+    const tx = {
+      rFQ: { findUnique: vi.fn().mockResolvedValue({ id: 'modern-rfq', lineItemsMode: true, createdBy: 'seller' }) },
+      quotation: { create },
+    } as unknown as Prisma.TransactionClient;
+    await expect(createQuotationAggregate({
+      tx, actorId: 'seller', rfqId: 'modern-rfq', customerId: 'customer',
+      partNumber: 'PN-1', quantity: 1, unitPrice: 100, costPrice: 50,
+      currency: 'USD', costSourceType: 'MANUAL', costSourceReason: 'Manual evidence',
+    })).rejects.toMatchObject({ statusCode: 409, code: 'RESOURCE_CONFLICT' });
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it('owns transition policy and UI status projection without changing state-machine semantics', () => {
     expect(() => assertQuotationTransition('DRAFT', 'PENDING_APPROVAL')).not.toThrow();
     expect(() => assertQuotationTransition('DRAFT', 'ACCEPTED')).toThrowError(/不能从/);
@@ -37,7 +157,7 @@ describe('quotation/order module service boundary', () => {
     };
     const updated = { ...existing, status: 'PO_CREATED', statusEnum: 'PO_CREATED', version: 3 };
     const authorize = vi.fn();
-    const tx = {
+    const tx = addLineDelegates({
       order: {
         findUnique: vi.fn()
           .mockResolvedValueOnce(existing)
@@ -45,7 +165,7 @@ describe('quotation/order module service boundary', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       transactionStatusHistory: { create: vi.fn().mockResolvedValue({ id: 'history-1' }) },
-    } as unknown as Prisma.TransactionClient;
+    }) as unknown as Prisma.TransactionClient;
 
     const result = await transitionOrderAggregate(tx, {
       id: 'order-1',
@@ -64,15 +184,24 @@ describe('quotation/order module service boundary', () => {
     }));
   });
 
+  it('does not let manual status updates replace modern shipment receipts', async () => {
+    const updateMany = vi.fn();
+    const tx = { order: { findUnique: vi.fn().mockResolvedValue({ id: 'modern-order', status: 'SHIPPED',
+      statusEnum: 'SHIPPED', lineItemsMode: true, version: 1 }), updateMany } } as unknown as Prisma.TransactionClient;
+    await expect(transitionOrderAggregate(tx, { id: 'modern-order', nextStatus: 'DELIVERED', expectedVersion: 1,
+      actorId: 'manager', reasonCode: 'MANUAL_STATUS_UPDATE' })).rejects.toMatchObject({ code: 'FULFILLMENT_REQUIRED' });
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
   it('keeps mutable order writes behind the module service boundary', async () => {
     const existing = { id: 'order-1', quotation: { createdBy: 'owner-1', creator: null } };
     const updated = { ...existing, status: 'SO_CREATED' };
-    const tx = {
+    const tx = addLineDelegates({
       order: {
         findUnique: vi.fn().mockResolvedValue(existing),
         update: vi.fn().mockResolvedValue(updated),
       },
-    } as unknown as Prisma.TransactionClient;
+    }) as unknown as Prisma.TransactionClient;
     const authorize = vi.fn();
 
     const result = await updateOrderAggregate(tx, {
@@ -101,9 +230,23 @@ describe('quotation/order module service boundary', () => {
       version: 1,
       createdBy: 'owner-1',
       creator: { department: 'sales' },
+      partNumber: 'BAC31GK0020',
+      quantity: 3,
+      uom: 'EA',
+      conditionCode: 'NE',
+      description: null,
+      serialNumber: null,
+      batchNumber: null,
+      alternatePartNumbers: null,
+      certificateRequired: true,
+      certificateType: null,
+      requiredDate: new Date('2026-10-01T00:00:00.000Z'),
+      leadTimeDays: null,
+      targetPrice: null,
+      targetPriceCurrency: 'USD',
     };
     const customer = { id: 'customer-1', name: 'Air China' };
-    const tx = {
+    const tx = addLineDelegates({
       rFQ: { findUnique: vi.fn().mockResolvedValue(rfq) },
       quotation: {
         create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -114,7 +257,7 @@ describe('quotation/order module service boundary', () => {
         })),
       },
       transactionStatusHistory: { create: vi.fn().mockResolvedValue({ id: 'history-1' }) },
-    } as unknown as Prisma.TransactionClient;
+    }) as unknown as Prisma.TransactionClient;
     const authorizeRfq = vi.fn();
 
     const result = await createQuotationAggregate({
@@ -125,7 +268,9 @@ describe('quotation/order module service boundary', () => {
       partNumber: 'BAC31GK0020',
       quantity: 3,
       unitPrice: 12.34565,
-      costPrice: 8.10005,
+       costPrice: 8.10005,
+       costSourceType: 'MANUAL',
+       costSourceReason: '测试成本依据',
       certificateFiles: ['FAA8130'],
       ccRecipients: ['buyer@example.com'],
       authorizeRfq,
@@ -134,6 +279,8 @@ describe('quotation/order module service boundary', () => {
     expect(authorizeRfq).toHaveBeenCalledWith(rfq);
     expect(result.quotation.status).toBe('DRAFT');
     expect(result.quotation.validityDays).toBe(7);
+    expect(result.quotation.currency).toBe('USD');
+    expect(result.quotation.validityDeadline).toEqual(result.quotation.expiryDate);
     expect(result.quotation.unitPrice).toBeCloseTo(12.3457, 10);
     expect(result.quotation.totalPrice).toBeCloseTo(37.0371, 10);
     expect(tx.quotation.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -157,10 +304,24 @@ describe('quotation/order module service boundary', () => {
       version: 4,
       createdBy: 'owner-1',
       creator: { department: 'sales' },
+      partNumber: 'AOG-PART-1',
+      quantity: 1,
+      uom: 'EA',
+      conditionCode: 'NE',
+      description: null,
+      serialNumber: null,
+      batchNumber: null,
+      alternatePartNumbers: null,
+      certificateRequired: true,
+      certificateType: null,
+      requiredDate: new Date('2026-10-01T00:00:00.000Z'),
+      leadTimeDays: null,
+      targetPrice: null,
+      targetPriceCurrency: 'USD',
     };
     const updatedRfq = { ...aogRfq, status: 'QUOTING', statusEnum: 'QUOTING', version: 5 };
     const customer = { id: 'customer-1', name: 'Air China' };
-    const tx = {
+    const tx = addLineDelegates({
       rFQ: {
         findUnique: vi.fn().mockResolvedValueOnce(aogRfq).mockResolvedValueOnce(updatedRfq),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -176,7 +337,7 @@ describe('quotation/order module service boundary', () => {
       transactionStatusHistory: { create: vi.fn().mockResolvedValue({ id: 'history-1' }) },
       user: { findMany: vi.fn().mockResolvedValue([{ id: 'manager-1' }]) },
       notification: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    } as unknown as Prisma.TransactionClient;
+    }) as unknown as Prisma.TransactionClient;
 
     const result = await createQuotationAggregate({
       tx,
@@ -186,7 +347,9 @@ describe('quotation/order module service boundary', () => {
       partNumber: 'AOG-PART-1',
       quantity: 1,
       unitPrice: 100,
-      costPrice: 50,
+       costPrice: 50,
+       costSourceType: 'MANUAL',
+       costSourceReason: 'AOG成本依据',
     });
 
     expect(result.quotation.status).toBe('PENDING_APPROVAL');
@@ -208,6 +371,15 @@ describe('quotation/order module service boundary', () => {
       version: 2,
       acceptedAt: new Date('2026-07-19T10:00:00.000Z'),
       customerConfirmationNote: 'confirmed',
+      partNumber: 'PN-ACCEPTED',
+      quantity: 1,
+      costPrice: 40,
+      costPriceDecimal: null,
+      currency: 'USD',
+      costSourceType: 'MANUAL',
+      costSourceId: null,
+      costSourceReason: '已确认成本依据',
+      costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 40, partNumber: 'PN-ACCEPTED', quantity: 1, status: null, supplierId: null, capturedAt: '2027-05-12T09:00:00.000Z', reason: '已确认成本依据' }),
       createdBy: 'owner-1',
       creator: { department: 'sales' },
       customer: { id: 'customer-1', name: 'Air China' },
@@ -222,10 +394,10 @@ describe('quotation/order module service boundary', () => {
       statusEnum: 'SO_CREATED',
       customer: quotation.customer,
     };
-    const tx = {
+    const tx = addLineDelegates({
       quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
       order: { findFirst: vi.fn().mockResolvedValue(order) },
-    } as unknown as Prisma.TransactionClient;
+    }) as unknown as Prisma.TransactionClient;
     const authorize = vi.fn();
     const ensureContractDocument = vi.fn().mockResolvedValue({ id: 'doc-1', title: 'Contract' });
 
@@ -250,6 +422,49 @@ describe('quotation/order module service boundary', () => {
     }));
   });
 
+  it('revalidates an approval snapshot with the current RFQ urgency before acceptance', async () => {
+    const quotation = makeSnapshotQuotation();
+    const updatedQuotation = {
+      ...quotation,
+      status: 'ACCEPTED',
+      statusEnum: 'ACCEPTED',
+      version: 4,
+      acceptedAt: new Date('2027-05-13T09:00:00.000Z'),
+    };
+    const order = {
+      id: 'order-snapshot',
+      orderNumber: 'SO-SNAPSHOT',
+      soNumber: 'SO-SNAPSHOT',
+      quotationId: quotation.id,
+      customerId: quotation.customerId,
+      status: 'SO_CREATED',
+      statusEnum: 'SO_CREATED',
+      customer: quotation.customer,
+    };
+    const tx = addLineDelegates({
+      quotation: {
+        findUnique: vi.fn().mockResolvedValueOnce(quotation).mockResolvedValueOnce(updatedQuotation),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      order: { findFirst: vi.fn().mockResolvedValue(order) },
+      transactionStatusHistory: { create: vi.fn().mockResolvedValue({ id: 'history-snapshot' }) },
+    }) as unknown as Prisma.TransactionClient;
+    const ensureContractDocument = vi.fn().mockResolvedValue({ id: 'doc-snapshot', title: 'Contract' });
+
+    const result = await acceptQuotationAggregate({
+      tx,
+      quotationId: quotation.id,
+      actorId: 'seller-1',
+      ensureContractDocument,
+    });
+
+    expect(result.quotation.status).toBe('ACCEPTED');
+    expect(result.isNewOrder).toBe(false);
+    expect(tx.quotation.findUnique).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      include: expect.objectContaining({ rfq: true }),
+    }));
+  });
+
   it('withdraws a sent quotation transactionally when no inventory release is needed', async () => {
     const quotation = {
       id: 'quotation-sent',
@@ -266,14 +481,14 @@ describe('quotation/order module service boundary', () => {
       outboundEmails: [{ id: 'mail-1', purpose: 'QUOTATION_SEND', status: 'SENT' }],
     };
     const updatedQuotation = { ...quotation, status: 'WITHDRAWN', statusEnum: 'WITHDRAWN', version: 2 };
-    const tx = {
+    const tx = addLineDelegates({
       quotation: {
         findUnique: vi.fn().mockResolvedValueOnce(quotation).mockResolvedValueOnce(updatedQuotation),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       outboundEmail: { update: vi.fn().mockResolvedValue({ id: 'mail-1' }) },
       transactionStatusHistory: { create: vi.fn().mockResolvedValue({ id: 'history-1' }) },
-    } as unknown as Prisma.TransactionClient;
+    }) as unknown as Prisma.TransactionClient;
 
     const result = await withdrawQuotationAggregate({
       tx,
@@ -303,6 +518,10 @@ describe('quotation/order module service boundary', () => {
       unitPriceDecimal: null,
       totalPrice: 24,
       totalPriceDecimal: null,
+      costPrice: 18,
+      costPriceDecimal: null,
+      margin: 25,
+      currency: 'USD',
       status: 'APPROVED',
       statusEnum: 'APPROVED',
       version: 3,
@@ -310,6 +529,11 @@ describe('quotation/order module service boundary', () => {
       creator: { department: 'sales' },
       customerId: 'customer-1',
       customer: { id: 'customer-1', name: 'Air China', contactName: 'Buyer', email: 'buyer@example.com' },
+      rfq: { id: 'rfq-approved', urgency: 'AOG' },
+      costSourceType: 'MANUAL',
+      costSourceId: null,
+      costSourceReason: '发送测试成本依据',
+      costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 18, partNumber: 'PN-1', quantity: 2, status: null, supplierId: null, capturedAt: '2027-05-12T09:00:00.000Z', reason: '发送测试成本依据' }),
       saleType: 'Sale',
       incoterm: null,
       incotermLocation: null,
@@ -318,12 +542,28 @@ describe('quotation/order module service boundary', () => {
       taxRate: null,
       warrantyDays: 90,
       sentAt: null,
+      expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+      validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
+      approvals: [] as Array<Record<string, unknown>>,
     };
+    quotation.approvals = [{
+      id: 'approval-1',
+      action: 'APPROVE',
+      level: 'MANAGER',
+      requiredLevel: 'MANAGER',
+      policyVersion: '2026-09-08-usd-tier-v1',
+      reviewedVersion: quotation.version,
+      snapshotJson: JSON.stringify(buildQuotationApprovalSnapshot(quotation)),
+      createdAt: new Date('2027-05-12T09:00:00.000Z'),
+    }];
     const pendingEmail = { id: 'mail-pending-1' };
-    const tx = {
-      quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
+    const tx = addLineDelegates({
+      quotation: {
+        findUnique: vi.fn().mockResolvedValue(quotation),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       outboundEmail: { create: vi.fn().mockResolvedValue(pendingEmail) },
-    } as unknown as Prisma.TransactionClient;
+    }) as unknown as Prisma.TransactionClient;
     const authorize = vi.fn();
     const getDefaultOutboundAccount = vi.fn().mockResolvedValue({ id: 'account-1' });
 
@@ -338,7 +578,11 @@ describe('quotation/order module service boundary', () => {
     });
 
     expect(authorize).toHaveBeenCalledWith(quotation);
+    expect(tx.quotation.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      include: expect.objectContaining({ rfq: true }),
+    }));
     expect(getDefaultOutboundAccount).toHaveBeenCalledWith(tx);
+    expect(quotationDocumentMocks.quotationDocumentPdf).toHaveBeenCalledWith(tx, quotation.id);
     expect(result.pendingEmail).toBe(pendingEmail);
     expect(tx.outboundEmail.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -361,6 +605,15 @@ describe('quotation/order module service boundary', () => {
       createdBy: 'owner-1',
       creator: { department: 'sales' },
       customer: { id: 'customer-1', name: 'Air China' },
+      partNumber: 'PN-ACCEPTED',
+      quantity: 1,
+      costPrice: 40,
+      costPriceDecimal: null,
+      currency: 'USD',
+      costSourceType: 'MANUAL',
+      costSourceId: null,
+      costSourceReason: '订单测试成本依据',
+      costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 40, partNumber: 'PN-ACCEPTED', quantity: 1, status: null, supplierId: null, capturedAt: '2027-05-12T09:00:00.000Z', reason: '订单测试成本依据' }),
     };
     const order = {
       id: 'order-existing',
@@ -372,10 +625,10 @@ describe('quotation/order module service boundary', () => {
       statusEnum: 'SO_CREATED',
       customer: quotation.customer,
     };
-    const tx = {
+    const tx = addLineDelegates({
       quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
-      order: { findUnique: vi.fn().mockResolvedValue(order) },
-    } as unknown as Prisma.TransactionClient;
+      order: { findFirst: vi.fn().mockResolvedValue(order) },
+    }) as unknown as Prisma.TransactionClient;
     const authorize = vi.fn();
     const ensureContractDocument = vi.fn().mockResolvedValue({ id: 'doc-1', title: 'Contract' });
     const createOrder = vi.fn();
@@ -397,6 +650,49 @@ describe('quotation/order module service boundary', () => {
     expect(ensureContractDocument).toHaveBeenCalledWith(expect.objectContaining({ quotation, order, tx }));
   });
 
+  it('revalidates the RFQ-backed approval snapshot before creating a direct order', async () => {
+    const quotation = makeSnapshotQuotation({
+      status: 'ACCEPTED',
+      statusEnum: 'ACCEPTED',
+    });
+    const order = {
+      id: 'order-direct-snapshot',
+      orderNumber: 'SO-DIRECT-SNAPSHOT',
+      soNumber: 'SO-DIRECT-SNAPSHOT',
+      quotationId: quotation.id,
+      customerId: quotation.customerId,
+      status: 'SO_CREATED',
+      statusEnum: 'SO_CREATED',
+      version: 1,
+      createdAt: new Date('2027-05-13T09:00:00.000Z'),
+      totalAmount: 100,
+      totalAmountDecimal: null,
+      customer: quotation.customer,
+    };
+    const tx = addLineDelegates({
+      quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
+      order: { findFirst: vi.fn().mockResolvedValue(null) },
+    }) as unknown as Prisma.TransactionClient;
+    const createOrder = vi.fn().mockResolvedValue(order);
+    const ensureContractDocument = vi.fn().mockResolvedValue({ id: 'doc-direct-snapshot', title: 'Contract' });
+
+    const result = await createOrderAggregate({
+      tx,
+      quotationId: quotation.id,
+      customerId: quotation.customerId,
+      actorId: 'seller-1',
+      createOrder,
+      ensureContractDocument,
+    });
+
+    expect(result.order).toBe(order);
+    expect(result.isNewOrder).toBe(true);
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ quotation, customer: quotation.customer }));
+    expect(tx.quotation.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      include: expect.objectContaining({ rfq: true }),
+    }));
+  });
+
   it('owns quotation submission transition and event emission', async () => {
     const current = {
       id: 'quotation-draft',
@@ -408,13 +704,13 @@ describe('quotation/order module service boundary', () => {
       creator: { department: 'sales' },
     };
     const updated = { ...current, status: 'PENDING_APPROVAL', statusEnum: 'PENDING_APPROVAL', version: 2 };
-    const tx = {
+    const tx = addLineDelegates({
       quotation: {
         findUnique: vi.fn().mockResolvedValueOnce(current).mockResolvedValueOnce(updated),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       transactionStatusHistory: { create: vi.fn().mockResolvedValue({ id: 'history-1' }) },
-    } as unknown as Prisma.TransactionClient;
+    }) as unknown as Prisma.TransactionClient;
 
     const result = await submitQuotationAggregate({
       tx,
@@ -439,31 +735,235 @@ describe('quotation/order module service boundary', () => {
       version: 1,
       totalPrice: 100,
       totalPriceDecimal: null,
+      currency: 'USD',
       createdBy: 'owner-1',
       creator: { department: 'sales' },
       rfq: { urgency: 'AOG' },
+      partNumber: 'PN-1',
+      quantity: 1,
+      costPrice: 50,
+      costPriceDecimal: null,
+      costSourceType: 'MANUAL',
+      costSourceId: null,
+      costSourceReason: 'AOG成本依据',
+      costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 50, partNumber: 'PN-1', quantity: 1, status: null, supplierId: null, capturedAt: '2027-05-12T09:00:00.000Z', reason: 'AOG成本依据' }),
+      expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+      validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
     };
     const updated = { ...current, status: 'APPROVED', statusEnum: 'APPROVED', version: 2 };
-    const tx = {
+    const tx = addLineDelegates({
       quotation: {
         findUnique: vi.fn().mockResolvedValueOnce(current).mockResolvedValueOnce(updated),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       approval: { create: vi.fn().mockResolvedValue({ id: 'approval-1' }) },
       transactionStatusHistory: { create: vi.fn().mockResolvedValue({ id: 'history-1' }) },
-    } as unknown as Prisma.TransactionClient;
+    }) as unknown as Prisma.TransactionClient;
 
     const result = await approveQuotationAggregate({
       tx,
       quotationId: current.id,
       actorId: 'manager-1',
+      actorRole: 'manager',
       action: 'approve',
       comment: 'AOG approved',
     });
 
     expect(result.quotation.status).toBe('APPROVED');
     expect(tx.approval.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ quotationId: current.id, level: 'AOG', action: 'APPROVE' }),
+      data: expect.objectContaining({ quotationId: current.id, level: 'MANAGER', requiredLevel: 'MANAGER', action: 'APPROVE' }),
     });
+    expect(quotationDocumentMocks.freezeQuotationDocument).toHaveBeenCalledWith(tx, current.id, 'manager-1');
+  });
+
+  it('re-approves an old APPROVED quotation in place when its legacy approval cannot be verified', async () => {
+    const current = {
+      id: 'quotation-legacy-approved',
+      quoteNumber: 'QT-LEGACY',
+      status: 'APPROVED',
+      statusEnum: 'APPROVED',
+      version: 7,
+      totalPrice: 100,
+      totalPriceDecimal: null,
+      currency: 'USD',
+      partNumber: 'PN-1',
+      quantity: 1,
+      costPrice: 50,
+      costPriceDecimal: null,
+      createdBy: 'seller-1',
+      creator: { department: 'sales' },
+      rfqId: 'rfq-legacy',
+      rfq: { id: 'rfq-legacy', partNumber: 'PN-1', quantity: 1, alternatePartNumbers: null, urgency: 'NORMAL' },
+      approvals: [],
+      expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+      validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
+    };
+    const updated = {
+      ...current,
+      statusEnum: 'APPROVED',
+      version: 8,
+      approvedBy: 'manager-1',
+      approvedAt: new Date('2027-05-12T10:00:00.000Z'),
+      costSourceType: 'MANUAL',
+      costSourceId: null,
+      costSourceReason: '历史成本依据',
+      costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 50, partNumber: 'PN-1', quantity: 1, status: null, supplierId: null, capturedAt: '2027-05-12T09:00:00.000Z', reason: '历史成本依据' }),
+    };
+    const tx = addLineDelegates({
+      quotation: {
+        findUnique: vi.fn().mockResolvedValueOnce(current).mockResolvedValueOnce(updated),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      approval: { create: vi.fn().mockResolvedValue({ id: 'approval-repaired' }) },
+      transactionStatusHistory: { create: vi.fn().mockResolvedValue({ id: 'history-repaired' }) },
+    }) as unknown as Prisma.TransactionClient;
+
+    const result = await approveQuotationAggregate({
+      tx,
+      quotationId: current.id,
+      actorId: 'manager-1',
+      actorRole: 'manager',
+      action: 'approve',
+      expectedVersion: current.version,
+      comment: '按新策略重新审核',
+      costSourceType: 'MANUAL',
+      costSourceReason: '历史成本依据',
+    });
+
+    expect(result.quotation.status).toBe('APPROVED');
+    expect(result.quotation.version).toBe(8);
+    expect(result.isNoop).toBe(false);
+    expect(tx.quotation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: current.id, status: 'APPROVED', version: current.version }),
+      data: expect.objectContaining({ status: 'APPROVED', statusEnum: 'APPROVED', version: { increment: 1 }, approvedBy: 'manager-1', approvedAt: expect.any(Date) }),
+    }));
+    expect(tx.approval.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        policyVersion: '2026-09-08-usd-tier-v1',
+        requiredLevel: 'MANAGER',
+        reviewedVersion: 8,
+        snapshotJson: expect.any(String),
+      }),
+    });
+  });
+
+  it('fails a concurrent legacy re-approval when the quotation version CAS loses', async () => {
+    const current = {
+      id: 'quotation-legacy-race',
+      quoteNumber: 'QT-LEGACY-RACE',
+      status: 'APPROVED',
+      statusEnum: 'APPROVED',
+      version: 7,
+      totalPrice: 100,
+      totalPriceDecimal: null,
+      currency: 'USD',
+      partNumber: 'PN-1',
+      quantity: 1,
+      costPrice: 50,
+      costPriceDecimal: null,
+      costSourceType: 'MANUAL',
+      costSourceId: null,
+      costSourceReason: '并发测试成本依据',
+      costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 50, partNumber: 'PN-1', quantity: 1, status: null, supplierId: null, capturedAt: '2027-05-12T09:00:00.000Z', reason: '并发测试成本依据' }),
+      createdBy: 'seller-1',
+      creator: { department: 'sales' },
+      rfqId: 'rfq-legacy-race',
+      rfq: { id: 'rfq-legacy-race', partNumber: 'PN-1', quantity: 1, alternatePartNumbers: null, urgency: 'NORMAL' },
+      approvals: [],
+      expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+      validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
+    };
+    const tx = addLineDelegates({
+      quotation: {
+        findUnique: vi.fn().mockResolvedValue(current),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      approval: { create: vi.fn() },
+      transactionStatusHistory: { create: vi.fn() },
+    }) as unknown as Prisma.TransactionClient;
+
+    await expect(approveQuotationAggregate({
+      tx,
+      quotationId: current.id,
+      actorId: 'manager-1',
+      actorRole: 'manager',
+      action: 'approve',
+      expectedVersion: current.version,
+      comment: '并发重审',
+    })).rejects.toMatchObject({ code: 'STATE_CONFLICT', statusCode: 409 });
+    expect(tx.approval.create).not.toHaveBeenCalled();
+    expect(tx.transactionStatusHistory.create).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a legacy approval has no cost-source evidence', async () => {
+    const current = {
+      id: 'quotation-legacy-no-source',
+      quoteNumber: 'QT-LEGACY-NO-SOURCE',
+      status: 'PENDING_APPROVAL',
+      statusEnum: 'PENDING_APPROVAL',
+      version: 1,
+      totalPrice: 100,
+      totalPriceDecimal: null,
+      costPrice: 50,
+      costPriceDecimal: null,
+      currency: 'USD',
+      partNumber: 'PN-1',
+      quantity: 1,
+      createdBy: 'seller-1',
+      creator: { department: 'sales' },
+      approvals: [],
+      expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+      validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
+    };
+    const tx = addLineDelegates({
+      quotation: { findUnique: vi.fn().mockResolvedValue(current) },
+    }) as unknown as Prisma.TransactionClient;
+
+    await expect(approveQuotationAggregate({
+      tx,
+      quotationId: current.id,
+      actorId: 'manager-1',
+      actorRole: 'manager',
+      action: 'approve',
+    })).rejects.toThrow(/成本来源/);
+  });
+
+  it('blocks sending an expired quotation even when its approval snapshot is current', async () => {
+    const quotation = {
+      id: 'quotation-expired',
+      quoteNumber: 'QT-EXPIRED',
+      partNumber: 'PN-1',
+      quantity: 1,
+      unitPrice: 100,
+      totalPrice: 100,
+      costPrice: 50,
+      margin: 50,
+      currency: 'USD',
+      costSourceType: 'MANUAL',
+      costSourceId: null,
+      costSourceReason: '过期测试成本依据',
+      costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 50, partNumber: 'PN-1', quantity: 1, status: null, supplierId: null, capturedAt: '2027-05-12T09:00:00.000Z', reason: '过期测试成本依据' }),
+      status: 'APPROVED',
+      statusEnum: 'APPROVED',
+      version: 1,
+      createdBy: 'owner-1',
+      creator: { department: 'sales' },
+      customerId: 'customer-1',
+      customer: { id: 'customer-1', name: 'Air China', contactName: 'Buyer', email: 'buyer@example.com' },
+      expiryDate: new Date('2020-01-01T00:00:00.000Z'),
+      validityDeadline: new Date('2020-01-01T00:00:00.000Z'),
+      approvals: [],
+    };
+    const tx = addLineDelegates({
+      quotation: { findUnique: vi.fn().mockResolvedValue(quotation) },
+      outboundEmail: { create: vi.fn() },
+    }) as unknown as Prisma.TransactionClient;
+
+    await expect(sendQuotationAggregate({
+      tx,
+      quotationId: quotation.id,
+      actorId: 'seller-1',
+      getDefaultOutboundAccount: vi.fn(),
+    })).rejects.toThrow(/过期/);
   });
 });

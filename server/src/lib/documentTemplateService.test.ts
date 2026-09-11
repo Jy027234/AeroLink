@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { buildOrderContractPayload, renderTemplate } from './documentTemplateService.js';
+import { describe, expect, it, vi } from 'vitest';
+import { buildOrderContractPayload, createOrderContractDocument, renderTemplate } from './documentTemplateService.js';
 
 describe('documentTemplateService', () => {
   it('should replace known placeholders and fallback missing values', () => {
@@ -163,6 +163,7 @@ describe('documentTemplateService', () => {
         serialNumber: null,
         batchNumber: null,
         outboundQuantity: 0,
+        directShippedQuantity: 0,
         outboundStatus: 'PENDING',
       },
     });
@@ -179,5 +180,101 @@ describe('documentTemplateService', () => {
       soNumber: 'SO-20260512-ABCD',
       poNumber: 'PO-123',
     });
+  });
+
+  it('uses the current order lines for a multi-line contract total', () => {
+    const payload = buildOrderContractPayload({
+      customer: { name: '客户一', contactName: null, email: null, phone: null, registeredAddress: null } as any,
+      quotation: {
+        id: 'q1', quoteNumber: 'QT-1', partNumber: 'QUOTATION-HEADER', quantity: 999,
+        unitPrice: 999, totalPrice: 999, unitPriceDecimal: null, totalPriceDecimal: null,
+        saleType: 'Sale', incoterm: null, incotermLocation: null, leadTimeDays: null,
+        warrantyDays: 90, taxIncluded: true, taxRate: null, packagingRequirement: null,
+        shippingMethod: null, expiryDate: new Date('2026-10-01'), customerConfirmationNote: null,
+        currency: 'USD',
+        lines: [
+          { id: 'ql-1', partNumber: 'PN-100', quantity: 5, unitPrice: '10', lineTotal: '50', currency: 'USD' },
+          { id: 'ql-2', partNumber: 'PN-UNACCEPTED', quantity: 7, unitPrice: '20', lineTotal: '140', currency: 'USD' },
+        ],
+      } as any,
+      order: {
+        id: 'o1', orderNumber: 'SO-1', soNumber: 'SO-1', poNumber: 'PO-1', quotationId: 'q1',
+        customerId: 'c1', partNumber: 'ORDER-HEADER', quantity: 999, totalAmount: 999,
+        totalAmountDecimal: null, status: 'SO_CREATED', createdAt: new Date('2026-09-08'),
+        lineItemsMode: true,
+        lines: [
+          { id: 'ol-1', partNumber: 'PN-100', quantity: 2, unitPrice: '10.0000', lineTotal: '20.0000', currency: 'USD' },
+          { id: 'ol-2', partNumber: 'PN-200', quantity: 1, unitPrice: '30.0000', lineTotal: '30.0000', currency: 'USD' },
+        ],
+      } as any,
+    });
+
+    expect(payload.order).toMatchObject({ quantity: 3, totalAmount: 50 });
+    expect(String((payload.order as any).linesTable)).toContain('PN-100');
+    expect(String((payload.order as any).linesTable)).toContain('PN-200');
+    expect(String((payload.order as any).linesTable)).not.toContain('ORDER-HEADER');
+    expect(String((payload.order as any).linesTable)).not.toContain('PN-UNACCEPTED');
+  });
+
+  it('fails closed when a multi-line order has no current order lines', () => {
+    expect(() => buildOrderContractPayload({
+      customer: { name: '客户一' } as any,
+      quotation: { id: 'q1', quoteNumber: 'QT-1', partNumber: 'P1', quantity: 1, unitPrice: 10, totalPrice: 10, currency: 'USD' } as any,
+      order: { id: 'o1', orderNumber: 'SO-1', soNumber: 'SO-1', quotationId: 'q1', customerId: 'c1', partNumber: 'P1', quantity: 1, totalAmount: 10, lineItemsMode: true } as any,
+    })).toThrow('多行订单缺少当前订单明细');
+  });
+
+  it('rejects a modern contract template that still renders legacy quotation scalars', async () => {
+    const generatedDocumentCreate = vi.fn();
+    const tx = {
+      documentTemplate: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'template-old',
+          isActive: true,
+          bodyTemplate: '<p>{{quotation.partNumber}} × {{quotation.quantity}}</p>',
+        }),
+      },
+      generatedDocument: { create: generatedDocumentCreate },
+    } as any;
+
+    await expect(createOrderContractDocument({
+      templateId: 'template-old',
+      tx,
+      customer: { id: 'c1', name: '客户一' } as any,
+      quotation: { id: 'q1', partNumber: 'HEADER', quantity: 99, unitPrice: 0, totalPrice: 0 } as any,
+      order: {
+        id: 'o1', orderNumber: 'SO-1', quotationId: 'q1', lineItemsMode: true,
+        lines: [{ id: 'ol-1', partNumber: 'PN-100', quantity: 2, unitPrice: '10', lineTotal: '20', currency: 'USD' }],
+      } as any,
+    })).rejects.toMatchObject({ statusCode: 409 });
+    expect(generatedDocumentCreate).not.toHaveBeenCalled();
+  });
+
+  it('renders only current modern order lines through a compatible template', async () => {
+    const generatedDocumentCreate = vi.fn().mockResolvedValue({ id: 'doc-1' });
+    const tx = {
+      documentTemplate: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'template-lines',
+          isActive: true,
+          bodyTemplate: '<h1>{{order.orderNumber}}</h1><table>{{order.linesTable}}</table>',
+        }),
+      },
+      generatedDocument: { create: generatedDocumentCreate },
+    } as any;
+
+    await createOrderContractDocument({
+      templateId: 'template-lines',
+      tx,
+      customer: { id: 'c1', name: '客户一' } as any,
+      quotation: { id: 'q1', partNumber: 'HEADER', quantity: 99, unitPrice: 0, totalPrice: 0 } as any,
+      order: {
+        id: 'o1', orderNumber: 'SO-1', quotationId: 'q1', lineItemsMode: true,
+        lines: [{ id: 'ol-1', partNumber: 'PN-100', quantity: 2, unitPrice: '10', lineTotal: '20', currency: 'USD' }],
+      } as any,
+    });
+    const body = generatedDocumentCreate.mock.calls[0][0].data.contentHtml as string;
+    expect(body).toContain('PN-100');
+    expect(body).not.toContain('HEADER');
   });
 });

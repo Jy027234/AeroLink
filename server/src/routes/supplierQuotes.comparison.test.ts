@@ -10,6 +10,8 @@ function buildQuote(overrides: Record<string, unknown> = {}) {
     unitPriceDecimal: null,
     totalPrice: 100,
     totalPriceDecimal: null,
+    currency: 'USD',
+    currencyReviewStatus: 'VERIFIED',
     leadTimeDays: 7,
     status: 'pending',
     statusEnum: null,

@@ -7,6 +7,7 @@ import { buildContentDisposition } from '../lib/downloadHeaders.js';
 import { validateBody } from '../middleware/validate.js';
 import {
   quotationCreateSchema,
+  quotationReviseSchema,
   quotationSubmitSchema,
   quotationApproveSchema,
   quotationSendSchema,
@@ -14,7 +15,6 @@ import {
   quotationAcceptSchema,
 } from '../lib/validation.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { generateQuotationPDF } from '../lib/pdfService.js';
 import { ensureOrderContractDocument, ORDER_CONTRACT_DOCUMENT_TYPE } from '../lib/documentTemplateService.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { preferredMoneyValue } from '../lib/money.js';
@@ -25,6 +25,7 @@ import {
   createOrderFromQuotation,
   acceptQuotationAggregate,
   createQuotationAggregate,
+  reviseQuotationAggregate,
   sendQuotationAggregate,
   withdrawQuotationAggregate,
   mapOrderResponse,
@@ -35,9 +36,17 @@ import {
   preferredQuotationStatus,
   preferredRfqStatus,
 } from '../lib/transactionStatusShadows.js';
-import { getCapabilityScope, hasCapability } from '../lib/capabilityPolicy.js';
+import { getCapabilityScope } from '../lib/capabilityPolicy.js';
+import {
+  projectQuotationResponse,
+} from '../lib/responsePolicy.js';
+import { hasCurrentLineQuotationApproval } from '../modules/quotationOrder/index.js';
+import { hasCurrentQuotationApproval } from '../lib/quotationApprovalPolicy.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import prisma from '../lib/prisma.js';
+import { quotationDocumentPdf, QUOTATION_PDF_DOCUMENT_TYPE } from '../lib/quotationDocumentService.js';
+import { buildQuotationRenderSnapshot, quotationRenderData } from '../lib/documentRenderSnapshot.js';
+import { generatePDF, generateQuotationHTML } from '../lib/pdfService.js';
 
 const router = Router();
 
@@ -45,6 +54,13 @@ type ScopedQuotation = {
   createdBy: string;
   creator?: { department?: string | null } | null;
 };
+
+function quotationResponseContext(quotation: ScopedQuotation) {
+  return {
+    ownerId: quotation.createdBy,
+    department: quotation.creator?.department,
+  };
+}
 
 function buildQuotationReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.QuotationWhereInput {
   const scope = getCapabilityScope(actor, 'quotation.read');
@@ -96,6 +112,7 @@ function buildQuotationListWhere(
       OR: [
         { quoteNumber: { contains: searchValue, mode: 'insensitive' } },
         { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { lines: { some: { partNumber: { contains: searchValue, mode: 'insensitive' } } } },
         { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
       ],
     });
@@ -109,13 +126,6 @@ function assertQuotationAccess(
   quotation: ScopedQuotation,
 ) {
   assertCapability(actor, 'quotation', action, {
-    ownerId: quotation.createdBy,
-    department: quotation.creator?.department,
-  });
-}
-
-function canViewQuotationCost(actor: NonNullable<AuthRequest['user']>, quotation: ScopedQuotation) {
-  return hasCapability(actor, 'quotation', 'view_cost', {
     ownerId: quotation.createdBy,
     department: quotation.creator?.department,
   });
@@ -276,6 +286,33 @@ function mapQuotationStatusHistoryEntry(history: {
   };
 }
 
+async function loadQuotationResponseScope(quotationId: string): Promise<ScopedQuotation> {
+  const quotation = await quotationRepository.findUnique({
+    where: { id: quotationId },
+    select: {
+      createdBy: true,
+      creator: { select: { department: true } },
+    },
+  });
+
+  if (!quotation) {
+    throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
+  }
+  return quotation;
+}
+
+async function resolveQuotationResponseScope(
+  actor: NonNullable<AuthRequest['user']>,
+  quotationId: string,
+  knownScope?: ScopedQuotation,
+) {
+  const scope = knownScope || await loadQuotationResponseScope(quotationId);
+  // Mutations authorize before changing state.  Replays must perform the
+  // current read-scope check again before returning their cached payload.
+  assertQuotationAccess(actor, 'read', scope);
+  return scope;
+}
+
 router.get(
   '/',
   requireCapability('quotation', 'read'),
@@ -298,10 +335,24 @@ router.get(
       quotationRepository.findMany({
         where,
         include: {
+          lines: { orderBy: { lineNo: 'asc' } },
+          revisedQuotation: { select: { id: true } },
           customer: true,
           creator: { select: { id: true, name: true, department: true } },
           approver: { select: { id: true, name: true } },
           rfq: { select: { id: true, rfqNumber: true, urgency: true } },
+          approvals: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              action: true,
+              level: true,
+              requiredLevel: true,
+              policyVersion: true,
+              snapshotJson: true,
+              createdAt: true,
+            },
+          },
           orders: {
             select: { id: true, orderNumber: true },
             orderBy: { createdAt: 'desc' },
@@ -351,14 +402,21 @@ router.get(
       success: true,
       data: quotations.map((q) => {
         const money = projectQuotationMoney(q);
-        const showCost = canViewQuotationCost(actor, q);
         const latestContract = q.generatedDocuments.find((doc) => doc.documentType === ORDER_CONTRACT_DOCUMENT_TYPE);
         const latestEmail = q.outboundEmails.find((email) => email.purpose === 'QUOTATION_SEND');
         const latestOrder = q.orders[0];
 
-        return {
+        return projectQuotationResponse({
           id: q.id,
           quoteNumber: q.quoteNumber,
+          commercialRevision: q.commercialRevision,
+          revisionOfId: q.revisionOfId,
+          revisionRootId: q.revisionRootId,
+          revisionReason: q.revisionReason,
+          supersededAt: q.supersededAt,
+          supersededById: q.revisedQuotation?.id,
+          lineItemsMode: q.lineItemsMode,
+          lines: q.lines,
           rfqId: q.rfqId,
           customerId: q.customerId,
           customerName: q.customer.name,
@@ -368,10 +426,13 @@ router.get(
           quantity: q.quantity,
           unitPrice: money.unitPrice,
           totalPrice: money.totalPrice,
-          ...(showCost ? { costPrice: money.costPrice, margin: q.margin } : {}),
+          currency: q.currency,
+          costPrice: money.costPrice,
+          margin: q.margin,
           certificateFiles: q.certificateFiles?.split(',').filter(Boolean) || [],
           template: q.template.toLowerCase(),
           status: quotationStatus(q).toLowerCase(),
+          requiresReapproval: quotationStatus(q) === 'APPROVED' && !(q.lineItemsMode ? hasCurrentLineQuotationApproval(q) : hasCurrentQuotationApproval(q)),
           version: q.version,
           validityDays: q.validityDays,
           saleType: q.saleType,
@@ -412,7 +473,7 @@ router.get(
           lastEmailStatus: latestEmail?.status.toLowerCase(),
           lastEmailSentAt: latestEmail?.sentAt?.toISOString(),
           rfqUrgency: q.rfq?.urgency?.toLowerCase(),
-        };
+        }, actor, quotationResponseContext(q));
       }),
       summary,
       pagination: {
@@ -442,11 +503,17 @@ router.get(
       where: buildQuotationListWhere(query, (req as AuthRequest).user!),
       select: {
         quoteNumber: true,
+        lineItemsMode: true,
+        lines: { orderBy: { lineNo: 'asc' }, select: { lineNo: true, partNumber: true, quantity: true, uom: true, unitPrice: true, lineTotal: true, acceptedQuantity: true } },
         partNumber: true,
         quantity: true,
         unitPrice: true,
+        unitPriceDecimal: true,
         totalPrice: true,
+        totalPriceDecimal: true,
+        currency: true,
         status: true,
+        statusEnum: true,
         expiryDate: true,
         validityDeadline: true,
         createdAt: true,
@@ -469,11 +536,13 @@ router.get(
       [
         { header: '报价编号', value: (quotation) => quotation.quoteNumber },
         { header: '客户', value: (quotation) => quotation.customer.name },
-        { header: '件号', value: (quotation) => quotation.partNumber },
-        { header: '数量', value: (quotation) => quotation.quantity },
-        { header: '单价', value: (quotation) => quotation.unitPrice },
-        { header: '总价', value: (quotation) => quotation.totalPrice },
-        { header: '状态', value: (quotation) => quotation.status },
+        { header: '件号', value: (quotation) => quotation.lineItemsMode ? null : quotation.partNumber },
+        { header: '数量', value: (quotation) => quotation.lineItemsMode ? null : quotation.quantity },
+        { header: '单价', value: (quotation) => quotation.lineItemsMode ? null : preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0 },
+        { header: '报价行明细', value: (quotation) => quotation.lineItemsMode ? JSON.stringify(quotation.lines) : null },
+        { header: '总价', value: (quotation) => preferredMoneyValue(quotation.totalPriceDecimal, quotation.totalPrice) ?? 0 },
+        { header: '币种', value: (quotation) => quotation.currency },
+        { header: '状态', value: (quotation) => quotationStatus(quotation).toLowerCase() },
         { header: '到期日期', value: (quotation) => quotation.expiryDate },
         { header: '有效期截止', value: (quotation) => quotation.validityDeadline },
         { header: '创建时间', value: (quotation) => quotation.createdAt },
@@ -526,12 +595,14 @@ router.get(
     const quotation = await quotationRepository.findUnique({
       where: { id: req.params.id },
       include: {
+        lines: { orderBy: { lineNo: 'asc' } },
+        revisedQuotation: { select: { id: true } },
         customer: true,
         creator: { select: { id: true, name: true, department: true } },
         approver: { select: { id: true, name: true } },
         rfq: true,
-        approvals: { include: { approver: true } },
-        orders: { include: { customer: true } },
+        approvals: { orderBy: { createdAt: 'desc' }, include: { approver: true } },
+        orders: { include: { customer: true, lines: { orderBy: { lineNo: 'asc' } } } },
         generatedDocuments: {
           orderBy: { generatedAt: 'desc' },
           include: { template: true },
@@ -561,14 +632,16 @@ router.get(
       ...projectQuotationMoney(quotation),
       orders: quotation.orders.map(projectRelatedOrderMoney),
     };
-    const { costPrice: _costPrice, margin: _margin, ...quotationWithoutCost } = projectedQuotation;
-    const quotationForActor = canViewQuotationCost(actor, quotation)
-      ? projectedQuotation
-      : quotationWithoutCost;
+    const quotationForActor = projectQuotationResponse(
+      projectedQuotation,
+      actor,
+      quotationResponseContext(quotation),
+    );
     res.json({
       success: true,
       data: {
         ...quotationForActor,
+        supersededById: quotation.revisedQuotation?.id,
         rfq: projectRfqStatus(quotation.rfq),
         status: quotationStatus(quotation).toLowerCase(),
         template: quotation.template.toLowerCase(),
@@ -583,6 +656,7 @@ router.get(
         customerEmail: quotation.customer.email,
         customerContactName: quotation.customer.contactName,
         rfqUrgency: quotation.rfq?.urgency?.toLowerCase(),
+        requiresReapproval: quotationStatus(quotation) === 'APPROVED' && !(quotation.lineItemsMode ? hasCurrentLineQuotationApproval(quotation) : hasCurrentQuotationApproval(quotation)),
         contractDocumentId: quotation.generatedDocuments.find((doc) => doc.documentType === ORDER_CONTRACT_DOCUMENT_TYPE)?.id,
         contractDocumentTitle: quotation.generatedDocuments.find((doc) => doc.documentType === ORDER_CONTRACT_DOCUMENT_TYPE)?.title,
         outboundEmails: quotation.outboundEmails.map((email) => ({
@@ -610,6 +684,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
+    let mutationScope: ScopedQuotation | undefined;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations'),
       async (tx) => {
@@ -624,16 +699,23 @@ router.post(
             });
           },
         });
+        mutationScope = quotation;
 
         return {
           payload: {
             id: quotation.id,
             quoteNumber: quotation.quoteNumber,
+            commercialRevision: quotation.commercialRevision,
+            revisionOfId: quotation.revisionOfId,
+            revisionRootId: quotation.revisionRootId,
+            lineItemsMode: quotation.lineItemsMode,
+            ...('lines' in quotation ? { lines: quotation.lines } : {}),
             customerName: quotation.customer.name,
             status: quotationStatus(quotation).toLowerCase(),
             version: quotation.version,
             totalPrice: quotationTotalPrice(quotation),
-            ...(canViewQuotationCost(actor, { createdBy: actorId }) ? { margin: quotation.margin } : {}),
+            costPrice: preferredMoneyValue(quotation.costPriceDecimal, quotation.costPrice) ?? 0,
+            margin: quotation.margin,
           },
           statusCode: 201,
           resourceType: 'QUOTATION',
@@ -642,12 +724,71 @@ router.post(
       },
     );
 
+    const responseScope = await resolveQuotationResponseScope(
+      actor,
+      String((execution.payload as { id?: string }).id || req.body.id || ''),
+      execution.replayed ? undefined : mutationScope,
+    );
+    const responsePayload = projectQuotationResponse(
+      execution.payload,
+      actor,
+      quotationResponseContext(responseScope),
+    );
     applyIdempotencyHeaders(res, execution);
     res.status(execution.statusCode).json({
       success: true,
-      data: execution.payload,
+      data: responsePayload,
     });
   })
+);
+
+router.get(
+  '/:id/revisions',
+  requireCapability('quotation', 'read'),
+  asyncHandler(async (req, res) => {
+    const actor = (req as AuthRequest).user!;
+    const original = await prisma.quotation.findUnique({ where: { id: req.params.id },
+      include: { creator: { select: { department: true } } } });
+    if (!original) throw new AppError('报价不存在', 404, 'RESOURCE_NOT_FOUND');
+    assertQuotationAccess(actor, 'read', original);
+    const rootId = original.revisionRootId ?? original.id;
+    const revisions = await prisma.quotation.findMany({ where: { AND: [
+      buildQuotationReadScope(actor), { OR: [{ id: rootId }, { revisionRootId: rootId }] },
+    ] }, orderBy: { commercialRevision: 'asc' }, select: {
+      id: true, quoteNumber: true, commercialRevision: true, revisionOfId: true, revisionRootId: true,
+      revisionReason: true, supersededAt: true, createdAt: true, status: true, expiryDate: true,
+      revisedQuotation: { select: { id: true } },
+    } });
+    res.json({ success: true, data: revisions.map(({ revisedQuotation, ...revision }) => ({
+      ...revision, status: revision.status.toLowerCase(), supersededById: revisedQuotation?.id,
+    })) });
+  }),
+);
+
+router.post(
+  '/:id/revise',
+  requireCapability('quotation', 'create'),
+  validateBody(quotationReviseSchema),
+  asyncHandler(async (req, res) => {
+    const actor = (req as AuthRequest).user!;
+    const execution = await runIdempotentOperation(
+      buildIdempotencyContext(req, actor.id, 'POST:/quotations/:id/revise'),
+      async tx => {
+        const result = await reviseQuotationAggregate({ tx, quotationId: req.params.id, actorId: actor.id,
+          version: req.body.version, reason: req.body.reason, quotation: req.body.quotation,
+          authorize: original => assertQuotationAccess(actor, 'update', original),
+          authorizeRfq: rfq => assertCapability(actor, 'rfq', 'read', { ownerId: rfq.createdBy, department: rfq.creator?.department }),
+        });
+        return { payload: { ...projectQuotationMoney(result.quotation), status: 'draft', previousQuotationId: result.previousQuotationId },
+          statusCode: 201, resourceType: 'QUOTATION', resourceId: result.quotation.id };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, validateDeferredConstraints: true },
+    );
+    const scope = await resolveQuotationResponseScope(actor, String((execution.payload as { id: string }).id));
+    applyIdempotencyHeaders(res, execution);
+    res.status(execution.statusCode).json({ success: true,
+      data: projectQuotationResponse(execution.payload, actor, quotationResponseContext(scope)) });
+  }),
 );
 
 router.post(
@@ -657,6 +798,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
+    let mutationScope: ScopedQuotation | undefined;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/submit'),
       async (tx) => {
@@ -667,7 +809,10 @@ router.post(
           expectedVersion: req.body.version,
           reasonCode: req.body.reasonCode,
           reason: req.body.reason,
-          authorize: (quotation) => assertQuotationAccess(actor, 'transition', quotation),
+          authorize: (quotation) => {
+            mutationScope = quotation;
+            assertQuotationAccess(actor, 'transition', quotation);
+          },
         });
 
         return {
@@ -678,10 +823,20 @@ router.post(
       },
     );
 
+    const responseScope = await resolveQuotationResponseScope(
+      actor,
+      req.params.id,
+      execution.replayed ? undefined : mutationScope,
+    );
+    const responsePayload = projectQuotationResponse(
+      execution.payload,
+      actor,
+      quotationResponseContext(responseScope),
+    );
     applyIdempotencyHeaders(res, execution);
     res.status(execution.statusCode).json({
       success: true,
-      data: execution.payload,
+      data: responsePayload,
     });
   })
 );
@@ -691,9 +846,10 @@ router.post(
   requireCapability('quotation', 'approve'),
   validateBody(quotationApproveSchema),
   asyncHandler(async (req, res) => {
-    const { action, comment, reasonCode, version } = req.body;
+    const { action, comment, reasonCode, version, costSourceType, costSourceId, costSourceReason } = req.body;
     const actor = (req as AuthRequest).user!;
     const userId = actor.id;
+    let mutationScope: ScopedQuotation | undefined;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, userId, 'POST:/quotations/:id/approve'),
       async (tx) => {
@@ -701,11 +857,18 @@ router.post(
           tx,
           quotationId: req.params.id,
           actorId: userId,
+          actorRole: actor.role,
           action,
           comment,
-          expectedVersion: version,
+           expectedVersion: version,
+           costSourceType,
+           costSourceId,
+           costSourceReason,
           reasonCode,
-          authorize: (quotation) => assertQuotationAccess(actor, 'approve', quotation),
+          authorize: (quotation) => {
+            mutationScope = quotation;
+            assertQuotationAccess(actor, 'approve', quotation);
+          },
         });
 
         return {
@@ -716,10 +879,20 @@ router.post(
       },
     );
 
+    const responseScope = await resolveQuotationResponseScope(
+      actor,
+      req.params.id,
+      execution.replayed ? undefined : mutationScope,
+    );
+    const responsePayload = projectQuotationResponse(
+      execution.payload,
+      actor,
+      quotationResponseContext(responseScope),
+    );
     applyIdempotencyHeaders(res, execution);
     res.status(execution.statusCode).json({
       success: true,
-      data: execution.payload,
+      data: responsePayload,
     });
   })
 );
@@ -731,6 +904,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
+    let mutationScope: ScopedQuotation | undefined;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/send'),
       async (tx) => {
@@ -740,7 +914,10 @@ router.post(
           actorId,
           subject: req.body.subject,
           message: req.body.message,
-          authorize: (candidate) => assertQuotationAccess(actor, 'send', candidate),
+          authorize: (candidate) => {
+            mutationScope = candidate;
+            assertQuotationAccess(actor, 'send', candidate);
+          },
           getDefaultOutboundAccount,
         });
         const currentQuotationStatus = quotationStatus(quotation);
@@ -761,10 +938,21 @@ router.post(
           resourceId: quotation.id,
         };
       },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 },
     );
 
+    const responseScope = await resolveQuotationResponseScope(
+      actor,
+      req.params.id,
+      execution.replayed ? undefined : mutationScope,
+    );
+    const responsePayload = projectQuotationResponse(
+      execution.payload,
+      actor,
+      quotationResponseContext(responseScope),
+    );
     applyIdempotencyHeaders(res, execution);
-    res.status(execution.statusCode).json({ success: true, data: execution.payload });
+    res.status(execution.statusCode).json({ success: true, data: responsePayload });
   })
 );
 
@@ -777,6 +965,7 @@ router.post(
     const sendWithdrawalNotice = req.body.sendWithdrawalNotice ?? true;
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
+    let mutationScope: ScopedQuotation | undefined;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/withdraw'),
       async (tx) => {
@@ -788,7 +977,10 @@ router.post(
           sendWithdrawalNotice,
           expectedVersion: req.body.version,
           reasonCode: req.body.reasonCode,
-          authorize: (quotation) => assertQuotationAccess(actor, 'withdraw', quotation),
+          authorize: (quotation) => {
+            mutationScope = quotation;
+            assertQuotationAccess(actor, 'withdraw', quotation);
+          },
           getDefaultOutboundAccount: (transaction) => getDefaultOutboundAccount(transaction),
         });
 
@@ -809,12 +1001,23 @@ router.post(
           resourceId: updatedQuotation.id,
         };
       },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, validateDeferredConstraints: true },
     );
 
+    const responseScope = await resolveQuotationResponseScope(
+      actor,
+      req.params.id,
+      execution.replayed ? undefined : mutationScope,
+    );
+    const responsePayload = projectQuotationResponse(
+      execution.payload,
+      actor,
+      quotationResponseContext(responseScope),
+    );
     applyIdempotencyHeaders(res, execution);
     res.status(execution.statusCode).json({
       success: true,
-      data: execution.payload,
+      data: responsePayload,
     });
   })
 );
@@ -826,6 +1029,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const actor = (req as AuthRequest).user!;
     const actorId = actor.id;
+    let mutationScope: ScopedQuotation | undefined;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actorId, 'POST:/quotations/:id/accept'),
       async (tx) => {
@@ -840,7 +1044,11 @@ router.post(
           reasonCode: req.body.reasonCode,
           reason: req.body.reason,
           expectedVersion: req.body.version,
-          authorize: (quotation) => assertQuotationAccess(actor, 'accept', quotation),
+          lines: req.body.lines,
+          authorize: (quotation) => {
+            mutationScope = quotation;
+            assertQuotationAccess(actor, 'accept', quotation);
+          },
           createOrder: createOrderFromQuotation,
           ensureContractDocument: ({ quotation, customer, order, templateId, generatedById, tx: transaction }) => ensureOrderContractDocument({
             quotation,
@@ -868,12 +1076,23 @@ router.post(
           resourceId: updatedQuotation.id,
         };
       },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, validateDeferredConstraints: true },
     );
 
+    const responseScope = await resolveQuotationResponseScope(
+      actor,
+      req.params.id,
+      execution.replayed ? undefined : mutationScope,
+    );
+    const responsePayload = projectQuotationResponse(
+      execution.payload,
+      actor,
+      quotationResponseContext(responseScope),
+    );
     applyIdempotencyHeaders(res, execution);
     res.status(execution.statusCode).json({
       success: true,
-      data: execution.payload,
+      data: responsePayload,
     });
   })
 );
@@ -885,6 +1104,7 @@ router.get(
     const quotation = await quotationRepository.findUnique({
       where: { id: req.params.id },
       include: {
+        lines: { orderBy: { lineNo: 'asc' } },
         customer: true,
         creator: { select: { department: true } },
       },
@@ -896,37 +1116,20 @@ router.get(
     const actor = (req as AuthRequest).user!;
     assertQuotationAccess(actor, 'read', quotation);
 
-    const pdfBuffer = await generateQuotationPDF({
-      quoteNumber: quotation.quoteNumber,
-      customerName: quotation.customer.name,
-      partNumber: quotation.partNumber,
-      quantity: quotation.quantity,
-      unitPrice: preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0,
-      totalPrice: quotationTotalPrice(quotation),
-      costPrice: preferredMoneyValue(quotation.costPriceDecimal, quotation.costPrice) ?? 0,
-      margin: quotation.margin,
-      validityDays: quotation.validityDays,
-      saleType: quotation.saleType,
-      incoterm: quotation.incoterm || '',
-      incotermLocation: quotation.incotermLocation || '',
-      leadTimeDays: quotation.leadTimeDays || undefined,
-      leadTimeBasis: quotation.leadTimeBasis || '',
-      moq: quotation.moq || undefined,
-      mpq: quotation.mpq || undefined,
-      priceBasis: quotation.priceBasis || '',
-      taxIncluded: quotation.taxIncluded,
-      taxRate: quotation.taxRate || undefined,
-      warrantyDays: quotation.warrantyDays,
-      warrantyTerms: quotation.warrantyTerms || '',
-      packagingRequirement: quotation.packagingRequirement || '',
-      shippingMethod: quotation.shippingMethod || '',
-      commonNote: quotation.commonNote || '',
-      certificateFiles: quotation.certificateFiles?.split(',').filter(Boolean),
-      createdAt: quotation.createdAt.toISOString(),
-      expiryDate: quotation.expiryDate.toISOString().split('T')[0],
-      createdBy: quotation.createdBy,
-      includeInternalInfo: canViewQuotationCost(actor, quotation),
-    });
+    const frozen = await prisma.generatedDocument.findFirst({ where: { quotationId: quotation.id, documentType: QUOTATION_PDF_DOCUMENT_TYPE }, select: { id: true } });
+    let pdfBuffer: Buffer;
+    if (frozen) {
+      const artifact = await quotationDocumentPdf(prisma, quotation.id);
+      pdfBuffer = artifact.content;
+      res.setHeader('X-Quotation-Document', 'frozen');
+      res.setHeader('X-Document-SHA256', artifact.document.pdfSha256!);
+    } else if (!quotation.supersededAt && ['DRAFT', 'PENDING_APPROVAL', 'REJECTED'].includes(quotation.status)) {
+      const snapshot = buildQuotationRenderSnapshot({ quotation, customer: quotation.customer, lines: quotation.lines });
+      pdfBuffer = await generatePDF('<div style="color:#a33;font-size:20px">预览 · 未审批冻结 · 非历史正式文件</div>' + generateQuotationHTML(quotationRenderData(snapshot)));
+      res.setHeader('X-Quotation-Document', 'preview');
+    } else {
+      throw new AppError('该历史报价没有冻结文件，请核对原始文件或审批新修订版', 409, 'RESOURCE_CONFLICT');
+    }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', buildContentDisposition(`${quotation.quoteNumber}.pdf`));

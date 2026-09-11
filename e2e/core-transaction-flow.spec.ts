@@ -31,10 +31,15 @@ function mutationHeaders(token: string, idempotencyKey?: string) {
   };
 }
 
-async function createApprovedQuotationForReservation(token: string, partNumber: string, suffix: string) {
+async function createApprovedQuotationForReservation(
+  creatorToken: string,
+  approverToken: string,
+  partNumber: string,
+  suffix: string,
+) {
   const rfqResponse = await fetch(`${backendBaseUrl}/rfqs`, {
     method: 'POST',
-    headers: mutationHeaders(token, `e2e-race-rfq-${suffix}`),
+    headers: mutationHeaders(creatorToken, `e2e-race-rfq-${suffix}`),
     body: JSON.stringify({
       customerId: 'c001',
       partNumber,
@@ -48,7 +53,7 @@ async function createApprovedQuotationForReservation(token: string, partNumber: 
 
   const quoteResponse = await fetch(`${backendBaseUrl}/quotations`, {
     method: 'POST',
-    headers: mutationHeaders(token, `e2e-race-quote-${suffix}`),
+    headers: mutationHeaders(creatorToken, `e2e-race-quote-${suffix}`),
     body: JSON.stringify({
       rfqId: rfq.data.id,
       customerId: 'c001',
@@ -56,6 +61,9 @@ async function createApprovedQuotationForReservation(token: string, partNumber: 
       quantity: 1,
       unitPrice: 2400,
       costPrice: 1800,
+      currency: 'USD',
+      costSourceType: 'MANUAL',
+      costSourceReason: 'E2E synthetic cost basis for race flow',
       validityDays: 14,
     }),
   });
@@ -64,7 +72,7 @@ async function createApprovedQuotationForReservation(token: string, partNumber: 
 
   const submitResponse = await fetch(`${backendBaseUrl}/quotations/${quote.data.id}/submit`, {
     method: 'POST',
-    headers: mutationHeaders(token, `e2e-race-submit-${suffix}`),
+    headers: mutationHeaders(creatorToken, `e2e-race-submit-${suffix}`),
     body: JSON.stringify({ version: quote.data.version, reasonCode: 'E2E_RACE_SUBMIT' }),
   });
   expect(submitResponse.ok).toBeTruthy();
@@ -72,7 +80,7 @@ async function createApprovedQuotationForReservation(token: string, partNumber: 
 
   const approveResponse = await fetch(`${backendBaseUrl}/quotations/${quote.data.id}/approve`, {
     method: 'POST',
-    headers: mutationHeaders(token, `e2e-race-approve-${suffix}`),
+    headers: mutationHeaders(approverToken, `e2e-race-approve-${suffix}`),
     body: JSON.stringify({ action: 'approve', version: submitted.data.version, reasonCode: 'E2E_RACE_APPROVE' }),
   });
   expect(approveResponse.ok).toBeTruthy();
@@ -83,22 +91,25 @@ async function createApprovedQuotationForReservation(token: string, partNumber: 
 
 test.describe('core transaction flow', () => {
   test('runs RFQ to certificate with reservation, partial outbound, idempotency and authorization safeguards', async () => {
+    const salesToken = await login('sales-test@aerolink.com');
     const managerToken = await login('zhang@aerolink.com');
     const financeToken = await login('li@aerolink.com');
+    const qualityReviewerToken = await login('quality-test@aerolink.com');
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const partNumber = '2341-123-050';
-    const inventoryDetailId = 'inv001';
+    const partNumber = '1234-567-890';
+    const inventoryDetailId = 'inv005';
 
     const rfqKey = `e2e-core-rfq-${suffix}`;
     const createRfqResponse = await fetch(`${backendBaseUrl}/rfqs`, {
       method: 'POST',
-      headers: mutationHeaders(managerToken, rfqKey),
+      headers: mutationHeaders(salesToken, rfqKey),
       body: JSON.stringify({
         customerId: 'c001',
         partNumber,
         quantity: 2,
         requiredDate: '2026-08-01',
         urgency: 'STANDARD',
+        conditionCode: 'NE',
         notes: `P1-10 core transaction flow ${suffix}`,
       }),
     });
@@ -136,7 +147,7 @@ test.describe('core transaction flow', () => {
 
     const createQuoteResponse = await fetch(`${backendBaseUrl}/quotations`, {
       method: 'POST',
-      headers: mutationHeaders(managerToken, `e2e-core-quote-${suffix}`),
+      headers: mutationHeaders(salesToken, `e2e-core-quote-${suffix}`),
       body: JSON.stringify({
         rfqId: createdRfq.data.id,
         customerId: 'c001',
@@ -144,6 +155,9 @@ test.describe('core transaction flow', () => {
         quantity: 2,
         unitPrice: 2400,
         costPrice: 1800,
+        currency: 'USD',
+        costSourceType: 'MANUAL',
+        costSourceReason: 'E2E synthetic cost basis for core flow',
         certificateFiles: ['FAA-8130-3'],
         validityDays: 14,
       }),
@@ -159,7 +173,7 @@ test.describe('core transaction flow', () => {
 
     const submitQuoteResponse = await fetch(`${backendBaseUrl}/quotations/${createdQuote.data.id}/submit`, {
       method: 'POST',
-      headers: mutationHeaders(managerToken, `e2e-core-submit-${suffix}`),
+      headers: mutationHeaders(salesToken, `e2e-core-submit-${suffix}`),
       body: JSON.stringify({ version: createdQuote.data.version, reasonCode: 'E2E_CORE_SUBMIT' }),
     });
     expect(submitQuoteResponse.ok).toBeTruthy();
@@ -181,7 +195,7 @@ test.describe('core transaction flow', () => {
 
     const acceptQuoteResponse = await fetch(`${backendBaseUrl}/quotations/${createdQuote.data.id}/accept`, {
       method: 'POST',
-      headers: mutationHeaders(managerToken, `e2e-core-accept-${suffix}`),
+      headers: mutationHeaders(salesToken, `e2e-core-accept-${suffix}`),
       body: JSON.stringify({
         version: approvedQuote.data.version,
         poNumber: `PO-E2E-${suffix}`,
@@ -204,9 +218,10 @@ test.describe('core transaction flow', () => {
     const inventoryItem = await inventoryResponse.json() as {
       details: Array<{ id: string; quantity: number; status: string; conditionCode: string }>;
     };
-    expect(inventoryItem.details).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: inventoryDetailId, quantity: 5, status: 'AVAILABLE' }),
-    ]));
+    const initialInventoryDetail = inventoryItem.details.find((detail) => detail.id === inventoryDetailId);
+    expect(initialInventoryDetail).toMatchObject({ id: inventoryDetailId, status: 'AVAILABLE' });
+    const initialInventoryQuantity = initialInventoryDetail?.quantity ?? 0;
+    expect(initialInventoryQuantity).toBeGreaterThanOrEqual(2);
 
     const reserveKey = `e2e-core-reserve-${suffix}`;
     const reservationBody = {
@@ -276,6 +291,22 @@ test.describe('core transaction flow', () => {
     expect(financeAttempt.status).toBe(403);
     expect((await financeAttempt.json() as ApiEnvelope<never>).code).toBe('AUTH_FORBIDDEN');
 
+    const directShippedAttempt = await fetch(`${backendBaseUrl}/orders/${orderId}/status`, {
+      method: 'PATCH',
+      headers: mutationHeaders(managerToken, `e2e-core-direct-shipped-${suffix}`),
+      body: JSON.stringify({ status: 'SHIPPED', reasonCode: 'E2E_CORE_DIRECT_SHIPPED' }),
+    });
+    expect(directShippedAttempt.status).toBe(409);
+    expect((await directShippedAttempt.json() as ApiEnvelope<never>).code).toBe('FULFILLMENT_REQUIRED');
+
+    const missingReviewOutbound = await fetch(`${backendBaseUrl}/inventory-transactions/outbound`, {
+      method: 'POST',
+      headers: mutationHeaders(managerToken, `e2e-core-missing-review-${suffix}`),
+      body: JSON.stringify({ inventoryDetailId, orderId, quantity: 1 }),
+    });
+    expect(missingReviewOutbound.status).toBe(409);
+    expect((await missingReviewOutbound.json() as ApiEnvelope<never>).code).toBe('QUALITY_REVIEW_REQUIRED');
+
     const mismatchedOutbound = await fetch(`${backendBaseUrl}/inventory-transactions/outbound`, {
       method: 'POST',
       headers: mutationHeaders(managerToken, `e2e-core-mismatch-${suffix}`),
@@ -283,6 +314,87 @@ test.describe('core transaction flow', () => {
     });
     expect(mismatchedOutbound.status).toBe(409);
     expect((await mismatchedOutbound.json() as ApiEnvelope<never>).code).toBe('RESOURCE_CONFLICT');
+
+    async function uploadQualityEvidence() {
+      const form = new FormData();
+      form.append(
+        'file',
+        new Blob(['%PDF-1.4\n% E2E quality evidence\n'], { type: 'application/pdf' }),
+        `e2e-quality-${suffix}.pdf`,
+      );
+      const uploadResponse = await fetch(`${backendBaseUrl}/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${qualityReviewerToken}` },
+        body: form,
+      });
+      expect(uploadResponse.ok).toBeTruthy();
+      const uploaded = await uploadResponse.json() as ApiEnvelope<{ id: string }>;
+      return uploaded.data.id;
+    }
+
+    async function approveOutboundQuantity(quantity: number, idempotencyKey: string) {
+      const contextResponse = await fetch(
+        `${backendBaseUrl}/inventory-transactions/quality-review/${orderId}?quantity=${quantity}`,
+        { headers: { Authorization: `Bearer ${qualityReviewerToken}` } },
+      );
+      expect(contextResponse.ok).toBeTruthy();
+      const context = await contextResponse.json() as ApiEnvelope<{
+        snapshotHash: string;
+        snapshot: {
+          plannedQuantity: number;
+          order: {
+            quantity: number;
+            outboundQuantity: number;
+            serialNumber: string | null;
+            batchNumber: string | null;
+          };
+          requirements: { conditionCode: string | null };
+          inventory: {
+            partNumber: string;
+            conditionCode: string;
+            quantity: number;
+            batchNumber: string | null;
+            serialNumber: string | null;
+          };
+        };
+      }>;
+      expect(context.data.snapshot.plannedQuantity).toBe(quantity);
+      expect(context.data.snapshot.order.quantity - context.data.snapshot.order.outboundQuantity)
+        .toBeGreaterThanOrEqual(quantity);
+      expect(context.data.snapshot.inventory.partNumber).toBe(partNumber);
+      expect(context.data.snapshot.requirements.conditionCode).toBe('NE');
+      expect(context.data.snapshot.inventory.conditionCode)
+        .toBe(context.data.snapshot.requirements.conditionCode);
+      expect(context.data.snapshot.order.serialNumber)
+        .toBe(context.data.snapshot.inventory.serialNumber);
+      expect(context.data.snapshot.order.batchNumber)
+        .toBe(context.data.snapshot.inventory.batchNumber);
+      expect(context.data.snapshot.inventory.quantity).toBeGreaterThanOrEqual(quantity);
+      const evidenceId = await uploadQualityEvidence();
+      const reviewResponse = await fetch(`${backendBaseUrl}/inventory-transactions/quality-reviews`, {
+        method: 'POST',
+        headers: mutationHeaders(qualityReviewerToken, idempotencyKey),
+        body: JSON.stringify({
+          orderId,
+          quantity,
+          snapshotHash: context.data.snapshotHash,
+          approved: true,
+          evidenceIds: [evidenceId],
+          verifiedSerialNumber: context.data.snapshot.inventory.serialNumber || '',
+          verifiedBatchNumber: context.data.snapshot.inventory.batchNumber || '',
+          checks: {
+            identity: true,
+            documents: true,
+            conditionAndLife: true,
+            customerRequirements: true,
+          },
+          reason: '核对件号、批次、状态和证书，适用寿命项已确认。',
+        }),
+      });
+      expect(reviewResponse.status).toBe(201);
+    }
+
+    await approveOutboundQuantity(1, `e2e-core-quality-review-one-${suffix}`);
 
     const outboundKey = `e2e-core-outbound-one-${suffix}`;
     const outboundBody = {
@@ -310,8 +422,8 @@ test.describe('core transaction flow', () => {
     }>;
     expect(firstOutbound.data).toMatchObject({
       type: 'OUTBOUND',
-      beforeQuantity: 5,
-      afterQuantity: 4,
+      beforeQuantity: initialInventoryQuantity,
+      afterQuantity: initialInventoryQuantity - 1,
       inventoryStatus: 'RESERVED',
       outboundQuantity: 1,
       outboundStatus: 'PARTIAL',
@@ -337,6 +449,7 @@ test.describe('core transaction flow', () => {
     expect(transactionHistory.data.filter((transaction) => transaction.type === 'OUTBOUND')).toHaveLength(1);
     expect(transactionHistory.data.filter((transaction) => transaction.type === 'RESERVATION')).toHaveLength(1);
 
+    await approveOutboundQuantity(1, `e2e-core-quality-review-two-${suffix}`);
     const secondOutboundResponse = await fetch(`${backendBaseUrl}/inventory-transactions/outbound`, {
       method: 'POST',
       headers: mutationHeaders(managerToken, `e2e-core-outbound-two-${suffix}`),
@@ -357,7 +470,7 @@ test.describe('core transaction flow', () => {
       reservedQuantity: number;
     }>;
     expect(secondOutbound.data).toMatchObject({
-      afterQuantity: 3,
+      afterQuantity: initialInventoryQuantity - 2,
       inventoryStatus: 'AVAILABLE',
       outboundQuantity: 2,
       outboundStatus: 'COMPLETED',
@@ -437,13 +550,14 @@ test.describe('core transaction flow', () => {
   });
 
   test('allows only one concurrent reservation for the same inventory detail', async () => {
+    const salesToken = await login('sales-test@aerolink.com');
     const managerToken = await login('zhang@aerolink.com');
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const partNumber = '3214-567-100';
-    const inventoryDetailId = 'inv003';
+    const partNumber = '1234-567-890';
+    const inventoryDetailId = 'inv005';
     const [firstQuotation, secondQuotation] = await Promise.all([
-      createApprovedQuotationForReservation(managerToken, partNumber, `${suffix}-one`),
-      createApprovedQuotationForReservation(managerToken, partNumber, `${suffix}-two`),
+      createApprovedQuotationForReservation(salesToken, managerToken, partNumber, `${suffix}-one`),
+      createApprovedQuotationForReservation(salesToken, managerToken, partNumber, `${suffix}-two`),
     ]);
 
     const [firstReservation, secondReservation] = await Promise.all([
@@ -465,15 +579,27 @@ test.describe('core transaction flow', () => {
       headers: { Authorization: `Bearer ${managerToken}` },
     });
     expect(detailTransactionsResponse.ok).toBeTruthy();
-    const detailTransactions = await detailTransactionsResponse.json() as ApiEnvelope<Array<{ type: string }>>;
-    expect(detailTransactions.data.filter((transaction) => transaction.type === 'RESERVATION')).toHaveLength(1);
+    const detailTransactions = await detailTransactionsResponse.json() as ApiEnvelope<Array<{ type: string; quotationId?: string }>>;
+    expect(detailTransactions.data.filter((transaction) => (
+      transaction.type === 'RESERVATION'
+      && [firstQuotation.id, secondQuotation.id].includes(transaction.quotationId || '')
+    ))).toHaveLength(1);
+
+    const successfulQuotation = firstReservation.status === 201 ? firstQuotation : secondQuotation;
+    const cleanupResponse = await fetch(`${backendBaseUrl}/inventory-transactions/release`, {
+      method: 'POST',
+      headers: mutationHeaders(managerToken, `e2e-race-cleanup-${suffix}`),
+      body: JSON.stringify({ quotationId: successfulQuotation.id, notes: 'Release the winning reservation after the race assertion.' }),
+    });
+    expect(cleanupResponse.status).toBe(201);
   });
 
   test('releases an unaccepted reservation atomically and replays the result safely', async () => {
+    const salesToken = await login('sales-test@aerolink.com');
     const managerToken = await login('zhang@aerolink.com');
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const inventoryDetailId = 'inv007';
-    const quotation = await createApprovedQuotationForReservation(managerToken, '3456-789-012', suffix);
+    const quotation = await createApprovedQuotationForReservation(salesToken, managerToken, '3456-789-012', suffix);
 
     const reserveResponse = await fetch(`${backendBaseUrl}/inventory-transactions/reserve`, {
       method: 'POST',

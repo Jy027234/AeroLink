@@ -64,6 +64,8 @@ describe('API Contract - Request/Response shapes', () => {
         quantity: 5,
         unitPrice: 100,
         costPrice: 80,
+        costSourceType: 'MANUAL',
+        costSourceReason: 'contract cost sheet',
       });
       expect(valid.success).toBe(true);
 
@@ -106,6 +108,11 @@ describe('API Contract - Request/Response shapes', () => {
         customerId: 'c1',
       });
       expect(missingQuotation.success).toBe(false);
+    });
+
+    it('rejects unsupported order line payloads instead of stripping them', () => {
+      const result = orderCreateSchema.safeParse({ quotationId: 'q1', customerId: 'c1', lines: [] });
+      expect(result.success).toBe(false);
     });
 
     it('status update should normalize supported aliases and reject arbitrary values', () => {

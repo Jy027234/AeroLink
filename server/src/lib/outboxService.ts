@@ -3,11 +3,12 @@ import type { OutboxEvent, Prisma } from '@prisma/client';
 import { decrypt } from './crypto.js';
 import { sendEmail, type EmailAccountConfig } from './emailService.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { preferredMoneyValue } from './money.js';
-import { generateQuotationPDF } from './pdfService.js';
+import { assertImmutableDocumentArtifact, parseQuotationRenderSnapshot, sha256 } from './documentRenderSnapshot.js';
 import prisma from './prisma.js';
 import { isQuotationTransitionAllowed } from './quotationStateMachine.js';
-import { emitToRoom } from './socketEvents.js';
+import * as socketEvents from './socketEvents.js';
+import type { SocketEventScope } from './socketEvents.js';
+import { sanitizeSocketData } from './socketPayload.js';
 import { transitionQuotationStatus } from './transactionStateService.js';
 import { preferredQuotationStatus } from './transactionStatusShadows.js';
 import { queueWebhookEvent } from './webhookService.js';
@@ -31,18 +32,21 @@ export const OutboxStatus = {
   CANCELLED: 'CANCELLED',
 } as const;
 
-type OutboxChannelValue = (typeof OutboxChannel)[keyof typeof OutboxChannel];
+export type OutboxChannelValue = (typeof OutboxChannel)[keyof typeof OutboxChannel];
 type OutboxTransactionClient = Pick<Prisma.TransactionClient, 'outboxEvent'>;
 
-type SocketPayload = {
+export type SocketPayload = {
   room: string;
   event: string;
   data: Record<string, unknown>;
+  scope?: SocketEventScope;
 };
 
 type EmailPayload = {
   outboundEmailId: string;
   includeQuotationPdf?: boolean;
+  attachmentDocumentId?: string;
+  attachmentSnapshotHash?: string;
 };
 
 export type EnqueueBusinessEventInput = {
@@ -53,6 +57,7 @@ export type EnqueueBusinessEventInput = {
   socket?: {
     room: string;
     event: string;
+    scope?: SocketEventScope;
   };
   createdById?: string | null;
 };
@@ -63,6 +68,10 @@ export type EnqueueOutboundEmailInput = {
   aggregateId: string;
   outboundEmailId: string;
   includeQuotationPdf?: boolean;
+  /** Immutable GeneratedDocument containing the frozen customer-facing PDF. */
+  attachmentDocumentId?: string;
+  /** Hash of the immutable render snapshot stored by the caller. */
+  attachmentSnapshotHash?: string;
   createdById?: string | null;
 };
 
@@ -70,6 +79,8 @@ const OUTBOX_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 const OUTBOX_LEASE_HEARTBEAT_MS = 60_000;
 const MAX_ERROR_LENGTH = 2000;
 const DEFAULT_WORKER_ID = process.env.WORKER_ID?.trim() || `worker-${crypto.randomUUID()}`;
+export const API_OUTBOX_CHANNELS = [OutboxChannel.SOCKET] as const;
+export const WORKER_OUTBOX_CHANNELS = [OutboxChannel.EMAIL, OutboxChannel.WEBHOOK] as const;
 const P2_FAULT_INJECTION_ENABLED = ['1', 'true', 'yes'].includes((process.env.P2_FAULT_INJECTION ?? '').toLowerCase());
 const P2_WORKER_CRASH_DELAY_MS = Math.max(0, Number.parseInt(process.env.P2_WORKER_CRASH_DELAY_MS ?? '25', 10) || 25);
 
@@ -101,13 +112,33 @@ function parseRecordPayload(payload: string): Record<string, unknown> {
 
 function parseSocketPayload(payload: string): SocketPayload {
   const parsed = parseRecordPayload(payload);
-  if (typeof parsed.room !== 'string' || typeof parsed.event !== 'string' || !parsed.data || typeof parsed.data !== 'object') {
+  if (
+    typeof parsed.room !== 'string'
+    || typeof parsed.event !== 'string'
+    || !parsed.data
+    || typeof parsed.data !== 'object'
+    || Array.isArray(parsed.data)
+  ) {
     throw new Error('Invalid socket outbox payload');
   }
+  const parsedScope = parsed.scope;
+  const scope = parsedScope && typeof parsedScope === 'object' && !Array.isArray(parsedScope)
+    ? parsedScope as Record<string, unknown>
+    : undefined;
   return {
     room: parsed.room,
     event: parsed.event,
-    data: parsed.data as Record<string, unknown>,
+    data: (sanitizeSocketData(parsed.data) ?? {}) as Record<string, unknown>,
+    ...(scope ? {
+      scope: {
+        ...(typeof scope.capability === 'string' ? { capability: scope.capability } : {}),
+        ...(typeof scope.ownerId === 'string' ? { ownerId: scope.ownerId } : {}),
+        ...(typeof scope.department === 'string' ? { department: scope.department } : {}),
+        ...(Array.isArray(scope.userIds)
+          ? { userIds: scope.userIds.filter((value): value is string => typeof value === 'string') }
+          : {}),
+      },
+    } : {}),
   };
 }
 
@@ -119,6 +150,16 @@ function parseEmailPayload(payload: string): EmailPayload {
   return {
     outboundEmailId: parsed.outboundEmailId,
     includeQuotationPdf: parsed.includeQuotationPdf === true,
+    ...(parsed.attachmentDocumentId === undefined
+      ? {}
+      : typeof parsed.attachmentDocumentId === 'string' && parsed.attachmentDocumentId
+        ? { attachmentDocumentId: parsed.attachmentDocumentId }
+        : (() => { throw new Error('Invalid email attachment document id'); })()),
+    ...(parsed.attachmentSnapshotHash === undefined
+      ? {}
+      : typeof parsed.attachmentSnapshotHash === 'string' && parsed.attachmentSnapshotHash
+        ? { attachmentSnapshotHash: parsed.attachmentSnapshotHash }
+        : (() => { throw new Error('Invalid email attachment snapshot hash'); })()),
   };
 }
 
@@ -142,6 +183,26 @@ function buildMessageId(outboxEventId: string) {
 
 class CancelledOutboxEventError extends Error {}
 
+function inferSocketCapability(eventType: string, aggregateType: string) {
+  const eventResource = eventType.trim().toLowerCase().split(/[.:]/)[0];
+  if (eventResource) return `${eventResource}.read`;
+  const aggregateResource = aggregateType.trim().toLowerCase().split(/[.:]/)[0];
+  return aggregateResource ? `${aggregateResource}.read` : undefined;
+}
+
+function inferSocketOwner(data: Record<string, unknown>) {
+  for (const key of ['ownerId', 'userId']) {
+    const value = data[key];
+    if (typeof value === 'string' && value) return value;
+  }
+  return undefined;
+}
+
+function isAuthoritativeAggregateType(aggregateType: string) {
+  const normalized = aggregateType.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  return normalized === 'RFQ' || normalized === 'QUOTATION' || normalized === 'ORDER';
+}
+
 /** Queue a Webhook and optional Socket message in the same business transaction. */
 export async function enqueueBusinessEvent(tx: OutboxTransactionClient, input: EnqueueBusinessEventInput) {
   const createdById = input.createdById ?? null;
@@ -162,6 +223,11 @@ export async function enqueueBusinessEvent(tx: OutboxTransactionClient, input: E
     return { webhookEvent, socketEvent: null };
   }
 
+  const hasAuthoritativeOwner = isAuthoritativeAggregateType(input.aggregateType);
+  const ownerHint = input.socket.scope?.ownerId ?? inferSocketOwner(input.data);
+  const departmentHint = input.socket.scope?.department
+    ?? (typeof input.data.department === 'string' ? input.data.department : undefined);
+
   const socketEvent = await tx.outboxEvent.create({
     data: {
       channel: OutboxChannel.SOCKET,
@@ -171,7 +237,16 @@ export async function enqueueBusinessEvent(tx: OutboxTransactionClient, input: E
       payload: serializePayload({
         room: input.socket.room,
         event: input.socket.event,
-        data: input.data,
+        data: (sanitizeSocketData(input.data) ?? {}) as Record<string, unknown>,
+        scope: {
+          capability: input.socket.scope?.capability ?? inferSocketCapability(input.eventType, input.aggregateType),
+          // RFQ, quotation, and order ownership is reloaded from the current
+          // aggregate at dispatch.  Never persist the action actor as a
+          // document owner.  Explicit user scope remains for user-only events.
+          ...(!hasAuthoritativeOwner && ownerHint ? { ownerId: ownerHint } : {}),
+          ...(!hasAuthoritativeOwner && departmentHint ? { department: departmentHint } : {}),
+          ...(input.socket.scope?.userIds ? { userIds: input.socket.scope.userIds } : {}),
+        },
       }),
       createdById,
       requestId: getRequestId() ?? null,
@@ -193,6 +268,8 @@ export async function enqueueOutboundEmail(tx: OutboxTransactionClient, input: E
       payload: serializePayload({
         outboundEmailId: input.outboundEmailId,
         includeQuotationPdf: input.includeQuotationPdf === true,
+        ...(input.attachmentDocumentId ? { attachmentDocumentId: input.attachmentDocumentId } : {}),
+        ...(input.attachmentSnapshotHash ? { attachmentSnapshotHash: input.attachmentSnapshotHash } : {}),
       }),
       createdById: input.createdById ?? null,
       requestId: getRequestId() ?? null,
@@ -225,49 +302,84 @@ function buildEmailAccountConfig(account: {
   };
 }
 
-async function buildQuotationAttachment(quotation: NonNullable<Awaited<ReturnType<typeof prisma.quotation.findUnique>>>) {
-  const customer = await prisma.customer.findUnique({ where: { id: quotation.customerId } });
-  if (!customer) {
-    throw new Error('Quotation customer no longer exists');
+type GeneratedDocumentSnapshotRecord = {
+  id: string;
+  title: string;
+  documentType: string;
+  quotationId?: string | null;
+  customerId?: string | null;
+  contentHtml: string;
+  generatedAt: Date;
+  generatedById?: string | null;
+  payloadJson?: string | null;
+  contentSha256?: string | null;
+  // These fields are added by the immutable-document migration.  Keeping the
+  // adapter structural lets this worker compile while that migration lands.
+  pdfBytes?: Buffer | Uint8Array | null;
+  pdfSha256?: string | null;
+  snapshotHash?: string | null;
+};
+
+async function buildDocumentSnapshotAttachment(
+  documentId: string,
+  expectedQuotationId: string,
+  expectedSnapshotHash?: string,
+) {
+  const document = await prisma.generatedDocument.findUnique({ where: { id: documentId } }) as GeneratedDocumentSnapshotRecord | null;
+  if (!document) {
+    throw new CancelledOutboxEventError('Immutable quotation document no longer exists');
   }
 
-  const pdfBuffer = await generateQuotationPDF({
-    quoteNumber: quotation.quoteNumber,
-    customerName: customer.name,
-    partNumber: quotation.partNumber,
-    quantity: quotation.quantity,
-    unitPrice: preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0,
-    totalPrice: preferredMoneyValue(quotation.totalPriceDecimal, quotation.totalPrice) ?? 0,
-    costPrice: preferredMoneyValue(quotation.costPriceDecimal, quotation.costPrice) ?? 0,
-    margin: quotation.margin,
-    validityDays: quotation.validityDays,
-    saleType: quotation.saleType,
-    incoterm: quotation.incoterm || '',
-    incotermLocation: quotation.incotermLocation || '',
-    leadTimeDays: quotation.leadTimeDays || undefined,
-    leadTimeBasis: quotation.leadTimeBasis || '',
-    moq: quotation.moq || undefined,
-    mpq: quotation.mpq || undefined,
-    priceBasis: quotation.priceBasis || '',
-    taxIncluded: quotation.taxIncluded,
-    taxRate: quotation.taxRate || undefined,
-    warrantyDays: quotation.warrantyDays,
-    warrantyTerms: quotation.warrantyTerms || '',
-    packagingRequirement: quotation.packagingRequirement || '',
-    shippingMethod: quotation.shippingMethod || '',
-    commonNote: quotation.commonNote || '',
-    certificateFiles: quotation.certificateFiles?.split(',').filter(Boolean),
-    createdAt: quotation.createdAt.toISOString(),
-    expiryDate: quotation.expiryDate.toISOString().split('T')[0],
-    createdBy: quotation.createdBy,
-    includeInternalInfo: false,
-  });
+  const dynamicDocument = document as GeneratedDocumentSnapshotRecord;
+  if (dynamicDocument.documentType !== 'QUOTATION_PDF') {
+    throw new CancelledOutboxEventError('Outbound quotation attachment is not a quotation PDF');
+  }
+  if (!dynamicDocument.quotationId || dynamicDocument.quotationId !== expectedQuotationId) {
+    throw new CancelledOutboxEventError('Outbound quotation attachment belongs to a different quotation');
+  }
+  if (!dynamicDocument.snapshotHash) {
+    throw new CancelledOutboxEventError('Historical quotation document has no immutable snapshot marker');
+  }
+  if (expectedSnapshotHash && expectedSnapshotHash !== dynamicDocument.snapshotHash) {
+    throw new Error('Quotation document snapshot hash does not match outbox payload');
+  }
+  if (!dynamicDocument.payloadJson) {
+    throw new CancelledOutboxEventError('Quotation PDF attachment snapshot payload is missing');
+  }
+  let snapshot;
+  try {
+    snapshot = parseQuotationRenderSnapshot(dynamicDocument.payloadJson);
+  } catch {
+    throw new CancelledOutboxEventError('Quotation PDF attachment snapshot payload is invalid');
+  }
+  if (snapshot.source.quotationId !== dynamicDocument.quotationId || snapshot.snapshotHash !== dynamicDocument.snapshotHash) {
+    throw new CancelledOutboxEventError('Quotation PDF attachment snapshot source does not match the document');
+  }
+  if (!dynamicDocument.contentSha256 || sha256(dynamicDocument.contentHtml) !== dynamicDocument.contentSha256) {
+    throw new CancelledOutboxEventError('Quotation PDF attachment HTML snapshot integrity failed');
+  }
+  if (!dynamicDocument.pdfBytes || dynamicDocument.pdfBytes.byteLength === 0) {
+    throw new CancelledOutboxEventError('Immutable quotation PDF bytes are missing');
+  }
+  if (!dynamicDocument.pdfSha256) {
+    throw new CancelledOutboxEventError('Immutable quotation PDF hash is missing');
+  }
+  const content = Buffer.from(dynamicDocument.pdfBytes);
 
-  return {
-    filename: `${quotation.quoteNumber}.pdf`,
-    content: pdfBuffer,
-    contentType: 'application/pdf',
+  const snapshotHash = dynamicDocument.snapshotHash;
+  const artifact = {
+    filename: `${document.title}.pdf`,
+    content,
+    contentType: 'application/pdf' as const,
+    sha256: sha256(content),
+    sizeBytes: content.byteLength,
+    snapshotHash,
   };
+  assertImmutableDocumentArtifact(artifact, {
+    sha256: dynamicDocument.pdfSha256,
+    snapshotHash: expectedSnapshotHash || dynamicDocument.snapshotHash,
+  });
+  return artifact;
 }
 
 async function deliverOutboundEmailEvent(event: OutboxEvent) {
@@ -298,10 +410,20 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
   ) {
     throw new CancelledOutboxEventError('Quotation was withdrawn before email delivery');
   }
+  if (email.purpose === 'QUOTATION_SEND' && (email.quotation as ({ supersededAt?: Date | null } | null) | null)?.supersededAt) {
+    throw new CancelledOutboxEventError('Quotation was superseded before email delivery');
+  }
 
-  const attachments = payload.includeQuotationPdf && email.quotation
-    ? [await buildQuotationAttachment(email.quotation)]
-    : undefined;
+  let attachments;
+  if (payload.includeQuotationPdf) {
+    if (!payload.attachmentDocumentId) {
+      throw new CancelledOutboxEventError('Quotation PDF attachment snapshot is missing');
+    }
+    if (!email.quotationId) {
+      throw new CancelledOutboxEventError('Outbound quotation email has no quotation binding');
+    }
+    attachments = [await buildDocumentSnapshotAttachment(payload.attachmentDocumentId, email.quotationId, payload.attachmentSnapshotHash)];
+  }
   const sentResult = await sendEmail(buildEmailAccountConfig(email.account), {
     to: email.toEmail,
     subject: email.subject,
@@ -391,9 +513,19 @@ async function dispatchOutboxEvent(event: OutboxEvent) {
 
   if (event.channel === OutboxChannel.SOCKET) {
     const payload = parseSocketPayload(event.payload);
-    if (!emitToRoom(payload.room, payload.event, payload.data)) {
-      throw new Error('Socket.IO is not initialized');
-    }
+    const scope = payload.scope ?? {
+      capability: inferSocketCapability(event.eventType, event.aggregateType),
+    };
+    // There is no unrestricted room fallback: a missing scoped emitter is a
+    // deployment/configuration error and must fail the outbox item visibly.
+    const emitted = await socketEvents.emitScopedSocketEvent({
+      event: payload.event,
+      data: payload.data,
+      scope,
+      aggregateType: event.aggregateType,
+      aggregateId: event.aggregateId,
+    });
+    if (!emitted) throw new Error('Socket.IO is not initialized or event dispatch failed');
     return;
   }
 
@@ -477,23 +609,65 @@ async function markOutboxFailure(event: OutboxEvent, workerId: string, error: un
 }
 
 async function markOutboxCancelled(event: OutboxEvent, workerId: string, error: CancelledOutboxEventError) {
-  await prisma.outboxEvent.updateMany({
-    where: { id: event.id, status: OutboxStatus.PROCESSING, workerId },
-    data: {
-      status: OutboxStatus.CANCELLED,
-      nextRetryAt: null,
-      lockedAt: null,
-      workerId: null,
-      lastError: errorMessage(error),
-    },
+  await prisma.$transaction(async (tx) => {
+    const released = await tx.outboxEvent.updateMany({
+      where: { id: event.id, status: OutboxStatus.PROCESSING, workerId },
+      data: {
+        status: OutboxStatus.CANCELLED,
+        nextRetryAt: null,
+        lockedAt: null,
+        workerId: null,
+        lastError: errorMessage(error),
+      },
+    });
+
+    // A stale worker may discover that a newer worker already recovered and
+    // claimed this event.  The lease CAS above is the boundary: only its
+    // winner may mutate the linked email status.
+    if (released.count !== 1 || event.channel !== OutboxChannel.EMAIL) return;
+
+    let emailPayload: EmailPayload;
+    try {
+      emailPayload = parseEmailPayload(event.payload);
+    } catch (payloadError) {
+      logger.warn({ payloadError, outboxEventId: event.id }, 'Unable to parse cancelled email outbox payload');
+      return;
+    }
+
+    await tx.outboundEmail.updateMany({
+      where: {
+        id: emailPayload.outboundEmailId,
+        status: { notIn: ['SENT', 'WITHDRAWN'] },
+      },
+      data: {
+        status: 'FAILED',
+        errorMessage: errorMessage(error),
+      },
+    });
   });
 }
 
-export async function processOutboxEvent(id: string, workerId = DEFAULT_WORKER_ID): Promise<boolean> {
+export type OutboxProcessingOptions = {
+  channels?: readonly OutboxChannelValue[];
+};
+
+function normalizedChannels(options?: OutboxProcessingOptions) {
+  if (!options?.channels) return undefined;
+  return Array.from(new Set(options.channels.filter(isOutboxChannel)));
+}
+
+export async function processOutboxEvent(
+  id: string,
+  workerId = DEFAULT_WORKER_ID,
+  options?: OutboxProcessingOptions,
+): Promise<boolean> {
+  const channels = normalizedChannels(options);
+  if (channels && channels.length === 0) return false;
   const now = new Date();
   const claim = await prisma.outboxEvent.updateMany({
     where: {
       id,
+      ...(channels ? { channel: { in: channels } } : {}),
       status: { in: [OutboxStatus.PENDING, OutboxStatus.RETRYING] },
       OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
     },
@@ -577,11 +751,26 @@ export async function processOutboxEvent(id: string, workerId = DEFAULT_WORKER_I
   }
 }
 
-/** Recover stale claims and process due events. Safe for multiple server replicas. */
-export async function processPendingOutboxEvents(limit = 50, workerId = DEFAULT_WORKER_ID) {
+/**
+ * Recover stale claims and process due events for an owned channel set.  The
+ * current production topology is one API process (SOCKET) plus one Worker
+ * process (EMAIL/WEBHOOK); channel-scoped leases prevent either process from
+ * consuming the other process's queue.  This does not solve delivery to
+ * Socket.IO connections spread across multiple API replicas.
+ */
+export async function processPendingOutboxEvents(
+  limit = 50,
+  workerId = DEFAULT_WORKER_ID,
+  options?: OutboxProcessingOptions,
+) {
+  // Direct maintenance/fault-probe callers retain an all-channel default;
+  // actual runtimes always pass their owned set from worker.ts.
+  const channels = normalizedChannels(options) ?? Object.values(OutboxChannel);
+  if (channels.length === 0) return { processed: 0, delivered: 0 };
   const now = new Date();
   await prisma.outboxEvent.updateMany({
     where: {
+      channel: { in: channels },
       status: OutboxStatus.PROCESSING,
       lockedAt: { lt: new Date(now.getTime() - OUTBOX_LOCK_TIMEOUT_MS) },
     },
@@ -596,6 +785,7 @@ export async function processPendingOutboxEvents(limit = 50, workerId = DEFAULT_
 
   const candidates = await prisma.outboxEvent.findMany({
     where: {
+      channel: { in: channels },
       status: { in: [OutboxStatus.PENDING, OutboxStatus.RETRYING] },
       OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
     },
@@ -606,7 +796,7 @@ export async function processPendingOutboxEvents(limit = 50, workerId = DEFAULT_
 
   let delivered = 0;
   for (const candidate of candidates) {
-    if (await processOutboxEvent(candidate.id, workerId)) {
+    if (await processOutboxEvent(candidate.id, workerId, { channels })) {
       delivered += 1;
     }
   }
@@ -624,8 +814,11 @@ export async function retryOutboxEvent(id: string) {
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.outboxEvent.update({
-      where: { id },
+    const reset = await tx.outboxEvent.updateMany({
+      where: {
+        id,
+        status: { in: [OutboxStatus.FAILED, OutboxStatus.RETRYING] },
+      },
       data: {
         status: OutboxStatus.PENDING,
         attemptCount: 0,
@@ -635,6 +828,9 @@ export async function retryOutboxEvent(id: string) {
         lastError: null,
       },
     });
+    if (reset.count !== 1) {
+      throw new AppError('Outbox 事件已被其他 Worker 领取，无法人工重试', 409, 'STATE_CONFLICT');
+    }
 
     if (event.channel === OutboxChannel.EMAIL) {
       const payload = parseEmailPayload(event.payload);
@@ -649,23 +845,56 @@ export async function retryOutboxEvent(id: string) {
 }
 
 export async function cancelOutboxEvent(id: string, reason?: string) {
-  const result = await prisma.outboxEvent.updateMany({
-    where: {
-      id,
-      status: { in: [OutboxStatus.PENDING, OutboxStatus.RETRYING, OutboxStatus.FAILED] },
-    },
-    data: {
-      status: OutboxStatus.CANCELLED,
-      nextRetryAt: null,
-      lockedAt: null,
-      workerId: null,
-      lastError: reason?.trim().slice(0, MAX_ERROR_LENGTH) || 'Cancelled manually',
-    },
-  });
+  const cancellationReason = reason?.trim().slice(0, MAX_ERROR_LENGTH) || 'Cancelled manually';
 
-  if (result.count !== 1) {
-    throw new AppError('Outbox 事件不存在或无法取消', 409, 'STATE_CONFLICT');
-  }
+  await prisma.$transaction(async (tx) => {
+    // Read the payload inside the same transaction as the conditional status
+    // update.  A worker can claim the event between an outside read and the
+    // CAS, so only the CAS winner may compensate a linked outbound email.
+    const event = await tx.outboxEvent.findUnique({ where: { id } });
+    if (!event) {
+      throw new AppError('Outbox 事件不存在或无法取消', 409, 'STATE_CONFLICT');
+    }
+
+    const result = await tx.outboxEvent.updateMany({
+      where: {
+        id,
+        status: { in: [OutboxStatus.PENDING, OutboxStatus.RETRYING, OutboxStatus.FAILED] },
+      },
+      data: {
+        status: OutboxStatus.CANCELLED,
+        nextRetryAt: null,
+        lockedAt: null,
+        workerId: null,
+        lastError: cancellationReason,
+      },
+    });
+
+    if (result.count !== 1) {
+      throw new AppError('Outbox 事件不存在或无法取消', 409, 'STATE_CONFLICT');
+    }
+
+    if (event.channel !== OutboxChannel.EMAIL) return;
+
+    let emailPayload: EmailPayload;
+    try {
+      emailPayload = parseEmailPayload(event.payload);
+    } catch (payloadError) {
+      logger.warn({ payloadError, outboxEventId: event.id }, 'Unable to parse manually cancelled email outbox payload');
+      return;
+    }
+
+    await tx.outboundEmail.updateMany({
+      where: {
+        id: emailPayload.outboundEmailId,
+        status: { notIn: ['SENT', 'WITHDRAWN'] },
+      },
+      data: {
+        status: 'FAILED',
+        errorMessage: cancellationReason,
+      },
+    });
+  });
 }
 
 export async function getOutboxStats() {

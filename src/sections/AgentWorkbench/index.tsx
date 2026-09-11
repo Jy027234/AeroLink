@@ -40,9 +40,10 @@ import { useTranslation } from '@/i18n';
 import type { AgentTask, ConfirmationNode, ConfirmationOption, AgentDashboard, QuoteCandidate, ConfirmationAuditEntry } from '@/types/agent';
 import type { SupplierFollowUpLog, SupplierFollowUpOutcome } from '@/types';
 import { useSupplierFollowUpStore } from '@/store';
-import { useProductFeatures } from '@/hooks/useApi';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { AGENT_RUNTIME_EXECUTION_ENABLED } from '@/lib/agentOrchestrator';
+import { BusinessChatAssistant } from '@/components/BusinessAiAssistants';
 
 const statusConfig = {
   pending: { label: 'Pending', color: 'text-gray-600', bg: 'bg-gray-50' },
@@ -114,8 +115,16 @@ function getManualActionText(action: string | undefined) {
   }
 }
 
-function TaskStatusBadge({ status }: { status: keyof typeof statusConfig }) {
-  const config = statusConfig[status];
+function TaskStatusBadge({
+  status,
+  executionState,
+}: {
+  status: keyof typeof statusConfig;
+  executionState?: AgentTask['executionState'];
+}) {
+  const isNonExecuted = executionState === 'manual_workflow_required' || executionState === 'not_dispatched';
+  const displayStatus = isNonExecuted ? 'pending' : status;
+  const config = statusConfig[displayStatus];
   const { locale } = useTranslation();
   const labelMap: Record<keyof typeof statusConfig, string> = {
     pending: locale === 'zh-CN' ? '待处理' : 'Pending',
@@ -127,7 +136,7 @@ function TaskStatusBadge({ status }: { status: keyof typeof statusConfig }) {
   };
   return (
     <Badge variant="outline" className={cn(config.bg, config.color, 'border')}>
-      {labelMap[status] || config.label}
+      {labelMap[displayStatus] || config.label}
     </Badge>
   );
 }
@@ -135,9 +144,11 @@ function TaskStatusBadge({ status }: { status: keyof typeof statusConfig }) {
 function ConfirmationDialog({
   confirmation,
   onConfirm,
+  disabled = false,
 }: {
   confirmation: ConfirmationNode;
   onConfirm: (optionId: string, additionalData?: Record<string, unknown>) => void;
+  disabled?: boolean;
 }) {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
@@ -172,6 +183,17 @@ function ConfirmationDialog({
     setQuotationHoldReason('');
     setRfqCancelReason('');
   }, [confirmation.id]);
+
+  if (disabled) {
+    return (
+      <div className="rounded-lg border border-slate-300 bg-slate-50 p-4 text-sm text-slate-700" data-testid="agent-confirmation-disabled">
+        {tx(
+          '该任务来自旧版客户端运行时，当前仅可查看；助手确认和执行入口已暂停。请在对应业务页面按人工流程处理。',
+          'This task came from the legacy client runtime and is view-only. Assistant confirmation and execution are paused; complete it through the corresponding manual business workflow.'
+        )}
+      </div>
+    );
+  }
 
   const submitOption = async (optionId: string) => {
     const option = confirmation.options.find((item) => item.id === optionId);
@@ -947,6 +969,9 @@ function TaskTimeline({ task }: { task: AgentTask }) {
   }, [hasLoadedConfirmationAuditLogs, isExpanded, locale, task.id]);
 
   const getStepIcon = (step: AgentTask['steps'][0], index: number) => {
+    if (step.executionState === 'manual_workflow_required' || step.executionState === 'not_dispatched') {
+      return <AlertTriangle className="w-4 h-4 text-amber-600" />;
+    }
     if (step.status === 'completed') {
       return <CheckCircle className="w-4 h-4 text-green-600" />;
     }
@@ -960,6 +985,13 @@ function TaskTimeline({ task }: { task: AgentTask }) {
   };
 
   const getStepSummary = (step: AgentTask['steps'][0]) => {
+    if (step.executionState === 'manual_workflow_required') {
+      return <span className="text-xs text-amber-700">{tx('待人工处理', 'Manual workflow required')}</span>;
+    }
+    if (step.executionState === 'not_dispatched') {
+      return <span className="text-xs text-amber-700">{tx('未执行/未发送', 'Not executed / not dispatched')}</span>;
+    }
+
     if (task.type === 'manual_follow_up') {
       if (followUpQueue.length === 0) {
         return <span className="text-xs text-amber-700">{tx('待补联系人', 'Contact details needed')}</span>;
@@ -1010,11 +1042,22 @@ function TaskTimeline({ task }: { task: AgentTask }) {
     return null;
   };
 
-  const completedSteps = task.steps?.filter(s => s.status === 'completed').length || 0;
+  const completedSteps = task.steps?.filter(
+    (step) => step.status === 'completed'
+      && step.executionState !== 'manual_workflow_required'
+      && step.executionState !== 'not_dispatched'
+  ).length || 0;
   const runningStep = task.steps?.find(s => s.status === 'running');
   const isWaitingConfirmation = task.status === 'waiting_confirmation' && task.confirmationNode;
+  const isNonExecuted = task.executionState === 'manual_workflow_required' || task.executionState === 'not_dispatched';
 
   const getCurrentStepLabel = () => {
+    if (task.executionState === 'manual_workflow_required') {
+      return tx('待人工处理，助手未执行', 'Manual workflow required; assistant did not execute');
+    }
+    if (task.executionState === 'not_dispatched') {
+      return tx('未发送，待人工处理', 'Not dispatched; manual action required');
+    }
     if (task.type === 'manual_follow_up' && task.status === 'pending') {
       return `${tx('待销售跟进', 'Awaiting sales follow-up')} ${followUpQueue.length} ${tx('家供应商', 'suppliers')}`;
     }
@@ -1033,7 +1076,8 @@ function TaskTimeline({ task }: { task: AgentTask }) {
     <Card className={cn(
       'transition-all cursor-pointer',
       task.status === 'running' && 'border-blue-300 shadow-blue-100',
-      task.status === 'completed' && 'border-green-200',
+      task.status === 'completed' && !isNonExecuted && 'border-green-200',
+      isNonExecuted && 'border-amber-300 bg-amber-50/60',
       task.type === 'manual_follow_up' && task.status === 'pending' && 'border-amber-300 bg-amber-50/60',
       task.status === 'failed' && 'border-red-200',
       task.status === 'waiting_confirmation' && 'border-yellow-300 bg-yellow-50'
@@ -1058,7 +1102,22 @@ function TaskTimeline({ task }: { task: AgentTask }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <p className="font-medium text-sm">{typeConfig.label}</p>
-                <TaskStatusBadge status={task.status} />
+                <TaskStatusBadge status={task.status} executionState={task.executionState} />
+                {task.runtimeTrust === 'legacy_untrusted' && (
+                  <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-300 text-xs">
+                    {tx('旧任务·仅查看', 'Legacy · view only')}
+                  </Badge>
+                )}
+                {task.executionState === 'manual_workflow_required' && (
+                  <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-xs">
+                    {tx('待人工', 'Manual action')}
+                  </Badge>
+                )}
+                {task.executionState === 'not_dispatched' && (
+                  <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-300 text-xs">
+                    {tx('未执行', 'Not dispatched')}
+                  </Badge>
+                )}
                 {isWaitingConfirmation && (
                   <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300 animate-pulse text-xs">
                     ⚠️ {tx('需要确认', 'Needs confirmation')}
@@ -1074,7 +1133,8 @@ function TaskTimeline({ task }: { task: AgentTask }) {
                 <span className={cn(
                   'text-xs',
                   task.status === 'running' && 'text-blue-600',
-                  task.status === 'completed' && 'text-green-600',
+                  task.status === 'completed' && !isNonExecuted && 'text-green-600',
+                  isNonExecuted && 'text-amber-700',
                   task.status === 'failed' && 'text-red-600',
                   task.status === 'waiting_confirmation' && 'text-yellow-600',
                   !task.status.startsWith('running') && !task.status.startsWith('complete') && !task.status.startsWith('fail') && !task.status.includes('waiting') && 'text-gray-500'
@@ -1112,7 +1172,11 @@ function TaskTimeline({ task }: { task: AgentTask }) {
                   key={step.id}
                   className={cn(
                     'flex items-center gap-1 px-2 py-1 rounded text-xs',
-                    step.status === 'completed' && 'bg-green-50 text-green-700',
+                    step.status === 'completed'
+                      && step.executionState !== 'manual_workflow_required'
+                      && step.executionState !== 'not_dispatched'
+                      && 'bg-green-50 text-green-700',
+                    step.executionState && step.executionState !== 'executed' && 'bg-amber-50 text-amber-800',
                     step.status === 'running' && 'bg-blue-50 text-blue-700',
                     task.type === 'manual_follow_up' && step.status === 'pending' && 'bg-amber-100 text-amber-800',
                     step.status === 'failed' && 'bg-red-50 text-red-700',
@@ -1135,7 +1199,11 @@ function TaskTimeline({ task }: { task: AgentTask }) {
                 <div key={step.id} className="relative flex items-start gap-3">
                   <div className={cn(
                     'relative z-10 w-6 h-6 rounded-full flex items-center justify-center',
-                    step.status === 'completed' && 'bg-green-100',
+                    step.status === 'completed'
+                      && step.executionState !== 'manual_workflow_required'
+                      && step.executionState !== 'not_dispatched'
+                      && 'bg-green-100',
+                    step.executionState && step.executionState !== 'executed' && 'bg-amber-100',
                     step.status === 'running' && 'bg-blue-100',
                     step.status === 'failed' && 'bg-red-100',
                     step.status === 'pending' && 'bg-gray-100'
@@ -1144,7 +1212,11 @@ function TaskTimeline({ task }: { task: AgentTask }) {
                   </div>
                   <div className={cn(
                     'flex-1 p-3 rounded-lg border transition-all',
-                    step.status === 'completed' && 'bg-green-50 border-green-200',
+                    step.status === 'completed'
+                      && step.executionState !== 'manual_workflow_required'
+                      && step.executionState !== 'not_dispatched'
+                      && 'bg-green-50 border-green-200',
+                    step.executionState && step.executionState !== 'executed' && 'bg-amber-50 border-amber-200',
                     step.status === 'running' && 'bg-blue-50 border-blue-200',
                     step.status === 'failed' && 'bg-red-50 border-red-200',
                     step.status === 'pending' && 'bg-gray-50 border-gray-200'
@@ -1360,7 +1432,6 @@ function TaskTimeline({ task }: { task: AgentTask }) {
 export function AgentWorkbench() {
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
-  const { data: productFeatures, loading: productFeaturesLoading } = useProductFeatures();
   const [tasks, setTasks] = useState<AgentTask[]>([]);
   const [dashboard, setDashboard] = useState<AgentDashboard | null>(null);
   const [selectedConfirmationId, setSelectedConfirmationId] = useState<string | null>(null);
@@ -1452,40 +1523,18 @@ export function AgentWorkbench() {
       const taskId = selectedConfirmation.taskId;
       setSelectedConfirmationId(null);
       await agentOrchestrator.confirmTask(taskId, optionId, additionalData);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : tx('助手确认已暂停，请走人工流程。', 'Assistant confirmation is paused; use the manual workflow.'));
     } finally {
       setIsConfirming(false);
     }
   };
 
-  const handleStartDemo = async () => {
-    const agentDemoEnabled = productFeatures?.some(
-      (feature) => feature.key === 'agentDemo' && feature.enabled
-    ) === true;
-    if (!agentDemoEnabled) {
-      toast.error(tx('当前环境未启用受控演示任务。', 'Controlled demo tasks are disabled in this environment.'));
-      return;
-    }
-
-    const requiredDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-    const task = await agentOrchestrator.createTask(
-      { type: 'email', source: 'demo@airlines.com' },
-      'email_received',
-      {
-        emailId: 'demo_email_001',
-        demoMode: true,
-        parsedData: {
-          customerName: '海南航空',
-          partNumber: '3214-567-100',
-          quantity: 2,
-          requiredDate,
-          aircraftType: 'Boeing 737-800',
-          urgency: 'standard',
-        },
-      }
-    );
-    setPreferredConfirmationTaskId(task.id);
+  const handleStartDemo = () => {
+    toast.info(tx(
+      '助手运行任务已暂停，受控演示开关不会启用普通运行时。请走人工业务流程。',
+      'Assistant runtime execution is paused. The controlled demo flag does not enable ordinary runtime tasks; use the manual business workflow.'
+    ));
   };
 
   // Filtered + sorted tasks
@@ -1505,7 +1554,11 @@ export function AgentWorkbench() {
 
     // Status filter
     if (statusFilter !== 'all') {
-      result = result.filter((t) => t.status === statusFilter);
+      result = result.filter((t) => {
+        const isNonExecuted = t.executionState === 'manual_workflow_required' || t.executionState === 'not_dispatched';
+        const displayStatus = isNonExecuted ? 'pending' : t.status;
+        return displayStatus === statusFilter;
+      });
     }
 
     // Type filter
@@ -1545,6 +1598,7 @@ export function AgentWorkbench() {
       {/* Header controls */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
+          <BusinessChatAssistant />
           <Button
             variant={autoRefresh ? 'default' : 'outline'}
             size="sm"
@@ -1553,22 +1607,15 @@ export function AgentWorkbench() {
             <RefreshCw className={cn('w-4 h-4 mr-1', autoRefresh && 'animate-spin')} />
             {autoRefresh ? tx('自动刷新', 'Auto refresh') : tx('已暂停', 'Paused')}
           </Button>
-          {!productFeaturesLoading && productFeatures?.some(
-            (feature) => feature.key === 'agentDemo' && feature.enabled
-          ) ? (
-            <Button
-              className="bg-purple-600 hover:bg-purple-700"
-              data-testid="agent-run-demo"
-              onClick={handleStartDemo}
-            >
-              <Play className="w-4 h-4 mr-1" />
-              {tx('运行受控演示', 'Run Controlled Demo')}
-            </Button>
-          ) : (
-            <span className="text-xs text-muted-foreground" data-testid="agent-demo-disabled">
-              {tx('受控演示任务未启用', 'Controlled demo tasks are disabled')}
-            </span>
-          )}
+          <Button
+            className="bg-slate-500 hover:bg-slate-500"
+            data-testid="agent-runtime-disabled"
+            disabled={!AGENT_RUNTIME_EXECUTION_ENABLED}
+            onClick={handleStartDemo}
+          >
+            <Play className="w-4 h-4 mr-1" />
+            {tx('自动流程执行已暂停', 'Automatic workflow execution paused')}
+          </Button>
         </div>
       </div>
 
@@ -1647,6 +1694,7 @@ export function AgentWorkbench() {
             <ConfirmationDialog
               confirmation={selectedConfirmation}
               onConfirm={handleConfirm}
+              disabled={!AGENT_RUNTIME_EXECUTION_ENABLED}
             />
           </CardContent>
         </Card>

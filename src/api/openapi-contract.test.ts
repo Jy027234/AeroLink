@@ -7,6 +7,18 @@ type Operation = {
   parameters?: unknown[];
   responses: Record<string, unknown>;
   'x-aerolink-contract-status'?: string;
+  'x-aerolink-strict-query'?: boolean;
+};
+
+type Schema = {
+  $ref?: string;
+  description?: string;
+  required?: string[];
+  properties?: Record<string, any>;
+  oneOf?: Schema[];
+  allOf?: Schema[];
+  items?: Schema;
+  additionalProperties?: boolean | Schema;
 };
 
 type Contract = {
@@ -14,7 +26,7 @@ type Contract = {
   components: {
     requestBodies: Record<string, unknown>;
     responses: Record<string, { headers: Record<string, unknown> }>;
-    schemas: Record<string, { required?: string[]; properties?: Record<string, unknown> }>;
+    schemas: Record<string, Schema>;
   };
 };
 
@@ -24,6 +36,25 @@ const contract = JSON.parse(
 
 function operation(method: string, routePath: string) {
   return contract.paths[routePath]?.[method.toLowerCase()];
+}
+
+function resolveSchema(schema: Schema): Schema {
+  if (!schema.$ref) return schema;
+  const name = schema.$ref.split('/').pop();
+  if (!name || !contract.components.schemas[name]) {
+    throw new Error(`Unknown schema reference: ${schema.$ref}`);
+  }
+  return contract.components.schemas[name];
+}
+
+function schemaBranches(name: string): Schema[] {
+  const schema = resolveSchema(contract.components.schemas[name]);
+  return schema.oneOf?.map(resolveSchema) ?? [schema];
+}
+
+function costSourceBranches(schema: Schema): Schema[] {
+  const rules = schema.allOf?.find((item) => item.oneOf);
+  return rules?.oneOf?.map(resolveSchema) ?? [];
 }
 
 describe('OpenAPI representative contract invariants', () => {
@@ -104,7 +135,11 @@ describe('OpenAPI representative contract invariants', () => {
       expect(create.requestBody).toEqual({ $ref: `#/components/requestBodies/${resource}Create` });
       expect(create.responses['201']).toEqual({ $ref: `#/components/responses/${resource}` });
       expect(contract.components.schemas[resource].required).toBeDefined();
-      expect(contract.components.schemas[requestSchema].properties).toBeDefined();
+      const requestBranches = schemaBranches(requestSchema);
+      expect(requestBranches.length).toBeGreaterThan(0);
+      for (const requestBranch of requestBranches) {
+        expect(requestBranch.properties).toBeDefined();
+      }
     }
   });
 
@@ -388,7 +423,9 @@ describe('OpenAPI representative contract invariants', () => {
     const modelDefault = operation('POST', '/api/models/{id}/set-default');
 
     expect(runtimeList.responses['200']).toEqual({ $ref: '#/components/responses/AgentRuntimeTaskList' });
-    expect(runtimeUpdate.requestBody).toEqual({ $ref: '#/components/requestBodies/AgentRuntimeTaskSync' });
+    expect(runtimeUpdate.requestBody).toBeUndefined();
+    expect(runtimeUpdate.responses).not.toHaveProperty('200');
+    expect(runtimeUpdate.responses).toHaveProperty('410');
     expect(runtimeDashboard.responses['200']).toEqual({ $ref: '#/components/responses/AgentRuntimeDashboard' });
     expect(agents.responses['200']).toEqual({ $ref: '#/components/responses/AgentList' });
     expect(agentCreate.requestBody).toEqual({ $ref: '#/components/requestBodies/AgentCreate' });
@@ -401,6 +438,122 @@ describe('OpenAPI representative contract invariants', () => {
     expect(contract.components.schemas.AiModel.properties).not.toHaveProperty('apiKey');
     expect(contract.components.schemas.AiModelCreateRequest.properties).toMatchObject({ apiKey: { writeOnly: true } });
     expect(contract.components.schemas.AgentRuntimeTask.properties).not.toHaveProperty('contextJson');
+  });
+
+  it('requires an exact review snapshot and rejects client-supplied reviewer identity', () => {
+    const review = operation('POST', '/api/inventory-transactions/quality-reviews');
+    const preview = operation('GET', '/api/inventory-transactions/quality-review/{orderId}');
+    expect(review.responses).toHaveProperty('201');
+    expect(preview.parameters).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'quantity', required: true })]));
+    const schema = contract.components.schemas.FulfillmentReviewCreateRequest;
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(expect.arrayContaining(['snapshotHash', 'quantity', 'checks', 'reason', 'evidenceIds']));
+    expect(schema.properties).not.toHaveProperty('reviewedById');
+    expect(schema.properties).not.toHaveProperty('reviewedAt');
+    const quotationCreate = contract.components.schemas.QuotationCreateRequest;
+    expect(quotationCreate.oneOf).toHaveLength(2);
+    const quotationBranches = schemaBranches('QuotationCreateRequest');
+    const legacy = quotationBranches.find((branch) => branch.properties?.partNumber);
+    const modern = quotationBranches.find((branch) => branch.properties?.lines);
+    if (!legacy || !modern) {
+      throw new Error('QuotationCreateRequest must expose legacy and modern branches');
+    }
+
+    // Both accepted request variants are USD-only. The modern branch also
+    // pins the value with const so callers cannot omit the mode's currency.
+    expect(legacy.properties?.currency).toMatchObject({ enum: ['USD'] });
+    expect(modern.properties?.currency).toMatchObject({ enum: ['USD'], const: 'USD' });
+
+    // Legacy requests keep scalar commercial facts and their cost evidence at
+    // the top level. A line-first request must carry those facts only inside
+    // its required lines array.
+    expect(legacy.required).toEqual(expect.arrayContaining([
+      'rfqId', 'customerId', 'partNumber', 'quantity', 'unitPrice', 'costPrice', 'costSourceType',
+    ]));
+    expect(legacy.properties).not.toHaveProperty('lines');
+    expect(modern.required).toEqual(expect.arrayContaining(['rfqId', 'customerId', 'currency', 'lines']));
+    expect(modern.properties).not.toHaveProperty('partNumber');
+    expect(modern.properties).not.toHaveProperty('quantity');
+    expect(modern.properties).not.toHaveProperty('unitPrice');
+    expect(modern.properties).not.toHaveProperty('costPrice');
+    expect(modern.properties).not.toHaveProperty('costSourceType');
+
+    const lineArray = modern.properties?.lines as Schema;
+    const line = resolveSchema(lineArray.items as Schema);
+    expect(line.required).toEqual(expect.arrayContaining([
+      'rfqLineId', 'partNumber', 'quantity', 'unitPrice', 'costPrice', 'costSourceType',
+    ]));
+    expect(line.properties).toHaveProperty('costSourceType');
+
+    const legacyCostRules = costSourceBranches(legacy);
+    const lineCostRules = costSourceBranches(line);
+    expect(legacyCostRules).toHaveLength(2);
+    expect(lineCostRules).toHaveLength(2);
+    for (const rule of [...legacyCostRules, ...lineCostRules]) {
+      expect(rule.required).toEqual(expect.arrayContaining(['costSourceType']));
+    }
+    expect(legacyCostRules.find((rule) => rule.properties?.costSourceType?.const === 'MANUAL')?.required)
+      .toEqual(expect.arrayContaining(['costSourceReason']));
+    expect(lineCostRules.find((rule) => rule.properties?.costSourceType?.const === 'MANUAL')?.required)
+      .toEqual(expect.arrayContaining(['costSourceReason']));
+    expect(legacyCostRules.find((rule) => rule.properties?.costSourceType?.enum)?.required)
+      .toEqual(expect.arrayContaining(['costSourceId']));
+    expect(lineCostRules.find((rule) => rule.properties?.costSourceType?.enum)?.required)
+      .toEqual(expect.arrayContaining(['costSourceId']));
+  });
+
+  it('contracts commercial quotation revision requests and metadata-only history', () => {
+    const revise = operation('POST', '/api/quotations/{id}/revise');
+    const revisions = operation('GET', '/api/quotations/{id}/revisions');
+
+    expect(revise['x-aerolink-contract-status']).toBe('contracted');
+    expect(revise.requestBody).toEqual({ $ref: '#/components/requestBodies/QuotationRevise' });
+    expect(revise.responses['201']).toEqual({ $ref: '#/components/responses/QuotationRevisionCreated' });
+    expect(revisions['x-aerolink-contract-status']).toBe('contracted');
+    expect(revisions.requestBody).toBeUndefined();
+    expect(revisions.responses['200']).toEqual({ $ref: '#/components/responses/QuotationRevisionList' });
+
+    const request = resolveSchema(contract.components.schemas.QuotationReviseRequest);
+    expect(request.additionalProperties).toBe(false);
+    expect(request.required).toEqual(expect.arrayContaining(['version', 'reason', 'quotation']));
+    expect(request.properties?.version).toMatchObject({ type: 'integer', minimum: 1 });
+    expect(request.properties?.reason).toMatchObject({ type: 'string', minLength: 1, maxLength: 1000 });
+    const nestedQuotation = request.properties?.quotation as Schema;
+    expect(nestedQuotation.allOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $ref: '#/components/schemas/QuotationCreateRequest' }),
+      expect.objectContaining({ required: expect.arrayContaining(['validityDays']) }),
+    ]));
+    expect(nestedQuotation.allOf?.find((entry) => entry.required?.includes('validityDays'))?.properties?.validityDays)
+      .toMatchObject({ type: 'integer', minimum: 1 });
+
+    const quotation = contract.components.schemas.Quotation;
+    expect(quotation.properties).toMatchObject({
+      commercialRevision: expect.objectContaining({ type: 'integer', minimum: 1 }),
+      revisionOfId: expect.objectContaining({ type: ['string', 'null'] }),
+      revisionRootId: expect.objectContaining({ type: ['string', 'null'] }),
+      revisionReason: expect.objectContaining({ type: ['string', 'null'] }),
+      supersededAt: expect.objectContaining({ type: ['string', 'null'], format: 'date-time' }),
+      supersededById: expect.objectContaining({ type: 'string' }),
+    });
+    expect(quotation.required).toContain('commercialRevision');
+    expect(quotation.required).not.toContain('supersededById');
+
+    const metadata = resolveSchema(contract.components.schemas.QuotationRevision);
+    expect(metadata.required).toEqual(expect.arrayContaining([
+      'id', 'quoteNumber', 'commercialRevision', 'revisionOfId', 'revisionRootId',
+      'revisionReason', 'supersededAt', 'createdAt', 'status', 'expiryDate',
+    ]));
+    expect(metadata.required).not.toContain('supersededById');
+    expect(metadata.properties?.commercialRevision).toMatchObject({ type: 'integer', minimum: 1 });
+    for (const field of ['unitPrice', 'totalPrice', 'costPrice', 'margin', 'costSourceType', 'costSourceId', 'costSourceReason', 'costSourceSnapshotJson']) {
+      expect(metadata.properties).not.toHaveProperty(field);
+    }
+
+    const created = resolveSchema(contract.components.schemas.QuotationRevisionCreated);
+    expect(created.allOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $ref: '#/components/schemas/Quotation' }),
+      expect.objectContaining({ required: expect.arrayContaining(['previousQuotationId']) }),
+    ]));
   });
 
   it('contracts bounded AI assistance requests and response shapes', () => {
@@ -443,5 +596,145 @@ describe('OpenAPI representative contract invariants', () => {
     expect(mine.responses['200']).toEqual({ $ref: '#/components/responses/AuctionList' });
     expect(contract.components.schemas.AuctionBidCreateRequest.required).toEqual(['amount']);
     expect(contract.components.schemas.AuctionDetail.properties.bids).toBeDefined();
+  });
+
+  it('contracts strict purchase commitment sources, private cost projection and idempotent commands', () => {
+    const orderList = operation('GET', '/api/purchase-commitments');
+    const detail = operation('GET', '/api/purchase-commitments/{id}');
+    const create = operation('POST', '/api/purchase-commitments');
+    const transitionPaths = ['submit', 'approve', 'reject', 'cancel'];
+    const confirm = operation('POST', '/api/purchase-commitments/{id}/confirm');
+
+    expect(orderList.responses['200']).toEqual({ $ref: '#/components/responses/PurchaseCommitmentOrderList' });
+    expect(orderList['x-aerolink-strict-query']).toBe(true);
+    expect(orderList.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'orderId', in: 'query', required: true }),
+    ]));
+    expect(detail.responses['200']).toEqual({ $ref: '#/components/responses/PurchaseCommitment' });
+    expect(create.requestBody).toEqual({ $ref: '#/components/requestBodies/PurchaseCommitmentCreate' });
+    expect(create.responses['201']).toEqual({ $ref: '#/components/responses/PurchaseCommitment' });
+    for (const action of transitionPaths) {
+      const transition = operation('POST', `/api/purchase-commitments/{id}/${action}`);
+      expect(transition.requestBody).toEqual({ $ref: '#/components/requestBodies/PurchaseCommitmentTransition' });
+      expect(transition.responses['200']).toEqual({ $ref: '#/components/responses/PurchaseCommitment' });
+      expect(transition.parameters).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
+      ]));
+    }
+    expect(confirm.requestBody).toEqual({ $ref: '#/components/requestBodies/PurchaseCommitmentConfirm' });
+    expect(confirm.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
+    ]));
+
+    const request = resolveSchema(contract.components.schemas.PurchaseCommitmentCreateRequest);
+    expect(request.additionalProperties).toBe(false);
+    expect(request.required).toEqual(expect.arrayContaining(['orderId', 'supplierId', 'lines']));
+    const line = resolveSchema(request.properties?.lines?.items as Schema);
+    expect(line.additionalProperties).toBe(false);
+    expect(line.required).toEqual(expect.arrayContaining(['orderLineId', 'source', 'quantity', 'promisedDate', 'fulfillmentMode']));
+    const source = resolveSchema(line.properties?.source as Schema);
+    expect(source.oneOf).toHaveLength(2);
+    const sourceBranches = source.oneOf?.map(resolveSchema) ?? [];
+    expect(sourceBranches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ required: expect.arrayContaining(['type', 'supplierQuoteId']) }),
+      expect.objectContaining({ required: expect.arrayContaining(['type', 'unitCost', 'currency', 'reason', 'evidenceFileIds']) }),
+    ]));
+    const manual = sourceBranches.find((branch) => branch.properties?.type?.const === 'MANUAL');
+    expect(manual?.properties?.currency).toMatchObject({ const: 'USD', enum: ['USD'] });
+    expect(manual?.additionalProperties).toBe(false);
+
+    const purchase = contract.components.schemas.PurchaseCommitment;
+    for (const field of ['currency', 'totalCost', 'paymentTerms', 'supplierReferenceNo', 'approvalSnapshot', 'confirmationEvidence']) {
+      expect(purchase.properties?.[field]).toBeDefined();
+      expect(JSON.stringify(purchase.properties?.[field])).toContain('purchase_commitment.view_cost');
+    }
+    const purchaseLine = contract.components.schemas.PurchaseCommitmentLine;
+    for (const field of ['currency', 'unitCost', 'lineTotal', 'sourceSupplierQuoteId', 'sourceSnapshot']) {
+      expect(JSON.stringify(purchaseLine.properties?.[field])).toContain('purchase_commitment.view_cost');
+    }
+  });
+
+  it('contracts USD settlement AR/AP projections, immutable records and required idempotency', () => {
+    const list = operation('GET', '/api/settlements');
+    const detail = operation('GET', '/api/settlements/{id}');
+    const create = operation('POST', '/api/settlements');
+    const record = operation('POST', '/api/settlements/{id}/records');
+
+    expect(list['x-aerolink-contract-status']).toBe('contracted');
+    expect(list.responses['200']).toEqual({ $ref: '#/components/responses/SettlementOrderList' });
+    expect(list['x-aerolink-strict-query']).toBe(true);
+    expect(list.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'orderId', in: 'query', required: true }),
+    ]));
+    expect(detail.responses['200']).toEqual({ $ref: '#/components/responses/SettlementAccount' });
+
+    expect(create.requestBody).toEqual({ $ref: '#/components/requestBodies/SettlementCreate' });
+    expect(create.responses['201']).toEqual({ $ref: '#/components/responses/SettlementAccount' });
+    expect(record.requestBody).toEqual({ $ref: '#/components/requestBodies/SettlementRecord' });
+    expect(record.responses['201']).toEqual({ $ref: '#/components/responses/SettlementAccount' });
+    for (const write of [create, record]) {
+      expect(write.parameters).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Idempotency-Key', in: 'header', required: true,
+          schema: expect.objectContaining({ minLength: 1, maxLength: 255 }),
+        }),
+      ]));
+      for (const status of ['400', '401', '403', '404', '409', '422', '429', '500']) {
+        expect(write.responses[status]).toEqual({ $ref: '#/components/responses/Error' });
+      }
+    }
+
+    const createRequest = contract.components.schemas.SettlementCreateRequest;
+    const createBranches = createRequest.oneOf?.map(resolveSchema) ?? [];
+    expect(createBranches).toHaveLength(2);
+    const receivable = createBranches.find((branch) => branch.properties?.side?.const === 'RECEIVABLE');
+    const payable = createBranches.find((branch) => branch.properties?.side?.const === 'PAYABLE');
+    expect(receivable).toBeDefined();
+    expect(payable).toBeDefined();
+    expect(receivable?.required).toEqual(expect.arrayContaining(['side', 'orderId', 'evidenceIds']));
+    expect(receivable?.required).not.toContain('purchaseCommitmentId');
+    expect(receivable?.properties?.purchaseCommitmentId).toBe(false);
+    expect(payable?.required).toEqual(expect.arrayContaining(['side', 'orderId', 'purchaseCommitmentId']));
+    expect(JSON.stringify(payable)).toContain('settlement.view_cost');
+    expect(receivable?.properties).not.toHaveProperty('initialAmount');
+
+    const recordRequest = contract.components.schemas.SettlementRecordRequest;
+    const recordBranches = recordRequest.oneOf?.map(resolveSchema) ?? [];
+    expect(recordBranches).toHaveLength(3);
+    const amountRecord = recordBranches.find((branch) => branch.properties?.kind?.enum?.includes('PAYMENT'));
+    const reversalRecord = recordBranches.find((branch) => branch.properties?.kind?.const === 'REVERSAL');
+    const termsRecord = recordBranches.find((branch) => branch.properties?.kind?.const === 'TERMS');
+    expect(amountRecord?.required).toEqual(expect.arrayContaining(['version', 'kind', 'amount', 'evidenceIds']));
+    expect(amountRecord?.required).not.toContain('reversalOfId');
+    expect(amountRecord?.required).not.toContain('dueDate');
+    expect(reversalRecord?.required).toEqual(expect.arrayContaining(['version', 'kind', 'reversalOfId']));
+    expect(reversalRecord?.required).not.toContain('amount');
+    expect(reversalRecord?.required).not.toContain('dueDate');
+    expect(termsRecord?.required).toEqual(expect.arrayContaining(['version', 'kind', 'dueDate']));
+    expect(termsRecord?.required).not.toContain('amount');
+    expect(termsRecord?.required).not.toContain('reversalOfId');
+    expect(amountRecord?.properties?.amount?.pattern).toBeDefined();
+    const positiveAmountPattern = new RegExp(amountRecord?.properties?.amount?.pattern as string);
+    expect(positiveAmountPattern.test('0.0001')).toBe(true);
+    expect(positiveAmountPattern.test('0')).toBe(false);
+    expect(positiveAmountPattern.test('0.0000')).toBe(false);
+    expect(recordRequest.description).toContain('Append-only');
+
+    const account = contract.components.schemas.SettlementAccount;
+    const accountBranches = account.oneOf?.map(resolveSchema) ?? [];
+    expect(accountBranches).toHaveLength(2);
+    expect(accountBranches.map((branch) => branch.properties?.side?.const)).toEqual(['RECEIVABLE', 'PAYABLE']);
+    const receivableAccount = accountBranches.find((branch) => branch.properties?.side?.const === 'RECEIVABLE');
+    expect(receivableAccount?.required).toContain('purchaseCommitmentId');
+    expect(receivableAccount?.properties?.purchaseCommitmentId).toEqual(expect.objectContaining({ type: 'null', readOnly: true }));
+    const amounts = resolveSchema(contract.components.schemas.SettlementAmounts);
+    expect(amounts.required).not.toContain('currency');
+    expect(amounts.properties).not.toHaveProperty('currency');
+    expect(JSON.stringify(accountBranches.find((branch) => branch.properties?.side?.const === 'PAYABLE')))
+      .toContain('settlement.view_cost');
+    expect(contract.components.schemas.SettlementRecord.properties?.evidence?.items)
+      .toEqual(expect.objectContaining({ properties: expect.objectContaining({ status: { const: 'AVAILABLE' } }) }));
+    const listSchema = resolveSchema(contract.components.schemas.SettlementOrderList);
+    expect(listSchema.properties?.accounts?.items).toEqual({ $ref: '#/components/schemas/SettlementAccount' });
   });
 });

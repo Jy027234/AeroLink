@@ -49,6 +49,55 @@ enum SupplierQuoteStatusEnum {
   expired
 }
 
+enum PurchaseCommitmentStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  CONFIRMED
+  CLOSED
+  REJECTED
+  CANCELLED
+}
+
+enum PurchaseCommitmentFulfillmentMode {
+  STOCK_RECEIPT
+  SUPPLIER_DIRECT
+}
+
+enum SupplierDirectShipmentStatus {
+  PREPARED
+  CANCELLED
+  DISPATCHED
+  PARTIALLY_RECEIVED
+  DELIVERED
+}
+
+enum SupplierDirectShipmentReviewStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum StockReceiptLineStatus {
+  PENDING_REVIEW
+  ACCEPTED
+  REJECTED
+}
+
+enum SettlementSide {
+  RECEIVABLE
+  PAYABLE
+}
+
+enum SettlementRecordKind {
+  OPEN
+  TERMS
+  PAYMENT
+  CREDIT
+  REFUND
+  REVERSAL
+}
+
 model User {
   id          String    @id @default(uuid())
   email       String    @unique
@@ -78,6 +127,30 @@ model User {
   statusHistoryChanges TransactionStatusHistory[] @relation("TransactionStatusActor")
   sessions              UserSession[]
   securityEvents        SecurityEvent[]
+  fulfillmentReviews      FulfillmentReview[]
+  inventoryAllocations    InventoryAllocation[]
+  allocationAssignments   AllocationAssignment[]
+  inventoryAllocationEvents InventoryAllocationEvent[]
+  shipmentsCreated        Shipment[] @relation("ShipmentCreator")
+  shipmentEvents          ShipmentEvent[] @relation("ShipmentEventActor")
+  returnHoldsReceived     ReturnHold[] @relation("ReturnHoldReceiver")
+  returnHoldsReleased     ReturnHold[] @relation("ReturnHoldReleaser")
+  returnEvents            ReturnEvent[] @relation("ReturnEventActor")
+  purchaseCommitmentsCreated    PurchaseCommitment[] @relation("PurchaseCommitmentCreator")
+  purchaseCommitmentsSubmitted  PurchaseCommitment[] @relation("PurchaseCommitmentSubmitter")
+  purchaseCommitmentsApproved   PurchaseCommitment[] @relation("PurchaseCommitmentApprover")
+  purchaseCommitmentsConfirmed  PurchaseCommitment[] @relation("PurchaseCommitmentConfirmer")
+  purchaseCommitmentEvents      PurchaseCommitmentEvent[]
+  supplierDirectShipmentsCreated   SupplierDirectShipment[] @relation("SupplierDirectShipmentCreator")
+  supplierDirectShipmentsDispatched SupplierDirectShipment[] @relation("SupplierDirectShipmentDispatcher")
+  supplierDirectShipmentsCancelled  SupplierDirectShipment[] @relation("SupplierDirectShipmentCanceller")
+  supplierDirectShipmentLinesReviewed SupplierDirectShipmentLine[] @relation("SupplierDirectShipmentLineReviewer")
+  supplierDirectShipmentEvents       SupplierDirectShipmentEvent[] @relation("SupplierDirectShipmentEventActor")
+  stockReceiptsReceived         StockReceipt[] @relation("StockReceiptReceiver")
+  stockReceiptLinesReviewed     StockReceiptLine[] @relation("StockReceiptLineReviewer")
+  stockReceiptEvents            StockReceiptEvent[]
+  settlementAccountsCreated    SettlementAccount[] @relation("SettlementAccountCreator")
+  settlementRecords            SettlementRecord[] @relation("SettlementRecordActor")
 
   @@map("users")
 }
@@ -126,6 +199,7 @@ model SecurityEvent {
   @@index([sessionId, createdAt])
   @@map("security_events")
 }
+
 model NotificationPreference {
   id            String   @id @default(uuid())
   userId        String   @unique
@@ -202,6 +276,7 @@ model CustomerContact {
   receivePO  Boolean @default(false)
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
   @@map("customer_contacts")
 }
 
@@ -214,6 +289,7 @@ model CompetitorListing {
   notes       String?
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
   @@map("competitor_listings")
 }
 
@@ -285,6 +361,7 @@ model Supplier {
   supplierQuotes    SupplierQuote[]
   followUpLogs      SupplierFollowUpLog[]
   certificates      Certificate[]
+  purchaseCommitments PurchaseCommitment[]
 
   @@map("suppliers")
 }
@@ -422,6 +499,12 @@ model InventoryDetail {
 
   // 数量与状态
   quantity          Int      @default(1)
+  // Modern active allocation projection; physical quantity changes only on movement.
+  allocatedQuantity Int      @default(0)
+  // LEGACY is the only value for ordinary/manual inventory.  An accepted
+  // stock receipt uses its immutable StockReceiptLine id to keep each arrival
+  // lot separate even when the item/batch/warehouse tuple repeats.
+  stockLotKey       String   @default("LEGACY")
   conditionCode     String   @default("NE")
   status            String   @default("AVAILABLE")
 
@@ -487,11 +570,15 @@ model InventoryDetail {
   supplier          Supplier? @relation(fields: [supplierId], references: [id])
   certificates      Certificate[]
   inventoryTransactions InventoryTransaction[]
+  allocations       InventoryAllocation[]
+  returnHolds       ReturnHold[]
+  stockReceiptLines StockReceiptLine[]
 
-  // 唯一约束：同一件号下序号唯一；同一件号+批次+状态+仓库组合唯一
+  // 唯一约束：同一件号下序号唯一；同一件号+批次+状态+仓库+来源批次组合唯一
+  fulfillmentReviews FulfillmentReview[]
+
   @@unique([inventoryItemId, serialNumber], name: "unique_serial_per_item")
-  @@unique([inventoryItemId, batchNumber, conditionCode, warehouse], name: "unique_batch_per_item")
-
+  @@unique([inventoryItemId, batchNumber, conditionCode, warehouse, stockLotKey], name: "unique_batch_per_item")
   @@map("inventory_details")
 }
 
@@ -575,6 +662,7 @@ model EmailSyncCursor {
 }
 
 model RFQ {
+  lineItemsMode Boolean @default(false)
   id                String   @id @default(uuid())
   rfqNumber         String   @unique
   emailId           String?  @unique
@@ -611,36 +699,83 @@ model RFQ {
   creator     User        @relation(fields: [createdBy], references: [id])
   quotations  Quotation[]
   supplierQuotes SupplierQuote[]
+  lines          RfqLine[]
+  inquiries      Inquiry[]
 
   @@map("rfqs")
+}
+
+model RfqLine {
+  ataChapter           String?
+  aircraftType         String?
+  aircraftModel        String?
+  id                   String   @id @default(uuid())
+  rfqId                String
+  lineNo               Int
+  partNumber           String
+  quantity             Int
+  uom                  String   @default("EA")
+  conditionCode        String   @default("NE")
+  description          String?
+  serialNumber         String?
+  batchNumber          String?
+  alternatePartNumbers String?
+  certificateRequired  Boolean  @default(true)
+  certificateType      String?
+  requiredDate         DateTime
+  leadTimeDays         Int?
+  targetPriceDecimal   Decimal? @db.Decimal(18, 4)
+  targetPriceCurrency  String   @default("USD")
+  status               String   @default("OPEN")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  rfq            RFQ             @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  inquiryItems   InquiryItem[]
+  supplierQuotes SupplierQuote[]
+  quotationLines QuotationLine[]
+
+  @@unique([rfqId, lineNo])
+  @@index([rfqId, status])
+  @@map("rfq_lines")
 }
 
 model Inquiry {
   id            String    @id @default(uuid())
   inquiryNumber String    @unique
   supplierId    String
+  rfqId         String?
+  notes         String?
   isAOG         Boolean   @default(false)
   status        String    @default("DRAFT")
   createdAt     DateTime  @default(now())
   sentAt        DateTime?
 
+  rfq            RFQ?            @relation(fields: [rfqId], references: [id], onDelete: SetNull)
   supplier      Supplier      @relation(fields: [supplierId], references: [id])
   items         InquiryItem[]
   supplierQuotes SupplierQuote[]
 
+  @@index([rfqId, supplierId])
   @@map("inquiries")
 }
 
 model InquiryItem {
   id                  String   @id @default(uuid())
   inquiryId           String
+  lineNo              Int      @default(1)
+  rfqLineId           String?
   partNumber          String
   quantity            Int
   requiredDate        DateTime
   certificateRequired Boolean  @default(true)
 
   inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  rfqLine        RfqLine?        @relation(fields: [rfqLineId], references: [id], onDelete: SetNull)
+  supplierQuotes SupplierQuote[]
 
+  @@unique([inquiryId, lineNo])
+  @@index([rfqLineId])
   @@map("inquiry_items")
 }
 
@@ -648,6 +783,8 @@ model SupplierQuote {
   id            String    @id @default(uuid())
   inquiryId    String?
   rfqId        String?
+  rfqLineId            String?
+  inquiryItemId        String?
   supplierId   String
   partNumber   String
   description   String?
@@ -658,6 +795,9 @@ model SupplierQuote {
   // projection until the later read-cutover migration is approved.
   unitPriceDecimal Decimal? @db.Decimal(18, 4)
   totalPriceDecimal Decimal? @db.Decimal(18, 4)
+  // 首期供应商报价仅接受 USD。历史记录没有币种事实，保持 NULL 并在响应中标记待核。
+  currency             String?
+  currencyReviewStatus String?
   leadTimeDays Int
   validUntil   DateTime?
   notes        String?
@@ -671,8 +811,14 @@ model SupplierQuote {
 
   inquiry  Inquiry?  @relation(fields: [inquiryId], references: [id])
   rfq     RFQ?     @relation(fields: [rfqId], references: [id])
+  rfqLine        RfqLine?        @relation(fields: [rfqLineId], references: [id], onDelete: SetNull)
+  inquiryItem    InquiryItem?    @relation(fields: [inquiryItemId], references: [id], onDelete: SetNull)
   supplier Supplier  @relation(fields: [supplierId], references: [id])
+  quotationLines QuotationLine[]
+  purchaseCommitmentLines PurchaseCommitmentLine[]
 
+  @@index([rfqLineId, supplierId, status])
+  @@index([inquiryItemId, supplierId, status])
   @@map("supplier_quotes")
 }
 
@@ -698,6 +844,15 @@ model SupplierFollowUpLog {
 }
 
 model Quotation {
+  lineItemsMode Boolean @default(false)
+  // Commercial revisions are independent of the optimistic-lock version.
+  commercialRevision Int @default(1)
+  revisionOfId String? @unique
+  revisionRootId String?
+  revisionReason String?
+  supersededAt DateTime?
+  revisionOf Quotation? @relation("QuotationRevision", fields: [revisionOfId], references: [id], onDelete: Restrict)
+  revisedQuotation Quotation? @relation("QuotationRevision")
   id              String   @id @default(uuid())
   quoteNumber     String   @unique
   rfqId           String
@@ -708,11 +863,19 @@ model Quotation {
   totalPrice      Float
   costPrice       Float
   margin          Float
+  currency          String   @default("USD")
   // P1-04 monetary shadows. New writes dual-write these Decimal values while
   // preserving the existing Float fields for backwards-compatible API output.
   unitPriceDecimal Decimal? @db.Decimal(18, 4)
   totalPriceDecimal Decimal? @db.Decimal(18, 4)
   costPriceDecimal Decimal? @db.Decimal(18, 4)
+
+  // 成本来源是报价审批所需的业务证据；历史报价保持 NULL，不默认为任何来源。
+  costSourceType         String?
+  costSourceId           String?
+  costSourceReason       String?
+  costSourceSnapshotJson String?
+  costSourceCapturedAt   DateTime?
 
   // 销售与交付
   saleType        String   @default("Sale")
@@ -798,14 +961,63 @@ model Quotation {
   generatedDocuments GeneratedDocument[]
   outboundEmails OutboundEmail[]
   certificates Certificate[]
+  lines              QuotationLine[]
 
+  @@index([costSourceType, costSourceId])
+  @@index([revisionRootId, commercialRevision])
   @@map("quotations")
+}
+
+model QuotationLine {
+  costSourceType         String?
+  costSourceId           String?
+  costSourceReason       String?
+  costSourceSnapshotJson String?
+  costSourceCapturedAt   DateTime?
+  id                    String   @id @default(uuid())
+  quotationId           String
+  lineNo                Int
+  rfqLineId             String
+  sourceSupplierQuoteId String?
+  partNumber            String
+  description           String?
+  uom                   String   @default("EA")
+  quantity              Int
+  unitPrice             Decimal  @db.Decimal(18, 4)
+  costPrice             Decimal  @db.Decimal(18, 4)
+  lineTotal             Decimal  @db.Decimal(18, 4)
+  marginAmount          Decimal  @db.Decimal(18, 4)
+  marginPercent         Decimal  @db.Decimal(9, 4)
+  currency              String   @default("USD")
+  status                String   @default("DRAFT")
+  acceptedQuantity      Int      @default(0)
+  reservedQuantity      Int      @default(0)
+  inventoryDetailId     String?
+  serialNumber          String?
+  batchNumber           String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  quotation           Quotation      @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  rfqLine             RfqLine        @relation(fields: [rfqLineId], references: [id], onDelete: Restrict)
+  sourceSupplierQuote SupplierQuote? @relation(fields: [sourceSupplierQuoteId], references: [id], onDelete: SetNull)
+  orderLines          OrderLine[]
+  allocations         InventoryAllocation[]
+
+  @@unique([quotationId, lineNo])
+  @@index([rfqLineId])
+  @@index([sourceSupplierQuoteId])
+  @@map("quotation_lines")
 }
 
 model Approval {
   id            String   @id @default(uuid())
   quotationId   String
   level         String
+  requiredLevel   String?
+  policyVersion   String?
+  reviewedVersion Int?
+  snapshotJson    String?
   approverId    String
   action        String?
   comment       String?
@@ -818,11 +1030,12 @@ model Approval {
 }
 
 model Order {
+  lineItemsMode Boolean @default(false)
   id              String   @id @default(uuid())
   orderNumber     String   @unique
   soNumber        String   @unique
   poNumber        String?
-  quotationId     String   @unique
+  quotationId     String
   customerId      String
   partNumber      String
   quantity        Int
@@ -893,17 +1106,426 @@ model Order {
 
   // Phase 5: 部分发货支持
   outboundQuantity  Int      @default(0)
+  directShippedQuantity Int    @default(0)
   outboundStatus    String   @default("PENDING")
 
   customer    Customer           @relation(fields: [customerId], references: [id])
   quotation   Quotation          @relation(fields: [quotationId], references: [id])
   tracking    ShipmentTracking?
+  shipments   Shipment[]
   generatedDocuments GeneratedDocument[]
   certificates Certificate[]
   inventoryTransactions InventoryTransaction[]
+  lines                 OrderLine[]
+  fulfillmentReviews    FulfillmentReview[]
+  purchaseCommitments   PurchaseCommitment[]
+  supplierDirectShipments SupplierDirectShipment[]
+  settlementAccounts   SettlementAccount[]
 
   @@index([status, createdAt])
   @@map("orders")
+  @@index([quotationId])
+}
+
+model OrderLine {
+  id                String   @id @default(uuid())
+  orderId           String
+  lineNo            Int
+  quotationLineId   String
+  partNumber        String
+  uom               String   @default("EA")
+  quantity          Int
+  unitPrice         Decimal  @db.Decimal(18, 4)
+  lineTotal         Decimal  @db.Decimal(18, 4)
+  currency          String   @default("USD")
+  outboundQuantity  Int      @default(0)
+  directShippedQuantity Int    @default(0)
+  outboundStatus    String   @default("PENDING")
+  inventoryDetailId String?
+  serialNumber      String?
+  batchNumber       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  quotationLine QuotationLine @relation(fields: [quotationLineId], references: [id], onDelete: Restrict)
+  allocationAssignments AllocationAssignment[]
+  shipmentLines         ShipmentLine[]
+  purchaseCommitmentLines PurchaseCommitmentLine[]
+  coverageGuard         OrderLineCoverageGuard? @relation("OrderLineCoverageGuardOrderLine") @ignore
+
+  @@unique([orderId, lineNo])
+  @@index([quotationLineId])
+  @@map("order_lines")
+}
+
+// Private SQL-only lock/version row for the cross-domain procurement and
+// inventory coverage constraint.  It is intentionally ignored by Prisma's
+// client; the migration owns creation and trigger updates.
+model OrderLineCoverageGuard {
+  orderLineId String @id
+  version     BigInt @default(1)
+  orderLine   OrderLine @relation("OrderLineCoverageGuardOrderLine", fields: [orderLineId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("order_line_coverage_guards")
+  @@ignore
+}
+
+model PurchaseCommitment {
+  id                     String   @id @default(uuid())
+  commitmentNumber       String   @unique
+  orderId                String
+  supplierId             String
+  currency               String   @default("USD")
+  totalCost              Decimal  @db.Decimal(18, 4)
+  status                 PurchaseCommitmentStatus @default(DRAFT)
+  version                Int      @default(1)
+  createdById            String
+  submittedById          String?
+  submittedAt            DateTime?
+  approvedById           String?
+  approvedAt             DateTime?
+  approvalLevel          String?
+  approvalPolicyVersion  String?
+  approvalSnapshot       Json?
+  confirmedById          String?
+  confirmedAt            DateTime?
+  supplierReferenceNo    String?
+  confirmationEvidence   Json?
+  paymentTerms           String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  order       Order       @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  supplier    Supplier    @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy   User        @relation("PurchaseCommitmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  submittedBy User?       @relation("PurchaseCommitmentSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  approvedBy  User?       @relation("PurchaseCommitmentApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  confirmedBy User?       @relation("PurchaseCommitmentConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict)
+  lines       PurchaseCommitmentLine[]
+  events      PurchaseCommitmentEvent[]
+  stockReceipts StockReceipt[]
+  supplierDirectShipments SupplierDirectShipment[]
+  settlementAccount SettlementAccount?
+
+  @@index([orderId, status])
+  @@index([supplierId, status])
+  @@map("purchase_commitments")
+}
+
+model SettlementAccount {
+  id                    String         @id @default(uuid())
+  side                  SettlementSide
+  sourceKey             String         @unique
+  orderId               String
+  purchaseCommitmentId  String?        @unique
+  currency              String         @default("USD")
+  initialAmount         Decimal        @db.Decimal(18, 4)
+  sourceSnapshot        Json
+  dueDate               DateTime
+  version               Int            @default(1)
+  createdById           String
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  order                 Order                  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  purchaseCommitment    PurchaseCommitment?    @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  createdBy             User                   @relation("SettlementAccountCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  records               SettlementRecord[]
+
+  @@index([orderId, side])
+  @@index([createdById, createdAt])
+  @@map("settlement_accounts")
+}
+
+model SettlementRecord {
+  id                String               @id @default(uuid())
+  accountId         String
+  kind              SettlementRecordKind
+  accountVersion    Int
+  amount            Decimal?             @db.Decimal(18, 4)
+  dueDate           DateTime?
+  occurredAt        DateTime
+  externalSystem    String
+  voucherNumber     String
+  voucherLine       String
+  reason            String
+  evidence          Json                 @default("[]")
+  reversalOfId      String?              @unique(map: "settlement_records_reversal_of_key")
+  actorId           String
+  commandId         String               @unique
+  requestHash       String
+  createdAt         DateTime             @default(now())
+
+  account           SettlementAccount    @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  reversalOf        SettlementRecord?    @relation("SettlementRecordReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals         SettlementRecord[]   @relation("SettlementRecordReversal")
+  actor             User                 @relation("SettlementRecordActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([accountId, accountVersion], map: "settlement_records_accountId_accountVersion_key")
+  @@unique([externalSystem, voucherNumber, voucherLine], map: "settlement_records_external_voucher_key")
+  @@index([accountId, occurredAt])
+  @@index([actorId, occurredAt])
+  @@map("settlement_records")
+}
+
+model PurchaseCommitmentLine {
+  id                     String   @id @default(uuid())
+  purchaseCommitmentId   String
+  lineNo                 Int
+  orderLineId            String
+  sourceSupplierQuoteId  String?
+  partNumber             String
+  uom                    String   @default("EA")
+  quantity               Int
+  cancelledQuantity      Int      @default(0)
+  receivedQuantity       Int      @default(0)
+  directShippedQuantity  Int      @default(0)
+  unitCost               Decimal  @db.Decimal(18, 4)
+  lineTotal              Decimal  @db.Decimal(18, 4)
+  currency               String   @default("USD")
+  promisedDate           DateTime
+  fulfillmentMode        PurchaseCommitmentFulfillmentMode
+  sourceSnapshot         Json
+  identitySnapshot       Json
+  version                Int      @default(1)
+  createdAt              DateTime @default(now())
+
+  purchaseCommitment PurchaseCommitment @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  orderLine          OrderLine          @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
+  sourceSupplierQuote SupplierQuote?     @relation(fields: [sourceSupplierQuoteId], references: [id], onDelete: Restrict)
+  stockReceiptLines StockReceiptLine[]
+  supplierDirectShipmentLines SupplierDirectShipmentLine[]
+
+  @@unique([purchaseCommitmentId, lineNo])
+  @@unique([purchaseCommitmentId, orderLineId])
+  @@index([orderLineId])
+  @@index([sourceSupplierQuoteId])
+  @@map("purchase_commitment_lines")
+}
+
+model SupplierDirectShipment {
+  id                    String   @id @default(uuid())
+  shipmentNumber        String   @unique
+  purchaseCommitmentId  String
+  orderId               String
+  carrier               String
+  trackingNumber        String
+  origin                String
+  destination           String
+  reason                String
+  evidence              Json
+  status                SupplierDirectShipmentStatus @default(PREPARED)
+  version               Int      @default(1)
+  commandId             String   @unique
+  requestHash           String
+  createdById            String
+  dispatchedById        String?
+  dispatchedAt          DateTime?
+  cancelledById         String?
+  cancelledAt           DateTime?
+  cancellationReason    String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  purchaseCommitment    PurchaseCommitment @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  order                 Order              @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  createdBy             User               @relation("SupplierDirectShipmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  dispatchedBy          User?              @relation("SupplierDirectShipmentDispatcher", fields: [dispatchedById], references: [id], onDelete: Restrict)
+  cancelledBy           User?              @relation("SupplierDirectShipmentCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  lines                 SupplierDirectShipmentLine[]
+  events                SupplierDirectShipmentEvent[]
+
+  @@index([purchaseCommitmentId, status])
+  @@index([orderId, status])
+  @@map("supplier_direct_shipments")
+}
+
+model SupplierDirectShipmentLine {
+  id                    String   @id @default(uuid())
+  shipmentId            String
+  lineNo                Int
+  purchaseCommitmentLineId String
+  quantity              Int
+  physicalSnapshot      Json
+  reviewStatus          SupplierDirectShipmentReviewStatus @default(PENDING_REVIEW)
+  reviewedById          String?
+  reviewedAt            DateTime?
+  reviewReason          String?
+  checks                Json?
+  reviewSnapshot        Json?
+  reviewSnapshotHash    String?
+  reviewEvidence        Json     @default("[]")
+  receivedQuantity      Int      @default(0)
+  serialClaimKey        String?  @unique(map: "supplier_direct_shipment_line_serial_claim_key")
+  version               Int      @default(1)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  shipment              SupplierDirectShipment @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  purchaseCommitmentLine PurchaseCommitmentLine @relation(fields: [purchaseCommitmentLineId], references: [id], onDelete: Restrict)
+  reviewedBy            User?                  @relation("SupplierDirectShipmentLineReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  events                SupplierDirectShipmentEvent[]
+
+  @@unique([shipmentId, lineNo])
+  @@index([purchaseCommitmentLineId, reviewStatus])
+  @@index([shipmentId, reviewStatus])
+  @@map("supplier_direct_shipment_lines")
+}
+
+model SupplierDirectShipmentEvent {
+  id                String   @id @default(uuid())
+  shipmentId        String
+  shipmentLineId    String?
+  kind              String
+  quantity          Int
+  actorId           String
+  commandId         String
+  eventNo           Int
+  requestHash       String
+  data              Json
+  createdAt         DateTime @default(now())
+
+  shipment          SupplierDirectShipment @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  shipmentLine      SupplierDirectShipmentLine? @relation(fields: [shipmentLineId], references: [id], onDelete: Restrict)
+  actor             User @relation("SupplierDirectShipmentEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo], map: "supplier_direct_shipment_event_command_event_key")
+  @@index([shipmentId, eventNo])
+  @@index([shipmentLineId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("supplier_direct_shipment_events")
+}
+
+model PurchaseCommitmentEvent {
+  id                   String   @id @default(uuid())
+  purchaseCommitmentId String
+  kind                 String
+  actorId              String
+  commandId            String
+  eventNo              Int
+  requestHash          String
+  data                 Json
+  createdAt            DateTime @default(now())
+
+  purchaseCommitment PurchaseCommitment @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  actor              User               @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([purchaseCommitmentId, eventNo])
+  @@index([actorId, createdAt])
+  @@map("purchase_commitment_events")
+}
+
+// A supplier arrival is an immutable fact attached to one purchase commitment.
+// Review decisions live on each physical receipt line so one arrival may be
+// split into multiple batches while pending/rejected quantities remain auditable.
+model StockReceipt {
+  id                         String   @id @default(uuid())
+  purchaseCommitmentId       String
+  receiptNumber              String   @unique
+  commandId                  String   @unique
+  requestHash                String
+  version                    Int      @default(1)
+  receivedById               String
+  receivedAt                 DateTime @default(now())
+  supplierDeliveryReference  String
+  reason                     String?
+  evidence                   Json
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  purchaseCommitment PurchaseCommitment @relation(fields: [purchaseCommitmentId], references: [id], onDelete: Restrict)
+  receivedBy        User               @relation("StockReceiptReceiver", fields: [receivedById], references: [id], onDelete: Restrict)
+  lines             StockReceiptLine[]
+  events            StockReceiptEvent[]
+
+  @@index([purchaseCommitmentId, receivedAt])
+  @@index([receivedById, receivedAt])
+  @@unique([purchaseCommitmentId, supplierDeliveryReference])
+  @@map("stock_receipts")
+}
+
+model StockReceiptLine {
+  id                       String                @id @default(uuid())
+  receiptId                String
+  lineNo                   Int
+  purchaseCommitmentLineId String
+  quantity                 Int
+  status                   StockReceiptLineStatus @default(PENDING_REVIEW)
+  identitySnapshot         Json
+  qualitySnapshot          Json
+  evidence                 Json
+  version                  Int                   @default(1)
+  reviewedById             String?
+  reviewedAt               DateTime?
+  reviewReason             String?
+  inventoryDetailId        String?               @unique
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+
+  receipt                StockReceipt          @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  purchaseCommitmentLine PurchaseCommitmentLine @relation(fields: [purchaseCommitmentLineId], references: [id], onDelete: Restrict)
+  reviewedBy             User?                 @relation("StockReceiptLineReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  inventoryDetail        InventoryDetail?       @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
+  inventoryTransaction   InventoryTransaction?  @relation("StockReceiptLineInbound")
+  allocations            InventoryAllocation[]  @relation("InventoryAllocationReceiptSource")
+
+  @@unique([receiptId, lineNo])
+  @@index([purchaseCommitmentLineId])
+  @@index([inventoryDetailId])
+  @@index([status, reviewedAt])
+  @@map("stock_receipt_lines")
+}
+
+model StockReceiptEvent {
+  id             String   @id @default(uuid())
+  stockReceiptId String
+  kind           String
+  quantity       Int
+  commandId      String
+  eventNo        Int
+  requestHash    String
+  actorId        String?
+  data           Json
+  createdAt      DateTime @default(now())
+
+  stockReceipt StockReceipt @relation(fields: [stockReceiptId], references: [id], onDelete: Restrict)
+  actor        User?        @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([stockReceiptId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("stock_receipt_events")
+}
+
+// Immutable human quality review for one planned outbound quantity.
+// No historical record is automatically approved during migration.
+model FulfillmentReview {
+  id                String    @id @default(uuid())
+  orderId           String
+  inventoryDetailId String
+  assignmentId      String?
+  quantity          Int
+  approved          Boolean
+  snapshotHash      String
+  snapshot          Json
+  evidence          Json
+  checks            Json
+  reason            String
+  reviewedById      String
+  reviewedAt        DateTime  @default(now())
+  consumedAt        DateTime?
+
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  inventoryDetail InventoryDetail @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
+  reviewer        User            @relation(fields: [reviewedById], references: [id], onDelete: Restrict)
+  assignment      AllocationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  outboundTransaction InventoryTransaction? @relation("FulfillmentReviewOutboundTransaction")
+
+  @@index([orderId, inventoryDetailId, reviewedAt])
+  @@index([assignmentId, reviewedAt])
+  @@map("fulfillment_reviews")
 }
 
 model TransactionStatusHistory {
@@ -926,9 +1548,96 @@ model TransactionStatusHistory {
 }
 
 // ===== 新增：库存事务表（Phase 5：支持部分发货）=====
+model InventoryAllocation {
+  id                String @id @default(uuid())
+  quotationLineId   String
+  inventoryDetailId String
+  stockReceiptLineId String?
+  sourceReturnHoldId String?
+  allocatedQuantity Int
+  releasedQuantity  Int @default(0)
+  consumedQuantity  Int @default(0)
+  version           Int @default(1)
+  expiresAt         DateTime?
+  commandId         String
+  commandLineNo     Int
+  createdById       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  quotationLine QuotationLine @relation(fields: [quotationLineId], references: [id], onDelete: Restrict)
+  inventoryDetail InventoryDetail @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
+  stockReceiptLine StockReceiptLine? @relation("InventoryAllocationReceiptSource", fields: [stockReceiptLineId], references: [id], onDelete: Restrict)
+  sourceReturnHold ReturnHold? @relation("InventoryAllocationReturnSource", fields: [sourceReturnHoldId], references: [id], onDelete: Restrict)
+  creator User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  assignments AllocationAssignment[]
+  events InventoryAllocationEvent[]
+  transactions InventoryTransaction[]
+
+  @@unique([commandId, commandLineNo])
+  @@index([quotationLineId])
+  @@index([inventoryDetailId])
+  @@index([stockReceiptLineId])
+  @@index([sourceReturnHoldId])
+  @@index([expiresAt])
+  @@map("inventory_allocations")
+}
+
+model AllocationAssignment {
+  id               String @id @default(uuid())
+  allocationId     String
+  orderLineId      String
+  assignedQuantity Int
+  releasedQuantity Int @default(0)
+  consumedQuantity Int @default(0)
+  version          Int @default(1)
+  commandId        String
+  commandLineNo    Int
+  createdById      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  allocation InventoryAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  orderLine OrderLine @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
+  creator User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  events InventoryAllocationEvent[]
+  transactions InventoryTransaction[]
+  fulfillmentReviews FulfillmentReview[]
+  shipmentLines ShipmentLine[]
+
+  @@unique([commandId, commandLineNo])
+  @@index([allocationId])
+  @@index([orderLineId])
+  @@map("allocation_assignments")
+}
+
+model InventoryAllocationEvent {
+  id           String @id @default(uuid())
+  allocationId String
+  assignmentId String?
+  kind         String
+  quantity     Int
+  before       Json
+  after        Json
+  commandId    String
+  eventNo      Int
+  actorId      String?
+  createdAt    DateTime @default(now())
+
+  allocation InventoryAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  assignment AllocationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  actor User? @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([allocationId, createdAt])
+  @@index([assignmentId, createdAt])
+  @@map("inventory_allocation_events")
+}
+
 model InventoryTransaction {
   id                String   @id @default(uuid())
   inventoryDetailId String
+  stockReceiptLineId String? @unique
   type              String   // 'INBOUND', 'OUTBOUND', 'ADJUSTMENT', 'TRANSFER', 'RETURN'
   quantity          Int      // 正数表示增加库存，负数表示减少库存
   beforeQuantity    Int      // 变动前数量
@@ -937,6 +1646,9 @@ model InventoryTransaction {
   // 关联单据
   orderId           String?
   quotationId       String?
+  allocationId      String?
+  assignmentId      String?
+  fulfillmentReviewId String? @unique
   referenceNo       String?  // 出库单号/入库单号
   referenceType     String?  // 'ORDER', 'QUOTATION', 'MANUAL', 'SYSTEM'
 
@@ -945,10 +1657,18 @@ model InventoryTransaction {
   createdAt         DateTime @default(now())
 
   inventoryDetail   InventoryDetail @relation(fields: [inventoryDetailId], references: [id])
+  stockReceiptLine   StockReceiptLine? @relation("StockReceiptLineInbound", fields: [stockReceiptLineId], references: [id], onDelete: Restrict)
   order             Order?          @relation(fields: [orderId], references: [id])
+  allocation        InventoryAllocation? @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  assignment        AllocationAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  fulfillmentReview FulfillmentReview? @relation("FulfillmentReviewOutboundTransaction", fields: [fulfillmentReviewId], references: [id], onDelete: Restrict)
+  shipmentLines     ShipmentLine[] @relation("ShipmentLineOutboundTransaction")
+  returnHold        ReturnHold? @relation("ReturnHoldTransaction")
 
   @@index([inventoryDetailId, createdAt])
   @@index([orderId])
+  @@index([allocationId])
+  @@index([assignmentId])
   @@index([type, createdAt])
   @@map("inventory_transactions")
 }
@@ -976,6 +1696,10 @@ model DocumentTemplate {
 }
 
 model GeneratedDocument {
+  contentSha256 String?
+  snapshotHash String?
+  pdfBytes Bytes?
+  pdfSha256 String?
   id            String   @id @default(uuid())
   templateId    String?
   quotationId   String?
@@ -1111,6 +1835,148 @@ model TrackingEvent {
   @@map("tracking_events")
 }
 
+// D13 modern shipment aggregate. Legacy ShipmentTracking remains unchanged
+// for compatibility with existing one-tracking-per-order records.
+model Shipment {
+  id             String   @id @default(uuid())
+  orderId        String
+  shipmentNumber String   @unique
+  carrier        String
+  trackingNumber String
+  origin         String
+  destination    String
+  status         String   @default("DISPATCHED")
+  version        Int      @default(1)
+  evidence       Json
+  commandId      String   @unique
+  requestHash    String
+  createdById    String
+  shippedAt      DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  order     Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  createdBy User           @relation("ShipmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  lines     ShipmentLine[]
+  events    ShipmentEvent[]
+
+  @@index([orderId])
+  @@index([createdById])
+  @@index([status, createdAt])
+  @@map("shipments")
+}
+
+model ShipmentLine {
+  id                    String   @id @default(uuid())
+  shipmentId            String
+  lineNo                Int
+  orderLineId           String
+  assignmentId          String
+  outboundTransactionId String
+  quantity              Int
+  receivedQuantity      Int      @default(0)
+  returnedQuantity      Int      @default(0)
+  version               Int      @default(1)
+  identitySnapshot      Json
+  createdAt             DateTime @default(now())
+
+  shipment            Shipment             @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  orderLine           OrderLine            @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
+  assignment          AllocationAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  outboundTransaction InventoryTransaction @relation("ShipmentLineOutboundTransaction", fields: [outboundTransactionId], references: [id], onDelete: Restrict)
+  events              ShipmentEvent[]
+  returnHolds         ReturnHold[]
+
+  @@unique([shipmentId, lineNo])
+  @@index([orderLineId])
+  @@index([assignmentId])
+  @@index([outboundTransactionId])
+  @@map("shipment_lines")
+}
+
+model ShipmentEvent {
+  id             String   @id @default(uuid())
+  shipmentId     String
+  shipmentLineId String?
+  kind           String
+  quantity       Int
+  commandId      String
+  eventNo        Int
+  actorId        String?
+  evidence       Json
+  reason         String?
+  createdAt      DateTime @default(now())
+
+  shipment     Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  shipmentLine ShipmentLine? @relation(fields: [shipmentLineId], references: [id], onDelete: Restrict)
+  actor        User?         @relation("ShipmentEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([shipmentId, createdAt])
+  @@index([shipmentLineId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("shipment_events")
+}
+
+model ReturnHold {
+  id                   String   @id @default(uuid())
+  shipmentLineId       String
+  inventoryDetailId    String
+  quantity             Int
+  status               String   @default("QUARANTINED")
+  version              Int      @default(1)
+  identitySnapshot     Json
+  evidence             Json
+  snapshotHash         String
+  receivedById         String
+  receivedAt           DateTime @default(now())
+  commandId            String   @unique
+  requestHash          String
+  releasedById         String?
+  releasedAt           DateTime?
+  releaseCommandId     String?  @unique
+  releaseRequestHash   String?
+  releaseEvidence      Json?
+  releaseReason        String?
+  returnTransactionId  String?  @unique
+
+  shipmentLine    ShipmentLine        @relation(fields: [shipmentLineId], references: [id], onDelete: Restrict)
+  inventoryDetail InventoryDetail     @relation(fields: [inventoryDetailId], references: [id], onDelete: Restrict)
+  receivedBy      User                @relation("ReturnHoldReceiver", fields: [receivedById], references: [id], onDelete: Restrict)
+  releasedBy      User?               @relation("ReturnHoldReleaser", fields: [releasedById], references: [id], onDelete: Restrict)
+  returnTransaction InventoryTransaction? @relation("ReturnHoldTransaction", fields: [returnTransactionId], references: [id], onDelete: Restrict)
+  events          ReturnEvent[]
+  sourceAllocations InventoryAllocation[] @relation("InventoryAllocationReturnSource")
+
+  @@index([shipmentLineId])
+  @@index([inventoryDetailId])
+  @@index([receivedById])
+  @@index([releasedById])
+  @@index([status, receivedAt])
+  @@map("return_holds")
+}
+
+model ReturnEvent {
+  id           String   @id @default(uuid())
+  returnHoldId String
+  kind         String
+  quantity     Int
+  commandId    String
+  eventNo      Int
+  actorId      String?
+  evidence     Json
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  returnHold ReturnHold @relation(fields: [returnHoldId], references: [id], onDelete: Restrict)
+  actor      User?      @relation("ReturnEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([commandId, eventNo])
+  @@index([returnHoldId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("return_events")
+}
+
 model IPCData {
   id                  String  @id @default(uuid())
   partNumber          String  @unique
@@ -1152,17 +2018,37 @@ model Notification {
 }
 
 model AIAgent {
-  id          String   @id @default(uuid())
-  name        String
-  type        String   @default("CHAT")
-  description String?
-  isActive    Boolean  @default(true)
-  config      String   @default("{}")
-  prompts     String   @default("[]")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String            @id @default(uuid())
+  name            String
+  type            String            @default("CHAT")
+  description     String?
+  isActive        Boolean           @default(true)
+  config          String            @default("{}")
+  prompts         String            @default("[]")
+  builtinKey      String?           @unique
+  draftRevision   Int               @default(0)
+  publishedVersion Int?
+  versions        AIAgentVersion[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@map("ai_agents")
+}
+
+model AIAgentVersion {
+  id        String   @id @default(uuid())
+  agentId   String
+  version   Int
+  prompts   String
+  config    String
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  agent AIAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, version])
+  @@index([agentId, createdAt])
+  @@map("ai_agent_versions")
 }
 
 model AIModel {
@@ -1258,13 +2144,13 @@ model WebhookDelivery {
 
   endpoint        WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 
+  @@unique([endpointId, outboxEventId])
   @@index([status, nextRetryAt])
   @@index([status, lockedAt])
   @@index([workerId, status])
   @@index([status])  // Phase 2: fast query for quarantined
   @@index([endpointId, createdAt])
   @@index([eventId])
-  @@unique([endpointId, outboxEventId])
   @@map("webhook_deliveries")
 }
 
@@ -1699,7 +2585,6 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-
 // ============================================
 // Phase 2.3: 拍卖模块 (Auction Module)
 // ============================================
@@ -1780,7 +2665,6 @@ model AuctionBid {
   @@map("auction_bids")
 }
 
-
 // ============================================
 // Phase 2.4: 寄售管理 (Consignment Module)
 // ============================================
@@ -1842,7 +2726,6 @@ model Consignment {
   @@index([partNumber, status])
   @@map("consignments")
 }
-
 
 // ============================================
 // Phase 3.1: API Key 管理 (API Platform)

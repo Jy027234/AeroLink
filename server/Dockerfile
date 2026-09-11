@@ -2,7 +2,7 @@
 # AeroLink 后端 - 开发环境 Docker 配置
 # ============================================
 
-FROM node:22-alpine AS base
+FROM node:22.23.2-alpine AS base
 RUN apk add --no-cache openssl openssl-dev
 WORKDIR /app
 

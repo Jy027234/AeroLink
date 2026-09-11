@@ -2,6 +2,8 @@ import { Router, type Request } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { logger } from '../lib/logger.js';
@@ -82,10 +84,11 @@ export function verifyFileSignature(filePath: string, mimetype: string): boolean
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    cb(null, 'uploads/');
+    const stagingDirectory = path.resolve(process.env.UPLOAD_STAGING_DIR || path.join(os.tmpdir(), 'aerolink-upload-staging'));
+    fs.mkdir(stagingDirectory, { recursive: true }, (error) => cb(error, stagingDirectory));
   },
   filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const uniqueSuffix = randomUUID();
     const ext = path.extname(file.originalname);
     cb(null, file.fieldname + '-' + uniqueSuffix + ext);
   },
@@ -146,11 +149,15 @@ async function persistObject(file: Express.Multer.File, ownerId?: string) {
   } catch (error) {
     await objectStorage.delete(metadata.objectKey).catch(() => undefined);
     throw error;
+  } finally {
+    // putFile has copied the content into the configured object store.
+    // Staging copies must not become an untracked second upload repository.
+    await fs.promises.unlink(file.path).catch(() => undefined);
   }
 }
 
 async function persistObjects(files: Express.Multer.File[], ownerId?: string) {
-  const persisted: Array<{ objectKey: string }> = [];
+  const persisted: Array<{ id: string; objectKey: string }> = [];
   try {
     const results = [];
     for (const file of files) {
@@ -160,6 +167,7 @@ async function persistObjects(files: Express.Multer.File[], ownerId?: string) {
     }
     return results;
   } catch (error) {
+    await prisma.storedObject.deleteMany({ where: { id: { in: persisted.map((object) => object.id) } } });
     await Promise.all(persisted.map((object) => objectStorage.delete(object.objectKey).catch(() => undefined)));
     throw error;
   }

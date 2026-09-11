@@ -116,7 +116,11 @@ export function InventoryHealthCard() {
         {/* 库存总值 */}
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">{tx('库存总值', 'Total Value')}</span>
-          <span className="font-medium">${health.totalInventoryValue.toLocaleString()}</span>
+          <span className="font-medium">
+            {health.totalInventoryValue == null
+              ? '—'
+              : `$${health.totalInventoryValue.toLocaleString()}`}
+          </span>
         </div>
 
         {/* 紧急补货建议 */}
