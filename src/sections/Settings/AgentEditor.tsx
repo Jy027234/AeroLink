@@ -285,9 +285,9 @@ export function AgentEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
-        <DialogHeader>
-          <div className="flex flex-wrap items-center gap-2">
+      <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-2rem)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
+        <DialogHeader className="shrink-0 border-b px-5 py-5 text-left sm:px-6">
+          <div className="flex flex-wrap items-center gap-2 pr-7">
             <DialogTitle>{title}</DialogTitle>
             {status && <Badge className={status.className}>{status.label}</Badge>}
           </div>
@@ -295,8 +295,9 @@ export function AgentEditor({
         </DialogHeader>
 
         {!agent ? null : (
-          <div className="grid gap-6 py-2 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="space-y-6">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="grid items-start gap-6 px-5 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_272px]">
+            <div className="min-w-0 space-y-6">
               {actionError && <Alert variant="destructive"><AlertCircle /><AlertTitle>{tx('无法完成操作', 'Action failed')}</AlertTitle><AlertDescription>{actionError}</AlertDescription></Alert>}
 
               {agent.workflow?.variables && agent.workflow.variables.length > 0 && (
@@ -309,16 +310,16 @@ export function AgentEditor({
               )}
 
               <section className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div><h3 className="font-semibold">{tx('提示词草稿', 'Prompt draft')}</h3><p className="text-sm text-gray-500">{tx('可编辑 role 和 content；至少保留一条 user 消息。', 'Edit role and content; keep at least one user message.')}</p></div>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setPrompts((current) => [...current, { role: 'user', content: '' }])}><Plus className="mr-1.5 h-4 w-4" />{tx('添加消息', 'Add message')}</Button>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 basis-60"><h3 className="font-semibold">{tx('提示词草稿', 'Prompt draft')}</h3><p className="mt-1 text-sm leading-6 text-gray-500">{tx('编辑智能体的指令内容，至少保留一条 user 消息。', 'Edit the agent instructions; keep at least one user message.')}</p></div>
+                  <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => setPrompts((current) => [...current, { role: 'user', content: '' }])}><Plus className="mr-1.5 h-4 w-4" />{tx('添加消息', 'Add message')}</Button>
                 </div>
                 <div className="space-y-3">
                   {prompts.map((prompt, index) => (
-                    <div key={`${index}-${prompt.role}`} className="rounded-lg border p-3">
+                    <div key={`${index}-${prompt.role}`} className="min-w-0 rounded-lg border bg-white p-3 sm:p-4">
                       <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <Label htmlFor={`prompt-role-${index}`}>{tx('角色', 'Role')}</Label>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Label htmlFor={`prompt-role-${index}`} className="shrink-0 whitespace-nowrap">{tx('角色', 'Role')}</Label>
                           <Select value={prompt.role} onValueChange={(role: AgentPrompt['role']) => setPrompts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, role } : item))}>
                             <SelectTrigger id={`prompt-role-${index}`} className="h-8 w-32"><SelectValue /></SelectTrigger>
                             <SelectContent>
@@ -328,9 +329,9 @@ export function AgentEditor({
                             </SelectContent>
                           </Select>
                         </div>
-                        <Button type="button" variant="ghost" size="icon" aria-label={tx(`删除第 ${index + 1} 条提示词`, `Remove prompt ${index + 1}`)} onClick={() => setPrompts((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                        <Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label={tx(`删除第 ${index + 1} 条提示词`, `Remove prompt ${index + 1}`)} onClick={() => setPrompts((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="h-4 w-4 text-red-500" /></Button>
                       </div>
-                      <Textarea value={prompt.content} onChange={(event) => setPrompts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, content: event.target.value } : item))} className="min-h-28 font-mono text-sm" aria-label={tx(`第 ${index + 1} 条提示词内容`, `Prompt ${index + 1} content`)} />
+                      <Textarea value={prompt.content} onChange={(event) => setPrompts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, content: event.target.value } : item))} className="min-h-40 w-full resize-y text-sm leading-6" aria-label={tx(`第 ${index + 1} 条提示词内容`, `Prompt ${index + 1} content`)} />
                     </div>
                   ))}
                 </div>
@@ -342,8 +343,8 @@ export function AgentEditor({
                 <div><h3 className="font-semibold">{tx('模型与参数', 'Model and parameters')}</h3><p className="text-sm text-gray-500">{tx('草稿保存后仍需显式发布，运行时只读取已发布快照。', 'Saving a draft does not change runtime until you publish it.')}</p></div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2 sm:col-span-2"><Label htmlFor="agent-model">{tx('模型', 'Model')}</Label><Select value={selectedModelValue} onValueChange={(value) => setConfigValue('modelId', value === '__none__' ? null : value)}><SelectTrigger id="agent-model"><SelectValue placeholder={tx('选择模型', 'Select a model')} /></SelectTrigger><SelectContent><SelectItem value="__none__">{tx('使用默认模型', 'Use default model')}</SelectItem>{currentModelOption}{models.map((item) => <SelectItem key={item.id} value={item.id}>{item.name} · {item.modelId}{!item.isActive ? ` (${tx('已停用', 'disabled')})` : ''}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="space-y-2"><Label htmlFor="agent-temperature">temperature</Label><Input id="agent-temperature" type="number" min="0" max="2" step="0.1" value={typeof config.temperature === 'number' ? config.temperature : ''} onChange={(event) => setConfigValue('temperature', event.target.value === '' ? undefined : Number(event.target.value))} placeholder="0.7" /></div>
-                  <div className="space-y-2"><Label htmlFor="agent-max-tokens">maxTokens</Label><Input id="agent-max-tokens" type="number" min="1" step="1" value={typeof config.maxTokens === 'number' ? config.maxTokens : ''} onChange={(event) => setConfigValue('maxTokens', event.target.value === '' ? undefined : Number(event.target.value))} placeholder="2048" /></div>
+                  <div className="min-w-0 space-y-2"><Label htmlFor="agent-temperature">{tx('回复随机性', 'Response randomness')}</Label><Input id="agent-temperature" type="number" min="0" max="2" step="0.1" value={typeof config.temperature === 'number' ? config.temperature : ''} onChange={(event) => setConfigValue('temperature', event.target.value === '' ? undefined : Number(event.target.value))} placeholder="0.7" /><p className="text-xs text-gray-500">temperature · 0–2</p></div>
+                  <div className="min-w-0 space-y-2"><Label htmlFor="agent-max-tokens">{tx('输出长度上限', 'Output limit')}</Label><Input id="agent-max-tokens" type="number" min="1" step="1" value={typeof config.maxTokens === 'number' ? config.maxTokens : ''} onChange={(event) => setConfigValue('maxTokens', event.target.value === '' ? undefined : Number(event.target.value))} placeholder="2048" /><p className="text-xs text-gray-500">maxTokens · tokens</p></div>
                 </div>
                 <div className="flex items-center gap-2"><Switch id="agent-active" checked={isActive} onCheckedChange={setIsActive} /><Label htmlFor="agent-active">{isActive ? tx('启用智能体', 'Agent enabled') : tx('禁用智能体', 'Agent disabled')}</Label></div>
               </section>
@@ -354,23 +355,24 @@ export function AgentEditor({
                 <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{tx('已发布版本试运行', 'Test published version')}</h3><p className="text-sm text-gray-500">{tx('试运行只执行已发布提示词，不会创建业务单或发送邮件。', 'Runs the published prompt only; it does not create business records or send email.')}</p></div><TestTube2 className="h-5 w-5 text-gray-400" /></div>
                 {!canTest && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{tx('试运行要求智能体已启用、已发布，并配置启用中的模型。', 'Testing requires an enabled, published agent with an active model.')}</div>}
                 {canTest && isDirty && <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">{tx('当前有未保存草稿；本次试运行仍使用已发布版本。', 'There are unsaved draft changes; this test still uses the published version.')}</div>}
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="grid min-w-0 gap-4 xl:grid-cols-2">
                   <div className="space-y-2"><Label htmlFor="agent-test-input">{tx('JSON 输入', 'JSON input')}</Label><Textarea id="agent-test-input" value={testInput} onChange={(event) => setTestInput(event.target.value)} className="min-h-44 font-mono text-xs" /><Button type="button" onClick={() => void handleTest()} disabled={!canTest || busyAction === 'test'}><TestTube2 className="mr-1.5 h-4 w-4" />{busyAction === 'test' ? tx('运行中…', 'Running…') : tx('试运行', 'Run test')}</Button></div>
                   <div className="space-y-2"><Label>{tx('输出', 'Output')}</Label>{testError && <Alert variant="destructive"><AlertCircle /><AlertDescription>{testError}</AlertDescription></Alert>}{testOutput ? <div className="rounded-md border bg-slate-50 p-3 text-sm"><div className="mb-2 flex flex-wrap gap-2 text-xs text-gray-500"><span>{testOutput.model}</span><span>{testOutput.latency} ms</span><span>v{testOutput.promptVersion}</span></div><pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words">{testOutput.output}</pre></div> : !testError && <div className="rounded-md border border-dashed p-6 text-sm text-gray-500">{tx('运行结果将显示在这里。', 'The test result appears here.')}</div>}</div>
                 </div>
               </section>
             </div>
 
-            <aside className="space-y-4 lg:border-l lg:pl-5">
-              <div className="rounded-lg border p-4"><div className="flex items-center gap-2 font-semibold"><History className="h-4 w-4" />{tx('版本历史', 'Version history')}</div><p className="mt-1 text-xs text-gray-500">{tx('恢复只生成新的草稿，仍需再次发布。', 'Restore creates a new draft; publish it separately.')}</p>{historyError && <Alert variant="destructive" className="mt-3"><AlertCircle /><AlertDescription>{historyError}</AlertDescription></Alert>}{historyLoading ? <div className="mt-4 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" />{tx('加载中…', 'Loading…')}</div> : versions.length === 0 ? <p className="mt-4 text-sm text-gray-500">{tx('暂无已发布版本。', 'No published versions yet.')}</p> : <div className="mt-3 space-y-2">{versions.map((version) => <div key={version.version} className="rounded-md border p-3"><div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2"><Badge variant="outline">v{version.version}</Badge>{agent.publishedVersion === version.version && <Badge className="border-green-300 bg-green-50 text-green-700">{tx('当前发布', 'Published')}</Badge>}</div><Button type="button" variant="ghost" size="sm" onClick={() => void handleRestore(version)} disabled={busyAction === 'restore'}><RotateCcw className="mr-1 h-3.5 w-3.5" />{tx('恢复草稿', 'Restore')}</Button></div><div className="mt-2 flex items-center gap-1 text-xs text-gray-500"><Clock3 className="h-3 w-3" />{new Date(version.createdAt).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US')}</div><p className="mt-2 line-clamp-2 text-xs text-gray-600">{version.prompts.find((prompt) => prompt.role === 'system')?.content || version.prompts[0]?.content}</p></div>)}</div>}</div>
-              <div className="rounded-lg border bg-slate-50 p-4 text-sm"><div className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4 text-green-600" />{tx('发布状态', 'Publish status')}</div><div className="mt-3 space-y-1 text-gray-600"><div>{tx('草稿修订', 'Draft revision')}: {agent.draftRevision}</div><div>{tx('已发布版本', 'Published version')}: {agent.publishedVersion === null ? tx('无', 'None') : `v${agent.publishedVersion}`}</div><div>{tx('运行时模型', 'Runtime model')}: {runtimeModel ? runtimeModel.modelId : tx('未配置', 'Not configured')}</div></div></div>
+            <aside className="min-w-0 space-y-4 lg:border-l lg:pl-5">
+              <div className="rounded-lg border p-4"><div className="flex items-center gap-2 font-semibold"><History className="h-4 w-4" />{tx('版本历史', 'Version history')}</div><p className="mt-1 text-xs text-gray-500">{tx('恢复只生成新的草稿，仍需再次发布。', 'Restore creates a new draft; publish it separately.')}</p>{historyError && <Alert variant="destructive" className="mt-3"><AlertCircle /><AlertDescription>{historyError}</AlertDescription></Alert>}{historyLoading ? <div className="mt-4 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" />{tx('加载中…', 'Loading…')}</div> : versions.length === 0 ? <p className="mt-4 text-sm text-gray-500">{tx('暂无已发布版本。', 'No published versions yet.')}</p> : <div className="mt-3 space-y-2">{versions.map((version) => <div key={version.version} className="rounded-md border p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">v{version.version}</Badge>{agent.publishedVersion === version.version && <Badge className="border-green-300 bg-green-50 text-green-700">{tx('当前发布', 'Published')}</Badge>}</div><Button type="button" variant="ghost" size="sm" onClick={() => void handleRestore(version)} disabled={busyAction === 'restore'}><RotateCcw className="mr-1 h-3.5 w-3.5" />{tx('恢复草稿', 'Restore')}</Button></div><div className="mt-2 flex items-center gap-1 text-xs text-gray-500"><Clock3 className="h-3 w-3" />{new Date(version.createdAt).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US')}</div><p className="mt-2 line-clamp-2 text-xs text-gray-600">{version.prompts.find((prompt) => prompt.role === 'system')?.content || version.prompts[0]?.content}</p></div>)}</div>}</div>
+              <div className="rounded-lg border bg-slate-50 p-4 text-sm"><div className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4 text-green-600" />{tx('发布状态', 'Publish status')}</div><div className="mt-3 space-y-1 break-words text-gray-600"><div>{tx('草稿修订', 'Draft revision')}: {agent.draftRevision}</div><div>{tx('已发布版本', 'Published version')}: {agent.publishedVersion === null ? tx('无', 'None') : `v${agent.publishedVersion}`}</div><div>{tx('运行时模型', 'Runtime model')}: {runtimeModel ? runtimeModel.modelId : tx('未配置', 'Not configured')}</div></div></div>
             </aside>
+          </div>
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:justify-between">
+        <DialogFooter className="shrink-0 flex-col gap-3 border-t bg-white px-5 py-4 sm:items-center sm:justify-between sm:px-6">
           <div className="text-xs text-gray-500">{isDirty ? tx('有未保存修改', 'Unsaved changes') : tx('草稿已同步', 'Draft is saved')}</div>
-          <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{tx('关闭', 'Close')}</Button><Button type="button" variant="outline" onClick={() => void handleSave()} disabled={!agent || busyAction !== null || !isDirty}><Save className="mr-1.5 h-4 w-4" />{busyAction === 'save' ? tx('保存中…', 'Saving…') : tx('保存草稿', 'Save draft')}</Button><Button type="button" onClick={() => void handlePublish()} disabled={!agent || busyAction !== null || isDirty}><Send className="mr-1.5 h-4 w-4" />{busyAction === 'publish' ? tx('发布中…', 'Publishing…') : tx('显式发布', 'Publish')}</Button></div>
+          <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{tx('关闭', 'Close')}</Button><Button type="button" variant="outline" onClick={() => void handleSave()} disabled={!agent || busyAction !== null || !isDirty}><Save className="mr-1.5 h-4 w-4" />{busyAction === 'save' ? tx('保存中…', 'Saving…') : tx('保存草稿', 'Save draft')}</Button><Button type="button" onClick={() => void handlePublish()} disabled={!agent || busyAction !== null || isDirty}><Send className="mr-1.5 h-4 w-4" />{busyAction === 'publish' ? tx('发布中…', 'Publishing…') : tx('显式发布', 'Publish')}</Button></div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

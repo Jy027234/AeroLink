@@ -105,7 +105,7 @@ export function ModelEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] max-w-xl overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{model ? tx('编辑模型', 'Edit model') : tx('添加模型', 'Add model')}</DialogTitle>
           <DialogDescription>{tx('API Key 只写入服务端加密存储，页面不会回显已保存的密钥。', 'API keys are encrypted on the server and are never shown again.')}</DialogDescription>
