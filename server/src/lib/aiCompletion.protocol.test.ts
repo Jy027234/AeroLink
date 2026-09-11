@@ -38,6 +38,7 @@ describe('actual OpenAI-compatible HTTP transport (local fixture only)', () => {
     const result = await generateCompletion([{ role: 'user', content: 'Published v2: input' }], { maxTokens: 321, temperature: 0.15 });
     expect(received).toEqual([{ url: '/v1/chat/completions', authorization: 'Bearer local-protocol-test-only',
       body: { model: 'local-test-model', messages: [{ role: 'user', content: 'Published v2: input' }], max_tokens: 321, temperature: 0.15 } }]);
+    expect(received[0].body).not.toHaveProperty('thinking');
     expect(result).toMatchObject({ content: 'Local protocol verified', model: 'local-returned-model', modelConfigId: 'local-config', usage: { totalTokens: 15 } });
   });
   it('supports completion-token parameters and omits unsupported temperature for configured OpenAI models', async () => {
@@ -47,6 +48,15 @@ describe('actual OpenAI-compatible HTTP transport (local fixture only)', () => {
     expect(received[0].body).toHaveProperty('max_completion_tokens', 2048);
     expect(received[0].body).not.toHaveProperty('max_tokens');
     expect(received[0].body).not.toHaveProperty('temperature');
+    expect(received[0].body).not.toHaveProperty('thinking');
+  });
+  it('disables DeepSeek thinking mode for the initial no-tools completion path', async () => {
+    mocks.findFirst.mockResolvedValue({ id: 'deepseek-config', modelId: 'deepseek-flash', provider: 'deepseek',
+      isActive: true, isDefault: true, apiKey: 'local-protocol-test-only', baseUrl, config: '{}' });
+    await generateCompletion([{ role: 'user', content: 'hello' }]);
+    expect(received[0].body).toHaveProperty('thinking', { type: 'disabled' });
+    expect(received[0].body).toHaveProperty('max_tokens', 2048);
+    expect(received[0].body).not.toHaveProperty('max_completion_tokens');
   });
   it('returns a clear configuration error without contacting any provider when no model exists', async () => {
     mocks.findFirst.mockResolvedValue(null);

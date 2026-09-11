@@ -217,6 +217,13 @@ export interface ClientAIModel {
   capabilities: string[];
 }
 
+export interface AIModelTestResult {
+  status: 'ok';
+  message: string;
+  latency: number;
+  response: string;
+}
+
 interface RuntimeConfirmationOptionPayload {
   id: string;
   label: string;
@@ -2719,6 +2726,12 @@ export const modelApi = {
 
   setDefault: async (id: string) => {
     return request<ApiRecord>(`/models/${id}/set-default`, {
+      method: 'POST',
+    });
+  },
+
+  test: async (id: string) => {
+    return request<AIModelTestResult>(`/models/${id}/test`, {
       method: 'POST',
     });
   },

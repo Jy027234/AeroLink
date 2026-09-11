@@ -31,12 +31,19 @@ export async function generateCompletion(
   });
   const maxTokens = options.maxTokens ?? 2048;
   try {
-    const response = await client.chat.completions.create({
+    type CompatibleChatCompletionRequest = OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & {
+      // DeepSeek extends the OpenAI-compatible request with this field. Keep
+      // it optional so other providers receive the exact existing payload.
+      thinking?: { type: 'disabled' };
+    };
+    const request: CompatibleChatCompletionRequest = {
       model: model.modelId,
       messages,
       ...(model.config.omitTemperature === true ? {} : { temperature: options.temperature ?? 0.7 }),
       ...(model.provider === 'openai' ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
-    });
+      ...(model.provider === 'deepseek' ? { thinking: { type: 'disabled' as const } } : {}),
+    };
+    const response = await client.chat.completions.create(request);
     const content = response.choices[0]?.message?.content;
     if (!content?.trim()) throw new AppError('模型未返回可用内容，请检查模型配置后重试', 502);
     return {

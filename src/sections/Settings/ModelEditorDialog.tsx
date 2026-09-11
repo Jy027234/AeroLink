@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Eye, EyeOff, KeyRound, Loader2 } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, KeyRound, Loader2 } from 'lucide-react';
 import type { ClientAIModel } from '@/api/client';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,7 @@ export function ModelEditorDialog({
   onOpenChange,
   onSubmit,
   busy,
+  error,
   tx,
 }: {
   model: ClientAIModel | null;
@@ -35,6 +37,7 @@ export function ModelEditorDialog({
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
   busy: boolean;
+  error?: string | null;
   tx: (zh: string, en: string) => string;
 }) {
   const [name, setName] = useState('');
@@ -108,6 +111,7 @@ export function ModelEditorDialog({
           <DialogDescription>{tx('API Key 只写入服务端加密存储，页面不会回显已保存的密钥。', 'API keys are encrypted on the server and are never shown again.')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
+          {error && <Alert variant="destructive"><AlertCircle /><AlertTitle>{tx('保存失败', 'Save failed')}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2"><Label htmlFor="model-name">{tx('名称', 'Name')} *</Label><Input id="model-name" value={name} onChange={(event) => setName(event.target.value)} placeholder={tx('例如：生产 OpenAI', 'e.g. Production OpenAI')} /></div>
             <div className="space-y-2"><Label htmlFor="model-provider">{tx('提供商', 'Provider')} *</Label><Select value={provider} onValueChange={(value: SupportedModelProvider) => setProvider(value)}><SelectTrigger id="model-provider"><SelectValue /></SelectTrigger><SelectContent>{SUPPORTED_MODEL_PROVIDERS.map((item) => <SelectItem key={item} value={item}>{providerLabels[item]}</SelectItem>)}</SelectContent></Select>{existingProviderUnsupported && <p className="text-xs text-amber-700">{tx(`当前提供商 ${model?.provider} 不在首期支持范围，请选择 openai、deepseek、ollama 或 custom。`, `Current provider ${model?.provider} is unsupported; choose openai, deepseek, ollama, or custom.`)}</p>}</div>

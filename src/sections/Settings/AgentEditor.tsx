@@ -122,8 +122,12 @@ export function AgentEditor({
     if (!agent || !open) return;
     const nextPrompts = clonePrompts(agent.prompts || []);
     const nextConfig = { ...(agent.config || {}) };
-    const configuredModelReference = typeof nextConfig.modelId === 'string' ? nextConfig.modelId : null;
-    const configuredModel = getModelForReference(configuredModelReference, models);
+    const configuredModelReference = typeof nextConfig.modelId === 'string' && nextConfig.modelId.trim()
+      ? nextConfig.modelId
+      : null;
+    const configuredModel = configuredModelReference
+      ? getModelForReference(configuredModelReference, models)
+      : undefined;
     if (configuredModel && configuredModelReference !== configuredModel.id) nextConfig.modelId = configuredModel.id;
     const nextState = { prompts: nextPrompts, config: nextConfig, isActive: agent.isActive };
     setPrompts(nextPrompts);

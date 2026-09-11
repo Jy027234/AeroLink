@@ -1,10 +1,12 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '@/i18n';
 import type { ClientAIAgent, ClientAIModel } from '@/api/client';
 import { AgentManagement } from './AgentManagement';
 import { AgentCallLogs } from './AgentCallLogs';
+import { AgentEditor } from './AgentEditor';
+import { ModelManagement } from './ModelManagement';
 
 const mocks = vi.hoisted(() => ({
   agentApi: {
@@ -23,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     getById: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
+    test: vi.fn(),
   },
 }));
 
@@ -163,5 +166,72 @@ describe('AgentManagement', () => {
     expect(screen.getByText(/42 ms/)).toBeTruthy();
     expect(screen.queryByText('input-hash')).toBeNull();
     expect(screen.queryByText('output-hash')).toBeNull();
+  });
+
+  it('tests a model connection with a real request and clears the result when editing', async () => {
+    let resolveTest: (value: { status: 'ok'; message: string; latency: number; response: string }) => void = () => undefined;
+    mocks.modelApi.test.mockImplementation(() => new Promise((resolve) => { resolveTest = resolve; }));
+    const onModelsChange = vi.fn();
+
+    render(<I18nProvider><ModelManagement models={[model]} onModelsChange={onModelsChange} tx={(zh) => zh} /></I18nProvider>);
+
+    const testButton = screen.getByRole('button', { name: '测试连接' });
+    fireEvent.click(testButton);
+    await waitFor(() => expect(testButton.getAttribute('disabled')).not.toBeNull());
+    expect(mocks.modelApi.test).toHaveBeenCalledWith(model.id);
+
+    resolveTest({ status: 'ok', message: '模型连接正常', latency: 17, response: 'ok' });
+    expect(await screen.findByText('连接测试成功')).toBeTruthy();
+    expect(screen.getByText(/17 ms/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑 Operations OpenAI' }));
+    expect(screen.queryByText(/17 ms/)).toBeNull();
+  });
+
+  it('shows connection errors and does not claim success without a key', async () => {
+    const noKeyModel = { ...model, id: 'model-no-key', name: 'No Key OpenAI', hasApiKey: false };
+    render(<I18nProvider><ModelManagement models={[noKeyModel]} onModelsChange={vi.fn()} tx={(zh) => zh} /></I18nProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }));
+    expect(await screen.findByText('未配置 API Key，未发起连接测试。')).toBeTruthy();
+    expect(mocks.modelApi.test).not.toHaveBeenCalled();
+  });
+
+  it('keeps the model dialog open with the save error and refreshes defaults after saving', async () => {
+    const secondaryModel = { ...model, id: 'model-2', name: 'Secondary model', isDefault: false };
+    const refreshedModels = [{ ...model, isDefault: false }, { ...secondaryModel, isDefault: true }];
+    mocks.modelApi.update.mockResolvedValue({ ...secondaryModel, isDefault: true });
+    mocks.modelApi.getAll.mockResolvedValue(refreshedModels);
+    const onModelsChange = vi.fn();
+
+    render(<I18nProvider><ModelManagement models={[model, secondaryModel]} onModelsChange={onModelsChange} tx={(zh) => zh} /></I18nProvider>);
+    fireEvent.click(screen.getByRole('button', { name: '编辑 Secondary model' }));
+    fireEvent.click(screen.getByLabelText('设为默认模型'));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(mocks.modelApi.update).toHaveBeenCalledWith(secondaryModel.id, expect.objectContaining({ isDefault: true })));
+    await waitFor(() => expect(onModelsChange).toHaveBeenCalledWith(refreshedModels));
+
+    mocks.modelApi.update.mockRejectedValueOnce(new Error('model save failed'));
+    fireEvent.click(screen.getByRole('button', { name: '编辑 Secondary model' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => {
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByText('model save failed')).toBeTruthy();
+    });
+  });
+
+  it('keeps a null model reference as default instead of binding the draft to its current id', async () => {
+    const defaultAgent = { ...agent, config: { temperature: 0.3 } };
+    mocks.agentApi.update.mockResolvedValue({ ...defaultAgent, draftRevision: 3 });
+
+    render(<I18nProvider><AgentEditor agent={defaultAgent} models={[model]} open onOpenChange={vi.fn()} onSaved={vi.fn()} /></I18nProvider>);
+    expect(await screen.findByText('版本历史')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('第 1 条提示词内容'), { target: { value: 'changed prompt' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+
+    await waitFor(() => expect(mocks.agentApi.update).toHaveBeenCalledWith(defaultAgent.id, expect.objectContaining({
+      config: { temperature: 0.3 },
+    })));
   });
 });
