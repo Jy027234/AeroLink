@@ -131,14 +131,65 @@ export interface SupplierFollowUpLogCreateInput {
   preferredChannel?: 'email' | 'phone' | 'manual';
 }
 
+export type AgentPromptRole = 'system' | 'user' | 'assistant';
+
+export interface AgentPrompt {
+  role: AgentPromptRole;
+  content: string;
+}
+
+export interface AgentConfig {
+  modelId?: string | null;
+  temperature?: number;
+  maxTokens?: number;
+  [key: string]: unknown;
+}
+
+export interface AgentWorkflow {
+  label: string;
+  description: string;
+  variables: string[];
+  inputExample: Record<string, unknown>;
+}
+
 export interface ClientAIAgent {
   id: string;
   name: string;
   type: string;
   description: string | null;
   isActive: boolean;
-  config: Record<string, unknown>;
-  prompts: Array<{ role: string; content: string }>;
+  config: AgentConfig;
+  prompts: AgentPrompt[];
+  builtinKey: string | null;
+  draftRevision: number;
+  publishedVersion: number | null;
+  workflow: AgentWorkflow | null;
+}
+
+export interface AIAgentVersion {
+  version: number;
+  prompts: AgentPrompt[];
+  config: AgentConfig;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface AgentTestResult {
+  output: string;
+  model: string;
+  latency: number;
+  promptVersion: number;
+  agentId: string;
+}
+
+export interface AgentUpdateInput {
+  expectedRevision: number;
+  name?: string;
+  type?: string;
+  description?: string | null;
+  isActive?: boolean;
+  config?: AgentConfig;
+  prompts?: AgentPrompt[];
 }
 
 export interface AgentAuditLog {
@@ -158,7 +209,7 @@ export interface ClientAIModel {
   name: string;
   provider: string;
   modelId: string;
-  apiKey: string | null;
+  hasApiKey: boolean;
   baseUrl: string | null;
   isActive: boolean;
   isDefault: boolean;
@@ -2565,10 +2616,35 @@ export const agentApi = {
     });
   },
 
-  update: async (id: string, data: ApiPayload) => {
+  update: async (id: string, data: AgentUpdateInput) => {
     return request<ClientAIAgent>(`/agents/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
+    });
+  },
+
+  publish: async (id: string, expectedRevision: number) => {
+    return request<ClientAIAgent>(`/agents/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ expectedRevision }),
+    });
+  },
+
+  getVersions: async (id: string) => {
+    return request<AIAgentVersion[]>(`/agents/${id}/versions`);
+  },
+
+  restore: async (id: string, version: number, expectedRevision: number) => {
+    return request<ClientAIAgent>(`/agents/${id}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ version, expectedRevision }),
+    });
+  },
+
+  test: async (id: string, input: Record<string, unknown>) => {
+    return request<AgentTestResult>(`/agents/${id}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ input }),
     });
   },
 
@@ -2578,9 +2654,10 @@ export const agentApi = {
     });
   },
 
-  toggle: async (id: string) => {
+  toggle: async (id: string, expectedRevision: number) => {
     return request<ClientAIAgent>(`/agents/${id}/toggle`, {
       method: 'POST',
+      body: JSON.stringify({ expectedRevision }),
     });
   },
 
@@ -2648,6 +2725,22 @@ export const modelApi = {
 };
 
 // ===== AI API =====
+export interface AICallMetadata {
+  agentId: string;
+  promptVersion: number;
+  model: string;
+}
+
+export interface AIRfqExtraction {
+  type: 'AOG' | 'STANDARD' | 'INQUIRY' | 'SPAM';
+  partNumbers: string[];
+  quantities: number[];
+  urgency: 'AOG' | 'URGENT' | 'STANDARD';
+  aircraftType?: string;
+  requiredDate?: string;
+  ai: AICallMetadata;
+}
+
 export interface AICompletionResult {
   content: string;
   model: string;
@@ -2657,9 +2750,19 @@ export interface AICompletionResult {
     totalTokens: number;
   };
   latency: number;
+  ai: AICallMetadata;
 }
 
 export const aiApi = {
+  parseEmailById: (emailId: string) => request<AIRfqExtraction>('/ai/parse-email', {
+    method: 'POST', body: JSON.stringify({ emailId }),
+  }),
+  analyzeRfqQuotes: (rfqId: string) => request<{ analysis: string; ai: AICallMetadata }>('/ai/analyze-quotes', {
+    method: 'POST', body: JSON.stringify({ rfqId }),
+  }),
+  generateQuotationEmail: (quotationId: string) => request<{ email: string; ai: AICallMetadata }>('/ai/generate-email', {
+    method: 'POST', body: JSON.stringify({ quotationId }),
+  }),
   parseEmail: async (subject: string, body: string) => {
     return request<{ type: string; partNumbers: string[]; quantities: number[]; urgency: string; aircraftType?: string }>('/ai/parse-email', {
       method: 'POST',
@@ -2691,10 +2794,10 @@ export const aiApi = {
     });
   },
 
-  chat: async (message: string, systemPrompt?: string, temperature?: number, maxTokens?: number) => {
+  chat: async (message: string) => {
     return request<AICompletionResult>('/ai/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, systemPrompt, temperature, maxTokens }),
+      body: JSON.stringify({ message }),
     });
   },
 };

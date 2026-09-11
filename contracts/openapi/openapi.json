@@ -7098,7 +7098,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 174
+          "line": 299
         },
         "security": [
           {
@@ -7185,7 +7185,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 211
+          "line": 336
         },
         "security": [
           {
@@ -7243,7 +7243,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 282
+          "line": 407
         },
         "security": [
           {
@@ -7322,7 +7322,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 229
+          "line": 354
         },
         "security": [
           {
@@ -7373,7 +7373,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 296
+          "line": 421
         },
         "security": [
           {
@@ -7422,7 +7422,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 336
+          "line": 455
         },
         "security": [
           {
@@ -7488,7 +7488,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 314
+          "line": 436
         },
         "security": [
           {
@@ -7546,7 +7546,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 365
+          "line": 488
         },
         "security": [
           {
@@ -7618,7 +7618,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 395
+          "line": 537
         },
         "security": [
           {
@@ -7684,12 +7684,12 @@
           "agents"
         ],
         "summary": "POST /api/agents/:id/toggle",
-        "description": "Contracted internal agent/model administration and runtime operation. Provider credentials, API keys and persisted JSON shadow columns are excluded from response DTOs.",
+        "description": "Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 410
+          "line": 557
         },
         "security": [
           {
@@ -7719,7 +7719,14 @@
         ],
         "responses": {
           "200": {
-            "$ref": "#/components/responses/Agent"
+            "description": "AI configuration response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentEnvelope"
+                }
+              }
+            }
           },
           "400": {
             "$ref": "#/components/responses/Error"
@@ -7745,7 +7752,397 @@
           "500": {
             "$ref": "#/components/responses/Error"
           }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "expectedRevision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
         }
+      }
+    },
+    "/api/agents/{id}/versions": {
+      "get": {
+        "operationId": "getAgentsIdVersions",
+        "tags": [
+          "agents"
+        ],
+        "summary": "GET /api/agents/:id/versions",
+        "description": "Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/agents",
+        "x-aerolink-source": {
+          "file": "server/src/routes/agents.ts",
+          "line": 591
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AI configuration response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentVersionListEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/agents/{id}/publish": {
+      "post": {
+        "operationId": "postAgentsIdPublish",
+        "tags": [
+          "agents"
+        ],
+        "summary": "POST /api/agents/:id/publish",
+        "description": "Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/agents",
+        "x-aerolink-source": {
+          "file": "server/src/routes/agents.ts",
+          "line": 615
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AI configuration response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "expectedRevision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/agents/{id}/restore": {
+      "post": {
+        "operationId": "postAgentsIdRestore",
+        "tags": [
+          "agents"
+        ],
+        "summary": "POST /api/agents/:id/restore",
+        "description": "Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/agents",
+        "x-aerolink-source": {
+          "file": "server/src/routes/agents.ts",
+          "line": 681
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AI configuration response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "version",
+                  "expectedRevision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/agents/{id}/test": {
+      "post": {
+        "operationId": "postAgentsIdTest",
+        "tags": [
+          "agents"
+        ],
+        "summary": "POST /api/agents/:id/test",
+        "description": "Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/agents",
+        "x-aerolink-source": {
+          "file": "server/src/routes/agents.ts",
+          "line": 723
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AI configuration response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTestEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
       }
     },
     "/api/agents/{id}/run": {
@@ -7760,7 +8157,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 438
+          "line": 737
         },
         "security": [
           {
@@ -7834,7 +8231,7 @@
         "x-aerolink-owner": "P2-01/agents",
         "x-aerolink-source": {
           "file": "server/src/routes/agents.ts",
-          "line": 528
+          "line": 764
         },
         "security": [
           {
@@ -7905,7 +8302,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 14
+          "line": 174
         },
         "security": [
           {
@@ -7954,7 +8351,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 76
+          "line": 206
         },
         "security": [
           {
@@ -8020,7 +8417,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 44
+          "line": 188
         },
         "security": [
           {
@@ -8078,7 +8475,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 119
+          "line": 232
         },
         "security": [
           {
@@ -8150,7 +8547,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 173
+          "line": 270
         },
         "security": [
           {
@@ -8221,7 +8618,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 200
+          "line": 283
         },
         "security": [
           {
@@ -8292,7 +8689,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 245
+          "line": 327
         },
         "security": [
           {
@@ -19053,12 +19450,12 @@
           "ai"
         ],
         "summary": "POST /api/ai/parse-email",
-        "description": "Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.",
+        "description": "Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/ai",
         "x-aerolink-source": {
           "file": "server/src/routes/ai.ts",
-          "line": 15
+          "line": 20
         },
         "security": [
           {
@@ -19119,12 +19516,12 @@
           "ai"
         ],
         "summary": "POST /api/ai/analyze-quotes",
-        "description": "Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.",
+        "description": "Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/ai",
         "x-aerolink-source": {
           "file": "server/src/routes/ai.ts",
-          "line": 27
+          "line": 37
         },
         "security": [
           {
@@ -19185,12 +19582,12 @@
           "ai"
         ],
         "summary": "POST /api/ai/generate-email",
-        "description": "Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.",
+        "description": "Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/ai",
         "x-aerolink-source": {
           "file": "server/src/routes/ai.ts",
-          "line": 39
+          "line": 73
         },
         "security": [
           {
@@ -19251,12 +19648,12 @@
           "ai"
         ],
         "summary": "POST /api/ai/chat",
-        "description": "Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.",
+        "description": "Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/ai",
         "x-aerolink-source": {
           "file": "server/src/routes/ai.ts",
-          "line": 71
+          "line": 103
         },
         "security": [
           {
@@ -19589,7 +19986,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 37
+          "line": 52
         },
         "security": [
           {
@@ -19676,7 +20073,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 94
+          "line": 109
         },
         "security": [
           {
@@ -19742,7 +20139,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 64
+          "line": 79
         },
         "security": [
           {
@@ -19802,7 +20199,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 79
+          "line": 94
         },
         "security": [
           {
@@ -19860,7 +20257,7 @@
         "x-aerolink-owner": "P2-01/inventoryItems",
         "x-aerolink-source": {
           "file": "server/src/routes/inventoryItems.ts",
-          "line": 117
+          "line": 132
         },
         "security": [
           {
@@ -25031,7 +25428,7 @@
         "x-aerolink-owner": "P2-01/health",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 253
+          "line": 254
         },
         "security": [],
         "parameters": [],
@@ -25078,7 +25475,7 @@
         "x-aerolink-owner": "P2-01/metrics",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 257
+          "line": 258
         },
         "security": [
           {
@@ -25882,7 +26279,8 @@
               "$ref": "#/components/schemas/AgentUpdateRequest"
             }
           }
-        }
+        },
+        "required": true
       },
       "AgentRun": {
         "content": {
@@ -25891,7 +26289,8 @@
               "$ref": "#/components/schemas/AgentRunRequest"
             }
           }
-        }
+        },
+        "required": true
       },
       "AiModelCreate": {
         "required": true,
@@ -32542,12 +32941,6 @@
             "minimum": 0,
             "maximum": 2147483647,
             "readOnly": true
-          },
-          "stockReceiptLineId": {
-            "type": "string",
-            "minLength": 1,
-            "readOnly": true,
-            "description": "The accepted purchase receipt line that created this physical detail, when applicable."
           }
         },
         "additionalProperties": true
@@ -45065,7 +45458,11 @@
           "config",
           "prompts",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "builtinKey",
+          "draftRevision",
+          "publishedVersion",
+          "workflow"
         ],
         "properties": {
           "id": {
@@ -45089,11 +45486,16 @@
           },
           "config": {
             "type": "object",
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "Draft config; legacy custom agents may contain older fields."
           },
           "prompts": {
             "type": "array",
-            "items": {}
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "Draft prompts; legacy custom agents may be empty or need correction before publishing."
           },
           "createdAt": {
             "type": "string",
@@ -45102,6 +45504,54 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "builtinKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "draftRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "publishedVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "workflow": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "variables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "inputExample": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "label",
+              "description",
+              "variables",
+              "inputExample"
+            ],
+            "additionalProperties": false
           }
         },
         "additionalProperties": true
@@ -45246,27 +45696,44 @@
       },
       "AgentRunResult": {
         "type": "object",
-        "required": [
-          "output",
-          "duration",
-          "status"
-        ],
         "properties": {
           "output": {
             "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "latency": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "promptVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
           },
           "duration": {
             "type": "string"
           },
           "status": {
             "type": "string",
-            "enum": [
-              "SUCCESS",
-              "ERROR"
-            ]
+            "const": "SUCCESS"
           }
         },
-        "additionalProperties": true
+        "required": [
+          "output",
+          "model",
+          "latency",
+          "promptVersion",
+          "agentId",
+          "duration",
+          "status"
+        ],
+        "additionalProperties": false
       },
       "AgentRunResultEnvelope": {
         "type": "object",
@@ -45296,7 +45763,8 @@
           "config",
           "capabilities",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "hasApiKey"
         ],
         "properties": {
           "id": {
@@ -45350,6 +45818,9 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "hasApiKey": {
+            "type": "boolean"
           }
         },
         "additionalProperties": true
@@ -45467,7 +45938,8 @@
           "type",
           "partNumbers",
           "quantities",
-          "urgency"
+          "urgency",
+          "ai"
         ],
         "properties": {
           "type": {
@@ -45489,7 +45961,7 @@
             "type": "array",
             "items": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 1
             }
           },
           "urgency": {
@@ -45505,6 +45977,33 @@
               "string",
               "null"
             ]
+          },
+          "ai": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "promptVersion": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agentId",
+              "promptVersion",
+              "model"
+            ],
+            "additionalProperties": false
+          },
+          "requiredDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           }
         },
         "additionalProperties": true
@@ -45528,11 +46027,35 @@
       "AiQuoteAnalysis": {
         "type": "object",
         "required": [
-          "analysis"
+          "analysis",
+          "ai"
         ],
         "properties": {
           "analysis": {
             "type": "string"
+          },
+          "ai": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "promptVersion": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agentId",
+              "promptVersion",
+              "model"
+            ],
+            "additionalProperties": false
           }
         },
         "additionalProperties": true
@@ -45556,11 +46079,35 @@
       "AiGeneratedEmail": {
         "type": "object",
         "required": [
-          "email"
+          "email",
+          "ai"
         ],
         "properties": {
           "email": {
             "type": "string"
+          },
+          "ai": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "promptVersion": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agentId",
+              "promptVersion",
+              "model"
+            ],
+            "additionalProperties": false
           }
         },
         "additionalProperties": true
@@ -45586,7 +46133,8 @@
         "required": [
           "content",
           "model",
-          "latency"
+          "latency",
+          "ai"
         ],
         "properties": {
           "content": {
@@ -45623,6 +46171,29 @@
           "latency": {
             "type": "integer",
             "minimum": 0
+          },
+          "ai": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "promptVersion": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agentId",
+              "promptVersion",
+              "model"
+            ],
+            "additionalProperties": false
           }
         },
         "additionalProperties": true
@@ -45972,10 +46543,6 @@
       },
       "AgentCreateRequest": {
         "type": "object",
-        "required": [
-          "name",
-          "type"
-        ],
         "properties": {
           "name": {
             "type": "string",
@@ -45986,25 +46553,76 @@
             "minLength": 1
           },
           "description": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "isActive": {
             "type": "boolean"
           },
           "config": {
             "type": "object",
-            "additionalProperties": true
+            "properties": {
+              "modelId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              },
+              "temperature": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2
+              },
+              "maxTokens": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 16384
+              }
+            },
+            "required": [],
+            "additionalProperties": false
           },
           "prompts": {
             "type": "array",
-            "items": {}
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant"
+                  ]
+                },
+                "content": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20000
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ],
+              "additionalProperties": false
+            }
           }
         },
+        "required": [
+          "name",
+          "type",
+          "prompts"
+        ],
         "additionalProperties": false
       },
       "AgentUpdateRequest": {
         "type": "object",
-        "required": [],
         "properties": {
           "name": {
             "type": "string",
@@ -46015,34 +46633,97 @@
             "minLength": 1
           },
           "description": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "isActive": {
             "type": "boolean"
           },
           "config": {
             "type": "object",
-            "additionalProperties": true
+            "properties": {
+              "modelId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              },
+              "temperature": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2
+              },
+              "maxTokens": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 16384
+              }
+            },
+            "required": [],
+            "additionalProperties": false
           },
           "prompts": {
             "type": "array",
-            "items": {}
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant"
+                  ]
+                },
+                "content": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20000
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "builtinKey": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
+        "required": [
+          "expectedRevision"
+        ],
         "additionalProperties": false
       },
       "AgentRunRequest": {
         "type": "object",
-        "required": [],
         "properties": {
           "task": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 100
           },
           "input": {
             "type": "object",
             "additionalProperties": true
           }
         },
+        "required": [
+          "input"
+        ],
         "additionalProperties": false
       },
       "AiModelCreateRequest": {
@@ -46061,10 +46742,8 @@
             "type": "string",
             "enum": [
               "openai",
-              "anthropic",
-              "azure",
-              "ollama",
               "deepseek",
+              "ollama",
               "custom"
             ]
           },
@@ -46073,12 +46752,19 @@
             "minLength": 1
           },
           "apiKey": {
-            "type": "string",
-            "writeOnly": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "writeOnly": true,
+            "maxLength": 8192
           },
           "baseUrl": {
-            "type": "string",
-            "format": "uri"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "HTTPS endpoint without credentials, query or fragment; local HTTP allowed. Custom and Ollama require an explicit URL."
           },
           "isActive": {
             "type": "boolean"
@@ -46111,10 +46797,8 @@
             "type": "string",
             "enum": [
               "openai",
-              "anthropic",
-              "azure",
-              "ollama",
               "deepseek",
+              "ollama",
               "custom"
             ]
           },
@@ -46123,12 +46807,19 @@
             "minLength": 1
           },
           "apiKey": {
-            "type": "string",
-            "writeOnly": true
+            "type": [
+              "string",
+              "null"
+            ],
+            "writeOnly": true,
+            "maxLength": 8192
           },
           "baseUrl": {
-            "type": "string",
-            "format": "uri"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "HTTPS endpoint without credentials, query or fragment; local HTTP allowed. Custom and Ollama require an explicit URL."
           },
           "isActive": {
             "type": "boolean"
@@ -46150,112 +46841,163 @@
         "additionalProperties": false
       },
       "AiParseEmailRequest": {
-        "type": "object",
-        "required": [
-          "subject",
-          "body"
-        ],
-        "properties": {
-          "subject": {
-            "type": "string",
-            "minLength": 1
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "emailId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "emailId"
+            ],
+            "additionalProperties": false
           },
-          "body": {
-            "type": "string",
-            "minLength": 1
+          {
+            "type": "object",
+            "properties": {
+              "subject": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40000
+              },
+              "body": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40000
+              }
+            },
+            "required": [
+              "subject",
+              "body"
+            ],
+            "additionalProperties": false
           }
-        },
-        "additionalProperties": false
+        ]
       },
       "AiAnalyzeQuotesRequest": {
-        "type": "object",
-        "required": [
-          "rfqDetails",
-          "supplierQuotes"
-        ],
-        "properties": {
-          "rfqDetails": {
-            "type": "string",
-            "minLength": 1
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "rfqId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "rfqId"
+            ],
+            "additionalProperties": false
           },
-          "supplierQuotes": {
-            "type": "string",
-            "minLength": 1
+          {
+            "type": "object",
+            "properties": {
+              "rfqDetails": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40000
+              },
+              "supplierQuotes": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40000
+              }
+            },
+            "required": [
+              "rfqDetails",
+              "supplierQuotes"
+            ],
+            "additionalProperties": false
           }
-        },
-        "additionalProperties": false
+        ]
       },
       "AiGenerateEmailRequest": {
-        "type": "object",
-        "required": [
-          "customerName",
-          "partNumber",
-          "unitPrice",
-          "totalPrice"
-        ],
-        "properties": {
-          "customerName": {
-            "type": "string",
-            "minLength": 1
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "quotationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "quotationId"
+            ],
+            "additionalProperties": false
           },
-          "partNumber": {
-            "type": "string",
-            "minLength": 1
-          },
-          "quantity": {
-            "type": "integer",
-            "minimum": 1,
-            "default": 1
-          },
-          "unitPrice": {
-            "type": "number",
-            "minimum": 0
-          },
-          "totalPrice": {
-            "type": "number",
-            "minimum": 0
-          },
-          "incoterm": {
-            "type": "string"
-          },
-          "incotermLocation": {
-            "type": "string"
-          },
-          "leadTimeDays": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "validityDays": {
-            "type": "integer",
-            "minimum": 1,
-            "default": 30
+          {
+            "type": "object",
+            "properties": {
+              "customerName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40000
+              },
+              "partNumber": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40000
+              },
+              "quantity": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "unitPrice": {
+                "type": "number",
+                "minimum": 0
+              },
+              "totalPrice": {
+                "type": "number",
+                "minimum": 0
+              },
+              "incoterm": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "incotermLocation": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "leadTimeDays": {
+                "type": "number",
+                "minimum": 0
+              },
+              "validityDays": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "customerName",
+              "partNumber",
+              "quantity",
+              "unitPrice",
+              "totalPrice",
+              "validityDays"
+            ],
+            "additionalProperties": false
           }
-        },
-        "additionalProperties": false
+        ]
       },
       "AiChatRequest": {
         "type": "object",
-        "required": [
-          "message"
-        ],
         "properties": {
           "message": {
             "type": "string",
-            "minLength": 1
-          },
-          "systemPrompt": {
-            "type": "string"
-          },
-          "temperature": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 2
-          },
-          "maxTokens": {
-            "type": "integer",
-            "minimum": 1
+            "minLength": 1,
+            "maxLength": 40000
           }
         },
+        "required": [
+          "message"
+        ],
         "additionalProperties": false
       },
       "AuctionBid": {
@@ -55539,12 +56281,154 @@
             "$ref": "#/components/schemas/SettlementOrderList"
           }
         }
+      },
+      "AgentTestEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "output": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "latency": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "promptVersion": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "agentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "output",
+              "model",
+              "latency",
+              "promptVersion",
+              "agentId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "AgentVersionListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "config": {
+                  "type": "object",
+                  "properties": {
+                    "modelId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "minLength": 1
+                    },
+                    "temperature": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 2
+                    },
+                    "maxTokens": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 16384
+                    }
+                  },
+                  "required": [],
+                  "additionalProperties": false
+                },
+                "prompts": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "system",
+                          "user",
+                          "assistant"
+                        ]
+                      },
+                      "content": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 20000
+                      }
+                    },
+                    "required": [
+                      "role",
+                      "content"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "createdBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "version",
+                "config",
+                "prompts",
+                "createdBy",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
       }
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
       "mountCount": 60,
-      "operationCount": 359
+      "operationCount": 363
     }
   }
 }

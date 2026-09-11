@@ -12,6 +12,7 @@ import { applyDirectShipmentContract } from './direct-shipment-contract.mjs';
 import { applyShipmentContract } from './shipment-contract.mjs';
 import { applyPurchaseCommitmentContract } from './purchase-commitment-contract.mjs';
 import { applySettlementContract } from './settlement-contract.mjs';
+import { applyAiAgentContract } from './ai-agent-contract.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const outputPath = path.join(repoRoot, 'contracts', 'openapi', 'openapi.json');
@@ -3994,6 +3995,7 @@ export function buildScaffold() {
   applyShipmentContract(paths, core);
   applyPurchaseCommitmentContract(paths, core);
   applySettlementContract(paths, core);
+  applyAiAgentContract(paths, core);
 
   return {
     openapi: '3.1.0',

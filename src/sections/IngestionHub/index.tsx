@@ -50,6 +50,7 @@ import {
 } from '@/components/ui/select';
 import { useEmailStore } from '@/store';
 import { emailApi } from '@/api/client';
+import { RfqExtractionAssistant } from '@/components/BusinessAiAssistants';
 import { useEmails } from '@/hooks/useApi';
 import { useRFQs, useCreateRFQ } from '@/features/rfqs';
 import { useCustomers } from '@/features/customers';
@@ -89,7 +90,7 @@ function EmailTypeBadge({ type }: { type: EmailType }) {
 }
 
 function extractRFQFromEmail(email: Email): Partial<RFQ> {
-  // Simulated AI extraction logic
+  // Local rule-based prefill remains available without a configured AI model.
   const partNumberMatch = email.body.match(/(?:PN|Part Number|件号)[\s:：]+([A-Z0-9-]+)/i);
   const quantityMatch = email.body.match(/(?:Qty|Quantity|数量)[\s:：]+(\d+)/i);
   const dateMatch = email.body.match(/(?:Required Date|需求日期)[\s:：]+(\d{4}-\d{2}-\d{2})/i);
@@ -454,12 +455,20 @@ export function IngestionHub() {
                 </div>
               </div>
 
-              {/* AI extracted fields */}
+              <RfqExtractionAssistant key={selectedEmail.id} emailId={selectedEmail.id} onApply={(result, index) => {
+                setExtractedData((draft) => ({ ...draft, partNumber: result.partNumbers[index], quantity: result.quantities[index],
+                  urgency: result.urgency.toLowerCase() as RFQ['urgency'],
+                  aircraftType: result.aircraftType || draft.aircraftType,
+                  requiredDate: result.requiredDate || draft.requiredDate,
+                }));
+                setIsEditing(true);
+              }} />
+              {/* User-reviewed draft; initial fields are rule-based. */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-medium flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-500" />
-                    {tx('AI 提取信息', 'AI Extracted Information')}
+                    {tx('待确认需求信息（初始为规则提取）', 'RFQ draft (initially rule-based)')}
                   </h4>
                   <Button
                     variant="ghost"

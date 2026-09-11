@@ -591,15 +591,46 @@ export const agentRuntimeTaskSyncSchema = z.object({
   error: z.string().optional(),
 });
 
+export const AI_MODEL_PROVIDERS = ['openai', 'deepseek', 'ollama', 'custom'] as const;
+
+const isLocalModelHost = (hostname: string) => {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+};
+
+const isValidModelBaseUrl = (value: string): boolean => {
+  if (/[?#]/.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === 'https:') return true;
+    return parsed.protocol === 'http:' && isLocalModelHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const modelBaseUrlSchema = z.union([z.string().trim(), z.null()]).optional().refine(
+  (value) => value === undefined || value === null || value === '' || isValidModelBaseUrl(value),
+  '模型服务地址必须使用 HTTPS；本机服务仅允许 localhost、127.0.0.1 或 ::1 的 HTTP 地址',
+);
+
+const modelProviderSchema = z.string()
+  .trim()
+  .min(1, '供应商不能为空')
+  .transform((value) => value.toLowerCase())
+  .pipe(z.enum(AI_MODEL_PROVIDERS, { message: '不支持的模型供应商' }));
+
+const modelConfigSchema = z.record(z.unknown()).optional();
+
 export const modelCreateSchema = z.object({
-  name: z.string().min(1, '名称不能为空'),
-  provider: z.string().min(1, '供应商不能为空'),
-  modelId: z.string().min(1, '模型ID不能为空'),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
+  name: z.string().trim().min(1, '名称不能为空'),
+  provider: modelProviderSchema,
+  modelId: z.string().trim().min(1, '模型ID不能为空'),
+  apiKey: z.union([z.string(), z.null()]).optional(),
+  baseUrl: modelBaseUrlSchema,
   isActive: z.boolean().optional(),
   isDefault: z.boolean().optional(),
-  config: z.record(z.any()).optional(),
+  config: modelConfigSchema,
   capabilities: z.array(z.string()).optional(),
 });
 
@@ -839,11 +870,11 @@ export const agentUpdateSchema = z.object({
 });
 
 export const modelUpdateSchema = z.object({
-  name: z.string().min(1).optional(),
-  provider: z.string().min(1).optional(),
-  modelId: z.string().min(1).optional(),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
+  name: z.string().trim().min(1).optional(),
+  provider: modelProviderSchema.optional(),
+  modelId: z.string().trim().min(1).optional(),
+  apiKey: z.union([z.string(), z.null()]).optional(),
+  baseUrl: modelBaseUrlSchema,
   isActive: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   config: z.record(z.unknown()).optional(),

@@ -1,20 +1,145 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
+import { z } from 'zod';
 import type { AuthRequest } from '../middleware/auth.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
-import { agentCreateSchema, agentUpdateSchema } from '../lib/validation.js';
-import { classifyRFQEmail, generateQuoteAnalysis, generateCompletion, logAgentAction } from '../lib/aiService.js';
-import { logger } from '../lib/logger.js';
-import { emitWebhookEvent } from '../lib/webhookService.js';
 import { normalizeRole } from '../lib/capabilityPolicy.js';
 import prisma from '../lib/prisma.js';
+import { executeAgent } from '../lib/aiAgentExecution.js';
+import {
+  AgentDraftValidationError,
+  agentConfigValidationSchema,
+  agentPromptsSchema,
+  getBuiltinAgent,
+  parseAgentJson,
+  validateAgentDraft,
+} from '../lib/aiAgentRegistry.js';
 
 const router = Router();
 const requireAgentManagementRole = requireCapability('agent', 'manage');
 const requireAgentRunCapability = requireCapability('agent', 'run');
 const requireAgentReadCapability = requireCapability('agent', 'read');
+
+const agentCreateRequestSchema = z.object({
+  name: z.string().trim().min(1, '名称不能为空'),
+  type: z.string().trim().min(1, '类型不能为空'),
+  description: z.string().nullable().optional(),
+  isActive: z.boolean().optional(),
+  config: agentConfigValidationSchema.optional().default({}),
+  prompts: agentPromptsSchema.optional().default([]),
+}).strict();
+
+const agentPatchRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative('expectedRevision 必须为非负整数'),
+  name: z.string().trim().min(1, '名称不能为空').optional(),
+  type: z.string().trim().min(1, '类型不能为空').optional(),
+  description: z.string().nullable().optional(),
+  isActive: z.boolean().optional(),
+  config: agentConfigValidationSchema.optional(),
+  prompts: agentPromptsSchema.optional(),
+  builtinKey: z.string().nullable().optional(),
+}).strict();
+
+const expectedRevisionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative('expectedRevision 必须为非负整数'),
+}).strict();
+
+const restoreRequestSchema = expectedRevisionSchema.extend({
+  version: z.number().int().positive('version 必须为正整数'),
+}).strict();
+
+const testRequestSchema = z.object({
+  input: z.record(z.unknown()),
+}).strict();
+
+const agentRunRequestSchema = z.object({
+  task: z.string().max(100, 'task 不能超过100个字符').optional(),
+  input: z.record(z.unknown()),
+}).strict();
+
+type AgentResponseRecord = {
+  id: string;
+  name: string;
+  type: string;
+  description: string | null;
+  isActive: boolean;
+  config: string;
+  prompts: string;
+  builtinKey: string | null;
+  draftRevision: number;
+  publishedVersion: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function toRegistryValidationError(error: unknown): never {
+  if (error instanceof AgentDraftValidationError) {
+    throw new AppError('智能体草稿校验失败', 400, 'VALIDATION_ERROR', error.details);
+  }
+  throw error;
+}
+
+function mapAgent(agent: AgentResponseRecord) {
+  const workflowDefinition = agent.builtinKey ? getBuiltinAgent(agent.builtinKey) : undefined;
+  return {
+    ...agent,
+    config: parseAgentJson(agent.config, {} as Record<string, unknown>),
+    prompts: parseAgentJson(agent.prompts, [] as Array<{ role: string; content: string }>),
+    workflow: workflowDefinition
+      ? {
+          label: workflowDefinition.name,
+          description: workflowDefinition.description,
+          variables: workflowDefinition.variables,
+          inputExample: workflowDefinition.inputExample,
+        }
+      : null,
+  };
+}
+
+function getAuthenticatedAgentUser(req: AuthRequest) {
+  if (!req.user) throw new AppError('未授权，请先登录', 401, 'AUTH_UNAUTHORIZED');
+  return req.user;
+}
+
+function assertDraftRevision(agent: AgentResponseRecord, expectedRevision: number) {
+  if (agent.draftRevision !== expectedRevision) {
+    throw new AppError(
+      '智能体草稿已被其他用户修改，请刷新后重试',
+      409,
+      'RESOURCE_CONFLICT',
+      { expectedRevision: [`当前版本为 ${agent.draftRevision}`] },
+    );
+  }
+}
+
+function assertBuiltinType(agent: AgentResponseRecord, type: string | undefined) {
+  if (agent.builtinKey && type !== undefined && type !== agent.type) {
+    throw new AppError('内置智能体类型不可修改', 400, 'BAD_REQUEST');
+  }
+}
+
+function rejectSystemPromptOverride(input: Record<string, unknown>) {
+  if (Object.prototype.hasOwnProperty.call(input, 'systemPrompt')) {
+    throw new AppError('运行请求不能通过 input.systemPrompt 覆盖已发布提示词', 400, 'BAD_REQUEST');
+  }
+}
+
+const builtinTaskAliases: Record<string, string[]> = {
+  rfq_extraction: ['classify_email', 'rfq_extraction'],
+  quote_analysis: ['quote_analysis'],
+  customer_email: ['customer_email', 'generate_customer_email'],
+  business_chat: ['chat', 'business_chat'],
+};
+
+function assertBuiltinTask(agent: AgentResponseRecord, task: string | undefined) {
+  if (!agent.builtinKey) return;
+  const allowedTasks = builtinTaskAliases[agent.builtinKey] || [];
+  if (!task || !allowedTasks.includes(task)) {
+    throw new AppError(`内置智能体不支持任务：${task || '未提供'}`, 400, 'BAD_REQUEST');
+  }
+}
 
 type RuntimePrismaClient = Prisma.TransactionClient | typeof prisma;
 
@@ -295,6 +420,7 @@ router.put(
 
 router.get(
   '/',
+  requireAgentReadCapability,
   asyncHandler(async (_req, res) => {
     const agents = await prisma.aIAgent.findMany({
       orderBy: { createdAt: 'desc' },
@@ -302,17 +428,14 @@ router.get(
 
     res.json({
       success: true,
-      data: agents.map((agent) => ({
-        ...agent,
-        config: JSON.parse(agent.config),
-        prompts: JSON.parse(agent.prompts),
-      })),
+      data: agents.map((agent) => mapAgent(agent as AgentResponseRecord)),
     });
   })
 );
 
 router.get(
   '/:id',
+  requireAgentReadCapability,
   asyncHandler(async (req, res) => {
     const agent = await prisma.aIAgent.findUnique({
       where: { id: req.params.id },
@@ -324,11 +447,7 @@ router.get(
 
     res.json({
       success: true,
-      data: {
-        ...agent,
-        config: JSON.parse(agent.config),
-        prompts: JSON.parse(agent.prompts),
-      },
+      data: mapAgent(agent as AgentResponseRecord),
     });
   })
 );
@@ -336,9 +455,15 @@ router.get(
 router.post(
   '/',
   requireAgentManagementRole,
-  validateBody(agentCreateSchema),
+  validateBody(agentCreateRequestSchema),
   asyncHandler(async (req, res) => {
     const { name, type, description, isActive, config, prompts } = req.body;
+    let draft: ReturnType<typeof validateAgentDraft>;
+    try {
+      draft = validateAgentDraft(prompts, config);
+    } catch (error) {
+      toRegistryValidationError(error);
+    }
 
     const agent = await prisma.aIAgent.create({
       data: {
@@ -346,18 +471,16 @@ router.post(
         type,
         description,
         isActive: isActive ?? true,
-        config: JSON.stringify(config || {}),
-        prompts: JSON.stringify(prompts || []),
+        config: JSON.stringify(draft.config),
+        prompts: JSON.stringify(draft.prompts),
+        draftRevision: 0,
+        publishedVersion: null,
       },
     });
 
     res.status(201).json({
       success: true,
-      data: {
-        ...agent,
-        config: JSON.parse(agent.config),
-        prompts: JSON.parse(agent.prompts),
-      },
+      data: mapAgent(agent as AgentResponseRecord),
     });
   })
 );
@@ -365,29 +488,48 @@ router.post(
 router.patch(
   '/:id',
   requireAgentManagementRole,
-  validateBody(agentUpdateSchema),
+  validateBody(agentPatchRequestSchema),
   asyncHandler(async (req, res) => {
-    const { name, type, description, isActive, config, prompts } = req.body;
+    const { expectedRevision, name, type, description, isActive, config, prompts, builtinKey } = req.body;
+    const current = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!current) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    const agent = current as AgentResponseRecord;
+    assertDraftRevision(agent, expectedRevision);
+    assertBuiltinType(agent, type);
+    if (builtinKey !== undefined && builtinKey !== agent.builtinKey) {
+      throw new AppError('内置标识不可修改', 400, 'BAD_REQUEST');
+    }
 
-    const agent = await prisma.aIAgent.update({
-      where: { id: req.params.id },
+    const nextPrompts = prompts ?? parseAgentJson(agent.prompts, []);
+    const nextConfig = config ?? parseAgentJson(agent.config, {});
+    let draft: ReturnType<typeof validateAgentDraft>;
+    try {
+      draft = validateAgentDraft(nextPrompts, nextConfig, agent.builtinKey);
+    } catch (error) {
+      toRegistryValidationError(error);
+    }
+
+    const updatedCount = await prisma.aIAgent.updateMany({
+      where: { id: req.params.id, draftRevision: expectedRevision },
       data: {
         ...(name !== undefined && { name }),
         ...(type !== undefined && { type }),
         ...(description !== undefined && { description }),
         ...(isActive !== undefined && { isActive }),
-        ...(config !== undefined && { config: JSON.stringify(config) }),
-        ...(prompts !== undefined && { prompts: JSON.stringify(prompts) }),
+        config: JSON.stringify(draft.config),
+        prompts: JSON.stringify(draft.prompts),
+        draftRevision: { increment: 1 },
       },
     });
+    if (updatedCount.count !== 1) {
+      throw new AppError('智能体草稿已被其他用户修改，请刷新后重试', 409, 'RESOURCE_CONFLICT');
+    }
+    const updated = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!updated) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
 
     res.json({
       success: true,
-      data: {
-        ...agent,
-        config: JSON.parse(agent.config),
-        prompts: JSON.parse(agent.prompts),
-      },
+      data: mapAgent(updated as AgentResponseRecord),
     });
   })
 );
@@ -396,6 +538,11 @@ router.delete(
   '/:id',
   requireAgentManagementRole,
   asyncHandler(async (req, res) => {
+    const agent = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!agent) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    if (agent.builtinKey) {
+      throw new AppError('内置智能体不可删除，请停用或修改草稿', 400, 'BAD_REQUEST');
+    }
     await prisma.aIAgent.delete({
       where: { id: req.params.id },
     });
@@ -410,6 +557,7 @@ router.delete(
 router.post(
   '/:id/toggle',
   requireAgentManagementRole,
+  validateBody(expectedRevisionSchema),
   asyncHandler(async (req, res) => {
     const agent = await prisma.aIAgent.findUnique({
       where: { id: req.params.id },
@@ -419,107 +567,195 @@ router.post(
       throw new AppError('Agent不存在', 404);
     }
 
-    const updated = await prisma.aIAgent.update({
-      where: { id: req.params.id },
-      data: { isActive: !agent.isActive },
+    assertDraftRevision(agent as AgentResponseRecord, req.body.expectedRevision);
+    const updatedCount = await prisma.aIAgent.updateMany({
+      where: { id: req.params.id, draftRevision: req.body.expectedRevision },
+      data: {
+        isActive: !agent.isActive,
+        draftRevision: { increment: 1 },
+      },
     });
+    if (updatedCount.count !== 1) {
+      throw new AppError('智能体草稿已被其他用户修改，请刷新后重试', 409, 'RESOURCE_CONFLICT');
+    }
+    const updated = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!updated) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
 
     res.json({
       success: true,
+      data: mapAgent(updated as AgentResponseRecord),
+    });
+  })
+);
+
+router.get(
+  '/:id/versions',
+  requireAgentReadCapability,
+  asyncHandler(async (req, res) => {
+    const agent = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!agent) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+
+    const versions = await prisma.aIAgentVersion.findMany({
+      where: { agentId: req.params.id },
+      orderBy: { version: 'asc' },
+    });
+    res.json({
+      success: true,
+      data: versions.map((version) => ({
+        version: version.version,
+        prompts: parseAgentJson(version.prompts, []),
+        config: parseAgentJson(version.config, {}),
+        createdBy: version.createdBy,
+        createdAt: version.createdAt,
+      })),
+    });
+  })
+);
+
+router.post(
+  '/:id/publish',
+  requireAgentManagementRole,
+  validateBody(expectedRevisionSchema),
+  asyncHandler(async (req, res) => {
+    const actor = getAuthenticatedAgentUser(req as AuthRequest);
+    const { expectedRevision } = req.body;
+    const current = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!current) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    assertDraftRevision(current as AgentResponseRecord, expectedRevision);
+
+    try {
+      validateAgentDraft(
+        parseAgentJson(current.prompts, []),
+        parseAgentJson(current.config, {}),
+        current.builtinKey,
+      );
+    } catch (error) {
+      toRegistryValidationError(error);
+    }
+
+    const published = await prisma.$transaction(async (tx) => {
+      const latest = await tx.aIAgent.findUnique({ where: { id: req.params.id } });
+      if (!latest) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+      assertDraftRevision(latest as AgentResponseRecord, expectedRevision);
+      const latestVersion = await tx.aIAgentVersion.findMany({
+        where: { agentId: req.params.id },
+        orderBy: { version: 'desc' },
+        take: 1,
+      });
+      const nextVersion = Math.max(
+        latest.publishedVersion ?? 0,
+        latestVersion[0]?.version ?? 0,
+      ) + 1;
+      const updatedCount = await tx.aIAgent.updateMany({
+        where: {
+          id: req.params.id,
+          draftRevision: expectedRevision,
+          publishedVersion: latest.publishedVersion,
+        },
+        data: {
+          publishedVersion: nextVersion,
+          draftRevision: { increment: 1 },
+        },
+      });
+      if (updatedCount.count !== 1) {
+        throw new AppError('智能体草稿已被其他用户修改，请刷新后重试', 409, 'RESOURCE_CONFLICT');
+      }
+      await tx.aIAgentVersion.create({
+        data: {
+          agentId: req.params.id,
+          version: nextVersion,
+          prompts: latest.prompts,
+          config: latest.config,
+          createdBy: actor.id,
+        },
+      });
+      const updated = await tx.aIAgent.findUnique({ where: { id: req.params.id } });
+      if (!updated) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+      return updated;
+    });
+
+    res.json({ success: true, data: mapAgent(published as AgentResponseRecord) });
+  })
+);
+
+router.post(
+  '/:id/restore',
+  requireAgentManagementRole,
+  validateBody(restoreRequestSchema),
+  asyncHandler(async (req, res) => {
+    const { version, expectedRevision } = req.body;
+    const current = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!current) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    const agent = current as AgentResponseRecord;
+    assertDraftRevision(agent, expectedRevision);
+
+    const source = await prisma.aIAgentVersion.findUnique({
+      where: { agentId_version: { agentId: req.params.id, version } },
+    });
+    if (!source) throw new AppError('提示词版本不存在', 404, 'RESOURCE_NOT_FOUND');
+    try {
+      validateAgentDraft(
+        parseAgentJson(source.prompts, []),
+        parseAgentJson(source.config, {}),
+        agent.builtinKey,
+      );
+    } catch (error) {
+      toRegistryValidationError(error);
+    }
+
+    const updatedCount = await prisma.aIAgent.updateMany({
+      where: { id: req.params.id, draftRevision: expectedRevision },
       data: {
-        ...updated,
-        config: JSON.parse(updated.config),
-        prompts: JSON.parse(updated.prompts),
+        prompts: source.prompts,
+        config: source.config,
+        draftRevision: { increment: 1 },
       },
     });
+    if (updatedCount.count !== 1) {
+      throw new AppError('智能体草稿已被其他用户修改，请刷新后重试', 409, 'RESOURCE_CONFLICT');
+    }
+    const updated = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!updated) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    res.json({ success: true, data: mapAgent(updated as AgentResponseRecord) });
+  })
+);
+
+router.post(
+  '/:id/test',
+  requireAgentManagementRole,
+  requireAgentRunCapability,
+  validateBody(testRequestSchema),
+  asyncHandler(async (req, res) => {
+    const actor = getAuthenticatedAgentUser(req as AuthRequest);
+    const { input } = req.body as { input: Record<string, unknown> };
+    rejectSystemPromptOverride(input);
+    const result = await executeAgent(req.params.id, input, { actorId: actor.id, action: 'test' });
+    res.json({ success: true, data: result });
   })
 );
 
 router.post(
   '/:id/run',
   requireAgentRunCapability,
+  validateBody(agentRunRequestSchema),
   asyncHandler(async (req, res) => {
+    const actor = getAuthenticatedAgentUser(req as AuthRequest);
     const { id } = req.params;
-    const { task, input } = req.body;
-
-    const agent = await prisma.aIAgent.findUnique({
-      where: { id },
+    const { task, input } = req.body as { task?: string; input: Record<string, unknown> };
+    const agent = await prisma.aIAgent.findUnique({ where: { id } });
+    if (!agent) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    rejectSystemPromptOverride(input as Record<string, unknown>);
+    assertBuiltinTask(agent as AgentResponseRecord, task);
+    const result = await executeAgent(id, input as Record<string, unknown>, {
+      actorId: actor.id,
+      action: task ? `run:${task}` : 'run',
     });
-
-    if (!agent) {
-      throw new AppError('Agent不存在', 404);
-    }
-
-    if (!agent.isActive) {
-      throw new AppError('Agent未激活', 400);
-    }
-
-    const start = Date.now();
-    let output = '';
-    let status = 'SUCCESS';
-    let error: string | undefined;
-
-    try {
-      switch (task) {
-        case 'classify_email': {
-          const { subject, body } = input || {};
-          const result = await classifyRFQEmail(subject || '', body || '');
-          output = JSON.stringify(result);
-          break;
-        }
-        case 'quote_analysis': {
-          const { rfqDetails, supplierQuotes } = input || {};
-          output = await generateQuoteAnalysis(rfqDetails || '', supplierQuotes || '');
-          break;
-        }
-        case 'chat': {
-          const { message, systemPrompt } = input || {};
-          const result = await generateCompletion(
-            [
-              { role: 'system', content: systemPrompt || '你是AeroLink航材交易平台的AI助手。' },
-              { role: 'user', content: message || '' },
-            ],
-            { temperature: 0.7 }
-          );
-          output = result.content;
-          break;
-        }
-        default: {
-          const result = await generateCompletion(
-            [
-              { role: 'system', content: '你是AeroLink航材交易平台的AI助手。' },
-              { role: 'user', content: input?.message || JSON.stringify(input) || 'Hello' },
-            ],
-            { temperature: 0.7 }
-          );
-          output = result.content;
-        }
-      }
-    } catch (err) {
-      status = 'ERROR';
-      error = err instanceof Error ? err.message : '未知错误';
-      output = error;
-      logger.error({ err, agentId: id, task }, 'Agent task execution failed');
-    }
-
-    const duration = Date.now() - start;
-    await logAgentAction(id, task || 'unknown', JSON.stringify(input), output, status, error, duration);
-
-    await emitWebhookEvent(status === 'SUCCESS' ? 'agent.task.completed' : 'agent.task.failed', {
-      agentId: id,
-      task: task || 'unknown',
-      status,
-      durationMs: duration,
-      error: error || null,
-      completedAt: new Date().toISOString(),
-    });
-
     res.json({
-      success: status === 'SUCCESS',
+      success: true,
       data: {
-        output,
-        duration: `${duration}ms`,
-        status,
+        ...result,
+        duration: `${result.latency}ms`,
+        status: 'SUCCESS',
       },
     });
   })

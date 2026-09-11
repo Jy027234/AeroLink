@@ -43,6 +43,7 @@ import { useSupplierFollowUpStore } from '@/store';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { AGENT_RUNTIME_EXECUTION_ENABLED } from '@/lib/agentOrchestrator';
+import { BusinessChatAssistant } from '@/components/BusinessAiAssistants';
 
 const statusConfig = {
   pending: { label: 'Pending', color: 'text-gray-600', bg: 'bg-gray-50' },
@@ -1597,6 +1598,7 @@ export function AgentWorkbench() {
       {/* Header controls */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
+          <BusinessChatAssistant />
           <Button
             variant={autoRefresh ? 'default' : 'outline'}
             size="sm"
@@ -1612,7 +1614,7 @@ export function AgentWorkbench() {
             onClick={handleStartDemo}
           >
             <Play className="w-4 h-4 mr-1" />
-            {tx('助手执行已暂停', 'Assistant execution paused')}
+            {tx('自动流程执行已暂停', 'Automatic workflow execution paused')}
           </Button>
         </div>
       </div>

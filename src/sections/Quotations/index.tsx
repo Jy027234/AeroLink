@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { QuotationEmailAssistant } from '@/components/BusinessAiAssistants';
 import {
   FileText,
   CheckCircle,
@@ -1985,6 +1986,7 @@ function SendQuoteDialog({
           </div>
           <div className="space-y-2">
             <Label>{tx('邮件内容', 'Email Message')}</Label>
+            {isOpen && <QuotationEmailAssistant key={`${quote.id}-${quote.version}`} quotationId={quote.id} onApply={setMessage} disabled={isSubmitting} />}
             <Textarea value={message} onChange={(e) => setMessage(e.target.value)} className="min-h-[220px]" />
           </div>
         </div>

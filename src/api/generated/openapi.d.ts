@@ -1688,9 +1688,89 @@ export interface paths {
         put?: never;
         /**
          * POST /api/agents/:id/toggle
-         * @description Contracted internal agent/model administration and runtime operation. Provider credentials, API keys and persisted JSON shadow columns are excluded from response DTOs.
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
          */
         post: operations["postAgentsIdToggle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/agents/:id/versions
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
+         */
+        get: operations["getAgentsIdVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/agents/:id/publish
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
+         */
+        post: operations["postAgentsIdPublish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/agents/:id/restore
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
+         */
+        post: operations["postAgentsIdRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/agents/:id/test
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
+         */
+        post: operations["postAgentsIdTest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4517,7 +4597,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/ai/parse-email
-         * @description Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.
+         * @description Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.
          */
         post: operations["postAiParseEmail"];
         delete?: never;
@@ -4537,7 +4617,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/ai/analyze-quotes
-         * @description Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.
+         * @description Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.
          */
         post: operations["postAiAnalyzeQuotes"];
         delete?: never;
@@ -4557,7 +4637,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/ai/generate-email
-         * @description Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.
+         * @description Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.
          */
         post: operations["postAiGenerateEmail"];
         delete?: never;
@@ -4577,7 +4657,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/ai/chat
-         * @description Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.
+         * @description Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.
          */
         post: operations["postAiChat"];
         delete?: never;
@@ -7530,8 +7610,6 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             readonly allocatedQuantity?: number;
-            /** @description The accepted purchase receipt line that created this physical detail, when applicable. */
-            readonly stockReceiptLineId?: string;
         } & {
             [key: string]: unknown;
         };
@@ -11104,14 +11182,29 @@ export interface components {
             type: string;
             description?: string | null;
             isActive: boolean;
+            /** @description Draft config; legacy custom agents may contain older fields. */
             config: {
                 [key: string]: unknown;
             };
-            prompts: unknown[];
+            /** @description Draft prompts; legacy custom agents may be empty or need correction before publishing. */
+            prompts: {
+                [key: string]: unknown;
+            }[];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            builtinKey: string | null;
+            draftRevision: number;
+            publishedVersion: number | null;
+            workflow: {
+                label: string;
+                description: string;
+                variables: string[];
+                inputExample: {
+                    [key: string]: unknown;
+                };
+            } | null;
         } & {
             [key: string]: unknown;
         };
@@ -11164,11 +11257,13 @@ export interface components {
         };
         AgentRunResult: {
             output: string;
+            model: string;
+            latency: number;
+            promptVersion: number;
+            agentId: string;
             duration: string;
-            /** @enum {string} */
-            status: "SUCCESS" | "ERROR";
-        } & {
-            [key: string]: unknown;
+            /** @constant */
+            status: "SUCCESS";
         };
         AgentRunResultEnvelope: {
             /** @constant */
@@ -11195,6 +11290,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            hasApiKey: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -11248,6 +11344,12 @@ export interface components {
             /** @enum {string} */
             urgency: "AOG" | "URGENT" | "STANDARD";
             aircraftType?: string | null;
+            ai: {
+                agentId: string;
+                promptVersion: number;
+                model: string;
+            };
+            requiredDate?: string;
         } & {
             [key: string]: unknown;
         };
@@ -11260,6 +11362,11 @@ export interface components {
         };
         AiQuoteAnalysis: {
             analysis: string;
+            ai: {
+                agentId: string;
+                promptVersion: number;
+                model: string;
+            };
         } & {
             [key: string]: unknown;
         };
@@ -11272,6 +11379,11 @@ export interface components {
         };
         AiGeneratedEmail: {
             email: string;
+            ai: {
+                agentId: string;
+                promptVersion: number;
+                model: string;
+            };
         } & {
             [key: string]: unknown;
         };
@@ -11291,6 +11403,11 @@ export interface components {
                 totalTokens?: number;
             } | null;
             latency: number;
+            ai: {
+                agentId: string;
+                promptVersion: number;
+                model: string;
+            };
         } & {
             [key: string]: unknown;
         };
@@ -11388,37 +11505,51 @@ export interface components {
         AgentCreateRequest: {
             name: string;
             type: string;
-            description?: string;
+            description?: string | null;
             isActive?: boolean;
             config?: {
-                [key: string]: unknown;
+                modelId?: string | null;
+                temperature?: number;
+                maxTokens?: number;
             };
-            prompts?: unknown[];
+            prompts: {
+                /** @enum {string} */
+                role: "system" | "user" | "assistant";
+                content: string;
+            }[];
         };
         AgentUpdateRequest: {
             name?: string;
             type?: string;
-            description?: string;
+            description?: string | null;
             isActive?: boolean;
             config?: {
-                [key: string]: unknown;
+                modelId?: string | null;
+                temperature?: number;
+                maxTokens?: number;
             };
-            prompts?: unknown[];
+            prompts?: {
+                /** @enum {string} */
+                role: "system" | "user" | "assistant";
+                content: string;
+            }[];
+            expectedRevision: number;
+            builtinKey?: string | null;
         };
         AgentRunRequest: {
             task?: string;
-            input?: {
+            input: {
                 [key: string]: unknown;
             };
         };
         AiModelCreateRequest: {
             name: string;
             /** @enum {string} */
-            provider: "openai" | "anthropic" | "azure" | "ollama" | "deepseek" | "custom";
+            provider: "openai" | "deepseek" | "ollama" | "custom";
             modelId: string;
-            apiKey?: string;
-            /** Format: uri */
-            baseUrl?: string;
+            apiKey?: string | null;
+            /** @description HTTPS endpoint without credentials, query or fragment; local HTTP allowed. Custom and Ollama require an explicit URL. */
+            baseUrl?: string | null;
             isActive?: boolean;
             isDefault?: boolean;
             config?: {
@@ -11429,11 +11560,11 @@ export interface components {
         AiModelUpdateRequest: {
             name?: string;
             /** @enum {string} */
-            provider?: "openai" | "anthropic" | "azure" | "ollama" | "deepseek" | "custom";
+            provider?: "openai" | "deepseek" | "ollama" | "custom";
             modelId?: string;
-            apiKey?: string;
-            /** Format: uri */
-            baseUrl?: string;
+            apiKey?: string | null;
+            /** @description HTTPS endpoint without credentials, query or fragment; local HTTP allowed. Custom and Ollama require an explicit URL. */
+            baseUrl?: string | null;
             isActive?: boolean;
             isDefault?: boolean;
             config?: {
@@ -11442,31 +11573,32 @@ export interface components {
             capabilities?: string[];
         };
         AiParseEmailRequest: {
+            emailId: string;
+        } | {
             subject: string;
             body: string;
         };
         AiAnalyzeQuotesRequest: {
+            rfqId: string;
+        } | {
             rfqDetails: string;
             supplierQuotes: string;
         };
         AiGenerateEmailRequest: {
+            quotationId: string;
+        } | {
             customerName: string;
             partNumber: string;
-            /** @default 1 */
             quantity: number;
             unitPrice: number;
             totalPrice: number;
             incoterm?: string;
             incotermLocation?: string;
             leadTimeDays?: number;
-            /** @default 30 */
             validityDays: number;
         };
         AiChatRequest: {
             message: string;
-            systemPrompt?: string;
-            temperature?: number;
-            maxTokens?: number;
         };
         AuctionBid: {
             id: string;
@@ -13584,6 +13716,37 @@ export interface components {
             /** @constant */
             success: true;
             data: components["schemas"]["SettlementOrderList"];
+        };
+        AgentTestEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                output: string;
+                model: string;
+                latency: number;
+                promptVersion: number;
+                agentId: string;
+            };
+        };
+        AgentVersionListEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                version: number;
+                config: {
+                    modelId?: string | null;
+                    temperature?: number;
+                    maxTokens?: number;
+                };
+                prompts: {
+                    /** @enum {string} */
+                    role: "system" | "user" | "assistant";
+                    content: string;
+                }[];
+                createdBy: string | null;
+                /** Format: date-time */
+                createdAt: string;
+            }[];
         };
     };
     responses: {
@@ -18262,7 +18425,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: components["requestBodies"]["AgentUpdate"];
+        requestBody: components["requestBodies"]["AgentUpdate"];
         responses: {
             200: components["responses"]["Agent"];
             400: components["responses"]["Error"];
@@ -18287,9 +18450,173 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getAgentsIdVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Agent"];
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentVersionListEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postAgentsIdPublish: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postAgentsIdRestore: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    version: number;
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postAgentsIdTest: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    input: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTestEnvelope"];
+                };
+            };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -18312,7 +18639,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: components["requestBodies"]["AgentRun"];
+        requestBody: components["requestBodies"]["AgentRun"];
         responses: {
             200: components["responses"]["AgentRunResult"];
             400: components["responses"]["Error"];

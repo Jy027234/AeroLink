@@ -8,9 +8,9 @@ const TAG_LENGTH = 16;
 const ROTATION_CONFIRMATION = 'rotate-encryption-key';
 
 type RotationUpdate = {
-  model: 'emailAccount' | 'webhookEndpoint';
+  model: 'emailAccount' | 'webhookEndpoint' | 'aIModel';
   id: string;
-  field: 'authCode' | 'authToken' | 'secret';
+  field: 'authCode' | 'authToken' | 'secret' | 'apiKey';
   value: string;
 };
 
@@ -60,9 +60,10 @@ async function main() {
 
   try {
     const updates: RotationUpdate[] = [];
-    const [emailAccounts, webhookEndpoints] = await Promise.all([
+    const [emailAccounts, webhookEndpoints, aiModels] = await Promise.all([
       prisma.emailAccount.findMany({ select: { id: true, authCode: true } }),
       prisma.webhookEndpoint.findMany({ select: { id: true, authToken: true, secret: true } }),
+      prisma.aIModel.findMany({ select: { id: true, apiKey: true } }),
     ]);
 
     for (const account of emailAccounts) {
@@ -92,6 +93,12 @@ async function main() {
       }
     }
 
+    for (const model of aiModels) {
+      if (!model.apiKey?.startsWith('enc:v1:')) continue;
+      const plaintext = decryptWithKey(model.apiKey.slice('enc:v1:'.length), oldKey, `aIModel:${model.id}:apiKey`);
+      updates.push({ model: 'aIModel', id: model.id, field: 'apiKey', value: `enc:v1:${encryptWithKey(plaintext, newKey)}` });
+    }
+
     console.log(`Encryption key rotation prepared ${updates.length} encrypted field(s).`);
 
     if (process.env.ROTATION_DRY_RUN !== 'false') {
@@ -107,6 +114,8 @@ async function main() {
       for (const update of updates) {
         if (update.model === 'emailAccount') {
           await tx.emailAccount.update({ where: { id: update.id }, data: { authCode: update.value } });
+        } else if (update.model === 'aIModel') {
+          await tx.aIModel.update({ where: { id: update.id }, data: { apiKey: update.value } });
         } else if (update.field === 'authToken') {
           await tx.webhookEndpoint.update({ where: { id: update.id }, data: { authToken: update.value } });
         } else {

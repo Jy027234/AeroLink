@@ -76,7 +76,7 @@ test.describe('Agent Workbench', () => {
     const runtimeButton = page.getByTestId('agent-runtime-disabled');
     await expect(runtimeButton).toBeVisible();
     await expect(runtimeButton).toBeDisabled();
-    await expect(runtimeButton).toContainText(/助手执行已暂停|Assistant execution paused/);
+    await expect(runtimeButton).toContainText(/自动流程执行已暂停|Automatic workflow execution paused/);
 
     // The former demo action must not remain as an executable client entry point.
     await expect(page.getByTestId('agent-run-demo')).toHaveCount(0);

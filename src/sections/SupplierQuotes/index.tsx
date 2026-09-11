@@ -42,6 +42,7 @@ import { supplierQuoteApi, type AnalyticsDataAvailability } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
+import { QuoteAnalysisAssistant } from '@/components/BusinessAiAssistants';
 
 interface SupplierQuote {
   id: string;
@@ -243,6 +244,7 @@ export function SupplierQuotes() {
                   className="pl-10"
                 />
               </div>
+              <QuoteAnalysisAssistant rfqId={rfqFilter === 'all' ? null : rfqFilter} />
               <Select value={rfqFilter} onValueChange={setRfqFilter}>
                 <SelectTrigger className="h-10">
                   <SelectValue />

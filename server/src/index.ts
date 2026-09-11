@@ -85,6 +85,7 @@ import {
   unregisterSocketSession,
 } from './lib/socketEvents.js';
 import { API_OUTBOX_CHANNELS } from './lib/outboxService.js';
+import { ensureBuiltinAgents } from './lib/aiAgentRegistry.js';
 import { startWorker, type WorkerRuntime } from './worker.js';
 
 const app = express();
@@ -305,23 +306,34 @@ const isMainModule = process.argv[1]
 // Production is intentionally single API + Worker.  The API process owns only
 // SOCKET outbox leases; the standalone worker defaults to EMAIL/WEBHOOK.  A
 // multi-API deployment would need a shared Socket.IO adapter or event cursor.
-const inlineWorker: WorkerRuntime | null = isMainModule && process.env.SOCKET_OUTBOX_CONSUMER !== 'false'
-  ? startWorker({
-      workerId: process.env.API_SOCKET_WORKER_ID?.trim() || `api-socket-${process.pid}`,
-      outboxChannels: API_OUTBOX_CHANNELS,
-      runWebhookRetries: false,
-      runIdempotencyCleanup: false,
-      runEmailSync: false,
-      runAllocationExpiry: false,
-    })
-  : null;
+let inlineWorker: WorkerRuntime | null = null;
+
+function startInlineWorker() {
+  if (process.env.SOCKET_OUTBOX_CONSUMER === 'false') return null;
+  return startWorker({
+    workerId: process.env.API_SOCKET_WORKER_ID?.trim() || `api-socket-${process.pid}`,
+    outboxChannels: API_OUTBOX_CHANNELS,
+    runWebhookRetries: false,
+    runIdempotencyCleanup: false,
+    runEmailSync: false,
+    runAllocationExpiry: false,
+  });
+}
 
 if (isMainModule) {
-  httpServer.listen(PORT, () => {
-    logger.info(`🚀 AeroLink Server running on http://localhost:${PORT}`);
-    logger.info(`📚 Health check: http://localhost:${PORT}/api/health`);
-    logger.info(inlineWorker ? '🔁 API Socket outbox consumer enabled (single-API topology)' : '🔁 Socket outbox consumer disabled');
-  });
+  void ensureBuiltinAgents()
+    .then(() => {
+      inlineWorker = startInlineWorker();
+      httpServer.listen(PORT, () => {
+        logger.info(`🚀 AeroLink Server running on http://localhost:${PORT}`);
+        logger.info(`📚 Health check: http://localhost:${PORT}/api/health`);
+        logger.info(inlineWorker ? '🔁 API Socket outbox consumer enabled (single-API topology)' : '🔁 Socket outbox consumer disabled');
+      });
+    })
+    .catch((error) => {
+      logger.error({ error }, 'Built-in AI agent initialization failed; refusing to start API');
+      process.exitCode = 1;
+    });
 }
 
 function gracefulShutdown(signal: string) {
