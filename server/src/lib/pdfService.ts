@@ -6,7 +6,7 @@ import { logger } from './logger.js';
 let browserInstance: Browser | null = null;
 
 async function getBrowser(): Promise<Browser> {
-  if (browserInstance && browserInstance.isConnected()) {
+  if (browserInstance?.connected) {
     return browserInstance;
   }
 
@@ -20,7 +20,7 @@ async function getBrowser(): Promise<Browser> {
   return browserInstance;
 }
 
-async function closeBrowser(): Promise<void> {
+export async function closeBrowser(): Promise<void> {
   if (browserInstance) {
     try {
       await browserInstance.close();
@@ -147,7 +147,8 @@ export async function generatePDF(html: string, options: PDFOptions = {}): Promi
 </body>
 </html>`;
 
-    await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
+    await page.setContent(fullHtml, { waitUntil: 'load' });
+    await page.waitForNetworkIdle();
 
     const pdf = await page.pdf({
       format: 'A4',
@@ -161,7 +162,120 @@ export async function generatePDF(html: string, options: PDFOptions = {}): Promi
   }
 }
 
-export function generateQuotationHTML(data: {
+export interface PdfLineItem {
+  lineId?: string;
+  partNumber: string;
+  description?: string | null;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  currency: string;
+  costPrice?: number | null;
+  margin?: number | null;
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatPdfNumber(value: number): string {
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+    maximumFractionDigits: 4,
+  });
+}
+
+function currencyPrefix(currency: string): string {
+  return currency === 'USD' ? '$' : `${currency} `;
+}
+
+function assertLineItems(
+  lineItemsMode: boolean | undefined,
+  lines: PdfLineItem[] | undefined,
+  documentName: string,
+) {
+  if (lineItemsMode === true && (!lines || lines.length === 0)) {
+    throw new Error(`${documentName} 已启用多行模式但未提供明细行`);
+  }
+}
+
+function quotationLineItems(data: {
+  partNumber: string;
+  description?: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  costPrice?: number;
+  margin?: number;
+  currency?: string;
+  lines?: PdfLineItem[];
+  lineItemsMode?: boolean;
+}): PdfLineItem[] {
+  assertLineItems(data.lineItemsMode, data.lines, '报价 PDF');
+  if (data.lines && data.lines.length > 0) {
+    return data.lines;
+  }
+  return [{
+    partNumber: data.partNumber,
+    description: data.description,
+    quantity: data.quantity,
+    unitPrice: data.unitPrice,
+    lineTotal: data.totalPrice,
+    currency: data.currency || 'USD',
+    costPrice: data.costPrice,
+    margin: data.margin,
+  }];
+}
+
+function orderLineItems(data: {
+  partNumber: string;
+  quantity: number;
+  totalAmount: number;
+  lines?: PdfLineItem[];
+  lineItemsMode?: boolean;
+}): PdfLineItem[] {
+  assertLineItems(data.lineItemsMode, data.lines, '订单合同/PDF');
+  if (data.lines && data.lines.length > 0) {
+    return data.lines;
+  }
+  return [{
+    partNumber: data.partNumber,
+    quantity: data.quantity,
+    unitPrice: data.quantity > 0 ? data.totalAmount / data.quantity : 0,
+    lineTotal: data.totalAmount,
+    currency: 'USD',
+  }];
+}
+
+function renderPdfLineRows(lines: PdfLineItem[], includeDescription: boolean): string {
+  return lines.map(line => {
+    const prefix = currencyPrefix(line.currency);
+    return `<tr>
+        <td>${escapeHtml(line.partNumber)}</td>
+        ${includeDescription ? `<td>${escapeHtml(line.description || '-')}</td>` : ''}
+        <td class="text-right">${escapeHtml(formatPdfNumber(line.quantity))}</td>
+        <td class="text-right">${escapeHtml(prefix + formatPdfNumber(line.unitPrice))}</td>
+        <td class="text-right">${escapeHtml(prefix + formatPdfNumber(line.lineTotal))}</td>
+      </tr>`;
+  }).join('\n');
+}
+
+function renderInternalPdfLineRows(lines: PdfLineItem[]): string {
+  return lines.map(line => {
+    const cost = line.costPrice === null || line.costPrice === undefined
+      ? 'N/A'
+      : `$${formatPdfNumber(line.costPrice)} x ${formatPdfNumber(line.quantity)} = $${formatPdfNumber(line.costPrice * line.quantity)}`;
+    const margin = line.margin === null || line.margin === undefined ? 'N/A' : `${formatPdfNumber(line.margin)}%`;
+    return `<tr><td>${escapeHtml(line.partNumber)}</td><td class="text-right">${escapeHtml(cost)}</td><td class="text-right">${escapeHtml(margin)}</td></tr>`;
+  }).join('\n');
+}
+
+export interface QuotationPdfData {
   quoteNumber: string;
   customerName: string;
   partNumber: string;
@@ -191,11 +305,25 @@ export function generateQuotationHTML(data: {
   createdAt: string;
   expiryDate: string;
   createdBy?: string;
+  currency?: string;
+  lines?: PdfLineItem[];
+  lineItemsMode?: boolean;
   /** Internal route only. Customer-facing quotation attachments must not expose cost or margin. */
   includeInternalInfo?: boolean;
-}): string {
-  const totalCost = (data.costPrice || 0) * data.quantity;
-  const marginPercent = data.margin ? data.margin.toFixed(2) : '0.00';
+}
+
+export function generateQuotationHTML(data: QuotationPdfData): string {
+  const lines = quotationLineItems(data);
+  const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const totalPrice = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const totalCost = lines.every(line => line.costPrice !== null && line.costPrice !== undefined)
+    ? lines.reduce((sum, line) => sum + (line.costPrice || 0) * line.quantity, 0)
+    : null;
+  const marginPercent = totalCost !== null && totalPrice !== 0
+    ? (((totalPrice - totalCost) / totalPrice) * 100).toFixed(2)
+    : data.margin === undefined || data.margin === null ? 'N/A' : data.margin.toFixed(2);
+  const lineCurrency = lines[0]?.currency || data.currency || 'USD';
+  const prefix = currencyPrefix(lineCurrency);
 
   return `
 <div class="header">
@@ -223,16 +351,10 @@ export function generateQuotationHTML(data: {
       </tr>
     </thead>
     <tbody>
-      <tr>
-        <td>${data.partNumber}</td>
-        <td>${data.description || '-'}</td>
-        <td class="text-right">${data.quantity}</td>
-        <td class="text-right">$${data.unitPrice.toLocaleString()}</td>
-        <td class="text-right">$${data.totalPrice.toLocaleString()}</td>
-      </tr>
+      ${renderPdfLineRows(lines, true)}
       <tr class="total-row">
         <td colspan="4" class="text-right"><strong>合计 Total</strong></td>
-        <td class="text-right"><strong>$${data.totalPrice.toLocaleString()}</strong></td>
+        <td class="text-right"><strong>${prefix}${formatPdfNumber(totalPrice)}</strong></td>
       </tr>
     </tbody>
   </table>
@@ -260,8 +382,10 @@ export function generateQuotationHTML(data: {
   <div class="section">
    <div class="section-title">内部信息 Internal Info</div>
    <table>
-     <tr><td style="width:30%"><strong>成本价 Cost Price</strong></td><td>$${data.costPrice?.toLocaleString() || '0'} x ${data.quantity} = $${totalCost.toLocaleString()}</td></tr>
-     <tr><td><strong>利润率 Margin</strong></td><td>${marginPercent}%</td></tr>
+     <thead><tr><th>件号</th><th>成本价 Cost Price</th><th>利润率 Margin</th></tr></thead>
+     <tbody>${renderInternalPdfLineRows(lines)}</tbody>
+     <tr><td style="width:30%"><strong>成本总额 Cost Total</strong></td><td colspan="2">${totalCost === null ? 'N/A' : `$${formatPdfNumber(totalCost)}`}</td></tr>
+     <tr><td><strong>利润率 Margin</strong></td><td colspan="2">${marginPercent === 'N/A' ? marginPercent : `${marginPercent}%`}</td></tr>
      <tr><td><strong>报价人 Created By</strong></td><td>${data.createdBy || 'N/A'}</td></tr>
      <tr><td><strong>创建时间 Created At</strong></td><td>${data.createdAt}</td></tr>
    </table>
@@ -281,7 +405,14 @@ export function generateOrderHTML(data: {
   trackingNumber?: string;
   carrier?: string;
   createdAt: string;
+  lines?: PdfLineItem[];
+  lineItemsMode?: boolean;
 }): string {
+  const lines = orderLineItems(data);
+  const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const totalAmount = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const lineCurrency = lines[0]?.currency || 'USD';
+  const prefix = currencyPrefix(lineCurrency);
   return `
 <div class="header">
   <h1>销售订单 Sales Order</h1>
@@ -305,14 +436,24 @@ export function generateOrderHTML(data: {
       <tr>
         <th>件号 Part Number</th>
         <th>数量 Qty</th>
+        <th>单价 Unit Price</th>
         <th>总价 Total Amount</th>
+        <th>币种 Currency</th>
       </tr>
     </thead>
     <tbody>
-      <tr>
-        <td>${data.partNumber}</td>
-        <td class="text-right">${data.quantity}</td>
-        <td class="text-right">$${data.totalAmount.toLocaleString()}</td>
+      ${lines.map(line => `<tr>
+        <td>${escapeHtml(line.partNumber)}</td>
+        <td class="text-right">${escapeHtml(formatPdfNumber(line.quantity))}</td>
+        <td class="text-right">${escapeHtml(currencyPrefix(line.currency) + formatPdfNumber(line.unitPrice))}</td>
+        <td class="text-right">${escapeHtml(currencyPrefix(line.currency) + formatPdfNumber(line.lineTotal))}</td>
+        <td>${escapeHtml(line.currency)}</td>
+      </tr>`).join('\n')}
+      <tr class="total-row">
+        <td colspan="2" class="text-right"><strong>合计 Total</strong></td>
+        <td class="text-right"><strong>${escapeHtml(`${quantity} EA`)}</strong></td>
+        <td class="text-right"><strong>${escapeHtml(prefix + formatPdfNumber(totalAmount))}</strong></td>
+        <td>${escapeHtml(lineCurrency)}</td>
       </tr>
     </tbody>
   </table>
@@ -329,7 +470,7 @@ export function generateOrderHTML(data: {
 `;
 }
 
-export async function generateQuotationPDF(data: Parameters<typeof generateQuotationHTML>[0]): Promise<Buffer> {
+export async function generateQuotationPDF(data: QuotationPdfData): Promise<Buffer> {
   const html = generateQuotationHTML(data);
   return generatePDF(html, { title: `Quotation-${data.quoteNumber}` });
 }

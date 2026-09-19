@@ -1,18 +1,145 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
+import { z } from 'zod';
+import type { AuthRequest } from '../middleware/auth.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
-import { agentCreateSchema, agentRuntimeTaskSyncSchema, agentUpdateSchema } from '../lib/validation.js';
-import { classifyRFQEmail, generateQuoteAnalysis, generateCompletion, logAgentAction } from '../lib/aiService.js';
-import { logger } from '../lib/logger.js';
-import { emitWebhookEvent } from '../lib/webhookService.js';
-import { assertProductFeatureEnabled } from '../lib/productFeatures.js';
+import { normalizeRole } from '../lib/capabilityPolicy.js';
 import prisma from '../lib/prisma.js';
+import { executeAgent } from '../lib/aiAgentExecution.js';
+import {
+  AgentDraftValidationError,
+  agentConfigValidationSchema,
+  agentPromptsSchema,
+  getBuiltinAgent,
+  parseAgentJson,
+  validateAgentDraft,
+} from '../lib/aiAgentRegistry.js';
 
 const router = Router();
 const requireAgentManagementRole = requireCapability('agent', 'manage');
 const requireAgentRunCapability = requireCapability('agent', 'run');
+const requireAgentReadCapability = requireCapability('agent', 'read');
+
+const agentCreateRequestSchema = z.object({
+  name: z.string().trim().min(1, '名称不能为空'),
+  type: z.string().trim().min(1, '类型不能为空'),
+  description: z.string().nullable().optional(),
+  isActive: z.boolean().optional(),
+  config: agentConfigValidationSchema.optional().default({}),
+  prompts: agentPromptsSchema.optional().default([]),
+}).strict();
+
+const agentPatchRequestSchema = z.object({
+  expectedRevision: z.number().int().nonnegative('expectedRevision 必须为非负整数'),
+  name: z.string().trim().min(1, '名称不能为空').optional(),
+  type: z.string().trim().min(1, '类型不能为空').optional(),
+  description: z.string().nullable().optional(),
+  isActive: z.boolean().optional(),
+  config: agentConfigValidationSchema.optional(),
+  prompts: agentPromptsSchema.optional(),
+  builtinKey: z.string().nullable().optional(),
+}).strict();
+
+const expectedRevisionSchema = z.object({
+  expectedRevision: z.number().int().nonnegative('expectedRevision 必须为非负整数'),
+}).strict();
+
+const restoreRequestSchema = expectedRevisionSchema.extend({
+  version: z.number().int().positive('version 必须为正整数'),
+}).strict();
+
+const testRequestSchema = z.object({
+  input: z.record(z.unknown()),
+}).strict();
+
+const agentRunRequestSchema = z.object({
+  task: z.string().max(100, 'task 不能超过100个字符').optional(),
+  input: z.record(z.unknown()),
+}).strict();
+
+type AgentResponseRecord = {
+  id: string;
+  name: string;
+  type: string;
+  description: string | null;
+  isActive: boolean;
+  config: string;
+  prompts: string;
+  builtinKey: string | null;
+  draftRevision: number;
+  publishedVersion: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function toRegistryValidationError(error: unknown): never {
+  if (error instanceof AgentDraftValidationError) {
+    throw new AppError('智能体草稿校验失败', 400, 'VALIDATION_ERROR', error.details);
+  }
+  throw error;
+}
+
+function mapAgent(agent: AgentResponseRecord) {
+  const workflowDefinition = agent.builtinKey ? getBuiltinAgent(agent.builtinKey) : undefined;
+  return {
+    ...agent,
+    config: parseAgentJson(agent.config, {} as Record<string, unknown>),
+    prompts: parseAgentJson(agent.prompts, [] as Array<{ role: string; content: string }>),
+    workflow: workflowDefinition
+      ? {
+          label: workflowDefinition.name,
+          description: workflowDefinition.description,
+          variables: workflowDefinition.variables,
+          inputExample: workflowDefinition.inputExample,
+        }
+      : null,
+  };
+}
+
+function getAuthenticatedAgentUser(req: AuthRequest) {
+  if (!req.user) throw new AppError('未授权，请先登录', 401, 'AUTH_UNAUTHORIZED');
+  return req.user;
+}
+
+function assertDraftRevision(agent: AgentResponseRecord, expectedRevision: number) {
+  if (agent.draftRevision !== expectedRevision) {
+    throw new AppError(
+      '智能体草稿已被其他用户修改，请刷新后重试',
+      409,
+      'RESOURCE_CONFLICT',
+      { expectedRevision: [`当前版本为 ${agent.draftRevision}`] },
+    );
+  }
+}
+
+function assertBuiltinType(agent: AgentResponseRecord, type: string | undefined) {
+  if (agent.builtinKey && type !== undefined && type !== agent.type) {
+    throw new AppError('内置智能体类型不可修改', 400, 'BAD_REQUEST');
+  }
+}
+
+function rejectSystemPromptOverride(input: Record<string, unknown>) {
+  if (Object.prototype.hasOwnProperty.call(input, 'systemPrompt')) {
+    throw new AppError('运行请求不能通过 input.systemPrompt 覆盖已发布提示词', 400, 'BAD_REQUEST');
+  }
+}
+
+const builtinTaskAliases: Record<string, string[]> = {
+  rfq_extraction: ['classify_email', 'rfq_extraction'],
+  quote_analysis: ['quote_analysis'],
+  customer_email: ['customer_email', 'generate_customer_email'],
+  business_chat: ['chat', 'business_chat'],
+};
+
+function assertBuiltinTask(agent: AgentResponseRecord, task: string | undefined) {
+  if (!agent.builtinKey) return;
+  const allowedTasks = builtinTaskAliases[agent.builtinKey] || [];
+  if (!task || !allowedTasks.includes(task)) {
+    throw new AppError(`内置智能体不支持任务：${task || '未提供'}`, 400, 'BAD_REQUEST');
+  }
+}
 
 type RuntimePrismaClient = Prisma.TransactionClient | typeof prisma;
 
@@ -26,36 +153,14 @@ function parseRuntimeJson<T>(value: string | null | undefined, fallback: T): T {
   }
 }
 
-function buildRuntimeStepRecordId(taskId: string, stepId: string): string {
-  return `${taskId}::${stepId}`;
-}
-
 function extractRuntimeStepId(recordId: string): string {
   const separatorIndex = recordId.indexOf('::');
   return separatorIndex >= 0 ? recordId.slice(separatorIndex + 2) : recordId;
 }
 
-function buildRuntimeConfirmationRecordId(taskId: string, confirmationId: string): string {
-  return `${taskId}::${confirmationId}`;
-}
-
 function extractRuntimeConfirmationId(recordId: string): string {
   const separatorIndex = recordId.indexOf('::');
   return separatorIndex >= 0 ? recordId.slice(separatorIndex + 2) : recordId;
-}
-
-function stringifyRuntimeJson(value: unknown, fallback: string): string {
-  if (value === undefined) return fallback;
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return fallback;
-  }
-}
-
-function toDate(value?: string | null): Date | undefined {
-  return value ? new Date(value) : undefined;
 }
 
 async function getRuntimeTaskById(client: RuntimePrismaClient, id: string) {
@@ -72,59 +177,70 @@ async function getRuntimeTaskById(client: RuntimePrismaClient, id: string) {
 
 type AgentRuntimeTaskRecord = NonNullable<Awaited<ReturnType<typeof getRuntimeTaskById>>>;
 
-type RuntimeConfirmationAuditRecord = {
-  confirmationId?: string;
-  taskId?: string;
-  stepId?: string;
-  type?: string;
-  optionId?: string;
-  action?: string;
-  optionLabel?: string;
-  optionLabelZh?: string;
-  optionLabelEn?: string;
-  confirmedAt?: string;
-  confirmedBy?: string;
-  note?: string;
-  reasonCode?: string;
-  reasonLabel?: string;
-  reasonLabelZh?: string;
-  reasonLabelEn?: string;
-};
+type RuntimeTrust = 'server_trusted' | 'legacy_untrusted';
+type RuntimeExecutionState = 'manual_workflow_required' | 'not_dispatched';
 
-function getLatestRuntimeConfirmationAudit(context: unknown): RuntimeConfirmationAuditRecord | undefined {
-  if (!context || typeof context !== 'object') {
-    return undefined;
-  }
-
-  const latestConfirmation = (context as Record<string, unknown>).latestConfirmation;
-  if (!latestConfirmation || typeof latestConfirmation !== 'object') {
-    return undefined;
-  }
-
-  const audit = latestConfirmation as RuntimeConfirmationAuditRecord;
-  if (!audit.confirmationId || !audit.confirmedAt) {
-    return undefined;
-  }
-
-  return audit;
+function getRuntimeTrust(_context: unknown): RuntimeTrust {
+  // The legacy table has no server-owned attribution column. Context/result data
+  // may have been written by the old client PUT endpoint, so it cannot establish
+  // ownership or trust. A future server-controlled task creation path must add
+  // independent metadata before this can return server_trusted.
+  return 'legacy_untrusted';
 }
 
-function isSameRuntimeConfirmationAudit(
-  previousAudit?: RuntimeConfirmationAuditRecord,
-  nextAudit?: RuntimeConfirmationAuditRecord
-): boolean {
-  if (!previousAudit || !nextAudit) {
-    return false;
+function getRuntimeExecutionStateFromData(data: unknown): RuntimeExecutionState | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+
+  const directState = (data as Record<string, unknown>).executionState;
+  if (directState === 'manual_workflow_required' || directState === 'not_dispatched') {
+    return directState;
   }
 
-  return (
-    previousAudit.confirmationId === nextAudit.confirmationId &&
-    previousAudit.optionId === nextAudit.optionId &&
-    previousAudit.confirmedAt === nextAudit.confirmedAt
-  );
+  for (const key of ['approvalStatus', 'orderStatus', 'notificationStatus', 'dispatchStatus']) {
+    const marker = (data as Record<string, unknown>)[key];
+    if (marker === 'manual_workflow_required' || marker === 'not_dispatched') {
+      return marker;
+    }
+  }
+
+  return undefined;
+}
+
+function getRuntimeExecutionState(task: AgentRuntimeTaskRecord): RuntimeExecutionState | undefined {
+  const context = parseRuntimeJson(task.context, {});
+  const result = task.result ? parseRuntimeJson(task.result, {}) : undefined;
+  return getRuntimeExecutionStateFromData(context)
+    || getRuntimeExecutionStateFromData(result)
+    || task.steps.reduce<RuntimeExecutionState | undefined>(
+      (state, step) => state || getRuntimeExecutionStateFromData(step.result ? parseRuntimeJson(step.result, {}) : undefined),
+      undefined
+    );
+}
+
+function isPrivilegedRuntimeReader(user: NonNullable<AuthRequest['user']>): boolean {
+  return normalizeRole(user.role) === 'admin';
+}
+
+function canReadRuntimeTask(user: NonNullable<AuthRequest['user']>, _context: unknown): boolean {
+  // Until D15 supplies server-owned attribution, only the explicit admin role
+  // may inspect legacy history. Capability manage/read does not grant history
+  // access because it cannot establish task ownership.
+  return isPrivilegedRuntimeReader(user);
+}
+
+function getAuthenticatedRuntimeReader(req: AuthRequest): NonNullable<AuthRequest['user']> {
+  if (!req.user) {
+    throw new AppError('未授权，请先登录', 401, 'AUTH_UNAUTHORIZED');
+  }
+
+  return req.user;
 }
 
 function mapRuntimeTask(task: AgentRuntimeTaskRecord) {
+  const context = parseRuntimeJson(task.context, {});
+  const result = task.result ? parseRuntimeJson(task.result, {}) : undefined;
+  const executionState = getRuntimeExecutionState(task);
+
   return {
     id: task.id,
     trigger: {
@@ -135,17 +251,21 @@ function mapRuntimeTask(task: AgentRuntimeTaskRecord) {
     type: task.type,
     status: task.status,
     currentStepIndex: task.currentStepIndex,
-    steps: task.steps.map((step) => ({
-      id: extractRuntimeStepId(step.id),
-      capability: step.capability,
-      action: step.action,
-      params: parseRuntimeJson(step.params, {}),
-      status: step.status,
-      result: step.result ? parseRuntimeJson(step.result, {}) : undefined,
-      error: step.error || undefined,
-      startedAt: step.startedAt?.toISOString(),
-      completedAt: step.completedAt?.toISOString(),
-    })),
+    steps: task.steps.map((step) => {
+      const stepResult = step.result ? parseRuntimeJson(step.result, {}) : undefined;
+      return {
+        id: extractRuntimeStepId(step.id),
+        capability: step.capability,
+        action: step.action,
+        params: parseRuntimeJson(step.params, {}),
+        status: step.status,
+        executionState: getRuntimeExecutionStateFromData(stepResult),
+        result: stepResult,
+        error: step.error || undefined,
+        startedAt: step.startedAt?.toISOString(),
+        completedAt: step.completedAt?.toISOString(),
+      };
+    }),
     confirmationNode: task.confirmation
       ? {
           id: extractRuntimeConfirmationId(task.confirmation.id),
@@ -165,8 +285,10 @@ function mapRuntimeTask(task: AgentRuntimeTaskRecord) {
           confirmedBy: task.confirmation.confirmedBy || undefined,
         }
       : undefined,
-    context: parseRuntimeJson(task.context, {}),
-    result: task.result ? parseRuntimeJson(task.result, {}) : undefined,
+    context,
+    result,
+    executionState,
+    runtimeTrust: getRuntimeTrust(context),
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
     completedAt: task.completedAt?.toISOString(),
@@ -176,7 +298,9 @@ function mapRuntimeTask(task: AgentRuntimeTaskRecord) {
 
 router.get(
   '/runtime/tasks',
+  requireAgentReadCapability,
   asyncHandler(async (req, res) => {
+    const reader = getAuthenticatedRuntimeReader(req as AuthRequest);
     const limitValue = parseInt(String(req.query.limit || '50'), 10);
     const limit = Number.isNaN(limitValue) ? 50 : Math.min(Math.max(limitValue, 1), 100);
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
@@ -197,19 +321,26 @@ router.get(
       take: limit,
     });
 
+    const visibleTasks = tasks.filter((task) => {
+      const context = parseRuntimeJson(task.context, {});
+      return canReadRuntimeTask(reader, context);
+    });
+
     res.json({
       success: true,
-      data: tasks.map(mapRuntimeTask),
+      data: visibleTasks.map(mapRuntimeTask),
     });
   })
 );
 
 router.get(
   '/runtime/tasks/:id',
+  requireAgentReadCapability,
   asyncHandler(async (req, res) => {
+    const reader = getAuthenticatedRuntimeReader(req as AuthRequest);
     const task = await getRuntimeTaskById(prisma, req.params.id);
 
-    if (!task) {
+    if (!task || !canReadRuntimeTask(reader, parseRuntimeJson(task.context, {}))) {
       throw new AppError('运行时任务不存在', 404);
     }
 
@@ -222,7 +353,9 @@ router.get(
 
 router.get(
   '/runtime/dashboard',
-  asyncHandler(async (_req, res) => {
+  requireAgentReadCapability,
+  asyncHandler(async (req, res) => {
+    const reader = getAuthenticatedRuntimeReader(req as AuthRequest);
     const recentTasks = await prisma.agentRuntimeTask.findMany({
       include: {
         steps: {
@@ -231,35 +364,36 @@ router.get(
         confirmation: true,
       },
       orderBy: { updatedAt: 'desc' },
-      take: 20,
     });
 
-    const recentTaskPayload = recentTasks.map(mapRuntimeTask);
+    const visibleTasks = recentTasks.filter((task) => canReadRuntimeTask(reader, parseRuntimeJson(task.context, {})));
+    const recentTaskPayload = visibleTasks.slice(0, 20).map(mapRuntimeTask);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const taskCounts = {
+      total: visibleTasks.length,
+      running: visibleTasks.filter((task) => task.status === 'running').length,
+      pending: visibleTasks.filter(
+        (task) => task.status === 'pending' || getRuntimeExecutionState(task)
+      ).length,
+      waitingConfirmation: visibleTasks.filter((task) => task.status === 'waiting_confirmation').length,
+      completedToday: visibleTasks.filter(
+        (task) => task.status === 'completed'
+          && !getRuntimeExecutionState(task)
+          && task.completedAt
+          && task.completedAt >= today
+      ).length,
+      failedToday: visibleTasks.filter(
+        (task) => task.status === 'failed' && task.updatedAt >= today
+      ).length,
+    };
 
     res.json({
       success: true,
       data: {
         tasks: {
-          total: await prisma.agentRuntimeTask.count(),
-          running: await prisma.agentRuntimeTask.count({ where: { status: 'running' } }),
-          pending: await prisma.agentRuntimeTask.count({ where: { status: 'pending' } }),
-          waitingConfirmation: await prisma.agentRuntimeTask.count({ where: { status: 'waiting_confirmation' } }),
-          completedToday: await prisma.agentRuntimeTask.count({
-            where: {
-              status: 'completed',
-              completedAt: {
-                gte: new Date(new Date().setHours(0, 0, 0, 0)),
-              },
-            },
-          }),
-          failedToday: await prisma.agentRuntimeTask.count({
-            where: {
-              status: 'failed',
-              updatedAt: {
-                gte: new Date(new Date().setHours(0, 0, 0, 0)),
-              },
-            },
-          }),
+          ...taskCounts,
         },
         recentTasks: recentTaskPayload,
         pendingConfirmations: recentTaskPayload
@@ -272,172 +406,21 @@ router.get(
 
 router.put(
   '/runtime/tasks/:id',
-  validateBody(agentRuntimeTaskSyncSchema),
+  requireAgentRunCapability,
   asyncHandler(async (req, res) => {
-    const payload = req.body;
-
-    if (req.params.id !== payload.id) {
-      throw new AppError('路径任务ID与请求体任务ID不一致', 400);
-    }
-
-    if (payload.context?.demoMode === true) {
-      assertProductFeatureEnabled('agentDemo');
-    }
-
-    const task = await prisma.$transaction(async (tx) => {
-      const existingTask = await getRuntimeTaskById(tx, payload.id);
-      const previousContext = existingTask ? parseRuntimeJson<Record<string, unknown>>(existingTask.context, {}) : {};
-      const previousLatestConfirmation = getLatestRuntimeConfirmationAudit(previousContext);
-      const nextLatestConfirmation = getLatestRuntimeConfirmationAudit(payload.context);
-
-      await tx.agentRuntimeTask.upsert({
-        where: { id: payload.id },
-        update: {
-          triggerType: payload.trigger.type,
-          triggerSource: payload.trigger.source,
-          triggerReferenceId: payload.trigger.referenceId,
-          type: payload.type,
-          status: payload.status,
-          currentStepIndex: payload.currentStepIndex,
-          context: stringifyRuntimeJson(payload.context, '{}'),
-          result: payload.result ? stringifyRuntimeJson(payload.result, '{}') : null,
-          error: payload.error,
-          createdAt: new Date(payload.createdAt),
-          updatedAt: new Date(payload.updatedAt),
-          completedAt: toDate(payload.completedAt) || null,
-        },
-        create: {
-          id: payload.id,
-          triggerType: payload.trigger.type,
-          triggerSource: payload.trigger.source,
-          triggerReferenceId: payload.trigger.referenceId,
-          type: payload.type,
-          status: payload.status,
-          currentStepIndex: payload.currentStepIndex,
-          context: stringifyRuntimeJson(payload.context, '{}'),
-          result: payload.result ? stringifyRuntimeJson(payload.result, '{}') : null,
-          error: payload.error,
-          createdAt: new Date(payload.createdAt),
-          updatedAt: new Date(payload.updatedAt),
-          completedAt: toDate(payload.completedAt) || null,
-        },
-      });
-
-      await tx.agentRuntimeStep.deleteMany({ where: { taskId: payload.id } });
-
-      if (payload.steps.length > 0) {
-        await tx.agentRuntimeStep.createMany({
-          data: payload.steps.map((step: typeof payload.steps[number], index: number) => ({
-            id: buildRuntimeStepRecordId(payload.id, step.id),
-            taskId: payload.id,
-            sequence: index,
-            capability: step.capability,
-            action: step.action,
-            params: stringifyRuntimeJson(step.params, '{}'),
-            status: step.status,
-            result: step.result ? stringifyRuntimeJson(step.result, '{}') : null,
-            error: step.error,
-            startedAt: toDate(step.startedAt) || null,
-            completedAt: toDate(step.completedAt) || null,
-          })),
-        });
-      }
-
-      if (payload.confirmationNode) {
-        await tx.agentRuntimeConfirmation.upsert({
-          where: { taskId: payload.id },
-          update: {
-            id: buildRuntimeConfirmationRecordId(payload.id, payload.confirmationNode.id),
-            stepId: payload.confirmationNode.stepId,
-            type: payload.confirmationNode.type,
-            title: payload.confirmationNode.title,
-            titleZh: payload.confirmationNode.titleZh,
-            titleEn: payload.confirmationNode.titleEn,
-            description: payload.confirmationNode.description,
-            descriptionZh: payload.confirmationNode.descriptionZh,
-            descriptionEn: payload.confirmationNode.descriptionEn,
-            data: stringifyRuntimeJson(payload.confirmationNode.data, '{}'),
-            options: stringifyRuntimeJson(payload.confirmationNode.options, '[]'),
-            selectedOption: payload.confirmationNode.selectedOption,
-            confirmedAt: toDate(payload.confirmationNode.confirmedAt) || null,
-            confirmedBy: payload.confirmationNode.confirmedBy,
-          },
-          create: {
-            id: buildRuntimeConfirmationRecordId(payload.id, payload.confirmationNode.id),
-            taskId: payload.id,
-            stepId: payload.confirmationNode.stepId,
-            type: payload.confirmationNode.type,
-            title: payload.confirmationNode.title,
-            titleZh: payload.confirmationNode.titleZh,
-            titleEn: payload.confirmationNode.titleEn,
-            description: payload.confirmationNode.description,
-            descriptionZh: payload.confirmationNode.descriptionZh,
-            descriptionEn: payload.confirmationNode.descriptionEn,
-            data: stringifyRuntimeJson(payload.confirmationNode.data, '{}'),
-            options: stringifyRuntimeJson(payload.confirmationNode.options, '[]'),
-            selectedOption: payload.confirmationNode.selectedOption,
-            confirmedAt: toDate(payload.confirmationNode.confirmedAt) || null,
-            confirmedBy: payload.confirmationNode.confirmedBy,
-          },
-        });
-      } else {
-        await tx.agentRuntimeConfirmation.deleteMany({ where: { taskId: payload.id } });
-      }
-
-      if (nextLatestConfirmation && !isSameRuntimeConfirmationAudit(previousLatestConfirmation, nextLatestConfirmation)) {
-        await tx.agentLog.create({
-          data: {
-            agentId: payload.id,
-            action: 'CONFIRMATION_RECORDED',
-            input: stringifyRuntimeJson(
-              {
-                taskId: payload.id,
-                taskType: payload.type,
-                confirmationId: nextLatestConfirmation.confirmationId,
-                stepId: nextLatestConfirmation.stepId,
-                type: nextLatestConfirmation.type,
-                optionId: nextLatestConfirmation.optionId,
-                action: nextLatestConfirmation.action,
-                confirmedAt: nextLatestConfirmation.confirmedAt,
-                confirmedBy: nextLatestConfirmation.confirmedBy,
-                note: nextLatestConfirmation.note,
-                reasonCode: nextLatestConfirmation.reasonCode,
-              },
-              '{}'
-            ),
-            output: stringifyRuntimeJson(
-              {
-                optionLabel: nextLatestConfirmation.optionLabel,
-                optionLabelZh: nextLatestConfirmation.optionLabelZh,
-                optionLabelEn: nextLatestConfirmation.optionLabelEn,
-                reasonLabel: nextLatestConfirmation.reasonLabel,
-                reasonLabelZh: nextLatestConfirmation.reasonLabelZh,
-                reasonLabelEn: nextLatestConfirmation.reasonLabelEn,
-                taskStatus: payload.status,
-              },
-              '{}'
-            ),
-            status: 'SUCCESS',
-          },
-        });
-      }
-
-      return getRuntimeTaskById(tx, payload.id);
-    });
-
-    if (!task) {
-      throw new AppError('运行时任务同步失败', 500);
-    }
-
-    res.json({
-      success: true,
-      data: mapRuntimeTask(task),
-    });
+    void req;
+    void res;
+    throw new AppError(
+      '客户端运行时任务状态同步已禁用；请使用服务端受控任务接口或人工业务流程',
+      410,
+      'BAD_REQUEST'
+    );
   })
 );
 
 router.get(
   '/',
+  requireAgentReadCapability,
   asyncHandler(async (_req, res) => {
     const agents = await prisma.aIAgent.findMany({
       orderBy: { createdAt: 'desc' },
@@ -445,17 +428,14 @@ router.get(
 
     res.json({
       success: true,
-      data: agents.map((agent) => ({
-        ...agent,
-        config: JSON.parse(agent.config),
-        prompts: JSON.parse(agent.prompts),
-      })),
+      data: agents.map((agent) => mapAgent(agent as AgentResponseRecord)),
     });
   })
 );
 
 router.get(
   '/:id',
+  requireAgentReadCapability,
   asyncHandler(async (req, res) => {
     const agent = await prisma.aIAgent.findUnique({
       where: { id: req.params.id },
@@ -467,11 +447,7 @@ router.get(
 
     res.json({
       success: true,
-      data: {
-        ...agent,
-        config: JSON.parse(agent.config),
-        prompts: JSON.parse(agent.prompts),
-      },
+      data: mapAgent(agent as AgentResponseRecord),
     });
   })
 );
@@ -479,9 +455,15 @@ router.get(
 router.post(
   '/',
   requireAgentManagementRole,
-  validateBody(agentCreateSchema),
+  validateBody(agentCreateRequestSchema),
   asyncHandler(async (req, res) => {
     const { name, type, description, isActive, config, prompts } = req.body;
+    let draft: ReturnType<typeof validateAgentDraft>;
+    try {
+      draft = validateAgentDraft(prompts, config);
+    } catch (error) {
+      toRegistryValidationError(error);
+    }
 
     const agent = await prisma.aIAgent.create({
       data: {
@@ -489,18 +471,16 @@ router.post(
         type,
         description,
         isActive: isActive ?? true,
-        config: JSON.stringify(config || {}),
-        prompts: JSON.stringify(prompts || []),
+        config: JSON.stringify(draft.config),
+        prompts: JSON.stringify(draft.prompts),
+        draftRevision: 0,
+        publishedVersion: null,
       },
     });
 
     res.status(201).json({
       success: true,
-      data: {
-        ...agent,
-        config: JSON.parse(agent.config),
-        prompts: JSON.parse(agent.prompts),
-      },
+      data: mapAgent(agent as AgentResponseRecord),
     });
   })
 );
@@ -508,29 +488,48 @@ router.post(
 router.patch(
   '/:id',
   requireAgentManagementRole,
-  validateBody(agentUpdateSchema),
+  validateBody(agentPatchRequestSchema),
   asyncHandler(async (req, res) => {
-    const { name, type, description, isActive, config, prompts } = req.body;
+    const { expectedRevision, name, type, description, isActive, config, prompts, builtinKey } = req.body;
+    const current = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!current) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    const agent = current as AgentResponseRecord;
+    assertDraftRevision(agent, expectedRevision);
+    assertBuiltinType(agent, type);
+    if (builtinKey !== undefined && builtinKey !== agent.builtinKey) {
+      throw new AppError('内置标识不可修改', 400, 'BAD_REQUEST');
+    }
 
-    const agent = await prisma.aIAgent.update({
-      where: { id: req.params.id },
+    const nextPrompts = prompts ?? parseAgentJson(agent.prompts, []);
+    const nextConfig = config ?? parseAgentJson(agent.config, {});
+    let draft: ReturnType<typeof validateAgentDraft>;
+    try {
+      draft = validateAgentDraft(nextPrompts, nextConfig, agent.builtinKey);
+    } catch (error) {
+      toRegistryValidationError(error);
+    }
+
+    const updatedCount = await prisma.aIAgent.updateMany({
+      where: { id: req.params.id, draftRevision: expectedRevision },
       data: {
         ...(name !== undefined && { name }),
         ...(type !== undefined && { type }),
         ...(description !== undefined && { description }),
         ...(isActive !== undefined && { isActive }),
-        ...(config !== undefined && { config: JSON.stringify(config) }),
-        ...(prompts !== undefined && { prompts: JSON.stringify(prompts) }),
+        config: JSON.stringify(draft.config),
+        prompts: JSON.stringify(draft.prompts),
+        draftRevision: { increment: 1 },
       },
     });
+    if (updatedCount.count !== 1) {
+      throw new AppError('智能体草稿已被其他用户修改，请刷新后重试', 409, 'RESOURCE_CONFLICT');
+    }
+    const updated = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!updated) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
 
     res.json({
       success: true,
-      data: {
-        ...agent,
-        config: JSON.parse(agent.config),
-        prompts: JSON.parse(agent.prompts),
-      },
+      data: mapAgent(updated as AgentResponseRecord),
     });
   })
 );
@@ -539,6 +538,11 @@ router.delete(
   '/:id',
   requireAgentManagementRole,
   asyncHandler(async (req, res) => {
+    const agent = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!agent) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    if (agent.builtinKey) {
+      throw new AppError('内置智能体不可删除，请停用或修改草稿', 400, 'BAD_REQUEST');
+    }
     await prisma.aIAgent.delete({
       where: { id: req.params.id },
     });
@@ -553,6 +557,7 @@ router.delete(
 router.post(
   '/:id/toggle',
   requireAgentManagementRole,
+  validateBody(expectedRevisionSchema),
   asyncHandler(async (req, res) => {
     const agent = await prisma.aIAgent.findUnique({
       where: { id: req.params.id },
@@ -562,107 +567,195 @@ router.post(
       throw new AppError('Agent不存在', 404);
     }
 
-    const updated = await prisma.aIAgent.update({
-      where: { id: req.params.id },
-      data: { isActive: !agent.isActive },
+    assertDraftRevision(agent as AgentResponseRecord, req.body.expectedRevision);
+    const updatedCount = await prisma.aIAgent.updateMany({
+      where: { id: req.params.id, draftRevision: req.body.expectedRevision },
+      data: {
+        isActive: !agent.isActive,
+        draftRevision: { increment: 1 },
+      },
     });
+    if (updatedCount.count !== 1) {
+      throw new AppError('智能体草稿已被其他用户修改，请刷新后重试', 409, 'RESOURCE_CONFLICT');
+    }
+    const updated = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!updated) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
 
     res.json({
       success: true,
+      data: mapAgent(updated as AgentResponseRecord),
+    });
+  })
+);
+
+router.get(
+  '/:id/versions',
+  requireAgentReadCapability,
+  asyncHandler(async (req, res) => {
+    const agent = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!agent) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+
+    const versions = await prisma.aIAgentVersion.findMany({
+      where: { agentId: req.params.id },
+      orderBy: { version: 'asc' },
+    });
+    res.json({
+      success: true,
+      data: versions.map((version) => ({
+        version: version.version,
+        prompts: parseAgentJson(version.prompts, []),
+        config: parseAgentJson(version.config, {}),
+        createdBy: version.createdBy,
+        createdAt: version.createdAt,
+      })),
+    });
+  })
+);
+
+router.post(
+  '/:id/publish',
+  requireAgentManagementRole,
+  validateBody(expectedRevisionSchema),
+  asyncHandler(async (req, res) => {
+    const actor = getAuthenticatedAgentUser(req as AuthRequest);
+    const { expectedRevision } = req.body;
+    const current = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!current) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    assertDraftRevision(current as AgentResponseRecord, expectedRevision);
+
+    try {
+      validateAgentDraft(
+        parseAgentJson(current.prompts, []),
+        parseAgentJson(current.config, {}),
+        current.builtinKey,
+      );
+    } catch (error) {
+      toRegistryValidationError(error);
+    }
+
+    const published = await prisma.$transaction(async (tx) => {
+      const latest = await tx.aIAgent.findUnique({ where: { id: req.params.id } });
+      if (!latest) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+      assertDraftRevision(latest as AgentResponseRecord, expectedRevision);
+      const latestVersion = await tx.aIAgentVersion.findMany({
+        where: { agentId: req.params.id },
+        orderBy: { version: 'desc' },
+        take: 1,
+      });
+      const nextVersion = Math.max(
+        latest.publishedVersion ?? 0,
+        latestVersion[0]?.version ?? 0,
+      ) + 1;
+      const updatedCount = await tx.aIAgent.updateMany({
+        where: {
+          id: req.params.id,
+          draftRevision: expectedRevision,
+          publishedVersion: latest.publishedVersion,
+        },
+        data: {
+          publishedVersion: nextVersion,
+          draftRevision: { increment: 1 },
+        },
+      });
+      if (updatedCount.count !== 1) {
+        throw new AppError('智能体草稿已被其他用户修改，请刷新后重试', 409, 'RESOURCE_CONFLICT');
+      }
+      await tx.aIAgentVersion.create({
+        data: {
+          agentId: req.params.id,
+          version: nextVersion,
+          prompts: latest.prompts,
+          config: latest.config,
+          createdBy: actor.id,
+        },
+      });
+      const updated = await tx.aIAgent.findUnique({ where: { id: req.params.id } });
+      if (!updated) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+      return updated;
+    });
+
+    res.json({ success: true, data: mapAgent(published as AgentResponseRecord) });
+  })
+);
+
+router.post(
+  '/:id/restore',
+  requireAgentManagementRole,
+  validateBody(restoreRequestSchema),
+  asyncHandler(async (req, res) => {
+    const { version, expectedRevision } = req.body;
+    const current = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!current) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    const agent = current as AgentResponseRecord;
+    assertDraftRevision(agent, expectedRevision);
+
+    const source = await prisma.aIAgentVersion.findUnique({
+      where: { agentId_version: { agentId: req.params.id, version } },
+    });
+    if (!source) throw new AppError('提示词版本不存在', 404, 'RESOURCE_NOT_FOUND');
+    try {
+      validateAgentDraft(
+        parseAgentJson(source.prompts, []),
+        parseAgentJson(source.config, {}),
+        agent.builtinKey,
+      );
+    } catch (error) {
+      toRegistryValidationError(error);
+    }
+
+    const updatedCount = await prisma.aIAgent.updateMany({
+      where: { id: req.params.id, draftRevision: expectedRevision },
       data: {
-        ...updated,
-        config: JSON.parse(updated.config),
-        prompts: JSON.parse(updated.prompts),
+        prompts: source.prompts,
+        config: source.config,
+        draftRevision: { increment: 1 },
       },
     });
+    if (updatedCount.count !== 1) {
+      throw new AppError('智能体草稿已被其他用户修改，请刷新后重试', 409, 'RESOURCE_CONFLICT');
+    }
+    const updated = await prisma.aIAgent.findUnique({ where: { id: req.params.id } });
+    if (!updated) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    res.json({ success: true, data: mapAgent(updated as AgentResponseRecord) });
+  })
+);
+
+router.post(
+  '/:id/test',
+  requireAgentManagementRole,
+  requireAgentRunCapability,
+  validateBody(testRequestSchema),
+  asyncHandler(async (req, res) => {
+    const actor = getAuthenticatedAgentUser(req as AuthRequest);
+    const { input } = req.body as { input: Record<string, unknown> };
+    rejectSystemPromptOverride(input);
+    const result = await executeAgent(req.params.id, input, { actorId: actor.id, action: 'test' });
+    res.json({ success: true, data: result });
   })
 );
 
 router.post(
   '/:id/run',
   requireAgentRunCapability,
+  validateBody(agentRunRequestSchema),
   asyncHandler(async (req, res) => {
+    const actor = getAuthenticatedAgentUser(req as AuthRequest);
     const { id } = req.params;
-    const { task, input } = req.body;
-
-    const agent = await prisma.aIAgent.findUnique({
-      where: { id },
+    const { task, input } = req.body as { task?: string; input: Record<string, unknown> };
+    const agent = await prisma.aIAgent.findUnique({ where: { id } });
+    if (!agent) throw new AppError('Agent不存在', 404, 'RESOURCE_NOT_FOUND');
+    rejectSystemPromptOverride(input as Record<string, unknown>);
+    assertBuiltinTask(agent as AgentResponseRecord, task);
+    const result = await executeAgent(id, input as Record<string, unknown>, {
+      actorId: actor.id,
+      action: task ? `run:${task}` : 'run',
     });
-
-    if (!agent) {
-      throw new AppError('Agent不存在', 404);
-    }
-
-    if (!agent.isActive) {
-      throw new AppError('Agent未激活', 400);
-    }
-
-    const start = Date.now();
-    let output = '';
-    let status = 'SUCCESS';
-    let error: string | undefined;
-
-    try {
-      switch (task) {
-        case 'classify_email': {
-          const { subject, body } = input || {};
-          const result = await classifyRFQEmail(subject || '', body || '');
-          output = JSON.stringify(result);
-          break;
-        }
-        case 'quote_analysis': {
-          const { rfqDetails, supplierQuotes } = input || {};
-          output = await generateQuoteAnalysis(rfqDetails || '', supplierQuotes || '');
-          break;
-        }
-        case 'chat': {
-          const { message, systemPrompt } = input || {};
-          const result = await generateCompletion(
-            [
-              { role: 'system', content: systemPrompt || '你是AeroLink航材交易平台的AI助手。' },
-              { role: 'user', content: message || '' },
-            ],
-            { temperature: 0.7 }
-          );
-          output = result.content;
-          break;
-        }
-        default: {
-          const result = await generateCompletion(
-            [
-              { role: 'system', content: '你是AeroLink航材交易平台的AI助手。' },
-              { role: 'user', content: input?.message || JSON.stringify(input) || 'Hello' },
-            ],
-            { temperature: 0.7 }
-          );
-          output = result.content;
-        }
-      }
-    } catch (err) {
-      status = 'ERROR';
-      error = err instanceof Error ? err.message : '未知错误';
-      output = error;
-      logger.error({ err, agentId: id, task }, 'Agent task execution failed');
-    }
-
-    const duration = Date.now() - start;
-    await logAgentAction(id, task || 'unknown', JSON.stringify(input), output, status, error, duration);
-
-    await emitWebhookEvent(status === 'SUCCESS' ? 'agent.task.completed' : 'agent.task.failed', {
-      agentId: id,
-      task: task || 'unknown',
-      status,
-      durationMs: duration,
-      error: error || null,
-      completedAt: new Date().toISOString(),
-    });
-
     res.json({
-      success: status === 'SUCCESS',
+      success: true,
       data: {
-        output,
-        duration: `${duration}ms`,
-        status,
+        ...result,
+        duration: `${result.latency}ms`,
+        status: 'SUCCESS',
       },
     });
   })

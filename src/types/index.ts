@@ -73,8 +73,36 @@ export interface RFQ {
   createdAt: string;
   createdBy: string;
   notes?: string;
+  lineItemsMode?: boolean;
   partCategory?: PartCategory;
   trackingType?: TrackingType;
+  lines?: RfqLine[];
+}
+
+export interface RfqLine {
+  id: string;
+  rfqId: string;
+  lineNo: number;
+  partNumber: string;
+  quantity: number;
+  uom: string;
+  conditionCode: string;
+  description?: string | null;
+  serialNumber?: string | null;
+  batchNumber?: string | null;
+  ataChapter?: string | null;
+  aircraftType?: string | null;
+  aircraftModel?: string | null;
+  alternatePartNumbers?: string[];
+  certificateRequired: boolean;
+  certificateType?: string | null;
+  requiredDate: string;
+  leadTimeDays?: number | null;
+  targetPriceDecimal?: string | null;
+  targetPriceCurrency: string;
+  status: 'OPEN' | 'CANCELLED' | 'COMPLETED';
+  createdAt: string;
+  updatedAt: string;
 }
 
 // 库存相关
@@ -100,6 +128,8 @@ export interface Inventory {
   alternatePartNumbers?: string[];
   // 状态与条件
   conditionCode: InventoryStatus;
+  // 兼容明细投影；旧库存记录可能只提供 conditionCode。
+  status?: InventoryDetailStatus;
   certificateType: CertificateType;
   certificateNumber?: string;
   certificateFileUrl?: string;
@@ -137,7 +167,7 @@ export interface Inventory {
   storageTempMax?: number;
   hazardClass?: string;
   // 商务属性
-  unitCost: number;
+  unitCost?: number;
   unitOfMeasure: string;
   countryOfOrigin?: string;
   hsCode?: string;
@@ -181,6 +211,8 @@ export interface InventoryDetail {
   batchNumber?: string;
   // 数量与状态
   quantity: number;
+  /** Modern allocation projection. Hidden from callers without cost access. */
+  allocatedQuantity?: number;
   conditionCode: InventoryStatus;
   status: InventoryDetailStatus;
   // 位置
@@ -222,11 +254,13 @@ export interface InventoryDetail {
   storageTempMax?: number;
   hazardClass?: string;
   // 成本
-  unitCost: number;
+  unitCost?: number;
   // 来源
   supplierId?: string;
   supplierName?: string;
   eta?: string;
+  /** Accepted purchase receipt that created this physical detail, when any. */
+  stockReceiptLineId?: string;
   // 类型
   type: InventoryType;
   createdAt: string;
@@ -413,6 +447,52 @@ export type QuoteTemplate = 'standard' | 'aog' | 'rfp';
 export type SaleType = 'Sale' | 'Exchange' | 'Loan' | 'Consign' | 'Repair';
 export type Incoterm = 'EXW' | 'FCA' | 'CPT' | 'CIP' | 'DAP' | 'DPU' | 'DDP' | 'FAS' | 'FOB' | 'CFR' | 'CIF';
 
+/**
+ * Authoritative commercial facts for a line-first quotation. Decimal fields
+ * may arrive as strings from the generated API projection; callers should
+ * convert them before arithmetic rather than treating the legacy header as a
+ * fallback fact.
+ */
+export interface QuotationLine {
+  id: string;
+  quotationId?: string;
+  lineNo: number;
+  rfqLineId: string;
+  partNumber: string;
+  description?: string | null;
+  uom?: string;
+  quantity: number;
+  unitPrice: number | string;
+  costPrice?: number | string | null;
+  lineTotal: number | string;
+  currency?: string;
+  acceptedQuantity: number;
+  reservedQuantity: number;
+  inventoryDetailId?: string | null;
+  serialNumber?: string | null;
+  batchNumber?: string | null;
+  status?: string;
+  costSourceType?: 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL' | null;
+  costSourceId?: string | null;
+  costSourceReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface QuotationRevisionSummary {
+  id: string;
+  quoteNumber?: string;
+  commercialRevision: number;
+  status?: QuoteStatus | string;
+  revisionOfId?: string | null;
+  revisionRootId?: string | null;
+  revisionReason?: string | null;
+  createdAt?: string;
+  expiryDate?: string;
+  supersededAt?: string | null;
+  supersededById?: string | null;
+}
+
 export interface Quotation {
   id: string;
   quoteNumber: string;
@@ -427,6 +507,9 @@ export interface Quotation {
   totalPrice: number;
   costPrice: number;
   margin: number;
+  costSourceType?: 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL';
+  costSourceId?: string;
+  costSourceReason?: string;
   // 销售与交付
   saleType: SaleType;
   shipToId?: string;
@@ -469,6 +552,7 @@ export interface Quotation {
   createdBy: string;
   approvedBy?: string;
   approvedAt?: string;
+  requiresReapproval?: boolean;
   sentAt?: string;
   acceptedAt?: string;
   withdrawnAt?: string;
@@ -486,6 +570,19 @@ export interface Quotation {
   expiryDate: string;
   // AOG 快速审批
   rfqUrgency?: string;
+  /** Modern line-first quotations keep commercial facts on lines. */
+  lineItemsMode?: boolean;
+  lines?: QuotationLine[];
+  /** Commercial revision chain metadata. A revision is a new draft record. */
+  commercialRevision?: number;
+  revisionOfId?: string | null;
+  revisionRootId?: string | null;
+  revisionReason?: string | null;
+  supersededAt?: string | null;
+  supersededById?: string | null;
+  revisionOf?: QuotationRevisionSummary | null;
+  supersededBy?: QuotationRevisionSummary | null;
+  revisionHistory?: QuotationRevisionSummary[];
   // Phase 4: 库存明细绑定
   inventoryDetailId?: string;
   serialNumber?: string;
@@ -554,6 +651,12 @@ export type OrderStatus =
   | 'completed';
 
 export interface Order {
+  lineItemsMode?: boolean;
+  lines?: Array<{
+    id: string; lineNo: number; quotationLineId: string; partNumber: string;
+    quantity: number; uom: string; unitPrice: string | number; lineTotal: string | number;
+    currency: string; outboundQuantity: number; outboundStatus: string; directShippedQuantity?: number;
+  }>;
   id: string;
   orderNumber: string;
   soNumber: string;
@@ -616,6 +719,7 @@ export interface Order {
   batchNumber?: string;
   // Phase 5: 部分发货支持
   outboundQuantity?: number;
+  directShippedQuantity?: number;
   outboundStatus?: 'PENDING' | 'PARTIAL' | 'COMPLETED';
 }
 
@@ -653,6 +757,9 @@ export interface InventoryAlert {
 
 // 询价单相关
 export interface InquiryItem {
+  id?: string;
+  lineNo?: number;
+  rfqLineId?: string | null;
   partNumber: string;
   quantity: number;
   requiredDate: string;
@@ -664,6 +771,9 @@ export interface Inquiry {
   inquiryNumber: string;
   supplierId: string;
   supplierName: string;
+  rfqId?: string | null;
+  notes?: string | null;
+  sourceVerified?: boolean;
   items: InquiryItem[];
   isAOG: boolean;
   status: 'draft' | 'sent' | 'responded' | 'expired';

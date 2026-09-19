@@ -81,9 +81,29 @@ printf '%s\n' \
   '  esac' \
   '  exit 0' \
   'fi' \
-  'if [[ "$1" == "inspect" && "$2" == "worker-container" ]]; then printf "worker-id\\n"; exit 0; fi' \
+  'if [[ "$1" == "inspect" && "$2" == "backend-container" ]]; then printf "%s\\n" "${BACKEND_RUNNING_IMAGE_ID:-backend-id}"; exit 0; fi' \
+  'if [[ "$1" == "inspect" && "$2" == "worker-container" ]]; then' \
+  '  if [[ "$*" == *"State.Running"* ]]; then' \
+  '    case "${WORKER_STATE_MODE:-stable}" in' \
+  '      restarting) printf "true|true|0\\n" ;;' \
+  '      restart-count)' \
+  '        worker_state_count=0' \
+  '        if [[ -n "${WORKER_STATE_COUNTER_FILE:-}" && -f "$WORKER_STATE_COUNTER_FILE" ]]; then worker_state_count="$(<"$WORKER_STATE_COUNTER_FILE")"; fi' \
+  '        if [[ -n "${WORKER_STATE_COUNTER_FILE:-}" ]]; then printf "%s\\n" "$((worker_state_count + 1))" > "$WORKER_STATE_COUNTER_FILE"; fi' \
+  '        if [[ "$worker_state_count" == 0 ]]; then printf "true|false|0\\n"; else printf "true|false|1\\n"; fi' \
+  '        ;;' \
+  '      *) printf "true|false|0\\n" ;;' \
+  '    esac' \
+  '  else' \
+  '    printf "%s\\n" "${WORKER_RUNNING_IMAGE_ID:-worker-id}"' \
+  '  fi' \
+  '  exit 0' \
+  'fi' \
+  'if [[ "$1" == "inspect" && "$2" == "web-container" ]]; then printf "%s\\n" "${WEB_RUNNING_IMAGE_ID:-web-id}"; exit 0; fi' \
   'if [[ "$1" == "compose" ]]; then' \
+  '  if [[ " $* " == *" ps -q backend "* ]]; then printf "backend-container\\n"; fi' \
   '  if [[ " $* " == *" ps -q worker "* ]]; then printf "worker-container\\n"; fi' \
+  '  if [[ " $* " == *" ps -q web "* ]]; then printf "web-container\\n"; fi' \
   '  if [[ " $* " == *" psql "* ]]; then' \
   '    find "$PROJECT_DIR/server/prisma/migrations" -mindepth 1 -maxdepth 1 -type d | wc -l' \
   '  fi' \
@@ -92,10 +112,32 @@ printf '%s\n' \
   'exit 1' > "$fake_bin/docker"
 printf '#!/usr/bin/env bash\nprintf "{\\"status\\":\\"ok\\"}\\n"\n' > "$fake_bin/curl"
 chmod +x "$fake_bin/docker" "$fake_bin/curl"
-env PATH="$fake_bin:$PATH" PROJECT_DIR="$PROJECT_DIR" RELEASE_RECORD="$release_record" SOURCE_REF="$SOURCE_REF" \
+env PATH="$fake_bin:$PATH" PROJECT_DIR="$PROJECT_DIR" RELEASE_RECORD="$release_record" SOURCE_REF="$SOURCE_REF" WORKER_STABILITY_WINDOW_SECONDS=2 \
   bash "$VERIFY_SCRIPT"
 grep -q "^VERIFIED_MIGRATION_COUNT=$(find "$PROJECT_DIR/server/prisma/migrations" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')$" "$release_record" \
   || fail "successful verification did not record the applied migration count"
+
+expect_failure "Backend container image does not match" \
+  env PATH="$fake_bin:$PATH" BACKEND_RUNNING_IMAGE_ID=stale-backend-id PROJECT_DIR="$PROJECT_DIR" \
+    RELEASE_RECORD="$release_record" SOURCE_REF="$SOURCE_REF" bash "$VERIFY_SCRIPT"
+
+expect_failure "Web container image does not match" \
+  env PATH="$fake_bin:$PATH" WEB_RUNNING_IMAGE_ID=stale-web-id WORKER_STABILITY_WINDOW_SECONDS=2 PROJECT_DIR="$PROJECT_DIR" \
+    RELEASE_RECORD="$release_record" SOURCE_REF="$SOURCE_REF" bash "$VERIFY_SCRIPT"
+
+expect_failure "Worker container is restarting after release" \
+  env PATH="$fake_bin:$PATH" WORKER_STATE_MODE=restarting PROJECT_DIR="$PROJECT_DIR" \
+    RELEASE_RECORD="$release_record" SOURCE_REF="$SOURCE_REF" bash "$VERIFY_SCRIPT"
+
+worker_state_counter_file="$temp_dir/worker-state-counter"
+expect_failure "Worker restart count changed during stability check" \
+  env PATH="$fake_bin:$PATH" WORKER_STATE_MODE=restart-count WORKER_STATE_COUNTER_FILE="$worker_state_counter_file" \
+    WORKER_STABILITY_WINDOW_SECONDS=2 PROJECT_DIR="$PROJECT_DIR" RELEASE_RECORD="$release_record" SOURCE_REF="$SOURCE_REF" \
+    bash "$VERIFY_SCRIPT"
+
+expect_failure "worker stability checks cannot be disabled" \
+  env PATH="$fake_bin:$PATH" WORKER_STABILITY_WINDOW_SECONDS=0 PROJECT_DIR="$PROJECT_DIR" \
+    RELEASE_RECORD="$release_record" SOURCE_REF="$SOURCE_REF" bash "$VERIFY_SCRIPT"
 
 rollback_log="$temp_dir/rollback.log"
 printf '%s\n' \

@@ -45,13 +45,12 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { useCertificateStore } from '@/store';
+import { useCertificateStore, useCapabilityStore } from '@/store';
 import {
   useCertificates,
   useCreateCertificate,
   useVerifyCertificate,
   useRevokeCertificate,
-  useRenewCertificate,
 } from '@/hooks/useApi';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -120,7 +119,7 @@ function CertificateDetailDialog({
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const { verify, loading: verifyLoading } = useVerifyCertificate();
   const { revoke, loading: revokeLoading } = useRevokeCertificate();
-  const { renew, loading: renewLoading } = useRenewCertificate();
+  const can = useCapabilityStore((state) => state.can);
   const [revokeReason, setRevokeReason] = useState('');
   const [showRevokeInput, setShowRevokeInput] = useState(false);
 
@@ -138,8 +137,8 @@ function CertificateDetailDialog({
   };
 
   const handleRevoke = async () => {
-    if (!revokeReason.trim()) {
-      toast.warning(tx('请输入撤销原因', 'Please enter a revocation reason'));
+    if (revokeReason.trim().length < 3 || revokeReason.trim().length > 4000) {
+      toast.warning(tx('请输入 3–4000 字的撤销原因', 'Enter a revocation reason of 3–4000 characters'));
       return;
     }
     try {
@@ -149,15 +148,6 @@ function CertificateDetailDialog({
       setRevokeReason('');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : tx('撤销失败', 'Revocation failed'));
-    }
-  };
-
-  const handleRenew = async () => {
-    try {
-      await renew(certificate.id);
-      toast.success(tx('证书已续期', 'Certificate renewed'));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : tx('续期失败', 'Renewal failed'));
     }
   };
 
@@ -290,11 +280,7 @@ function CertificateDetailDialog({
                 {verifyLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
                 {tx('验证证书', 'Verify Certificate')}
               </Button>
-              <Button variant="outline" onClick={handleRenew} disabled={renewLoading || certificate.status === 'REVOKED'}>
-                {renewLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                {tx('续期', 'Renew')}
-              </Button>
-              {!showRevokeInput ? (
+              {can('certificate.issue') && (!showRevokeInput ? (
                 <Button
                   variant="destructive"
                   onClick={() => setShowRevokeInput(true)}
@@ -318,8 +304,9 @@ function CertificateDetailDialog({
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
-              )}
+              ))}
             </div>
+            <p className="text-sm text-gray-500">{tx('证书到期后需取得新的有效证书并重新审核。', 'Obtain a new valid certificate and complete a new review after expiry.')}</p>
           </TabsContent>
 
           <TabsContent value="trace" className="space-y-4 py-4">
@@ -546,6 +533,7 @@ function IssueCertificateDialog({
 }
 
 export function Certificates() {
+  const can = useCapabilityStore((state) => state.can);
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -683,10 +671,10 @@ export function Certificates() {
             {tx('仅显示到期预警', 'Expiry Warning Only')}
           </Label>
         </div>
-        <Button onClick={() => setIsIssueOpen(true)}>
+        {can('certificate.issue') && <Button onClick={() => setIsIssueOpen(true)}>
           <Plus className="w-4 h-4 mr-1" />
           {tx('签发证书', 'Issue Certificate')}
-        </Button>
+        </Button>}
       </div>
 
       {/* Certificate list */}

@@ -1,20 +1,30 @@
 import { Router } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, type RfqLine } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { assertCapability, requireCapability } from '../middleware/capability.js';
 import { createAuditLog } from '../middleware/auditLogger.js';
 import { validateBody } from '../middleware/validate.js';
-import { rfqCreateSchema, rfqStatusUpdateSchema } from '../lib/validation.js';
+import { rfqStatusUpdateSchema } from '../lib/validation.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
 import { enqueueBusinessEvent } from '../lib/outboxService.js';
 import { SocketEvents, SocketRooms } from '../lib/socketEvents.js';
-import { assertRfqTransition, createRfqAggregate, normalizeRfqStatus, rfqRepository, toUiRfqStatus, transitionRfqStatus, updateRfqAggregate } from '../modules/rfqSourcing/index.js';
+import {
+  assertRfqTransition,
+  createRfqAggregate,
+  normalizeRfqStatus,
+  rfqCreateSchema,
+  rfqRepository,
+  rfqUpdateSchema,
+  toUiRfqStatus,
+  transitionRfqStatus,
+  updateRfqAggregate,
+} from '../modules/rfqSourcing/index.js';
 import {
   preferredQuotationStatus,
   preferredRfqStatus,
 } from '../lib/transactionStatusShadows.js';
-import { getCapabilityScope } from '../lib/capabilityPolicy.js';
+import { buildRfqReadScope } from '../lib/rfqAccess.js';
 import { parseControlledExportWindow, parseListQuery, sendCsv, type SortDirection } from '../lib/listQuery.js';
 import prisma from '../lib/prisma.js';
 
@@ -24,22 +34,6 @@ type ScopedRfq = {
   createdBy: string;
   creator?: { department?: string | null } | null;
 };
-
-function buildRfqReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.RFQWhereInput {
-  const scope = getCapabilityScope(actor, 'rfq.read');
-  if (scope === 'all') return {};
-
-  const own: Prisma.RFQWhereInput = { createdBy: actor.id };
-  const department = actor.department
-    ? { creator: { is: { department: actor.department } } } satisfies Prisma.RFQWhereInput
-    : undefined;
-
-  if (scope === 'department') return department ?? own;
-  if (scope === 'department_or_own') {
-    return department ? { OR: [own, department] } : own;
-  }
-  return own;
-}
 
 type RfqListSort = 'createdAt' | 'requiredDate' | 'responseDeadline' | 'rfqNumber';
 
@@ -74,6 +68,7 @@ function buildRfqListWhere(
       OR: [
         { rfqNumber: { contains: searchValue, mode: 'insensitive' } },
         { partNumber: { contains: searchValue, mode: 'insensitive' } },
+        { lines: { some: { partNumber: { contains: searchValue, mode: 'insensitive' }, status: { not: 'CANCELLED' } } } },
         { customer: { is: { name: { contains: searchValue, mode: 'insensitive' } } } },
       ],
     });
@@ -102,7 +97,7 @@ function parseAlternatePartNumbers(value: string | null): string[] | undefined {
   }
 }
 
-function toRfqResponse(rfq: Awaited<ReturnType<typeof rfqRepository.findUnique>> & { customer?: { name: string }; creator?: { name: string } }) {
+function toRfqResponse(rfq: Awaited<ReturnType<typeof rfqRepository.findUnique>> & { customer?: { name: string }; creator?: { name: string }; lines?: RfqLine[] }) {
   if (!rfq) return null;
   return {
     id: rfq.id,
@@ -131,9 +126,18 @@ function toRfqResponse(rfq: Awaited<ReturnType<typeof rfqRepository.findUnique>>
     urgencyJustification: rfq.urgencyJustification,
     status: toUiRfqStatus(preferredRfqStatus(rfq.statusEnum, rfq.status)),
     version: rfq.version,
+    lineItemsMode: Boolean(rfq.lineItemsMode),
     notes: rfq.notes,
     createdAt: rfq.createdAt.toISOString(),
     createdBy: rfq.creator?.name || '',
+    ...(rfq.lines ? { lines: rfq.lines.map(line => ({
+      ...line,
+      targetPriceDecimal: line.targetPriceDecimal?.toFixed(4) ?? null,
+      requiredDate: line.requiredDate.toISOString().split('T')[0],
+      alternatePartNumbers: parseAlternatePartNumbers(line.alternatePartNumbers),
+      createdAt: line.createdAt.toISOString(),
+      updatedAt: line.updatedAt.toISOString(),
+    })) } : {}),
   };
 }
 
@@ -186,6 +190,7 @@ router.get(
         where,
         include: {
           customer: true,
+          lines: { orderBy: { lineNo: 'asc' } },
           creator: {
             select: { id: true, name: true },
           },
@@ -244,6 +249,8 @@ router.get(
       where: buildRfqListWhere(query, (req as AuthRequest).user!),
       select: {
         rfqNumber: true,
+        lineItemsMode: true,
+        lines: { orderBy: { lineNo: 'asc' }, select: { lineNo: true, partNumber: true, quantity: true, uom: true, conditionCode: true, requiredDate: true } },
         partNumber: true,
         quantity: true,
         uom: true,
@@ -272,13 +279,14 @@ router.get(
       [
         { header: 'RFQ 编号', value: (rfq) => rfq.rfqNumber },
         { header: '客户', value: (rfq) => rfq.customer.name },
-        { header: '件号', value: (rfq) => rfq.partNumber },
-        { header: '数量', value: (rfq) => rfq.quantity },
-        { header: '单位', value: (rfq) => rfq.uom },
-        { header: '条件', value: (rfq) => rfq.conditionCode },
+        { header: '件号', value: (rfq) => rfq.lineItemsMode ? null : rfq.partNumber },
+        { header: '数量', value: (rfq) => rfq.lineItemsMode ? null : rfq.quantity },
+        { header: '单位', value: (rfq) => rfq.lineItemsMode ? null : rfq.uom },
+        { header: '条件', value: (rfq) => rfq.lineItemsMode ? null : rfq.conditionCode },
+        { header: '需求行明细', value: (rfq) => rfq.lineItemsMode ? JSON.stringify(rfq.lines) : null },
         { header: '紧急度', value: (rfq) => rfq.urgency },
         { header: '状态', value: (rfq) => rfq.status },
-        { header: '需求日期', value: (rfq) => rfq.requiredDate },
+        { header: '需求日期', value: (rfq) => rfq.lineItemsMode ? null : rfq.requiredDate },
         { header: '响应截止日期', value: (rfq) => rfq.responseDeadline },
         { header: '创建时间', value: (rfq) => rfq.createdAt },
       ],
@@ -335,6 +343,7 @@ router.get(
           select: { id: true, name: true, department: true },
         },
         quotations: true,
+        lines: { orderBy: { lineNo: 'asc' } },
       },
     });
 
@@ -362,6 +371,7 @@ router.post(
   requireCapability('rfq', 'create'),
   validateBody(rfqCreateSchema),
   asyncHandler(async (req, res) => {
+    const input = req.body as any;
     const {
       customerId,
       partNumber,
@@ -386,7 +396,7 @@ router.post(
       urgencyJustification,
       notes,
       emailId,
-    } = req.body;
+    } = input;
 
     const userId = (req as AuthRequest).user!.id;
     const execution = await runIdempotentOperation(
@@ -417,6 +427,7 @@ router.post(
           notes,
           emailId,
           createdBy: userId,
+          ...(input.lines ? { lines: input.lines } : {}),
         }, userId);
 
         await enqueueBusinessEvent(tx, {
@@ -462,11 +473,11 @@ router.post(
 router.patch(
   '/:id',
   requireCapability('rfq', 'update'),
-  validateBody(rfqCreateSchema.partial()),
+  validateBody(rfqUpdateSchema),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
 
-    const updateData: Prisma.RFQUpdateInput = {};
+    const updateData: Parameters<typeof updateRfqAggregate>[2] = {};
     const fields: string[] = [
       'customerId',
       'partNumber',
@@ -504,6 +515,9 @@ router.patch(
     }
     if (req.body.urgency) {
       updateData.urgency = req.body.urgency.toUpperCase();
+    }
+    if (req.body.lines) {
+      updateData.lines = req.body.lines;
     }
 
     const userId = (req as AuthRequest).user!.id;

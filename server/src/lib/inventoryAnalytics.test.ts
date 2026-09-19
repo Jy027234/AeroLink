@@ -62,4 +62,24 @@ describe('canonical inventory analytics', () => {
     });
     expect(prismaMock.inventory.findMany).not.toHaveBeenCalled();
   });
+
+  it('hides consumption monetary aggregates when value visibility is disabled', async () => {
+    prismaMock.order.findMany.mockResolvedValue([
+      {
+        partNumber: 'PN-CONSUME',
+        quantity: 2,
+        totalAmount: 500,
+        createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      },
+    ]);
+
+    const { getConsumptionTrend } = await import('./inventoryAnalytics.js');
+    const trends = await getConsumptionTrend(undefined, 12, false);
+
+    expect(trends).toEqual([expect.objectContaining({
+      totalQuantity: 2,
+      totalValue: null,
+      topPartNumbers: [{ partNumber: 'PN-CONSUME', quantity: 2, value: null }],
+    })]);
+  });
 });

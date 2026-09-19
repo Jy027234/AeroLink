@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { AuthRequest } from '../middleware/auth.js';
 import { requireCapability } from '../middleware/capability.js';
+import { canViewReportCost } from '../lib/costVisibility.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -37,7 +39,8 @@ function round(value: number, decimals = 2) {
 router.get(
   '/summary',
   requireCapability('report', 'read'),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req: AuthRequest, res) => {
+    const includeCost = canViewReportCost(req.user!);
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -101,7 +104,7 @@ router.get(
       activeCustomers,
       customerRetention: null,
       avgCustomerValue: null,
-      totalInventoryValue: totalInvValue,
+      totalInventoryValue: includeCost ? totalInvValue : null,
       avgTurnoverDays: null,
       slowMovingValue: null,
       slowMovingShare: null,
@@ -156,12 +159,15 @@ router.get(
 router.get(
   '/conversion',
   requireCapability('report', 'read'),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req: AuthRequest, res) => {
+    const includeCost = canViewReportCost(req.user!);
     const [totalRfqs, totalOrders, allOrders, averageMargin, responseSamples] = await Promise.all([
       prisma.rFQ.count(),
       prisma.order.count(),
       prisma.order.findMany({ select: { totalAmount: true } }),
-      prisma.quotation.aggregate({ _avg: { margin: true } }),
+      includeCost
+        ? prisma.quotation.aggregate({ _avg: { margin: true } })
+        : Promise.resolve({ _avg: { margin: null } }),
       prisma.quotation.findMany({
         select: {
           createdAt: true,
@@ -186,7 +192,9 @@ router.get(
     res.json({
       overallRate: totalRfqs > 0 ? Math.round((totalOrders / totalRfqs) * 100) : null,
       avgOrderValue,
-      avgMargin: averageMargin._avg.margin === null ? null : round(Number(averageMargin._avg.margin)),
+      avgMargin: includeCost && averageMargin._avg.margin !== null
+        ? round(Number(averageMargin._avg.margin))
+        : null,
       avgResponseTime: responseTimeDays.length > 0
         ? round(responseTimeDays.reduce((sum, value) => sum + value, 0) / responseTimeDays.length, 1)
         : null,

@@ -1076,7 +1076,7 @@ export const useInquiries = () => {
 };
 
 export const useCreateInquiry = () => {
-  return useMutation<Inquiry[], { rfqId: string; supplierIds: string[]; isAOG: boolean; notes?: string }>((data) => inquiryApi.create(data));
+  return useMutation<Inquiry[], { rfqId: string; lineIds?: string[]; supplierIds: string[]; isAOG: boolean; notes?: string }>((data) => inquiryApi.create(data));
 };
 
 // ===== Pricing BI Hooks =====

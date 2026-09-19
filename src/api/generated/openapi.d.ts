@@ -580,6 +580,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/quotations/{id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/quotations/:id/revisions
+         * @description Returns revision metadata only; commercial cost fields are not exposed by this history projection.
+         */
+        get: operations["getQuotationsIdRevisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/quotations/{id}/revise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/quotations/:id/revise
+         * @description Creates a new DRAFT commercial quotation revision under a version and reason check. validityDays is required for the nested quotation request.
+         */
+        post: operations["postQuotationsIdRevise"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/quotations/{id}/submit": {
         parameters: {
             query?: never;
@@ -1343,7 +1383,7 @@ export interface paths {
         head?: never;
         /**
          * PATCH /api/emails/:id/discard
-         * @description Persistently discards an unprocessed inbound email. Emails already linked to an RFQ are protected from discard.
+         * @description Contracted internal PATCH /api/emails/:id/discard operation. This route uses the bounded JSON envelope while its owning vertical slice is migrated to a DTO-specific schema; credentials and provider secrets are excluded.
          */
         patch: operations["patchEmailsIdDiscard"];
         trace?: never;
@@ -1554,7 +1594,8 @@ export interface paths {
         get: operations["getAgentsRuntimeTasksId"];
         /**
          * PUT /api/agents/runtime/tasks/:id
-         * @description Contracted internal agent/model administration and runtime operation. Provider credentials, API keys and persisted JSON shadow columns are excluded from response DTOs.
+         * @deprecated
+         * @description Disabled legacy browser task synchronization. Authorized callers receive 410; no task data is written.
          */
         put: operations["putAgentsRuntimeTasksId"];
         post?: never;
@@ -1647,9 +1688,89 @@ export interface paths {
         put?: never;
         /**
          * POST /api/agents/:id/toggle
-         * @description Contracted internal agent/model administration and runtime operation. Provider credentials, API keys and persisted JSON shadow columns are excluded from response DTOs.
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
          */
         post: operations["postAgentsIdToggle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/agents/:id/versions
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
+         */
+        get: operations["getAgentsIdVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/agents/:id/publish
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
+         */
+        post: operations["postAgentsIdPublish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/agents/:id/restore
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
+         */
+        post: operations["postAgentsIdRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/agents/:id/test
+         * @description Server-authoritative published AI configuration. Management requires agent.manage; test additionally requires agent.run. Publishing creates an immutable version; restore only changes the draft. Business execution never uses an unpublished draft.
+         */
+        post: operations["postAgentsIdTest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2911,7 +3032,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/certificates/:id/revoke
-         * @description Contracted certificate/document/integration operation. Payloads are bounded to internal metadata and operational controls; secrets and full webhook payloads are never documented as examples.
+         * @description Requires certificate.issue. Records the authenticated actor and a required reason. A Serializable transaction and current status/updatedAt comparison prevent overwriting concurrent certificate changes.
          */
         post: operations["postCertificatesIdRevoke"];
         delete?: never;
@@ -2931,7 +3052,8 @@ export interface paths {
         put?: never;
         /**
          * POST /api/certificates/:id/renew
-         * @description Contracted certificate/document/integration operation. Payloads are bounded to internal metadata and operational controls; secrets and full webhook payloads are never documented as examples.
+         * @deprecated
+         * @description Disabled: changing a date cannot renew certificate evidence. Requires certificate.issue; authorized calls return 409 QUALITY_EVIDENCE_REQUIRED without changing any certificate. Obtain a new valid certificate and perform a new quality review.
          */
         post: operations["postCertificatesIdRenew"];
         delete?: never;
@@ -4475,7 +4597,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/ai/parse-email
-         * @description Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.
+         * @description Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.
          */
         post: operations["postAiParseEmail"];
         delete?: never;
@@ -4495,7 +4617,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/ai/analyze-quotes
-         * @description Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.
+         * @description Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.
          */
         post: operations["postAiAnalyzeQuotes"];
         delete?: never;
@@ -4515,7 +4637,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/ai/generate-email
-         * @description Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.
+         * @description Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.
          */
         post: operations["postAiGenerateEmail"];
         delete?: never;
@@ -4535,7 +4657,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/ai/chat
-         * @description Contracted internal AI assistance boundary. Inputs and outputs are user-directed assistance only; provider credentials and autonomous business decisions are outside this P2 scope.
+         * @description Runs the matching built-in agent using its immutable published prompt and selected active model. Requires agent.run; email extraction additionally requires email.read, quote analysis requires rfq.read and supplier_quote.read, email generation requires quotation.read. Chat only uses supplied text. ID-based inputs enforce record access; output is advisory and does not create, approve, order or send. No automatic fallback to simulated output.
          */
         post: operations["postAiChat"];
         delete?: never;
@@ -4712,6 +4834,46 @@ export interface paths {
         patch: operations["patchInventoryItemsId"];
         trace?: never;
     };
+    "/api/inventory-transactions/quality-review/{orderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/inventory-transactions/quality-review/:orderId
+         * @description Server-authoritative delivery quality review. Requires quality_review capability. Client identity/time fields are rejected; changes to reviewed facts invalidate approval.
+         */
+        get: operations["getInventoryTransactionsQualityReviewOrderId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-transactions/quality-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-transactions/quality-reviews
+         * @description Server-authoritative delivery quality review. Requires quality_review capability. Client identity/time fields are rejected; changes to reviewed facts invalidate approval.
+         */
+        post: operations["postInventoryTransactionsQualityReviews"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/inventory-transactions/detail/{detailId}": {
         parameters: {
             query?: never;
@@ -4806,6 +4968,722 @@ export interface paths {
          * @description Contracted internal reporting, notification, inventory-canonical or file-ingestion operation. Values are bounded to existing server projections; secrets and file bytes are never represented in examples.
          */
         post: operations["postInventoryTransactionsOutbound"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/reserve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/reserve
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsReserve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/assign
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsAssign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/release
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/quotation-lines/{quotationLineId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/inventory-allocations/quotation-lines/:quotationLineId
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        get: operations["getInventoryAllocationsQuotationLinesQuotationLineId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/order-lines/{orderLineId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/inventory-allocations/order-lines/:orderLineId
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        get: operations["getInventoryAllocationsOrderLinesOrderLineId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/quality-review/{assignmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/inventory-allocations/quality-review/:assignmentId
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        get: operations["getInventoryAllocationsQualityReviewAssignmentId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/quality-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/quality-reviews
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsQualityReviews"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inventory-allocations/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/inventory-allocations/consume
+         * @description Current object permissions are checked. Quantity projections contain no commercial cost fields. Mutations use serializable transactions and persistent command identities.
+         */
+        post: operations["postInventoryAllocationsConsume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments/orders/{orderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/shipments/orders/:orderId
+         * @description Reads the current modern order shipment view under order.read and current order owner/department scope. QUALITY_MANAGER may use this order view without quotation.read. Outbound sources expose no costs; a source missing current assignment or quality-review mapping has availableQuantity 0 and requiresHistoricalReview=true.
+         */
+        get: operations["getShipmentsOrdersOrderId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments/returns/{id}/release-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/shipments/returns/:id/release-context
+         * @description Reads the current return identity, quality, certificate, and evidence snapshot under quality_review.approve and current order scope. QUALITY_MANAGER does not need quotation.read; the snapshot contains no commercial cost fields.
+         */
+        get: operations["getShipmentsReturnsIdReleaseContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/shipments
+         * @description Creates a modern shipment from explicitly selected OUTBOUND transaction sources under inventory.manage and current order scope. No source is selected implicitly; each source must have a current assignment and consumed quality review.
+         */
+        post: operations["postShipments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments/dispatches/{id}/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/shipments/dispatches/:id/receipts
+         * @description Records explicit receipt quantities for shipment lines under inventory.manage and current order scope. Evidence must be supplied by the authenticated operator and the response contains safe quantity/state projections only.
+         */
+        post: operations["postShipmentsDispatchesIdReceipts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments/returns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/shipments/returns
+         * @description Creates a quarantined return hold under inventory.manage and current order scope. The hold is identity/evidence scoped and does not silently increase saleable inventory.
+         */
+        post: operations["postShipmentsReturns"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shipments/returns/{id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/shipments/returns/:id/release
+         * @description Releases a return hold only after an independent quality_review.approve decision and current snapshot/evidence checks under the order scope. The response is a safe hold projection without command internals or cost fields.
+         */
+        post: operations["postShipmentsReturnsIdRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/purchase-commitments
+         * @description Lists purchase commitments for a modern order. orderId is the only accepted query parameter; cost and supplier evidence follow purchase_commitment.view_cost.
+         */
+        get: operations["getPurchaseCommitments"];
+        put?: never;
+        /**
+         * POST /api/purchase-commitments
+         * @description Creates a strict line-first purchase commitment from a supplier quote or private manual-cost evidence.
+         */
+        post: operations["postPurchaseCommitments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/purchase-commitments/:id
+         * @description Returns one purchase commitment with cost fields only when purchase_commitment.view_cost is granted.
+         */
+        get: operations["getPurchaseCommitmentsId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/submit
+         * @description Submits a purchase commitment for approval.
+         */
+        post: operations["postPurchaseCommitmentsIdSubmit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/approve
+         * @description Approves a purchase commitment after current source and coverage checks.
+         */
+        post: operations["postPurchaseCommitmentsIdApprove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/reject
+         * @description Rejects a purchase commitment with a required reason.
+         */
+        post: operations["postPurchaseCommitmentsIdReject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/confirm
+         * @description Confirms supplier reference and private confirmation evidence.
+         */
+        post: operations["postPurchaseCommitmentsIdConfirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/purchase-commitments/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/purchase-commitments/:id/cancel
+         * @description Cancels a purchase commitment under its version check.
+         */
+        post: operations["postPurchaseCommitmentsIdCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock-receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock-receipts
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        get: operations["getStockReceipts"];
+        put?: never;
+        /**
+         * POST /api/stock-receipts
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        post: operations["postStockReceipts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock-receipts/lines/{id}/review-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock-receipts/lines/:id/review-context
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        get: operations["getStockReceiptsLinesIdReviewContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock-receipts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock-receipts/:id
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        get: operations["getStockReceiptsId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock-receipts/lines/{id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/stock-receipts/lines/:id/review
+         * @description Scoped procurement receipt custody and independent quality review. No purchase cost fields are returned.
+         */
+        post: operations["postStockReceiptsLinesIdReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/direct-shipments
+         * @description Reads supplier-direct shipment projections under inventory.read and current order scope. No commercial cost/source fields are returned.
+         */
+        get: operations["getDirectShipments"];
+        put?: never;
+        /**
+         * POST /api/direct-shipments
+         * @description Creates a supplier-direct shipment plan from explicit purchase lines and physical facts. Cost/source fields are not accepted or returned.
+         */
+        post: operations["postDirectShipments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/lines/{id}/review-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/direct-shipments/lines/:id/review-context
+         * @description Reads current supplier-direct quality facts under quality_review.approve and current order scope.
+         */
+        get: operations["getDirectShipmentsLinesIdReviewContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/direct-shipments/:id
+         * @description Reads one supplier-direct shipment under inventory.read and current order scope.
+         */
+        get: operations["getDirectShipmentsId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/lines/{id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/direct-shipments/lines/:id/review
+         * @description Records an independent supplier-direct quality decision with current evidence and snapshot checks.
+         */
+        post: operations["postDirectShipmentsLinesIdReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/{id}/dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/direct-shipments/:id/dispatch
+         * @description Dispatches an independently approved supplier-direct shipment under current order scope.
+         */
+        post: operations["postDirectShipmentsIdDispatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/direct-shipments/:id/cancel
+         * @description Cancels an un-dispatched supplier-direct shipment plan under current order scope.
+         */
+        post: operations["postDirectShipmentsIdCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/direct-shipments/lines/{id}/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/direct-shipments/lines/:id/receipt
+         * @description Records an explicit customer receipt quantity and evidence for a supplier-direct shipment line.
+         */
+        post: operations["postDirectShipmentsLinesIdReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/settlements
+         * @description Lists settlement accounts for one modern order. orderId is the only accepted query parameter; users without settlement.view_cost receive receivables only and never payable/cost data.
+         */
+        get: operations["getSettlements"];
+        put?: never;
+        /**
+         * POST /api/settlements
+         * @description Creates one USD receivable or payable account from current order/purchase facts. The request cannot supply an amount; PAYABLE requires settlement.view_cost and a confirmed purchase commitment.
+         */
+        post: operations["postSettlements"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settlements/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/settlements/:id
+         * @description Reads one current settlement account under order scope. A payable account requires settlement.view_cost; historical records are append-only.
+         */
+        get: operations["getSettlementsId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settlements/{id}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/settlements/:id/records
+         * @description Appends one immutable USD external voucher with a required version CAS. Existing history is never edited; replay and scope are rechecked.
+         */
+        post: operations["postSettlementsIdRecords"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4927,7 +5805,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/inquiries
-         * @description Contracted supporting operational operation. Responses mirror the existing internal route projection and exclude credentials or external-provider secrets.
+         * @description Creates source-linked inquiry drafts in one idempotent transaction. No supplier message is sent. Current RFQ access is required, including on replay.
          */
         post: operations["postInquiries"];
         delete?: never;
@@ -4967,7 +5845,8 @@ export interface paths {
         put?: never;
         /**
          * POST /api/inquiries/:id/send
-         * @description Contracted supporting operational operation. Responses mirror the existing internal route projection and exclude credentials or external-provider secrets.
+         * @deprecated
+         * @description No dispatch channel is implemented. Returns 409 MANUAL_WORKFLOW_REQUIRED without changing status or sentAt.
          */
         post: operations["postInquiriesIdSend"];
         delete?: never;
@@ -5794,13 +6673,6 @@ export interface components {
             type: "aog" | "standard" | "inquiry" | "spam";
             isRead: boolean;
             attachments: string[];
-            /** @enum {string} */
-            processingStatus?: "pending" | "processed" | "discarded" | "failed";
-            /** Format: date-time */
-            processedAt?: string | null;
-            /** Format: date-time */
-            discardedAt?: string | null;
-            rfqId?: string | null;
             accountId?: string | null;
             rfq?: {
                 [key: string]: unknown;
@@ -5820,14 +6692,6 @@ export interface components {
             success: true;
             data: components["schemas"]["Email"][];
             pagination?: components["schemas"]["Pagination"];
-            summary?: {
-                total: number;
-                aog: number;
-                standard: number;
-                inquiry: number;
-                unread: number;
-                spam: number;
-            };
         } & {
             [key: string]: unknown;
         };
@@ -6136,7 +7000,7 @@ export interface components {
             aircraftModel?: string;
         };
         CertificateRevokeRequest: {
-            reason?: string;
+            reason: string;
         };
         CertificateRenewRequest: {
             /** Format: date-time */
@@ -6745,6 +7609,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            readonly allocatedQuantity?: number;
         } & {
             [key: string]: unknown;
         };
@@ -6785,6 +7650,7 @@ export interface components {
                 createdAt: string;
                 /** Format: date-time */
                 updatedAt: string;
+                readonly allocatedQuantity?: number;
             } & {
                 [key: string]: unknown;
             })[];
@@ -6829,6 +7695,7 @@ export interface components {
                 createdAt: string;
                 /** Format: date-time */
                 updatedAt: string;
+                readonly allocatedQuantity?: number;
             } & {
                 [key: string]: unknown;
             })[];
@@ -7020,6 +7887,9 @@ export interface components {
                 /** Format: date-time */
                 requiredDate: string;
                 certificateRequired: boolean;
+                id?: string;
+                lineNo?: number;
+                rfqLineId?: string | null;
             } & {
                 [key: string]: unknown;
             })[];
@@ -7029,6 +7899,9 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             sentAt?: string | null;
+            rfqId?: string | null;
+            notes?: string | null;
+            readonly sourceVerified?: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -7050,6 +7923,8 @@ export interface components {
             rfqId: string;
             supplierIds: string[];
             isAOG?: boolean;
+            notes?: string;
+            lineIds?: string[];
         };
         NotificationPreference: {
             id: string;
@@ -7180,6 +8055,7 @@ export interface components {
             reasonCode?: string;
             reason?: string;
         };
+        /** @description Independent approval under the current amount policy. Explicit cost source fields allow historical missing evidence to be captured and approved in one version-checked transaction. */
         QuotationApproveRequest: {
             /** @enum {string} */
             action: "approve" | "reject";
@@ -7187,7 +8063,23 @@ export interface components {
             version?: number;
             reasonCode?: string;
             reason?: string;
-        };
+            /** @enum {string} */
+            costSourceType?: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL";
+            costSourceId?: string;
+            costSourceReason?: string;
+        } & ({
+            costSourceId?: never;
+            costSourceReason?: never;
+        } | {
+            /** @constant */
+            costSourceType: "MANUAL";
+            costSourceId?: never;
+            costSourceReason: string;
+        } | {
+            /** @enum {unknown} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL";
+            costSourceId: string;
+        });
         QuotationSendRequest: {
             subject?: string;
             message?: string;
@@ -7202,6 +8094,7 @@ export interface components {
             version?: number;
             reasonCode?: string;
         };
+        /** @description Legacy acceptance remains scalar. Modern quotation acceptance requires an optimistic-lock version and explicit line quantities. */
         QuotationAcceptRequest: {
             poNumber?: string;
             /** Format: date */
@@ -7211,7 +8104,13 @@ export interface components {
             version?: number;
             reasonCode?: string;
             reason?: string;
-        };
+            lines?: components["schemas"]["QuotationAcceptanceLine"][];
+        } & ({
+            lines?: never;
+        } | {
+            version: number;
+            lines: components["schemas"]["QuotationAcceptanceLine"][];
+        });
         InventoryArrayEnvelope: {
             /** @constant */
             success: true;
@@ -7281,6 +8180,10 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             createdBy: string;
+            /** @description True when the RFQ contains more than one authoritative demand line. */
+            readonly lineItemsMode?: boolean;
+            /** @description Authoritative demand lines ordered by lineNo. */
+            readonly lines?: components["schemas"]["RfqLine"][];
         } & {
             [key: string]: unknown;
         };
@@ -7302,78 +8205,10 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        RfqCreateRequest: {
-            customerId: string;
-            partNumber: string;
-            quantity: number;
-            /** @default EA */
-            uom: string;
-            /** @default NE */
-            conditionCode: string;
-            description?: string;
-            serialNumber?: string;
-            batchNumber?: string;
-            ataChapter?: string;
-            aircraftType?: string;
-            aircraftModel?: string;
-            alternatePartNumbers?: string[] | string;
-            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
-            targetPrice?: number | string;
-            /** @default USD */
-            targetPriceCurrency: string;
-            /** @default true */
-            certificateRequired: boolean;
-            certificateType?: string;
-            /** Format: date */
-            requiredDate?: string;
-            /** Format: date */
-            responseDeadline?: string;
-            leadTimeDays?: number;
-            /**
-             * @default STANDARD
-             * @enum {string}
-             */
-            urgency: "AOG" | "URGENT" | "STANDARD";
-            urgencyJustification?: string;
-            notes?: string;
-            emailId?: string;
-        };
-        RfqUpdateRequest: {
-            customerId?: string;
-            partNumber?: string;
-            quantity?: number;
-            /** @default EA */
-            uom: string;
-            /** @default NE */
-            conditionCode: string;
-            description?: string;
-            serialNumber?: string;
-            batchNumber?: string;
-            ataChapter?: string;
-            aircraftType?: string;
-            aircraftModel?: string;
-            alternatePartNumbers?: string[] | string;
-            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
-            targetPrice?: number | string;
-            /** @default USD */
-            targetPriceCurrency: string;
-            /** @default true */
-            certificateRequired: boolean;
-            certificateType?: string;
-            /** Format: date */
-            requiredDate?: string;
-            /** Format: date */
-            responseDeadline?: string;
-            leadTimeDays?: number;
-            /**
-             * @default STANDARD
-             * @enum {string}
-             */
-            urgency: "AOG" | "URGENT" | "STANDARD";
-            urgencyJustification?: string;
-            notes?: string;
-            emailId?: string;
-        };
+        /** @description Legacy scalar RFQ creation or strict modern multi-line creation. Demand header fields cannot be mixed with lines. */
+        RfqCreateRequest: components["schemas"]["RfqLegacyCreateRequest"] | components["schemas"]["RfqMultiLineCreateRequest"];
+        /** @description Legacy scalar RFQ patch or a complete strict line collection. Demand header fields cannot be mixed with lines. */
+        RfqUpdateRequest: components["schemas"]["RfqLegacyUpdateRequest"] | components["schemas"]["RfqMultiLineUpdateRequest"];
         RfqStatusUpdateRequest: {
             status: string;
             version?: number;
@@ -7430,6 +8265,28 @@ export interface components {
             createdBy: string;
             /** Format: date */
             expiryDate: string;
+            currency?: string;
+            /** @description True for an approved quotation whose latest approval does not cover the current policy and commercial terms. An authorised independent approver must review it again. */
+            readonly requiresReapproval?: boolean;
+            /** @description True when quotation line facts are authoritative. */
+            readonly lineItemsMode?: boolean;
+            /** @description Authoritative quotation lines ordered by lineNo; sensitive cost fields follow quotation.view_cost. */
+            readonly lines?: components["schemas"]["QuotationLine"][];
+            /** @enum {string|null} */
+            readonly costSourceType?: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL" | null;
+            readonly costSourceId?: string | null;
+            readonly costSourceReason?: string | null;
+            /** @description Immutable cost evidence, omitted without quotation.view_cost. */
+            readonly costSourceSnapshotJson?: string | null;
+            /** Format: date-time */
+            readonly costSourceCapturedAt?: string | null;
+            readonly commercialRevision: number;
+            readonly revisionOfId?: string | null;
+            readonly revisionRootId?: string | null;
+            readonly revisionReason?: string | null;
+            /** Format: date-time */
+            readonly supersededAt?: string | null;
+            readonly supersededById?: string;
         } & {
             [key: string]: unknown;
         };
@@ -7451,46 +8308,8 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        QuotationCreateRequest: {
-            rfqId: string;
-            customerId: string;
-            partNumber: string;
-            quantity: number;
-            unitPrice: number;
-            costPrice: number;
-            certificateFiles?: string[];
-            template?: string;
-            validityDays?: number;
-            /** @default Sale */
-            saleType: string;
-            shipToId?: string;
-            shipForId?: string;
-            incoterm?: string;
-            incotermLocation?: string;
-            leadTimeDays?: number;
-            leadTimeBasis?: string;
-            moq?: number;
-            mpq?: number;
-            priceBasis?: string;
-            /** @default true */
-            taxIncluded: boolean;
-            taxRate?: number;
-            /** @default 90 */
-            warrantyDays: number;
-            warrantyTerms?: string;
-            packagingRequirement?: string;
-            shippingMethod?: string;
-            ccRecipients?: string[] | string;
-            commonNote?: string;
-            eSignature?: string;
-            /** @default Unsigned */
-            eSignatureStatus: string;
-            countryOfOrigin?: string;
-            hsCode?: string;
-            eccn?: string;
-            /** @default false */
-            dualUse: boolean;
-        };
+        /** @description Legacy scalar quotation or strict USD modern multi-line quotation. Commercial demand and cost facts live on lines in modern mode. */
+        QuotationCreateRequest: components["schemas"]["QuotationLegacyCreateRequest"] | components["schemas"]["QuotationMultiLineCreateRequest"];
         QuotationUpdateRequest: {
             rfqId?: string;
             customerId?: string;
@@ -7584,6 +8403,11 @@ export interface components {
             exchangeCoreDueDate?: string;
             eSignatureCustomer?: string;
             eSignatureSupplier?: string;
+            /** @description True when order line facts are authoritative. */
+            readonly lineItemsMode?: boolean;
+            readonly directShippedQuantity?: number;
+            /** @description Authoritative order lines ordered by lineNo. */
+            readonly lines?: components["schemas"]["OrderLine"][];
         } & {
             [key: string]: unknown;
         };
@@ -7613,8 +8437,8 @@ export interface components {
             /** Format: date */
             deliveryDate?: string;
             templateId?: string;
-            /** @default Sale */
-            saleType: string;
+            /** @enum {string} */
+            saleType?: "Sale";
             incoterm?: string;
             incotermLocation?: string;
             shipToId?: string;
@@ -7655,8 +8479,8 @@ export interface components {
             /** Format: date */
             deliveryDate?: string;
             templateId?: string;
-            /** @default Sale */
-            saleType: string;
+            /** @enum {string} */
+            saleType?: "Sale";
             incoterm?: string;
             incotermLocation?: string;
             shipToId?: string;
@@ -7757,6 +8581,8 @@ export interface components {
             storageTempMax?: number;
             hazardClass?: string;
             notes?: string;
+            readonly allocatedQuantity?: number;
+            readonly availableQuantity?: number;
         } & {
             [key: string]: unknown;
         };
@@ -8290,6 +9116,12 @@ export interface components {
             } & {
                 [key: string]: unknown;
             };
+            /** @description Historical missing currency remains null. */
+            currency?: string | null;
+            /** @enum {string} */
+            readonly currencyStatus?: "VERIFIED" | "HISTORICAL_UNVERIFIED";
+            readonly rfqLineId?: string | null;
+            readonly inquiryItemId?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -8345,6 +9177,12 @@ export interface components {
             inquiry?: {
                 [key: string]: unknown;
             } | null;
+            /** @description Historical missing currency remains null. */
+            currency?: string | null;
+            /** @enum {string} */
+            readonly currencyStatus?: "VERIFIED" | "HISTORICAL_UNVERIFIED";
+            readonly rfqLineId?: string | null;
+            readonly inquiryItemId?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -8476,6 +9314,7 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description USD supplier quote with exact source IDs. A unique RFQ line may be selected from the specified RFQ; multi-line RFQs require an explicit line ID. Inquiry ownership and supplier identity are verified in the same transaction. */
         SupplierQuoteCreateRequest: {
             rfqId?: string;
             inquiryId?: string;
@@ -8488,7 +9327,15 @@ export interface components {
             /** Format: date-time */
             validUntil?: string;
             notes?: string;
+            /**
+             * @default USD
+             * @enum {string}
+             */
+            currency: "USD";
+            rfqLineId?: string;
+            inquiryItemId?: string;
         };
+        /** @description Updates commercial availability without rewriting captured quotation cost snapshots. Source identity changes require a new supplier quote; sending the unchanged IDs is allowed. */
         SupplierQuoteUpdateRequest: {
             unitPrice?: number;
             leadTimeDays?: number;
@@ -8498,6 +9345,14 @@ export interface components {
             /** @enum {string} */
             status?: "pending" | "accepted" | "rejected" | "expired";
             isWinner?: boolean;
+            /** @enum {string} */
+            currency?: "USD";
+            rfqId?: string;
+            rfqLineId?: string;
+            inquiryId?: string;
+            inquiryItemId?: string;
+            partNumber?: string;
+            quantity?: number;
         };
         SupplierQuoteCompareRequest: {
             rfqId: string;
@@ -10327,14 +11182,29 @@ export interface components {
             type: string;
             description?: string | null;
             isActive: boolean;
+            /** @description Draft config; legacy custom agents may contain older fields. */
             config: {
                 [key: string]: unknown;
             };
-            prompts: unknown[];
+            /** @description Draft prompts; legacy custom agents may be empty or need correction before publishing. */
+            prompts: {
+                [key: string]: unknown;
+            }[];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            builtinKey: string | null;
+            draftRevision: number;
+            publishedVersion: number | null;
+            workflow: {
+                label: string;
+                description: string;
+                variables: string[];
+                inputExample: {
+                    [key: string]: unknown;
+                };
+            } | null;
         } & {
             [key: string]: unknown;
         };
@@ -10387,11 +11257,13 @@ export interface components {
         };
         AgentRunResult: {
             output: string;
+            model: string;
+            latency: number;
+            promptVersion: number;
+            agentId: string;
             duration: string;
-            /** @enum {string} */
-            status: "SUCCESS" | "ERROR";
-        } & {
-            [key: string]: unknown;
+            /** @constant */
+            status: "SUCCESS";
         };
         AgentRunResultEnvelope: {
             /** @constant */
@@ -10418,6 +11290,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            hasApiKey: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -10471,6 +11344,12 @@ export interface components {
             /** @enum {string} */
             urgency: "AOG" | "URGENT" | "STANDARD";
             aircraftType?: string | null;
+            ai: {
+                agentId: string;
+                promptVersion: number;
+                model: string;
+            };
+            requiredDate?: string;
         } & {
             [key: string]: unknown;
         };
@@ -10483,6 +11362,11 @@ export interface components {
         };
         AiQuoteAnalysis: {
             analysis: string;
+            ai: {
+                agentId: string;
+                promptVersion: number;
+                model: string;
+            };
         } & {
             [key: string]: unknown;
         };
@@ -10495,6 +11379,11 @@ export interface components {
         };
         AiGeneratedEmail: {
             email: string;
+            ai: {
+                agentId: string;
+                promptVersion: number;
+                model: string;
+            };
         } & {
             [key: string]: unknown;
         };
@@ -10514,6 +11403,11 @@ export interface components {
                 totalTokens?: number;
             } | null;
             latency: number;
+            ai: {
+                agentId: string;
+                promptVersion: number;
+                model: string;
+            };
         } & {
             [key: string]: unknown;
         };
@@ -10611,37 +11505,51 @@ export interface components {
         AgentCreateRequest: {
             name: string;
             type: string;
-            description?: string;
+            description?: string | null;
             isActive?: boolean;
             config?: {
-                [key: string]: unknown;
+                modelId?: string | null;
+                temperature?: number;
+                maxTokens?: number;
             };
-            prompts?: unknown[];
+            prompts: {
+                /** @enum {string} */
+                role: "system" | "user" | "assistant";
+                content: string;
+            }[];
         };
         AgentUpdateRequest: {
             name?: string;
             type?: string;
-            description?: string;
+            description?: string | null;
             isActive?: boolean;
             config?: {
-                [key: string]: unknown;
+                modelId?: string | null;
+                temperature?: number;
+                maxTokens?: number;
             };
-            prompts?: unknown[];
+            prompts?: {
+                /** @enum {string} */
+                role: "system" | "user" | "assistant";
+                content: string;
+            }[];
+            expectedRevision: number;
+            builtinKey?: string | null;
         };
         AgentRunRequest: {
             task?: string;
-            input?: {
+            input: {
                 [key: string]: unknown;
             };
         };
         AiModelCreateRequest: {
             name: string;
             /** @enum {string} */
-            provider: "openai" | "anthropic" | "azure" | "ollama" | "deepseek" | "custom";
+            provider: "openai" | "deepseek" | "ollama" | "custom";
             modelId: string;
-            apiKey?: string;
-            /** Format: uri */
-            baseUrl?: string;
+            apiKey?: string | null;
+            /** @description HTTPS endpoint without credentials, query or fragment; local HTTP allowed. Custom and Ollama require an explicit URL. */
+            baseUrl?: string | null;
             isActive?: boolean;
             isDefault?: boolean;
             config?: {
@@ -10652,11 +11560,11 @@ export interface components {
         AiModelUpdateRequest: {
             name?: string;
             /** @enum {string} */
-            provider?: "openai" | "anthropic" | "azure" | "ollama" | "deepseek" | "custom";
+            provider?: "openai" | "deepseek" | "ollama" | "custom";
             modelId?: string;
-            apiKey?: string;
-            /** Format: uri */
-            baseUrl?: string;
+            apiKey?: string | null;
+            /** @description HTTPS endpoint without credentials, query or fragment; local HTTP allowed. Custom and Ollama require an explicit URL. */
+            baseUrl?: string | null;
             isActive?: boolean;
             isDefault?: boolean;
             config?: {
@@ -10665,31 +11573,32 @@ export interface components {
             capabilities?: string[];
         };
         AiParseEmailRequest: {
+            emailId: string;
+        } | {
             subject: string;
             body: string;
         };
         AiAnalyzeQuotesRequest: {
+            rfqId: string;
+        } | {
             rfqDetails: string;
             supplierQuotes: string;
         };
         AiGenerateEmailRequest: {
+            quotationId: string;
+        } | {
             customerName: string;
             partNumber: string;
-            /** @default 1 */
             quantity: number;
             unitPrice: number;
             totalPrice: number;
             incoterm?: string;
             incotermLocation?: string;
             leadTimeDays?: number;
-            /** @default 30 */
             validityDays: number;
         };
         AiChatRequest: {
             message: string;
-            systemPrompt?: string;
-            temperature?: number;
-            maxTokens?: number;
         };
         AuctionBid: {
             id: string;
@@ -11058,6 +11967,1786 @@ export interface components {
             }[];
         } & {
             [key: string]: unknown;
+        };
+        FulfillmentReviewCreateRequest: {
+            orderId: string;
+            quantity: number;
+            snapshotHash: string;
+            approved: boolean;
+            evidenceIds: string[];
+            verifiedSerialNumber: string;
+            verifiedBatchNumber: string;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+            reason: string;
+        };
+        FulfillmentReviewResultEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                id: string;
+                approved: boolean;
+                /** Format: date-time */
+                reviewedAt: string;
+                quantity: number;
+            };
+        };
+        FulfillmentReviewPreviewEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                snapshotHash: string;
+                snapshot: {
+                    /** @description Current identity, tracking and quality requirements; no cost fields. */
+                    order: {
+                        [key: string]: unknown;
+                    };
+                    /** @description Versioned customer and quotation quality requirements. */
+                    requirements: {
+                        [key: string]: unknown;
+                    };
+                    /** @description Physical identity, condition, life and document references; no cost fields. */
+                    inventory: {
+                        [key: string]: unknown;
+                    };
+                    certificates: {
+                        [key: string]: unknown;
+                    }[];
+                    plannedQuantity: number;
+                };
+                review: {
+                    approved: boolean;
+                    snapshotHash: string;
+                    /** Format: date-time */
+                    consumedAt: string | null;
+                    /** Format: date-time */
+                    reviewedAt: string;
+                    quantity: number;
+                } | null;
+            };
+        };
+        RfqLine: {
+            id: string;
+            rfqId: string;
+            lineNo: number;
+            partNumber: string;
+            quantity: number;
+            uom: string;
+            conditionCode: string;
+            description?: string | null;
+            serialNumber?: string | null;
+            batchNumber?: string | null;
+            ataChapter?: string | null;
+            aircraftType?: string | null;
+            aircraftModel?: string | null;
+            alternatePartNumbers?: string[];
+            certificateRequired: boolean;
+            certificateType?: string | null;
+            /** Format: date */
+            requiredDate: string;
+            leadTimeDays?: number | null;
+            targetPriceDecimal?: string | null;
+            targetPriceCurrency: string;
+            /** @enum {string} */
+            status: "OPEN" | "COMPLETED" | "CANCELLED";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        RfqLineCreateRequest: {
+            partNumber: string;
+            quantity: number;
+            /** @default EA */
+            uom: string;
+            /** @default NE */
+            conditionCode: string;
+            description?: string;
+            serialNumber?: string;
+            batchNumber?: string;
+            ataChapter?: string;
+            aircraftType?: string;
+            aircraftModel?: string;
+            alternatePartNumbers?: string[] | string;
+            targetPrice?: number;
+            /** @default USD */
+            targetPriceCurrency: string;
+            /** @default true */
+            certificateRequired: boolean;
+            certificateType?: string;
+            /** Format: date */
+            requiredDate: string;
+            leadTimeDays?: number;
+        };
+        RfqLineUpdateRequest: {
+            id?: string;
+            partNumber: string;
+            quantity: number;
+            /** @default EA */
+            uom: string;
+            /** @default NE */
+            conditionCode: string;
+            description?: string;
+            serialNumber?: string;
+            batchNumber?: string;
+            ataChapter?: string;
+            aircraftType?: string;
+            aircraftModel?: string;
+            alternatePartNumbers?: string[] | string;
+            targetPrice?: number;
+            /** @default USD */
+            targetPriceCurrency: string;
+            /** @default true */
+            certificateRequired: boolean;
+            certificateType?: string;
+            /** Format: date */
+            requiredDate: string;
+            leadTimeDays?: number;
+        };
+        RfqLegacyCreateRequest: {
+            customerId: string;
+            partNumber: string;
+            quantity: number;
+            /** @default EA */
+            uom: string;
+            /** @default NE */
+            conditionCode: string;
+            description?: string;
+            serialNumber?: string;
+            batchNumber?: string;
+            ataChapter?: string;
+            aircraftType?: string;
+            aircraftModel?: string;
+            alternatePartNumbers?: string[] | string;
+            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
+            targetPrice?: number | string;
+            /** @default USD */
+            targetPriceCurrency: string;
+            /** @default true */
+            certificateRequired: boolean;
+            certificateType?: string;
+            /** Format: date */
+            requiredDate?: string;
+            /** Format: date */
+            responseDeadline?: string;
+            leadTimeDays?: number;
+            /**
+             * @default STANDARD
+             * @enum {string}
+             */
+            urgency: "AOG" | "URGENT" | "STANDARD";
+            urgencyJustification?: string;
+            notes?: string;
+            emailId?: string;
+        };
+        RfqLegacyUpdateRequest: {
+            customerId?: string;
+            partNumber?: string;
+            quantity?: number;
+            /** @default EA */
+            uom: string;
+            /** @default NE */
+            conditionCode: string;
+            description?: string;
+            serialNumber?: string;
+            batchNumber?: string;
+            ataChapter?: string;
+            aircraftType?: string;
+            aircraftModel?: string;
+            alternatePartNumbers?: string[] | string;
+            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
+            targetPrice?: number | string;
+            /** @default USD */
+            targetPriceCurrency: string;
+            /** @default true */
+            certificateRequired: boolean;
+            certificateType?: string;
+            /** Format: date */
+            requiredDate?: string;
+            /** Format: date */
+            responseDeadline?: string;
+            leadTimeDays?: number;
+            /**
+             * @default STANDARD
+             * @enum {string}
+             */
+            urgency: "AOG" | "URGENT" | "STANDARD";
+            urgencyJustification?: string;
+            notes?: string;
+            emailId?: string;
+        };
+        RfqMultiLineCreateRequest: {
+            customerId: string;
+            /** Format: date */
+            responseDeadline?: string;
+            /**
+             * @default STANDARD
+             * @enum {string}
+             */
+            urgency: "AOG" | "URGENT" | "STANDARD";
+            urgencyJustification?: string;
+            notes?: string;
+            emailId?: string;
+            lines: components["schemas"]["RfqLineCreateRequest"][];
+        };
+        RfqMultiLineUpdateRequest: {
+            customerId?: string;
+            /** Format: date */
+            responseDeadline?: string;
+            /**
+             * @default STANDARD
+             * @enum {string}
+             */
+            urgency: "AOG" | "URGENT" | "STANDARD";
+            urgencyJustification?: string;
+            notes?: string;
+            emailId?: string;
+            lines: components["schemas"]["RfqLineUpdateRequest"][];
+        };
+        QuotationLine: {
+            id: string;
+            quotationId: string;
+            lineNo: number;
+            rfqLineId: string;
+            readonly sourceSupplierQuoteId?: string | null;
+            partNumber: string;
+            description?: string | null;
+            uom: string;
+            quantity: number;
+            /** @description Decimal unit price serialized as a string. */
+            unitPrice: string;
+            /** @description Omitted unless quotation.view_cost is granted. */
+            readonly costPrice?: string;
+            /** @description Decimal line total serialized as a string. */
+            lineTotal: string;
+            /** @description Omitted unless quotation.view_cost is granted. */
+            readonly marginAmount?: string;
+            /** @description Omitted unless quotation.view_cost is granted. */
+            readonly marginPercent?: string;
+            currency: string;
+            /** @enum {string|null} */
+            readonly costSourceType?: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL" | null;
+            readonly costSourceId?: string | null;
+            readonly costSourceReason?: string | null;
+            /** @description Omitted unless quotation.view_cost is granted. */
+            readonly costSourceSnapshotJson?: string | null;
+            /** Format: date-time */
+            readonly costSourceCapturedAt?: string | null;
+            acceptedQuantity: number;
+            reservedQuantity: number;
+            inventoryDetailId?: string | null;
+            serialNumber?: string | null;
+            batchNumber?: string | null;
+            status: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        OrderLine: {
+            id: string;
+            orderId: string;
+            lineNo: number;
+            quotationLineId: string;
+            partNumber: string;
+            uom: string;
+            quantity: number;
+            /** @description Decimal unit price serialized as a string. */
+            unitPrice: string;
+            /** @description Decimal line total serialized as a string. */
+            lineTotal: string;
+            currency: string;
+            outboundQuantity: number;
+            readonly directShippedQuantity?: number;
+            outboundStatus: string;
+            inventoryDetailId?: string | null;
+            serialNumber?: string | null;
+            batchNumber?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description USD sale quotation with an explicit, verifiable cost source. Supplier or inventory source identity, quantity and price are validated server-side; manual cost requires a reason. */
+        QuotationLegacyCreateRequest: {
+            rfqId: string;
+            customerId: string;
+            partNumber: string;
+            quantity: number;
+            unitPrice: number;
+            costPrice: number;
+            certificateFiles?: string[];
+            template?: string;
+            validityDays?: number;
+            /** @enum {string} */
+            saleType?: "Sale";
+            shipToId?: string;
+            shipForId?: string;
+            incoterm?: string;
+            incotermLocation?: string;
+            leadTimeDays?: number;
+            leadTimeBasis?: string;
+            moq?: number;
+            mpq?: number;
+            priceBasis?: string;
+            /** @default true */
+            taxIncluded: boolean;
+            taxRate?: number;
+            /** @default 90 */
+            warrantyDays: number;
+            warrantyTerms?: string;
+            packagingRequirement?: string;
+            shippingMethod?: string;
+            ccRecipients?: string[] | string;
+            commonNote?: string;
+            eSignature?: string;
+            /** @default Unsigned */
+            eSignatureStatus: string;
+            countryOfOrigin?: string;
+            hsCode?: string;
+            eccn?: string;
+            /** @default false */
+            dualUse: boolean;
+            /**
+             * @default USD
+             * @enum {string}
+             */
+            currency: "USD";
+            /** @enum {string} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL";
+            costSourceId?: string;
+            costSourceReason?: string;
+        } & ({
+            /** @constant */
+            costSourceType: "MANUAL";
+            costSourceId?: never;
+            costSourceReason: string;
+        } | {
+            /** @enum {unknown} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL";
+            costSourceId: string;
+        });
+        QuotationLineCreateRequest: {
+            rfqLineId: string;
+            partNumber: string;
+            quantity: number;
+            unitPrice: number;
+            costPrice: number;
+            /** @enum {string} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL" | "MANUAL";
+            costSourceId?: string;
+            costSourceReason?: string;
+        } & ({
+            /** @constant */
+            costSourceType: "MANUAL";
+            costSourceId?: never;
+            costSourceReason: string;
+        } | {
+            /** @enum {unknown} */
+            costSourceType: "SUPPLIER_QUOTE" | "INVENTORY_DETAIL";
+            costSourceId: string;
+        });
+        QuotationMultiLineCreateRequest: {
+            rfqId: string;
+            customerId: string;
+            certificateFiles?: string[];
+            template?: string;
+            validityDays?: number;
+            /**
+             * @default Sale
+             * @enum {string}
+             */
+            saleType: "Sale";
+            shipToId?: string;
+            shipForId?: string;
+            incoterm?: string;
+            incotermLocation?: string;
+            leadTimeDays?: number;
+            leadTimeBasis?: string;
+            moq?: number;
+            mpq?: number;
+            priceBasis?: string;
+            /** @default true */
+            taxIncluded: boolean;
+            taxRate?: number;
+            /** @default 90 */
+            warrantyDays: number;
+            warrantyTerms?: string;
+            packagingRequirement?: string;
+            shippingMethod?: string;
+            ccRecipients?: string[] | string;
+            commonNote?: string;
+            eSignature?: string;
+            /** @default Unsigned */
+            eSignatureStatus: string;
+            countryOfOrigin?: string;
+            hsCode?: string;
+            eccn?: string;
+            /** @default false */
+            dualUse: boolean;
+            /**
+             * @default USD
+             * @constant
+             * @enum {string}
+             */
+            currency: "USD";
+            lines: components["schemas"]["QuotationLineCreateRequest"][];
+        };
+        QuotationAcceptanceLine: {
+            quotationLineId: string;
+            quantity: number;
+            allocations?: {
+                allocationId: string;
+                quantity: number;
+            }[];
+        };
+        QuotationRevision: {
+            readonly id: string;
+            readonly quoteNumber: string;
+            readonly commercialRevision: number;
+            readonly revisionOfId: string | null;
+            readonly revisionRootId: string | null;
+            readonly revisionReason: string | null;
+            /** Format: date-time */
+            readonly supersededAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** @enum {string} */
+            readonly status: "draft" | "pending_approval" | "approved" | "rejected" | "sent" | "accepted" | "expired" | "withdrawn";
+            /** Format: date-time */
+            readonly expiryDate: string;
+            readonly supersededById?: string;
+        };
+        QuotationRevisionListEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["QuotationRevision"][];
+        } & {
+            [key: string]: unknown;
+        };
+        QuotationReviseRequest: {
+            version: number;
+            reason: string;
+            quotation: components["schemas"]["QuotationCreateRequest"] & {
+                validityDays: number;
+            };
+        };
+        QuotationRevisionCreated: components["schemas"]["Quotation"] & ({
+            readonly previousQuotationId: string;
+        } & {
+            [key: string]: unknown;
+        });
+        QuotationRevisionCreatedEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["QuotationRevisionCreated"];
+        } & {
+            [key: string]: unknown;
+        };
+        InventoryItemSafePatch: {
+            partNumber?: string;
+            description?: string;
+            partCategory?: string;
+            trackingType?: string;
+            unitOfMeasure?: string;
+            manufacturer?: string | null;
+            manufacturerCageCode?: string | null;
+            ataChapter?: string | null;
+            alternatePartNumbers?: string | null;
+            countryOfOrigin?: string | null;
+            hsCode?: string | null;
+        };
+        InventoryAllocationAssignment: {
+            id: string;
+            orderLineId: string;
+            assignedQuantity: number;
+            releasedQuantity: number;
+            consumedQuantity: number;
+            activeQuantity: number;
+        };
+        InventoryAllocation: {
+            id: string;
+            quotationLineId: string;
+            inventoryDetailId: string;
+            stockReceiptLineId: string | null;
+            sourceReturnHoldId: string | null;
+            allocatedQuantity: number;
+            releasedQuantity: number;
+            consumedQuantity: number;
+            activeQuantity: number;
+            unassignedQuantity: number;
+            assignedActiveQuantity: number;
+            /** Format: date-time */
+            expiresAt: string | null;
+            assignments: components["schemas"]["InventoryAllocationAssignment"][];
+        };
+        QuotationLineAllocationView: {
+            quotationLineId: string;
+            quantity: number;
+            acceptedQuantity: number;
+            reservedQuantity: number;
+            unassignedQuantity: number;
+            assignedActiveQuantity: number;
+            activeQuantity: number;
+            allocations: components["schemas"]["InventoryAllocation"][];
+        };
+        OrderLineAllocationView: {
+            id: string;
+            quotationLineId: string;
+            quantity: number;
+            outboundQuantity: number;
+            directShippedQuantity: number;
+            assignments: {
+                id: string;
+                orderLineId: string;
+                assignedQuantity: number;
+                releasedQuantity: number;
+                consumedQuantity: number;
+                activeQuantity: number;
+                allocationId: string;
+                inventoryDetailId: string;
+            }[];
+        };
+        InventoryAllocationReserve: {
+            quotationLineId: string;
+            orderLineId?: string;
+            allocations: {
+                inventoryDetailId: string;
+                quantity: number;
+                stockReceiptLineId?: string;
+                sourceReturnHoldId?: string;
+            }[];
+        };
+        InventoryAllocationAssign: {
+            orderLineId: string;
+            allocations: {
+                allocationId: string;
+                quantity: number;
+            }[];
+        };
+        InventoryAllocationRelease: {
+            allocationId: string;
+            assignmentId?: string;
+            quantity: number;
+            reason: string;
+        };
+        InventoryAllocationCommandResult: {
+            commandId: string;
+            replayed: boolean;
+            quotationLineId: string;
+            orderLineId?: string | null;
+            allocationId?: string;
+            assignmentId?: string | null;
+            releasedQuantity?: number;
+            reason?: string;
+            createdAllocationIds?: string[];
+            createdAssignmentIds?: string[];
+            allocations: components["schemas"]["InventoryAllocation"][];
+        };
+        AllocationQualityReviewCreate: {
+            assignmentId: string;
+            quantity: number;
+            snapshotHash: string;
+            approved: boolean;
+            evidenceIds: string[];
+            verifiedSerialNumber: string;
+            verifiedBatchNumber: string;
+            certificateIdentity?: {
+                id?: string;
+                certificateId?: string;
+                certificateNumber?: string;
+                certificateType?: string;
+                partNumber?: string;
+                serialNumber?: string | null;
+                batchNumber?: string | null;
+                fileHash?: string | null;
+            };
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+            reason: string;
+        };
+        AllocationQualityReviewCreated: {
+            id: string;
+            approved: boolean;
+            /** Format: date-time */
+            reviewedAt: string;
+            quantity: number;
+        };
+        AllocationQualityPreview: {
+            snapshotHash: string;
+            snapshot: {
+                /** @constant */
+                schemaVersion: 1;
+                assignment: Record<string, never>;
+                allocation: Record<string, never>;
+                orderLine: Record<string, never>;
+                inventory: Record<string, never>;
+                plannedQuantity: number;
+            } & {
+                [key: string]: unknown;
+            };
+            review: null | {
+                id: string;
+                approved: boolean;
+                snapshotHash: string;
+                /** Format: date-time */
+                consumedAt: string | null;
+                /** Format: date-time */
+                reviewedAt: string;
+                quantity: number;
+            };
+        };
+        InventoryAllocationConsume: {
+            assignmentId: string;
+            quantity: number;
+            reviewId: string;
+            notes?: string;
+        };
+        InventoryAllocationConsumed: {
+            assignmentId: string;
+            allocationId: string;
+            inventoryDetailId: string;
+            quantity: number;
+            beforeQuantity: number;
+            afterQuantity: number;
+            transactionId: string;
+            orderId: string;
+            orderStatus: string;
+            allocationVersion: number;
+            assignmentVersion: number;
+        };
+        StockReceiptPhysical: {
+            partNumber: string;
+            uom: string;
+            /** @enum {unknown} */
+            trackingType: "SERIAL" | "BATCH";
+            quantity: number;
+            serialNumber?: string | null;
+            batchNumber?: string | null;
+            conditionCode: string;
+            certificateReferences?: {
+                id: string;
+                fileHash: string;
+            }[];
+            certificateType?: string | null;
+            certificateNumber?: string | null;
+            lifeLimited?: boolean;
+            remainingHours?: number | null;
+            remainingCycles?: number | null;
+            /** Format: date-time */
+            shelfLifeDate?: string | null;
+            shelfLifeDays?: number | null;
+            /** Format: date-time */
+            nextOverhaulDue?: string | null;
+            storageCondition?: string | null;
+        };
+        StockReceiptStorage: {
+            location: string;
+            warehouse: string;
+            shelf?: string | null;
+        };
+        StockReceiptArrival: {
+            purchaseCommitmentId: string;
+            purchaseVersion: number;
+            supplierDeliveryReference: string;
+            reason: string;
+            evidenceIds: string[];
+            lines: {
+                purchaseCommitmentLineId: string;
+                physical: components["schemas"]["StockReceiptPhysical"];
+                storage: components["schemas"]["StockReceiptStorage"];
+            }[];
+        };
+        StockReceiptReview: {
+            version: number;
+            snapshotHash: string;
+            /** @enum {unknown} */
+            decision: "ACCEPTED" | "REJECTED";
+            reason: string;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+        };
+        StockReceiptLine: {
+            id: string;
+            lineNo: number;
+            purchaseCommitmentLineId: string;
+            quantity: number;
+            /** @enum {unknown} */
+            status: "PENDING_REVIEW" | "ACCEPTED" | "REJECTED";
+            version: number;
+            identitySnapshot: {
+                /** @constant */
+                schemaVersion: 1;
+                purchaseCommitmentLineId: string;
+                orderLineId: string;
+                quotationLineId: string;
+                rfqLineId: string;
+                partNumber: string;
+                uom: string;
+                serialNumber: string | null;
+                batchNumber: string | null;
+                conditionCode: string;
+                /** @enum {unknown} */
+                trackingType: "SERIAL" | "BATCH";
+            };
+            qualitySnapshot: {
+                physical: components["schemas"]["StockReceiptPhysical"];
+                storage: components["schemas"]["StockReceiptStorage"];
+            };
+            evidence: {
+                id: string;
+                version: number;
+                sha256: string;
+                /** @constant */
+                status: "AVAILABLE";
+            }[];
+            reviewedById: string | null;
+            /** Format: date-time */
+            reviewedAt: string | null;
+            reviewReason: string | null;
+            inventoryDetailId: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        StockReceipt: {
+            id: string;
+            receiptNumber: string;
+            purchaseCommitmentId: string;
+            version: number;
+            receivedById: string;
+            /** Format: date-time */
+            receivedAt: string;
+            supplierDeliveryReference: string;
+            reason: string | null;
+            evidence: {
+                id: string;
+                version: number;
+                sha256: string;
+                /** @constant */
+                status: "AVAILABLE";
+            }[];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            purchaseCommitment: {
+                orderId: string;
+                commitmentNumber: string;
+                supplierId: string;
+            };
+            lines: components["schemas"]["StockReceiptLine"][];
+        };
+        StockReceiptReviewContext: {
+            receiptLineId: string;
+            version: number;
+            /** @enum {unknown} */
+            status: "PENDING_REVIEW" | "ACCEPTED" | "REJECTED";
+            snapshotHash: string;
+            snapshot: {
+                receiptId: string;
+                receiptLineId: string;
+                version: number;
+                receiptVersion: number;
+                identity: {
+                    /** @constant */
+                    schemaVersion: 1;
+                    purchaseCommitmentLineId: string;
+                    orderLineId: string;
+                    quotationLineId: string;
+                    rfqLineId: string;
+                    partNumber: string;
+                    uom: string;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    conditionCode: string;
+                    /** @enum {unknown} */
+                    trackingType: "SERIAL" | "BATCH";
+                };
+                physical: {
+                    physical: components["schemas"]["StockReceiptPhysical"];
+                    storage: components["schemas"]["StockReceiptStorage"];
+                };
+                /** @description Server-built current quality facts; no commercial fields. */
+                requirements: {
+                    [key: string]: unknown;
+                };
+                evidence: {
+                    id: string;
+                    version: number;
+                    sha256: string;
+                    /** @constant */
+                    status: "AVAILABLE";
+                }[];
+            };
+            issues: {
+                code: string;
+                path: string;
+                message: string;
+            }[];
+            canAccept: boolean;
+        };
+        DirectShipmentEvidence: {
+            id: string;
+            version: number;
+            sha256: string;
+            /** @constant */
+            status: "AVAILABLE";
+        };
+        DirectShipmentChecks: {
+            identity: boolean;
+            documents: boolean;
+            conditionAndLife: boolean;
+            customerRequirements: boolean;
+        };
+        DirectShipmentCertificate: {
+            id: string;
+            certificateNumber: string;
+            partNumber: string;
+            serialNumber: string | null;
+            batchNumber: string | null;
+            certificateType: string;
+            status: string;
+            /** Format: date-time */
+            expiryDate: string | null;
+            fileHash: string | null;
+            supplierId: string | null;
+            orderId: string | null;
+            inventoryDetailId: string | null;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        DirectShipmentQualitySnapshot: {
+            /** @constant */
+            schemaVersion: 1;
+            chain: {
+                order: {
+                    id: string;
+                    quotationId: string;
+                    lineItemsMode: boolean;
+                    currency: string;
+                    saleType?: string | null;
+                    certificateRequired: boolean;
+                    certificateType: string | null;
+                    inspectionRequired: boolean;
+                };
+                orderLine: {
+                    id: string;
+                    orderId: string;
+                    quotationLineId: string;
+                    partNumber: string;
+                    uom: string;
+                    quantity: number;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    currency: string;
+                };
+                quotation: {
+                    id: string;
+                    rfqId: string;
+                    currency: string;
+                };
+                quotationLine: {
+                    id: string;
+                    quotationId: string;
+                    rfqLineId: string;
+                    partNumber: string;
+                    uom: string;
+                    quantity: number;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    currency: string;
+                };
+                rfqLine: {
+                    id: string;
+                    rfqId: string;
+                    partNumber: string;
+                    uom: string;
+                    quantity: number;
+                    conditionCode: string;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    certificateRequired: boolean;
+                    certificateType: string | null;
+                    alternatePartNumbers?: string | null;
+                };
+                rfq?: {
+                    id: string;
+                    lineItemsMode?: boolean;
+                };
+            };
+            purchase: {
+                purchaseCommitmentId: string;
+                purchaseCommitmentLineId: string;
+                orderId: string;
+                supplierId: string;
+                orderLineId: string;
+                partNumber: string;
+                uom: string;
+                quantity: number;
+                /** @constant */
+                fulfillmentMode: "SUPPLIER_DIRECT";
+                identitySnapshot: {
+                    /** @constant */
+                    schemaVersion: 1;
+                    orderLineId: string;
+                    quotationLineId: string;
+                    rfqLineId: string;
+                    partNumber: string;
+                    uom: string;
+                    conditionCode: string;
+                    serialNumber: string | null;
+                    batchNumber: string | null;
+                    certificateRequired: boolean;
+                    certificateType: string | null;
+                    /** @enum {unknown} */
+                    trackingType?: "SERIAL" | "BATCH";
+                };
+            };
+            physical: components["schemas"]["StockReceiptPhysical"];
+            certificates: components["schemas"]["DirectShipmentCertificate"][];
+        };
+        DirectShipmentCreateRequest: {
+            purchaseCommitmentId: string;
+            purchaseVersion: number;
+            carrier: string;
+            trackingNumber: string;
+            origin: string;
+            destination: string;
+            reason: string;
+            evidenceIds: string[];
+            lines: {
+                purchaseCommitmentLineId: string;
+                physical: components["schemas"]["StockReceiptPhysical"];
+            }[];
+        };
+        DirectShipmentReviewRequest: {
+            version: number;
+            snapshotHash: string;
+            /** @enum {unknown} */
+            decision: "APPROVED" | "REJECTED";
+            reason: string;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+            evidenceIds?: string[];
+        };
+        DirectShipmentActionRequest: {
+            version: number;
+            reason: string;
+        };
+        DirectShipmentReceiptRequest: {
+            version: number;
+            quantity: number;
+            signedBy: string;
+            /** Format: date-time */
+            signedAt: string;
+            reason: string;
+            evidenceIds: string[];
+        };
+        DirectShipmentLine: {
+            id: string;
+            lineNo: number;
+            purchaseCommitmentLineId: string;
+            quantity: number;
+            physicalSnapshot: components["schemas"]["StockReceiptPhysical"];
+            /** @enum {unknown} */
+            reviewStatus: "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+            reviewedById: string | null;
+            /** Format: date-time */
+            reviewedAt: string | null;
+            reviewReason: string | null;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            } | null;
+            reviewEvidence: components["schemas"]["DirectShipmentEvidence"][];
+            receivedQuantity: number;
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        DirectShipment: {
+            id: string;
+            shipmentNumber: string;
+            purchaseCommitmentId: string;
+            orderId: string;
+            carrier: string;
+            trackingNumber: string;
+            origin: string;
+            destination: string;
+            reason: string;
+            evidence: components["schemas"]["DirectShipmentEvidence"][];
+            /** @enum {unknown} */
+            status: "PREPARED" | "CANCELLED" | "DISPATCHED" | "PARTIALLY_RECEIVED" | "DELIVERED";
+            version: number;
+            createdById: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            dispatchedById: string | null;
+            /** Format: date-time */
+            dispatchedAt: string | null;
+            cancelledById: string | null;
+            /** Format: date-time */
+            cancelledAt: string | null;
+            cancellationReason: string | null;
+            lines: components["schemas"]["DirectShipmentLine"][];
+        };
+        DirectShipmentList: {
+            orderId: string;
+            shipments: components["schemas"]["DirectShipment"][];
+        };
+        DirectShipmentReviewContext: {
+            shipmentLineId: string;
+            shipmentId: string;
+            version: number;
+            /** @enum {unknown} */
+            reviewStatus: "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+            snapshot: {
+                quality: components["schemas"]["DirectShipmentQualitySnapshot"];
+                evidence: components["schemas"]["DirectShipmentEvidence"][];
+            };
+            snapshotHash: string;
+            issues: {
+                code: string;
+                path: string;
+                message: string;
+            }[];
+            canApprove: boolean;
+        };
+        ShipmentEvidence: {
+            id: string;
+            version: number;
+            sha256: string;
+            status: string;
+        };
+        ShipmentIdentitySnapshot: {
+            inventoryDetailId: string;
+            inventoryItemId: string;
+            partNumber: string;
+            trackingType: string;
+            serialNumber: string | null;
+            batchNumber: string | null;
+            conditionCode: string;
+            warehouse: string | null;
+            location: string | null;
+        };
+        ShipmentCertificate: {
+            id: string;
+            certificateNumber: string | null;
+            partNumber: string | null;
+            serialNumber: string | null;
+            batchNumber: string | null;
+            certificateType: string | null;
+            status: string | null;
+            /** Format: date-time */
+            expiryDate: string | null;
+            fileHash: string | null;
+            /** Format: date-time */
+            updatedAt: string | null;
+        };
+        ShipmentQualityEvidence: {
+            outboundTransactionId: string;
+            reviewId: string;
+            snapshotHash: string;
+            evidence: components["schemas"]["ShipmentEvidence"][];
+            certificates: components["schemas"]["ShipmentCertificate"][];
+        };
+        ShipmentEvidenceBundle: {
+            qualityReviews: components["schemas"]["ShipmentQualityEvidence"][];
+            attachments: components["schemas"]["ShipmentEvidence"][];
+        };
+        ShipmentReturnHold: {
+            id: string;
+            shipmentLineId: string;
+            inventoryDetailId: string;
+            quantity: number;
+            status: string;
+            version: number;
+            snapshotHash: string;
+            receivedById: string;
+            /** Format: date-time */
+            receivedAt: string;
+            releasedById: string | null;
+            /** Format: date-time */
+            releasedAt: string | null;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            evidence: components["schemas"]["ShipmentEvidence"][];
+            releaseReason?: string | null;
+            returnTransactionId?: string | null;
+        };
+        ShipmentLine: {
+            id: string;
+            lineNo: number;
+            orderLineId: string;
+            assignmentId: string;
+            outboundTransactionId: string;
+            quantity: number;
+            receivedQuantity: number;
+            returnedQuantity: number;
+            version: number;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            returns: components["schemas"]["ShipmentReturnHold"][];
+        };
+        Shipment: {
+            id: string;
+            shipmentNumber: string;
+            carrier: string;
+            trackingNumber: string;
+            origin: string;
+            destination: string;
+            status: string;
+            version: number;
+            /** Format: date-time */
+            shippedAt: string | null;
+            evidence: components["schemas"]["ShipmentEvidenceBundle"];
+            lines: components["schemas"]["ShipmentLine"][];
+        };
+        ShipmentOutboundTransaction: {
+            id: string;
+            orderLineId: string | null;
+            assignmentId: string | null;
+            inventoryDetailId: string;
+            inventoryItemId: string;
+            partNumber: string;
+            trackingType: string;
+            serialNumber: string | null;
+            batchNumber: string | null;
+            conditionCode: string;
+            warehouse: string | null;
+            location: string | null;
+            quantity: number;
+            boundQuantity: number;
+            /** @description Remaining quantity that can be bound to a shipment. It is 0 when the source lacks a current assignment or consumed quality review. */
+            availableQuantity: number;
+            /** @description True when the source has no current assignment/review mapping and must not be silently treated as shippable. */
+            requiresHistoricalReview: boolean;
+        };
+        ShipmentDeliveryLine: {
+            orderLineId: string;
+            quantity: number;
+            receivedQuantity: number;
+            remainingQuantity: number;
+            fullyReceived: boolean;
+        };
+        ShipmentDelivery: {
+            requiredQuantity: number;
+            receivedQuantity: number;
+            remainingQuantity: number;
+            complete: boolean;
+            lines: components["schemas"]["ShipmentDeliveryLine"][];
+        };
+        ShipmentOrder: {
+            order: {
+                id: string;
+                status: string;
+                version: number;
+            };
+            outboundTransactions: components["schemas"]["ShipmentOutboundTransaction"][];
+            shipments: components["schemas"]["Shipment"][];
+            delivery: components["schemas"]["ShipmentDelivery"];
+        };
+        ShipmentReturnSnapshot: {
+            /** @constant */
+            schemaVersion: 1;
+            shipmentLineId: string;
+            inventoryDetailId: string;
+            assignmentId: string | null;
+            outboundTransactionId: string;
+            quantity: number;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            quality: {
+                status: string | null;
+                quantity: number;
+                allocatedQuantity: number;
+                conditionCode: string | null;
+                certificateType: string | null;
+                certificateNumber: string | null;
+                certificateFileUrl: string | null;
+                lifeLimited: boolean;
+                remainingHours: number | null;
+                remainingCycles: number | null;
+                /** Format: date-time */
+                shelfLifeDate: string | null;
+                shelfLifeDays: number | null;
+                /** Format: date-time */
+                nextOverhaulDue: string | null;
+                storageCondition: string | null;
+                /** Format: date-time */
+                updatedAt: string | null;
+                /** Format: date-time */
+                itemUpdatedAt: string | null;
+                certificates: components["schemas"]["ShipmentCertificate"][];
+            };
+            evidence: components["schemas"]["ShipmentEvidence"][];
+        };
+        ShipmentReturnReleaseContext: {
+            id: string;
+            shipmentLineId: string;
+            inventoryDetailId: string;
+            quantity: number;
+            status: string;
+            version: number;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            evidence: components["schemas"]["ShipmentEvidence"][];
+            snapshotHash: string;
+            receivedById: string;
+            /** Format: date-time */
+            receivedAt: string;
+            releasedById: string | null;
+            /** Format: date-time */
+            releasedAt: string | null;
+            releaseReason?: string | null;
+            returnTransactionId?: string | null;
+            returnHoldId: string;
+            receivedSnapshotHash: string;
+            snapshot: components["schemas"]["ShipmentReturnSnapshot"];
+            shipmentLine: {
+                id: string;
+                shipmentId: string;
+                orderLineId: string;
+                assignmentId: string;
+                outboundTransactionId: string;
+                quantity: number;
+                receivedQuantity: number;
+                returnedQuantity: number;
+                version: number;
+                identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            };
+            inventoryDetail: {
+                id: string;
+                inventoryItemId: string;
+                partNumber: string;
+                trackingType: string;
+                serialNumber: string | null;
+                batchNumber: string | null;
+                conditionCode: string | null;
+                warehouse: string | null;
+                location: string | null;
+                status: string;
+                quantity: number;
+                allocatedQuantity: number;
+                certificateType: string | null;
+                certificateNumber: string | null;
+                lifeLimited: boolean;
+                remainingHours: number | null;
+                remainingCycles: number | null;
+                /** Format: date-time */
+                shelfLifeDate: string | null;
+                /** Format: date-time */
+                nextOverhaulDue: string | null;
+            };
+            certificates: components["schemas"]["ShipmentCertificate"][];
+            currentSnapshotHash: string;
+        };
+        ShipmentReturnCommandResult: {
+            id: string;
+            shipmentLineId: string;
+            inventoryDetailId: string;
+            quantity: number;
+            status: string;
+            version: number;
+            snapshotHash: string;
+            receivedById: string;
+            /** Format: date-time */
+            receivedAt: string;
+            releasedById: string | null;
+            /** Format: date-time */
+            releasedAt: string | null;
+            identitySnapshot: components["schemas"]["ShipmentIdentitySnapshot"];
+            evidence: components["schemas"]["ShipmentEvidence"][];
+            releaseReason?: string | null;
+            returnTransactionId?: string | null;
+            replayed: boolean;
+        };
+        ShipmentCreateRequest: {
+            orderId: string;
+            carrier: string;
+            trackingNumber: string;
+            origin: string;
+            destination: string;
+            lines: {
+                outboundTransactionId: string;
+                quantity: number;
+            }[];
+            evidenceIds?: string[];
+        };
+        ShipmentReceiptRequest: {
+            lines: {
+                shipmentLineId: string;
+                quantity: number;
+            }[];
+            evidenceIds: string[];
+            reason: string;
+        };
+        ShipmentReturnRequest: {
+            shipmentLineId: string;
+            quantity: number;
+            evidenceIds: string[];
+            verifiedSerialNumber: string;
+            verifiedBatchNumber: string;
+            reason: string;
+        };
+        ShipmentReturnReleaseRequest: {
+            snapshotHash: string;
+            evidenceIds: string[];
+            verifiedSerialNumber: string;
+            verifiedBatchNumber: string;
+            checks: {
+                identity: boolean;
+                documents: boolean;
+                conditionAndLife: boolean;
+                customerRequirements: boolean;
+            };
+            reason: string;
+        };
+        PurchaseCommitmentSupplierQuoteSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "SUPPLIER_QUOTE";
+            supplierQuoteId: string;
+        };
+        PurchaseCommitmentManualSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "MANUAL";
+            /** @description Manual Decimal(18,4) unit cost. */
+            unitCost: string;
+            /**
+             * @constant
+             * @enum {string}
+             */
+            currency: "USD";
+            reason: string;
+            evidenceFileIds: string[];
+        };
+        /** @description Strict source union. Manual cost always requires verified USD and private purchase evidence. */
+        PurchaseCommitmentSource: components["schemas"]["PurchaseCommitmentSupplierQuoteSource"] | components["schemas"]["PurchaseCommitmentManualSource"];
+        PurchaseCommitmentLineCreateRequest: {
+            orderLineId: string;
+            source: components["schemas"]["PurchaseCommitmentSource"];
+            quantity: number;
+            /**
+             * Format: date-time
+             * @description RFC 3339 date-time including an explicit offset.
+             */
+            promisedDate: string;
+            /** @enum {string} */
+            fulfillmentMode: "STOCK_RECEIPT" | "SUPPLIER_DIRECT";
+        };
+        PurchaseCommitmentCreateRequest: {
+            orderId: string;
+            supplierId: string;
+            paymentTerms?: string | null;
+            lines: components["schemas"]["PurchaseCommitmentLineCreateRequest"][];
+        };
+        PurchaseCommitmentTransitionRequest: {
+            version: number;
+            reason: string;
+        };
+        PurchaseCommitmentConfirmRequest: {
+            version: number;
+            reason: string;
+            supplierReferenceNo: string;
+            evidenceIds: string[];
+        };
+        PurchaseCommitmentLine: {
+            readonly id: string;
+            readonly lineNo: number;
+            readonly orderLineId: string;
+            readonly partNumber: string;
+            readonly uom: string;
+            readonly quantity: number;
+            readonly cancelledQuantity: number;
+            readonly receivedQuantity: number;
+            readonly directShippedQuantity: number;
+            readonly version: number;
+            /** Format: date-time */
+            readonly promisedDate: string;
+            /** @enum {string} */
+            readonly fulfillmentMode: "STOCK_RECEIPT" | "SUPPLIER_DIRECT";
+            /**
+             * @description Omitted unless purchase_commitment.view_cost is granted.
+             * @constant
+             */
+            readonly currency?: "USD";
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly unitCost?: string;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly lineTotal?: string;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly sourceSupplierQuoteId?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly sourceSnapshot?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        PurchaseCommitment: {
+            readonly id: string;
+            readonly commitmentNumber: string;
+            readonly orderId: string;
+            readonly supplierId: string;
+            readonly supplierName: string;
+            /** @enum {string} */
+            readonly status: "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "CONFIRMED" | "CLOSED" | "REJECTED" | "CANCELLED";
+            readonly version: number;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly submittedAt: string | null;
+            /** Format: date-time */
+            readonly approvedAt: string | null;
+            /** Format: date-time */
+            readonly confirmedAt: string | null;
+            /**
+             * @description Omitted unless purchase_commitment.view_cost is granted.
+             * @constant
+             */
+            readonly currency?: "USD";
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly totalCost?: string;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly paymentTerms?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly supplierReferenceNo?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly approvalLevel?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly approvalPolicyVersion?: string | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly approvalSnapshot?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Omitted unless purchase_commitment.view_cost is granted. */
+            readonly confirmationEvidence?: {
+                id: string;
+                version: number;
+                sha256: string;
+                /** @constant */
+                status: "AVAILABLE";
+            }[] | null;
+            readonly lines: components["schemas"]["PurchaseCommitmentLine"][];
+        };
+        PurchaseCommitmentOrderList: {
+            readonly orderId: string;
+            readonly purchases: components["schemas"]["PurchaseCommitment"][];
+        };
+        PurchaseCommitmentEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["PurchaseCommitment"];
+        } & {
+            [key: string]: unknown;
+        };
+        PurchaseCommitmentOrderListEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["PurchaseCommitmentOrderList"];
+        } & {
+            [key: string]: unknown;
+        };
+        SettlementReceivableSourceSnapshot: {
+            /** @constant */
+            kind: "ORDER";
+            sourceId: string;
+            sourceNumber: string;
+            sourceVersion: number;
+            counterpartyId: string;
+            counterpartyName: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            initialAmount: string;
+            /**
+             * @constant
+             * @enum {unknown}
+             */
+            currency: "USD";
+        };
+        /** @description Private payable source snapshot. Omitted unless settlement.view_cost is granted. */
+        SettlementPayableSourceSnapshot: {
+            /** @constant */
+            kind: "PURCHASE";
+            sourceId: string;
+            sourceNumber: string;
+            sourceVersion: number;
+            counterpartyId: string;
+            counterpartyName: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            initialAmount: string;
+            /**
+             * @constant
+             * @enum {unknown}
+             */
+            currency: "USD";
+        };
+        SettlementRecord: {
+            readonly id: string;
+            /** @enum {string} */
+            readonly kind: "OPEN" | "PAYMENT" | "CREDIT" | "REFUND" | "REVERSAL" | "TERMS";
+            /** @description Settlement account version captured by this immutable record. */
+            readonly version: number;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly amount: string | null;
+            /** Format: date-time */
+            readonly dueDate: string | null;
+            /** Format: date-time */
+            readonly occurredAt: string;
+            readonly externalSystem: string;
+            readonly voucherNumber: string;
+            readonly voucherLine: string;
+            readonly reason: string;
+            readonly evidence: {
+                id: string;
+                version: number;
+                sha256: string;
+                /** @constant */
+                status: "AVAILABLE";
+            }[];
+            readonly reversalOfId: string | null;
+            readonly actorName: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        SettlementAmounts: {
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly initialAmount: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly grossPaid: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly refunded: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly effectivePaid: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly creditReduction: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly adjustedDue: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly unpaid: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly overpaid: string;
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly pendingRefund: string;
+        };
+        /** @description Accounts receivable projection. This is the only settlement side returned to users without settlement.view_cost. */
+        SettlementReceivableAccount: {
+            readonly id: string;
+            readonly orderId: string;
+            /**
+             * @constant
+             * @enum {unknown}
+             */
+            readonly currency: "USD";
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly initialAmount: string;
+            /** Format: date-time */
+            readonly dueDate: string;
+            readonly version: number;
+            /** Format: date-time */
+            readonly createdAt: string;
+            readonly amounts: components["schemas"]["SettlementAmounts"];
+            readonly records: components["schemas"]["SettlementRecord"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            side: "RECEIVABLE";
+            readonly purchaseCommitmentId: null;
+            readonly sourceSnapshot: components["schemas"]["SettlementReceivableSourceSnapshot"];
+        };
+        /** @description Accounts payable projection. Every field in this branch requires settlement.view_cost. */
+        SettlementPayableAccount: {
+            readonly id: string;
+            readonly orderId: string;
+            /**
+             * @constant
+             * @enum {unknown}
+             */
+            readonly currency: "USD";
+            /** @description USD Decimal(18,4) serialized as a plain decimal string. */
+            readonly initialAmount: string;
+            /** Format: date-time */
+            readonly dueDate: string;
+            readonly version: number;
+            /** Format: date-time */
+            readonly createdAt: string;
+            readonly amounts: components["schemas"]["SettlementAmounts"];
+            readonly records: components["schemas"]["SettlementRecord"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            side: "PAYABLE";
+            readonly purchaseCommitmentId: string;
+            readonly sourceSnapshot: components["schemas"]["SettlementPayableSourceSnapshot"];
+        };
+        SettlementAccount: components["schemas"]["SettlementReceivableAccount"] | components["schemas"]["SettlementPayableAccount"];
+        /** @description Order-scoped settlement accounts. The route filters PAYABLE accounts unless settlement.view_cost is granted. */
+        SettlementOrderList: {
+            readonly orderId: string;
+            readonly accounts: components["schemas"]["SettlementAccount"][];
+        };
+        SettlementReceivableCreateRequest: {
+            orderId: string;
+            /** Format: date-time */
+            dueDate: string;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            side: "RECEIVABLE";
+            purchaseCommitmentId?: never;
+        };
+        /** @description Creates an accounts-payable settlement account from a confirmed USD purchase commitment; requires settlement.view_cost. */
+        SettlementPayableCreateRequest: {
+            orderId: string;
+            /** Format: date-time */
+            dueDate: string;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            side: "PAYABLE";
+            purchaseCommitmentId: string;
+        };
+        /** @description Strict USD settlement account request. Amounts are derived from the current order or confirmed purchase commitment; clients cannot supply an amount. */
+        SettlementCreateRequest: components["schemas"]["SettlementReceivableCreateRequest"] | components["schemas"]["SettlementPayableCreateRequest"];
+        SettlementAmountRecordRequest: {
+            version: number;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "PAYMENT" | "CREDIT" | "REFUND";
+            /** @description Positive USD Decimal(18,4) serialized as a plain decimal string. */
+            amount: string;
+            reversalOfId?: never;
+            dueDate?: never;
+        };
+        SettlementReversalRecordRequest: {
+            version: number;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "REVERSAL";
+            amount?: never;
+            reversalOfId: string;
+            dueDate?: never;
+        };
+        SettlementTermsRecordRequest: {
+            version: number;
+            /** Format: date-time */
+            occurredAt: string;
+            externalSystem: string;
+            voucherNumber: string;
+            voucherLine: string;
+            reason: string;
+            evidenceIds: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "TERMS";
+            amount?: never;
+            reversalOfId?: never;
+            /** Format: date-time */
+            dueDate: string;
+        };
+        /** @description Append-only settlement voucher. version is a required compare-and-set token; history cannot be edited in place. */
+        SettlementRecordRequest: components["schemas"]["SettlementAmountRecordRequest"] | components["schemas"]["SettlementReversalRecordRequest"] | components["schemas"]["SettlementTermsRecordRequest"];
+        SettlementAccountEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["SettlementAccount"];
+        };
+        SettlementOrderListEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["SettlementOrderList"];
+        };
+        AgentTestEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                output: string;
+                model: string;
+                latency: number;
+                promptVersion: number;
+                agentId: string;
+            };
+        };
+        AgentVersionListEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                version: number;
+                config: {
+                    modelId?: string | null;
+                    temperature?: number;
+                    maxTokens?: number;
+                };
+                prompts: {
+                    /** @enum {string} */
+                    role: "system" | "user" | "assistant";
+                    content: string;
+                }[];
+                createdBy: string | null;
+                /** Format: date-time */
+                createdAt: string;
+            }[];
         };
     };
     responses: {
@@ -12669,6 +15358,151 @@ export interface components {
                 "application/json": components["schemas"]["PushStatusEnvelope"];
             };
         };
+        /** @description Created draft quotation revision response */
+        QuotationRevisionCreated: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["QuotationRevisionCreatedEnvelope"];
+            };
+        };
+        /** @description Quotation revision metadata response without commercial cost fields */
+        QuotationRevisionList: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["QuotationRevisionListEnvelope"];
+            };
+        };
+        /** @description Safe supplier-direct shipment projection without commercial cost/source fields. */
+        DirectShipment: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["DirectShipment"];
+                };
+            };
+        };
+        /** @description Safe supplier-direct shipment list scoped to one order. */
+        DirectShipmentList: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["DirectShipmentList"];
+                };
+            };
+        };
+        /** @description Current direct-shipment quality facts and review snapshot without commercial cost/source fields. */
+        DirectShipmentReviewContext: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["DirectShipmentReviewContext"];
+                };
+            };
+        };
+        /** @description Modern order shipment view; quantity, identity, delivery, and safe quality evidence only. */
+        ShipmentOrder: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["ShipmentOrder"];
+                };
+            };
+        };
+        /** @description Created or updated shipment safe view. */
+        Shipment: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["Shipment"];
+                };
+            };
+        };
+        /** @description Quarantined or released return hold safe view. */
+        ShipmentReturnHold: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["ShipmentReturnCommandResult"];
+                };
+            };
+        };
+        /** @description Current return quality-release snapshot without commercial cost fields. */
+        ShipmentReturnReleaseContext: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: components["schemas"]["ShipmentReturnReleaseContext"];
+                };
+            };
+        };
+        /** @description Procurement commitment response; cost and supplier evidence are omitted without purchase_commitment.view_cost. */
+        PurchaseCommitment: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentEnvelope"];
+            };
+        };
+        /** @description Procurement commitments for an order; cost and supplier evidence are omitted without purchase_commitment.view_cost. */
+        PurchaseCommitmentOrderList: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentOrderListEnvelope"];
+            };
+        };
+        /** @description Current settlement account projection. PAYABLE and its cost/source fields require settlement.view_cost. */
+        SettlementAccount: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["SettlementAccountEnvelope"];
+            };
+        };
+        /** @description Order-scoped AR/AP settlement list. Sales receives AR only; AP requires settlement.view_cost. */
+        SettlementOrderList: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["SettlementOrderListEnvelope"];
+            };
+        };
     };
     parameters: never;
     requestBodies: {
@@ -13112,6 +15946,76 @@ export interface components {
         AuctionBidCreate: {
             content: {
                 "application/json": components["schemas"]["AuctionBidCreateRequest"];
+            };
+        };
+        QuotationRevise: {
+            content: {
+                "application/json": components["schemas"]["QuotationReviseRequest"];
+            };
+        };
+        DirectShipmentCreate: {
+            content: {
+                "application/json": components["schemas"]["DirectShipmentCreateRequest"];
+            };
+        };
+        DirectShipmentReview: {
+            content: {
+                "application/json": components["schemas"]["DirectShipmentReviewRequest"];
+            };
+        };
+        DirectShipmentAction: {
+            content: {
+                "application/json": components["schemas"]["DirectShipmentActionRequest"];
+            };
+        };
+        DirectShipmentReceipt: {
+            content: {
+                "application/json": components["schemas"]["DirectShipmentReceiptRequest"];
+            };
+        };
+        ShipmentCreate: {
+            content: {
+                "application/json": components["schemas"]["ShipmentCreateRequest"];
+            };
+        };
+        ShipmentReceipt: {
+            content: {
+                "application/json": components["schemas"]["ShipmentReceiptRequest"];
+            };
+        };
+        ShipmentReturn: {
+            content: {
+                "application/json": components["schemas"]["ShipmentReturnRequest"];
+            };
+        };
+        ShipmentReturnRelease: {
+            content: {
+                "application/json": components["schemas"]["ShipmentReturnReleaseRequest"];
+            };
+        };
+        PurchaseCommitmentCreate: {
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentCreateRequest"];
+            };
+        };
+        PurchaseCommitmentTransition: {
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentTransitionRequest"];
+            };
+        };
+        PurchaseCommitmentConfirm: {
+            content: {
+                "application/json": components["schemas"]["PurchaseCommitmentConfirmRequest"];
+            };
+        };
+        SettlementCreate: {
+            content: {
+                "application/json": components["schemas"]["SettlementCreateRequest"];
+            };
+        };
+        SettlementRecord: {
+            content: {
+                "application/json": components["schemas"]["SettlementRecordRequest"];
             };
         };
     };
@@ -13821,6 +16725,53 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["Quotation"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getQuotationsIdRevisions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["QuotationRevisionList"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postQuotationsIdRevise: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["QuotationRevise"];
+        responses: {
+            201: components["responses"]["QuotationRevisionCreated"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -14891,8 +17842,6 @@ export interface operations {
             query?: {
                 type?: "aog" | "standard" | "inquiry" | "spam";
                 isRead?: boolean;
-                processingStatus?: "pending" | "processed" | "discarded" | "failed";
-                excludeSpam?: boolean;
                 page?: number;
                 limit?: number;
             };
@@ -14997,9 +17946,9 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: components["requestBodies"]["JsonBody"];
         responses: {
-            200: components["responses"]["Email"];
+            200: components["responses"]["Success"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -15333,14 +18282,22 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: components["requestBodies"]["AgentRuntimeTaskSync"];
+        requestBody?: never;
         responses: {
-            200: components["responses"]["AgentRuntimeTask"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            /** @description Client runtime synchronization is disabled */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             422: components["responses"]["Error"];
             429: components["responses"]["Error"];
             500: components["responses"]["Error"];
@@ -15468,7 +18425,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: components["requestBodies"]["AgentUpdate"];
+        requestBody: components["requestBodies"]["AgentUpdate"];
         responses: {
             200: components["responses"]["Agent"];
             400: components["responses"]["Error"];
@@ -15493,9 +18450,173 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getAgentsIdVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Agent"];
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentVersionListEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postAgentsIdPublish: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postAgentsIdRestore: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    version: number;
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postAgentsIdTest: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    input: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description AI configuration response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTestEnvelope"];
+                };
+            };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -15518,7 +18639,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: components["requestBodies"]["AgentRun"];
+        requestBody: components["requestBodies"]["AgentRun"];
         responses: {
             200: components["responses"]["AgentRunResult"];
             400: components["responses"]["Error"];
@@ -17375,17 +20496,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: components["requestBodies"]["CertificateRenew"];
+        requestBody?: never;
         responses: {
-            200: components["responses"]["CertificateAction"];
-            400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            404: components["responses"]["Error"];
             409: components["responses"]["Error"];
-            422: components["responses"]["Error"];
-            429: components["responses"]["Error"];
-            500: components["responses"]["Error"];
         };
     };
     getCertificatesIdDownload: {
@@ -19646,9 +22761,80 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: components["requestBodies"]["InventoryItemUpdate"];
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryItemSafePatch"];
+            };
+        };
         responses: {
             200: components["responses"]["InventoryItemRaw"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getInventoryTransactionsQualityReviewOrderId: {
+        parameters: {
+            query: {
+                quantity: number;
+            };
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quality review response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FulfillmentReviewPreviewEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryTransactionsQualityReviews: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FulfillmentReviewCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Quality review response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FulfillmentReviewResultEnvelope"];
+                };
+            };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -19762,6 +22948,1098 @@ export interface operations {
         requestBody: components["requestBodies"]["InventoryOutbound"];
         responses: {
             201: components["responses"]["InventoryTransactionAction"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsReserve: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryAllocationReserve"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["InventoryAllocationCommandResult"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsAssign: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryAllocationAssign"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["InventoryAllocationCommandResult"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryAllocationRelease"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["InventoryAllocationCommandResult"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getInventoryAllocationsQuotationLinesQuotationLineId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quotationLineId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["QuotationLineAllocationView"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getInventoryAllocationsOrderLinesOrderLineId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderLineId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["OrderLineAllocationView"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getInventoryAllocationsQualityReviewAssignmentId: {
+        parameters: {
+            query: {
+                quantity: number;
+            };
+            header?: never;
+            path: {
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["AllocationQualityPreview"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsQualityReviews: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AllocationQualityReviewCreate"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["AllocationQualityReviewCreated"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInventoryAllocationsConsume: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryAllocationConsume"];
+            };
+        };
+        responses: {
+            /** @description Allocation operation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["InventoryAllocationConsumed"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getShipmentsOrdersOrderId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ShipmentOrder"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getShipmentsReturnsIdReleaseContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ShipmentReturnReleaseContext"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postShipments: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe shipment, receipt, return, and release writes. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ShipmentCreate"];
+        responses: {
+            201: components["responses"]["Shipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postShipmentsDispatchesIdReceipts: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe shipment, receipt, return, and release writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ShipmentReceipt"];
+        responses: {
+            200: components["responses"]["Shipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postShipmentsReturns: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe shipment, receipt, return, and release writes. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ShipmentReturn"];
+        responses: {
+            201: components["responses"]["ShipmentReturnHold"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postShipmentsReturnsIdRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe shipment, receipt, return, and release writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ShipmentReturnRelease"];
+        responses: {
+            200: components["responses"]["ShipmentReturnHold"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getPurchaseCommitments: {
+        parameters: {
+            query: {
+                orderId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PurchaseCommitmentOrderList"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitments: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentCreate"];
+        responses: {
+            201: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getPurchaseCommitmentsId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdSubmit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentTransition"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdApprove: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentTransition"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdReject: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentTransition"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdConfirm: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentConfirm"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postPurchaseCommitmentsIdCancel: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe procurement commands. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["PurchaseCommitmentTransition"];
+        responses: {
+            200: components["responses"]["PurchaseCommitment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getStockReceipts: {
+        parameters: {
+            query: {
+                orderId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt command or operational view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: {
+                            orderId: string;
+                            receipts: components["schemas"]["StockReceipt"][];
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postStockReceipts: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockReceiptArrival"];
+            };
+        };
+        responses: {
+            /** @description Receipt command or operational view. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["StockReceipt"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getStockReceiptsLinesIdReviewContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt command or operational view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["StockReceiptReviewContext"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getStockReceiptsId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt command or operational view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["StockReceipt"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postStockReceiptsLinesIdReview: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockReceiptReview"];
+            };
+        };
+        responses: {
+            /** @description Receipt command or operational view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: components["schemas"]["StockReceipt"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getDirectShipments: {
+        parameters: {
+            query: {
+                orderId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DirectShipmentList"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipments: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentCreate"];
+        responses: {
+            201: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getDirectShipmentsLinesIdReviewContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DirectShipmentReviewContext"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getDirectShipmentsId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipmentsLinesIdReview: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentReview"];
+        responses: {
+            200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipmentsIdDispatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentAction"];
+        responses: {
+            200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipmentsIdCancel: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentAction"];
+        responses: {
+            200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postDirectShipmentsLinesIdReceipt: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable command identity required for retry-safe direct-shipment writes. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["DirectShipmentReceipt"];
+        responses: {
+            200: components["responses"]["DirectShipment"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getSettlements: {
+        parameters: {
+            query: {
+                orderId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["SettlementOrderList"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSettlements: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe settlement writes; replays are re-authorized against current scope. */
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["SettlementCreate"];
+        responses: {
+            201: components["responses"]["SettlementAccount"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getSettlementsId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["SettlementAccount"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSettlementsIdRecords: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required stable key for retry-safe settlement writes; replays are re-authorized against current scope. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["SettlementRecord"];
+        responses: {
+            201: components["responses"]["SettlementAccount"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -19955,12 +24233,19 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Inquiry"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
-            409: components["responses"]["Error"];
+            /** @description Manual supplier contact required; inquiry has not been sent. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             422: components["responses"]["Error"];
             429: components["responses"]["Error"];
             500: components["responses"]["Error"];

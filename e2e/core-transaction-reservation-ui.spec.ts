@@ -2,14 +2,15 @@ import { expect, test, type Page } from '@playwright/test';
 
 const E2E_PASSWORD = process.env.E2E_PASSWORD;
 if (!E2E_PASSWORD) throw new Error('E2E_PASSWORD is required for seeded E2E tests.');
+const e2ePassword = E2E_PASSWORD;
 
 const apiBaseUrl = `${process.env.PLAYWRIGHT_API_ORIGIN || 'http://127.0.0.1:3000'}/api`;
 
-async function loginToApi() {
+async function loginToApi(email = 'zhang@aerolink.com') {
   const response = await fetch(`${apiBaseUrl}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'zhang@aerolink.com', password: E2E_PASSWORD }),
+    body: JSON.stringify({ email, password: e2ePassword }),
   });
   expect(response.ok).toBeTruthy();
   const payload = await response.json() as { data: { token: string } };
@@ -24,12 +25,12 @@ function headers(token: string, key: string) {
   };
 }
 
-async function createUnboundAcceptedOrder(token: string) {
+async function createUnboundAcceptedOrder(creatorToken: string, approverToken: string) {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const partNumber = '5678-901-234';
+  const partNumber = '2341-123-050';
   const rfqResponse = await fetch(`${apiBaseUrl}/rfqs`, {
     method: 'POST',
-    headers: headers(token, `e2e-ui-rfq-${suffix}`),
+    headers: headers(creatorToken, `e2e-ui-rfq-${suffix}`),
     body: JSON.stringify({
       customerId: 'c001',
       partNumber,
@@ -43,7 +44,7 @@ async function createUnboundAcceptedOrder(token: string) {
 
   const quoteResponse = await fetch(`${apiBaseUrl}/quotations`, {
     method: 'POST',
-    headers: headers(token, `e2e-ui-quote-${suffix}`),
+    headers: headers(creatorToken, `e2e-ui-quote-${suffix}`),
     body: JSON.stringify({
       rfqId: rfq.data.id,
       customerId: 'c001',
@@ -51,6 +52,9 @@ async function createUnboundAcceptedOrder(token: string) {
       quantity: 1,
       unitPrice: 3600,
       costPrice: 2800,
+      currency: 'USD',
+      costSourceType: 'MANUAL',
+      costSourceReason: 'E2E synthetic cost basis for reservation flow',
       validityDays: 14,
     }),
   });
@@ -59,7 +63,7 @@ async function createUnboundAcceptedOrder(token: string) {
 
   const submitResponse = await fetch(`${apiBaseUrl}/quotations/${quote.data.id}/submit`, {
     method: 'POST',
-    headers: headers(token, `e2e-ui-submit-${suffix}`),
+    headers: headers(creatorToken, `e2e-ui-submit-${suffix}`),
     body: JSON.stringify({ version: quote.data.version, reasonCode: 'E2E_UI_SUBMIT' }),
   });
   expect(submitResponse.ok).toBeTruthy();
@@ -67,7 +71,7 @@ async function createUnboundAcceptedOrder(token: string) {
 
   const approveResponse = await fetch(`${apiBaseUrl}/quotations/${quote.data.id}/approve`, {
     method: 'POST',
-    headers: headers(token, `e2e-ui-approve-${suffix}`),
+    headers: headers(approverToken, `e2e-ui-approve-${suffix}`),
     body: JSON.stringify({ action: 'approve', version: submitted.data.version, reasonCode: 'E2E_UI_APPROVE' }),
   });
   expect(approveResponse.ok).toBeTruthy();
@@ -75,7 +79,7 @@ async function createUnboundAcceptedOrder(token: string) {
 
   const acceptResponse = await fetch(`${apiBaseUrl}/quotations/${quote.data.id}/accept`, {
     method: 'POST',
-    headers: headers(token, `e2e-ui-accept-${suffix}`),
+    headers: headers(creatorToken, `e2e-ui-accept-${suffix}`),
     body: JSON.stringify({
       version: approved.data.version,
       poNumber: `PO-UI-${suffix}`,
@@ -95,7 +99,7 @@ async function createUnboundAcceptedOrder(token: string) {
 async function loginByUi(page: Page) {
   await page.goto('/');
   await page.fill('input[type="email"]', 'zhang@aerolink.com');
-  await page.fill('input[type="password"]', E2E_PASSWORD);
+  await page.fill('input[type="password"]', e2ePassword);
   await page.click('button[type="submit"]');
   await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible();
 }
@@ -110,8 +114,9 @@ async function openOrders(page: Page) {
 }
 
 test('reserves a matching inventory detail from the order detail dialog', async ({ page }) => {
-  const token = await loginToApi();
-  const order = await createUnboundAcceptedOrder(token);
+  const creatorToken = await loginToApi('sales-test@aerolink.com');
+  const approverToken = await loginToApi('zhang@aerolink.com');
+  const order = await createUnboundAcceptedOrder(creatorToken, approverToken);
 
   await loginByUi(page);
   await openOrders(page);
@@ -128,7 +133,9 @@ test('reserves a matching inventory detail from the order detail dialog', async 
   const reservationDialog = page.getByRole('dialog').filter({ hasText: /选择与订单件号匹配|Select an available inventory detail/ }).last();
   await expect(reservationDialog).toBeVisible();
   await reservationDialog.getByRole('combobox').click();
-  await page.getByRole('option').filter({ hasText: '3 EA' }).first().click();
+  const availableInventoryOption = page.getByRole('option').first();
+  await expect(availableInventoryOption).toBeVisible();
+  await availableInventoryOption.click();
 
   const reserveResponse = page.waitForResponse((response) =>
     response.request().method() === 'POST'
@@ -141,5 +148,5 @@ test('reserves a matching inventory detail from the order detail dialog', async 
 
   await expect(page.locator('[data-sonner-toast]').filter({ hasText: /库存预留成功|Inventory reserved/ }).last()).toBeVisible();
   await expect(orderDialog.getByText(/库存与出库|Inventory & Outbound/)).toBeVisible();
-  await expect(orderDialog.getByText('inv006')).toBeVisible();
+  await expect(orderDialog.getByText(/inv00[12]/)).toBeVisible();
 });

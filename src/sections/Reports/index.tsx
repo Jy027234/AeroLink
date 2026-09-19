@@ -73,7 +73,7 @@ function ErrorCard({ message }: { message: string }) {
 }
 
 function NullableMetric({ value, suffix = '' }: { value: number | null; suffix?: string }) {
-  return value === null ? '—' : `${value.toFixed(1)}${suffix}`;
+  return value == null ? '—' : `${value.toFixed(1)}${suffix}`;
 }
 
 function ReportDataBoundary({
@@ -608,7 +608,9 @@ export function Reports() {
                       {tx('库存总价值', 'Total Inventory Value')}
                     </p>
                     <p className="text-2xl font-bold">
-                      {formatCurrency(summary.totalInventoryValue)}
+                      {summary.totalInventoryValue == null
+                        ? '—'
+                        : formatCurrency(summary.totalInventoryValue)}
                     </p>
                   </CardContent>
                 </Card>

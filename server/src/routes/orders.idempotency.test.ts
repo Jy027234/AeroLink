@@ -4,7 +4,7 @@ import express from 'express';
 
 describe('Order idempotency and concurrent creation recovery', () => {
   let prismaMock: {
-    order: { findUnique: ReturnType<typeof vi.fn> };
+    order: { findFirst: ReturnType<typeof vi.fn> };
     quotation: { findUnique: ReturnType<typeof vi.fn> };
   };
   let runIdempotentOperationMock: ReturnType<typeof vi.fn>;
@@ -13,7 +13,7 @@ describe('Order idempotency and concurrent creation recovery', () => {
   beforeEach(() => {
     vi.resetModules();
     prismaMock = {
-      order: { findUnique: vi.fn() },
+      order: { findFirst: vi.fn() },
       quotation: { findUnique: vi.fn() },
     };
     runIdempotentOperationMock = vi.fn().mockRejectedValue({ code: 'P2002' });
@@ -49,7 +49,7 @@ describe('Order idempotency and concurrent creation recovery', () => {
     const customer = { id: 'c001', name: '中国国航' };
     const concurrentOrder = { id: 'o001', orderNumber: 'SO-20260716-001', customer };
     const quotation = { id: 'q001', customerId: customer.id, customer };
-    prismaMock.order.findUnique.mockResolvedValue(concurrentOrder);
+    prismaMock.order.findFirst.mockResolvedValue(concurrentOrder);
     prismaMock.quotation.findUnique.mockResolvedValue(quotation);
     ensureOrderContractDocumentMock.mockResolvedValue({ id: 'doc-001', title: '销售合同 - SO-20260716-001' });
 

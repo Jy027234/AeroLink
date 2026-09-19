@@ -67,7 +67,12 @@ import { cn } from '@/lib/utils';
 import { downloadBlob } from '@/lib/downloadBlob';
 import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
 import { ControlledListExportButton } from '@/components/list/ControlledListExportButton';
+import { InventoryAllocationPanel } from '@/components/InventoryAllocationPanel';
+import { ShipmentPanel } from '@/components/ShipmentPanel';
+import { ProcurementPanel } from '@/components/procurement/ProcurementPanel';
+import { SettlementPanel } from '@/components/procurement/SettlementPanel';
 import { toast } from 'sonner';
+import { QualityReviewPanel } from './QualityReviewPanel';
 import type { Order, OrderStatus } from '@/types';
 
 const statusConfig: Record<OrderStatus, { label: string; color: string; bgColor: string; icon: React.ElementType; step: number }> = {
@@ -644,9 +649,9 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className={cn('max-h-[80vh] overflow-y-auto', isEditing ? 'max-w-4xl' : 'max-w-2xl')}>
+      <DialogContent className={cn('max-h-[80vh] overflow-y-auto p-3 sm:p-6 [&>*]:min-w-0', isEditing || activeOrder?.lineItemsMode ? 'sm:max-w-4xl' : 'sm:max-w-2xl')}>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 break-all">
             <ClipboardList className="w-5 h-5" />
             {isEditing ? tx('编辑订单', 'Edit Order') : tx('订单详情', 'Order Details')} - {activeOrder?.orderNumber}
           </DialogTitle>
@@ -677,18 +682,18 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
           )}
 
           {/* Basic information */}
-          <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+          <div className="grid grid-cols-1 gap-4 p-4 bg-gray-50 rounded-lg sm:grid-cols-2 [&>*]:min-w-0 [&_p]:break-words">
             <div>
               <p className="text-sm text-gray-500">{tx('销售订单号', 'Sales Order Number')}</p>
               <p className="font-mono font-semibold">{activeOrder?.soNumber}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">{tx('采购订单号', 'Purchase Order Number')}</p>
+              <p className="text-sm text-gray-500">{tx('客户采购单号', 'Customer PO number')}</p>
               <p className="font-mono">{activeOrder?.poNumber || '-'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500">{tx('客户', 'Customer')}</p>
-              <p className="font-semibold">{activeOrder?.customerName}</p>
+              <p className="font-semibold">{activeOrder?.customerName || order.customerName}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500">{tx('金额', 'Amount')}</p>
@@ -697,6 +702,45 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
           </div>
 
           {/* Part information */}
+          {activeOrder?.lineItemsMode ? (
+            <div className="space-y-3 rounded-lg border p-2 sm:p-4">
+              <p className="font-semibold">{tx('本订单成交明细', 'Accepted lines in this order')}</p>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader><TableRow>
+                    <TableHead>{tx('件号', 'Part')}</TableHead><TableHead>{tx('数量', 'Quantity')}</TableHead>
+                    <TableHead>{tx('单价 USD', 'Unit price USD')}</TableHead><TableHead>{tx('行金额 USD', 'Line total USD')}</TableHead>
+                    <TableHead>{tx('已出库', 'Outbound')}</TableHead>
+                    <TableHead>{tx('供应商已直发', 'Supplier dispatched')}</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>{activeOrder.lines?.map(line => <TableRow key={line.id}>
+                    <TableCell className="font-mono">{line.partNumber}</TableCell><TableCell>{line.quantity} {line.uom}</TableCell>
+                    <TableCell>{Number(line.unitPrice).toLocaleString(undefined, { maximumFractionDigits: 4 })}</TableCell>
+                    <TableCell>{Number(line.lineTotal).toLocaleString(undefined, { maximumFractionDigits: 4 })}</TableCell>
+                    <TableCell>{line.outboundQuantity} / {line.quantity}</TableCell>
+                    <TableCell>{line.directShippedQuantity ?? 0} / {line.quantity}</TableCell>
+                  </TableRow>)}</TableBody>
+                </Table>
+              </div>
+              <div className="space-y-3">
+                {activeOrder.lines?.map((line) => (
+                  <InventoryAllocationPanel
+                    key={`allocation-${line.id}`}
+                    mode="order"
+                    quotationLineId={line.quotationLineId}
+                    orderLineId={line.id}
+                    partNumber={line.partNumber}
+                    quantity={line.quantity}
+                    outboundQuantity={line.outboundQuantity}
+                    onChanged={refetchDetail}
+                  />
+                ))}
+                {activeOrder.id && <ShipmentPanel orderId={activeOrder.id} onChanged={refetchDetail} />}
+                {activeOrder.id && <ProcurementPanel key={activeOrder.id} order={activeOrder} onChanged={refetchDetail} />}
+                {activeOrder.id && <SettlementPanel key={`settlement-${activeOrder.id}`} order={activeOrder} onChanged={refetchDetail} />}
+              </div>
+            </div>
+          ) : (
           <div className="p-4 border rounded-lg">
             <div className="flex items-center justify-between">
               <div>
@@ -709,9 +753,10 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
               </div>
             </div>
           </div>
+          )}
 
           {/* Inventory Binding - Phase 4 + Phase 5 Outbound Management */}
-          {activeOrder && can('inventory.manage') && !activeOrder.inventoryDetailId && ['so_created', 'po_created'].includes(activeOrder.status) && (
+          {activeOrder && !activeOrder.lineItemsMode && can('inventory.manage') && !activeOrder.inventoryDetailId && ['so_created', 'po_created'].includes(activeOrder.status) && (
             <div className="space-y-3 rounded-lg border border-dashed p-4">
               <div>
                 <h4 className="flex items-center gap-2 font-medium">
@@ -729,7 +774,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
             </div>
           )}
 
-          {(activeOrder?.inventoryDetailId || activeOrder?.serialNumber || activeOrder?.batchNumber) && (
+          {!activeOrder?.lineItemsMode && (activeOrder?.inventoryDetailId || activeOrder?.serialNumber || activeOrder?.batchNumber) && (
             <div className="p-4 border rounded-lg space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="font-medium flex items-center gap-2">
@@ -798,6 +843,9 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
               </div>
 
               {/* 出库操作按钮 */}
+              {activeOrder && can('quality_review.read') && (activeOrder.outboundQuantity || 0) < activeOrder.quantity && (
+                <QualityReviewPanel key={activeOrder.id} orderId={activeOrder.id} remaining={activeOrder.quantity - (activeOrder.outboundQuantity || 0)} />
+              )}
               {activeOrder && can('inventory.manage') && (activeOrder.outboundQuantity || 0) < activeOrder.quantity && (
                 <Button
                   variant="outline"
@@ -830,13 +878,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
 
               <TabsContent value="basic" className="space-y-4 mt-4">
                 <div className="grid grid-cols-2 gap-4">
-                  {renderSelect(tx('销售类型', 'Sale Type'), 'saleType', [
-                    { value: 'Sale', label: tx('销售', 'Sale') },
-                    { value: 'Exchange', label: tx('交换', 'Exchange') },
-                    { value: 'Loan', label: tx('借用', 'Loan') },
-                    { value: 'Consign', label: tx('寄售', 'Consign') },
-                    { value: 'Repair', label: tx('维修', 'Repair') },
-                  ])}
+                    <div className="text-sm">{tx('销售类型', 'Sale Type')}: {activeOrder?.saleType || 'Sale'}<p className="text-gray-500">{tx('首期仅开放自有库存销售及背靠背采购转售。', 'The first release covers inventory sales and back-to-back resale.')}</p></div>
                   {renderSelect('Incoterm', 'incoterm', [
                     { value: 'EXW', label: 'EXW' },
                     { value: 'FCA', label: 'FCA' },
@@ -859,20 +901,7 @@ function OrderDetailDialog({ order, isOpen, onClose, onDownloadContract }: { ord
               </TabsContent>
 
               <TabsContent value="warranty" className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  {renderSwitch(tx('需要证书', 'Certificate Required'), 'certificateRequired')}
-                  {renderSelect(tx('证书类型', 'Certificate Type'), 'certificateType', [
-                    { value: 'AAC-038', label: 'AAC-038' },
-                    { value: 'FAA-8130-3', label: 'FAA-8130-3' },
-                    { value: 'EASA-Form-1', label: 'EASA-Form-1' },
-                    { value: 'COC', label: 'COC' },
-                    { value: 'NONE', label: 'NONE' },
-                  ])}
-                  {renderSwitch(tx('证书已交付', 'Certificate Delivered'), 'certificateDelivered')}
-                  {renderSwitch(tx('需要检验', 'Inspection Required'), 'inspectionRequired')}
-                  {renderSwitch(tx('检验通过', 'Inspection Passed'), 'inspectionPassed')}
-                  {renderField(tx('检验日期', 'Inspection Date'), 'inspectionDate', 'date')}
-                </div>
+                <p className="text-sm text-gray-600">{tx('质量要求来自客户需求；请在“交付质量审核”中核对证据并记录结论。普通订单编辑不能更改审核事实。', 'Quality requirements come from the customer request. Record evidence and decisions in Delivery quality review.')}</p>
               </TabsContent>
 
               <TabsContent value="logistics" className="space-y-4 mt-4">
@@ -1298,6 +1327,7 @@ export function Orders() {
   const filteredOrders = ordersList.filter((order) => {
     if (searchQuery && !order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) &&
         !order.partNumber.toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !order.lines?.some(line => line.partNumber.toLowerCase().includes(searchQuery.toLowerCase())) &&
         !order.customerName.toLowerCase().includes(searchQuery.toLowerCase())) {
       return false;
     }
@@ -1491,11 +1521,11 @@ export function Orders() {
                       <TableRow key={order.id} className="hover:bg-gray-50">
                         <TableCell className="font-mono font-medium">{order.orderNumber}</TableCell>
                         <TableCell>{order.customerName}</TableCell>
-                        <TableCell className="font-mono">{order.partNumber}</TableCell>
+                        <TableCell className="font-mono">{order.lineItemsMode ? order.lines?.map(line => line.partNumber).join(' / ') : order.partNumber}</TableCell>
                         <TableCell>
                           <Badge variant="outline">{order.saleType ? tx(order.saleType === 'Sale' ? '销售' : order.saleType === 'Exchange' ? '交换' : order.saleType === 'Loan' ? '借用' : order.saleType === 'Consign' ? '寄售' : order.saleType === 'Repair' ? '维修' : order.saleType, order.saleType) : tx('销售', 'Sale')}</Badge>
                         </TableCell>
-                        <TableCell>{order.quantity}</TableCell>
+                        <TableCell>{order.lineItemsMode ? order.lines?.map(line => `${line.quantity} ${line.uom}`).join(' / ') : order.quantity}</TableCell>
                         <TableCell className="font-semibold">
                           ${order.totalAmount.toLocaleString()}
                         </TableCell>
@@ -1529,6 +1559,7 @@ export function Orders() {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8"
+                              aria-label={tx('查看订单详情', 'View order details')}
                               onClick={() => handleViewDetail(order)}
                             >
                               <Eye className="w-4 h-4" />

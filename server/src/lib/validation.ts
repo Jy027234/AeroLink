@@ -35,34 +35,7 @@ export function validatePasswordStrength(password: string): { valid: boolean; me
   return { valid: true, message: '密码强度符合要求' };
 }
 
-export const rfqCreateSchema = z.object({
-  customerId: z.string().min(1, '客户ID不能为空'),
-  partNumber: z.string().min(1, '件号不能为空'),
-  quantity: z.number().int().min(1, '数量必须大于0'),
-  uom: z.string().optional().default('EA'),
-  conditionCode: z.string().optional().default('NE'),
-  description: z.string().optional(),
-  serialNumber: z.string().optional(),
-  batchNumber: z.string().optional(),
-  ataChapter: z.string().optional(),
-  aircraftType: z.string().optional(),
-  aircraftModel: z.string().optional(),
-  alternatePartNumbers: z.union([z.string(), z.array(z.string())]).optional().transform((v) => {
-    if (Array.isArray(v)) return JSON.stringify(v);
-    return v;
-  }),
-  targetPrice: z.number().optional(),
-  targetPriceCurrency: z.string().optional().default('USD'),
-  certificateRequired: z.boolean().optional().default(true),
-  certificateType: z.string().optional(),
-  requiredDate: z.string().optional(),
-  responseDeadline: z.string().optional(),
-  leadTimeDays: z.number().int().optional(),
-  urgency: z.enum(['AOG', 'URGENT', 'STANDARD']).optional().default('STANDARD'),
-  urgencyJustification: z.string().optional(),
-  notes: z.string().optional(),
-  emailId: z.string().optional(),
-});
+export { rfqCreateSchema, rfqUpdateSchema } from '../modules/rfqSourcing/index.js';
 
 const stateTransitionMetadataSchema = {
   version: z.number().int().positive('状态版本必须为正整数').optional(),
@@ -84,18 +57,24 @@ export const rfqStatusUpdateSchema = z.object({
   ...stateTransitionMetadataSchema,
 });
 
-export const quotationCreateSchema = z.object({
+const legacyQuotationCreateSchema = z.object({
   rfqId: z.string().min(1, 'RFQ ID不能为空'),
   customerId: z.string().min(1, '客户ID不能为空'),
   partNumber: z.string().min(1, '件号不能为空'),
   quantity: z.number().int().min(1, '数量必须大于0'),
   unitPrice: z.number().min(0, '单价必须大于0'),
   costPrice: z.number().min(0, '成本价必须大于0'),
+  currency: z.string().trim().toUpperCase().default('USD').refine((value) => value === 'USD', '首期报价仅支持 USD 币种'),
+  costSourceType: z.enum(['SUPPLIER_QUOTE', 'INVENTORY_DETAIL', 'MANUAL'], { message: '必须明确报价成本来源' }),
+  costSourceId: z.string().trim().min(1, '成本来源 ID 不能为空').optional(),
+  costSourceReason: z.string().trim().max(1000, '成本来源原因不能超过1000个字符').optional(),
+  // Legacy requests reject lines; explicit line requests use their own union branch.
+  lines: z.never().optional(),
   certificateFiles: z.array(z.string()).optional(),
   template: z.string().optional(),
   validityDays: z.number().int().min(1).optional(),
   // P0 新增字段
-  saleType: z.string().optional().default('Sale'),
+  saleType: z.literal('Sale').optional().default('Sale'),
   shipToId: z.string().optional(),
   shipForId: z.string().optional(),
   incoterm: z.string().optional(),
@@ -120,7 +99,38 @@ export const quotationCreateSchema = z.object({
   hsCode: z.string().optional(),
   eccn: z.string().optional(),
   dualUse: z.boolean().optional().default(false),
+}).superRefine((data, ctx) => {
+  if (data.costSourceType === 'MANUAL') {
+    if (!data.costSourceReason) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceReason'], message: '人工成本必须填写来源原因' });
+    }
+    if (data.costSourceId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceId'], message: '人工成本不能填写来源 ID' });
+    }
+  } else if (!data.costSourceId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceId'], message: '引用型成本必须填写来源 ID' });
+  }
 });
+
+const quotationLineCreateSchema = legacyQuotationCreateSchema.innerType().pick({
+  partNumber: true, quantity: true, unitPrice: true, costPrice: true, costSourceType: true, costSourceId: true, costSourceReason: true,
+}).extend({ rfqLineId: z.string().min(1) }).strict().superRefine((data, ctx) => {
+  if (data.costSourceType === 'MANUAL' ? !data.costSourceReason || !!data.costSourceId : !data.costSourceId || !!data.costSourceReason) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceType'], message: '每行必须明确有效成本来源，人工成本需要原因，引用来源需要 ID' });
+  }
+});
+const multiLineQuotationCreateSchema = legacyQuotationCreateSchema.innerType().omit({
+  partNumber: true, quantity: true, unitPrice: true, costPrice: true, costSourceType: true, costSourceId: true, costSourceReason: true, lines: true,
+}).extend({ lines: z.array(quotationLineCreateSchema).min(1).max(100) }).strict();
+export const quotationCreateSchema = z.union([legacyQuotationCreateSchema, multiLineQuotationCreateSchema]);
+
+export const quotationReviseSchema = z.object({
+  version: z.number().int().positive(),
+  reason: z.string().trim().min(1, '请说明本次商业修订的原因').max(1000),
+  quotation: quotationCreateSchema.refine(value => value.validityDays !== undefined, {
+    message: '修订报价必须明确新报价有效天数', path: ['validityDays'],
+  }),
+}).strict();
 
 export const quotationSubmitSchema = z.object({
   ...stateTransitionMetadataSchema,
@@ -129,7 +139,29 @@ export const quotationSubmitSchema = z.object({
 export const quotationApproveSchema = z.object({
   action: z.enum(['approve', 'reject']),
   comment: z.string().optional(),
+  costSourceType: z.enum(['SUPPLIER_QUOTE', 'INVENTORY_DETAIL', 'MANUAL']).optional(),
+  costSourceId: z.string().trim().min(1, '成本来源 ID 不能为空').optional(),
+  costSourceReason: z.string().trim().max(1000, '成本来源原因不能超过1000个字符').optional(),
   ...stateTransitionMetadataSchema,
+}).superRefine((data, ctx) => {
+  if (!data.costSourceType) {
+    if (data.costSourceId || data.costSourceReason) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceType'], message: '补录成本来源时必须明确来源类型' });
+    }
+    return;
+  }
+  if (data.costSourceType === 'MANUAL') {
+    if (!data.costSourceReason) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceReason'], message: '人工成本必须填写来源原因' });
+    }
+    if (data.costSourceId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceId'], message: '人工成本不能填写来源 ID' });
+    }
+  } else if (!data.costSourceId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceId'], message: '引用型成本必须填写来源 ID' });
+  } else if (data.costSourceReason) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['costSourceReason'], message: '引用型成本不能用人工原因替代来源记录' });
+  }
 });
 
 export const quotationSendSchema = z.object({
@@ -145,6 +177,9 @@ export const quotationWithdrawSchema = z.object({
 });
 
 export const quotationAcceptSchema = z.object({
+  lines: z.array(z.object({ quotationLineId: z.string().min(1), quantity: z.number().int().positive(),
+    allocations: z.array(z.object({ allocationId: z.string().min(1), quantity: z.number().int().positive().max(2147483647) }).strict()).min(1).max(100).optional(),
+  }).strict()).min(1).max(100).optional(),
   ...stateTransitionMetadataSchema,
   poNumber: z.string().optional(),
   deliveryDate: z.string().optional(),
@@ -156,11 +191,14 @@ export const orderCreateSchema = z.object({
   quotationId: z.string().min(1, '报价单ID不能为空'),
   customerId: z.string().min(1, '客户ID不能为空'),
   quotationVersion: z.number().int().positive('报价版本必须为正整数').optional(),
+  // Multi-line orders are not enabled in this migration; reject rather than
+  // silently creating an order from only the aggregate quotation.
+  lines: z.never().optional(),
   poNumber: z.string().optional(),
   deliveryDate: z.string().optional(),
   templateId: z.string().optional(),
   // P2 新增字段
-  saleType: z.string().optional().default('Sale'),
+  saleType: z.literal('Sale').optional().default('Sale'),
   incoterm: z.string().optional(),
   incotermLocation: z.string().optional(),
   shipToId: z.string().optional(),
@@ -190,7 +228,7 @@ export const orderCreateSchema = z.object({
 export const orderUpdateSchema = z.object({
   poNumber: z.string().optional(),
   deliveryDate: z.string().optional(),
-  saleType: z.string().optional(),
+  saleType: z.literal('Sale').optional(),
   incoterm: z.string().optional(),
   incotermLocation: z.string().optional(),
   shipToId: z.string().optional(),
@@ -553,15 +591,46 @@ export const agentRuntimeTaskSyncSchema = z.object({
   error: z.string().optional(),
 });
 
+export const AI_MODEL_PROVIDERS = ['openai', 'deepseek', 'ollama', 'custom'] as const;
+
+const isLocalModelHost = (hostname: string) => {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+};
+
+const isValidModelBaseUrl = (value: string): boolean => {
+  if (/[?#]/.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === 'https:') return true;
+    return parsed.protocol === 'http:' && isLocalModelHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const modelBaseUrlSchema = z.union([z.string().trim(), z.null()]).optional().refine(
+  (value) => value === undefined || value === null || value === '' || isValidModelBaseUrl(value),
+  '模型服务地址必须使用 HTTPS；本机服务仅允许 localhost、127.0.0.1 或 ::1 的 HTTP 地址',
+);
+
+const modelProviderSchema = z.string()
+  .trim()
+  .min(1, '供应商不能为空')
+  .transform((value) => value.toLowerCase())
+  .pipe(z.enum(AI_MODEL_PROVIDERS, { message: '不支持的模型供应商' }));
+
+const modelConfigSchema = z.record(z.unknown()).optional();
+
 export const modelCreateSchema = z.object({
-  name: z.string().min(1, '名称不能为空'),
-  provider: z.string().min(1, '供应商不能为空'),
-  modelId: z.string().min(1, '模型ID不能为空'),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
+  name: z.string().trim().min(1, '名称不能为空'),
+  provider: modelProviderSchema,
+  modelId: z.string().trim().min(1, '模型ID不能为空'),
+  apiKey: z.union([z.string(), z.null()]).optional(),
+  baseUrl: modelBaseUrlSchema,
   isActive: z.boolean().optional(),
   isDefault: z.boolean().optional(),
-  config: z.record(z.any()).optional(),
+  config: modelConfigSchema,
   capabilities: z.array(z.string()).optional(),
 });
 
@@ -594,12 +663,15 @@ export const emailAccountUpdateSchema = z.object({
 
 export const supplierQuoteCreateSchema = z.object({
   rfqId: z.string().optional(),
+  rfqLineId: z.string().min(1).optional(),
   inquiryId: z.string().optional(),
+  inquiryItemId: z.string().min(1).optional(),
   supplierId: z.string().min(1, '供应商ID不能为空'),
   partNumber: z.string().min(1, '件号不能为空'),
   description: z.string().optional(),
   quantity: z.number().int().min(1, '数量必须大于0'),
   unitPrice: z.number().min(0, '单价必须大于0'),
+  currency: z.string().trim().toUpperCase().default('USD').refine((value) => value === 'USD', '供应商报价仅支持 USD 币种'),
   leadTimeDays: z.number().int().min(0, '交期不能小于0'),
   validUntil: z.string().optional(),
   notes: z.string().optional(),
@@ -773,7 +845,14 @@ export const supplierFollowUpLogBatchCreateSchema = z.object({
 });
 
 export const supplierQuoteUpdateSchema = z.object({
+  rfqId: z.string().min(1).optional(),
+  rfqLineId: z.string().min(1).optional(),
+  inquiryId: z.string().min(1).optional(),
+  inquiryItemId: z.string().min(1).optional(),
+  partNumber: z.string().min(1).optional(),
+  quantity: z.number().int().min(1).optional(),
   unitPrice: z.number().min(0).optional(),
+  currency: z.string().trim().toUpperCase().refine((value) => value === 'USD', '供应商报价仅支持 USD 币种').optional(),
   leadTimeDays: z.number().int().min(0).optional(),
   validUntil: z.string().optional(),
   notes: z.string().optional(),
@@ -791,11 +870,11 @@ export const agentUpdateSchema = z.object({
 });
 
 export const modelUpdateSchema = z.object({
-  name: z.string().min(1).optional(),
-  provider: z.string().min(1).optional(),
-  modelId: z.string().min(1).optional(),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
+  name: z.string().trim().min(1).optional(),
+  provider: modelProviderSchema.optional(),
+  modelId: z.string().trim().min(1).optional(),
+  apiKey: z.union([z.string(), z.null()]).optional(),
+  baseUrl: modelBaseUrlSchema,
   isActive: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   config: z.record(z.unknown()).optional(),

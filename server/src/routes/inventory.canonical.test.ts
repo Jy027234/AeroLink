@@ -9,6 +9,7 @@ function createCanonicalDetail(quantity: number) {
     serialNumber: null,
     batchNumber: null,
     quantity,
+    allocatedQuantity: 0,
     conditionCode: 'NE',
     status: 'AVAILABLE',
     warehouse: 'Main',
@@ -83,8 +84,10 @@ describe('canonical inventory mutations', () => {
       create: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
     };
     inventoryTransaction: { create: ReturnType<typeof vi.fn> };
+    returnHold: { findFirst: ReturnType<typeof vi.fn> };
   };
   let enqueueBusinessEventMock: ReturnType<typeof vi.fn>;
 
@@ -94,8 +97,9 @@ describe('canonical inventory mutations', () => {
       // These spies make an accidental legacy write observable.
       inventory: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
       inventoryItem: { upsert: vi.fn(), update: vi.fn() },
-      inventoryDetail: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+      inventoryDetail: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       inventoryTransaction: { create: vi.fn() },
+      returnHold: { findFirst: vi.fn().mockResolvedValue(null) },
     };
     enqueueBusinessEventMock = vi.fn();
 
@@ -177,7 +181,7 @@ describe('canonical inventory mutations', () => {
       create: expect.objectContaining({ description: detail.inventoryItem.description }),
     }));
     expect(prismaMock.inventoryDetail.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ inventoryItemId: detail.inventoryItemId, quantity: 4 }),
+      data: expect.objectContaining({ inventoryItemId: detail.inventoryItemId, quantity: 4, allocatedQuantity: 0 }),
     }));
     expect(prismaMock.inventoryTransaction.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -199,8 +203,8 @@ describe('canonical inventory mutations', () => {
   it('adjusts the canonical detail and writes an immutable adjustment ledger row only', async () => {
     const existing = createCanonicalDetail(2);
     const updated = createCanonicalDetail(5);
-    prismaMock.inventoryDetail.findUnique.mockResolvedValue(existing);
-    prismaMock.inventoryDetail.update.mockResolvedValue(updated);
+    prismaMock.inventoryDetail.findUnique.mockResolvedValueOnce(existing).mockResolvedValueOnce(updated);
+    prismaMock.inventoryDetail.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.inventoryTransaction.create.mockResolvedValue({ id: 'txn-adjustment-1' });
 
     const app = await buildApp();
@@ -210,8 +214,8 @@ describe('canonical inventory mutations', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.data).toMatchObject({ id: existing.id, quantity: 5 });
-    expect(prismaMock.inventoryDetail.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: existing.id },
+    expect(prismaMock.inventoryDetail.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: existing.id, allocatedQuantity: 0 }),
       data: expect.objectContaining({ quantity: 5 }),
     }));
     expect(prismaMock.inventoryTransaction.create).toHaveBeenCalledWith({

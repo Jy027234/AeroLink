@@ -3,9 +3,9 @@ import prisma from './prisma.js';
 export interface ConsumptionTrend {
   period: string; // YYYY-MM
   totalQuantity: number;
-  totalValue: number;
+  totalValue: number | null;
   transactionCount: number;
-  topPartNumbers: Array<{ partNumber: string; quantity: number; value: number }>;
+  topPartNumbers: Array<{ partNumber: string; quantity: number; value: number | null }>;
 }
 
 export interface SafetyStockRecommendation {
@@ -28,7 +28,7 @@ export interface InventoryHealthSummary {
   lowItems: number;
   excessItems: number;
   adequateItems: number;
-  totalInventoryValue: number;
+  totalInventoryValue: number | null;
   recommendations: SafetyStockRecommendation[];
 }
 
@@ -37,7 +37,8 @@ export interface InventoryHealthSummary {
  */
 export async function getConsumptionTrend(
   partNumber?: string,
-  months: number = 12
+  months: number = 12,
+  includeValue = true,
 ): Promise<ConsumptionTrend[]> {
   const cutoffDate = new Date();
   cutoffDate.setMonth(cutoffDate.getMonth() - months);
@@ -95,13 +96,13 @@ export async function getConsumptionTrend(
     .map(([period, data]) => ({
       period,
       totalQuantity: data.totalQuantity,
-      totalValue: Math.round(data.totalValue * 100) / 100,
+      totalValue: includeValue ? Math.round(data.totalValue * 100) / 100 : null,
       transactionCount: data.transactionCount,
       topPartNumbers: Object.entries(data.partNumbers)
         .map(([partNumber, stats]) => ({
           partNumber,
           quantity: stats.quantity,
-          value: Math.round(stats.value * 100) / 100,
+          value: includeValue ? Math.round(stats.value * 100) / 100 : null,
         }))
         .sort((a, b) => b.quantity - a.quantity)
         .slice(0, 5),
@@ -232,7 +233,7 @@ export async function calculateSafetyStockRecommendations(
 /**
  * 获取库存健康度摘要
  */
-export async function getInventoryHealthSummary(): Promise<InventoryHealthSummary> {
+export async function getInventoryHealthSummary(includeCost = true): Promise<InventoryHealthSummary> {
   const recommendations = await calculateSafetyStockRecommendations();
 
   const criticalItems = recommendations.filter((r) => r.stockStatus === 'critical').length;
@@ -241,11 +242,15 @@ export async function getInventoryHealthSummary(): Promise<InventoryHealthSummar
   const adequateItems = recommendations.filter((r) => r.stockStatus === 'adequate').length;
 
   // 计算总库存价值
-  const inventory = await prisma.inventoryDetail.findMany({
-    where: { status: { not: 'SCRAPPED' } },
-    select: { quantity: true, unitCost: true },
-  });
-  const totalInventoryValue = inventory.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
+  const inventory = includeCost
+    ? await prisma.inventoryDetail.findMany({
+      where: { status: { not: 'SCRAPPED' } },
+      select: { quantity: true, unitCost: true },
+    })
+    : [];
+  const totalInventoryValue = includeCost
+    ? Math.round(inventory.reduce((sum, item) => sum + item.quantity * item.unitCost, 0) * 100) / 100
+    : null;
 
   return {
     totalItems: recommendations.length,
@@ -253,7 +258,7 @@ export async function getInventoryHealthSummary(): Promise<InventoryHealthSummar
     lowItems,
     excessItems,
     adequateItems,
-    totalInventoryValue: Math.round(totalInventoryValue * 100) / 100,
+    totalInventoryValue,
     recommendations: recommendations
       .filter((r) => r.stockStatus === 'critical' || r.stockStatus === 'low')
       .sort((a, b) => a.daysOfSupply - b.daysOfSupply)

@@ -1,4 +1,4 @@
-import type { Customer, DocumentTemplate, Order, Prisma, Quotation } from '@prisma/client';
+import type { Customer, DocumentTemplate, Order, OrderLine, Prisma, Quotation } from '@prisma/client';
 import { AppError } from '../middleware/errorHandler.js';
 import { preferredMoneyValue } from './money.js';
 import { generatePDF } from './pdfService.js';
@@ -19,6 +19,7 @@ export const ORDER_CONTRACT_TEMPLATE_VARIABLES = [
   'quotation.quantity',
   'quotation.unitPrice',
   'quotation.totalPrice',
+  'quotation.linesTable',
   'quotation.saleType',
   'quotation.incoterm',
   'quotation.incotermLocation',
@@ -34,6 +35,9 @@ export const ORDER_CONTRACT_TEMPLATE_VARIABLES = [
   'order.soNumber',
   'order.poNumber',
   'order.deliveryDate',
+  'order.quantity',
+  'order.totalAmount',
+  'order.linesTable',
   'system.generatedAt',
 ] as const;
 
@@ -79,14 +83,13 @@ const DEFAULT_ORDER_CONTRACT_BODY = `
         <th>总价 Total Amount</th>
       </tr>
     </thead>
-    <tbody>
-      <tr>
-        <td>{{quotation.partNumber}}</td>
-        <td class="text-right">{{quotation.quantity}}</td>
-        <td class="text-right">{{quotation.unitPrice}}</td>
-        <td class="text-right">{{quotation.totalPrice}}</td>
+    <tbody>{{order.linesTable}}</tbody>
+    <tfoot>
+      <tr class="total-row">
+        <td colspan="3" class="text-right"><strong>合计 Total</strong></td>
+        <td class="text-right"><strong>{{order.totalAmount}}</strong></td>
       </tr>
-    </tbody>
+    </tfoot>
   </table>
 </div>
 
@@ -142,12 +145,85 @@ export function renderTemplate(bodyTemplate: string, payload: Record<string, unk
   });
 }
 
+type ContractOrder = Omit<Order, 'lineItemsMode'> & {
+  lineItemsMode?: boolean;
+  lines?: OrderLine[];
+};
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatContractNumber(value: number): string {
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+    maximumFractionDigits: 4,
+  });
+}
+
+function contractOrderLines(args: {
+  quotation: Quotation;
+  order: ContractOrder;
+}): Array<{
+  lineId?: string;
+  partNumber: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  currency: string;
+}> {
+  const { quotation, order } = args;
+  if (order.lineItemsMode && (!order.lines || order.lines.length === 0)) {
+    throw new AppError('多行订单缺少当前订单明细，不能生成合同', 409, 'RESOURCE_CONFLICT');
+  }
+
+  if (order.lines && order.lines.length > 0) {
+    return order.lines.map(line => ({
+      lineId: line.id,
+      partNumber: line.partNumber,
+      quantity: line.quantity,
+      unitPrice: preferredMoneyValue(line.unitPrice, null) ?? 0,
+      lineTotal: preferredMoneyValue(line.lineTotal, null) ?? 0,
+      currency: line.currency || 'USD',
+    }));
+  }
+
+  // Legacy orders have no persisted order line. This fallback is only for
+  // lineItemsMode=false records; once a record is marked multi-line, missing
+  // lines are a hard data error above rather than a quotation-level guess.
+  return [{
+    partNumber: order.partNumber || quotation.partNumber,
+    quantity: order.quantity,
+    unitPrice: preferredMoneyValue(quotation.unitPriceDecimal, quotation.unitPrice) ?? 0,
+    lineTotal: preferredMoneyValue(quotation.totalPriceDecimal, quotation.totalPrice) ?? order.totalAmount,
+    currency: quotation.currency || 'USD',
+  }];
+}
+
+function renderContractLineRows(lines: ReturnType<typeof contractOrderLines>): string {
+  return lines.map(line => `<tr>
+    <td>${escapeHtml(line.partNumber)}</td>
+    <td class="text-right">${escapeHtml(formatContractNumber(line.quantity))}</td>
+    <td class="text-right">${escapeHtml(`${line.currency === 'USD' ? '$' : `${line.currency} `}${formatContractNumber(line.unitPrice)}`)}</td>
+    <td class="text-right">${escapeHtml(`${line.currency === 'USD' ? '$' : `${line.currency} `}${formatContractNumber(line.lineTotal)}`)}</td>
+  </tr>`).join('\n');
+}
+
 export function buildOrderContractPayload(args: {
   quotation: Quotation;
   customer: Customer;
-  order: Order;
+  order: ContractOrder;
 }): Record<string, unknown> {
   const { quotation, customer, order } = args;
+  const lines = contractOrderLines({ quotation, order });
+  const orderQuantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const orderTotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const linesTable = renderContractLineRows(lines);
 
   return {
     customer: {
@@ -174,12 +250,17 @@ export function buildOrderContractPayload(args: {
       shippingMethod: quotation.shippingMethod,
       expiryDate: quotation.expiryDate,
       customerConfirmationNote: quotation.customerConfirmationNote,
+      linesTable,
     },
     order: {
       orderNumber: order.orderNumber,
       soNumber: order.soNumber,
       poNumber: order.poNumber,
       deliveryDate: order.deliveryDate,
+      quantity: orderQuantity,
+      totalAmount: orderTotal,
+      lines,
+      linesTable,
     },
     system: {
       generatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
@@ -257,13 +338,23 @@ export async function getOrderContractTemplate(templateId?: string | null, db: C
 export async function createOrderContractDocument(args: {
   quotation: Quotation;
   customer: Customer;
-  order: Order;
+  order: ContractOrder;
   templateId?: string | null;
   generatedById?: string;
   tx?: ContractDocumentClient;
 }) {
   const db = args.tx ?? prisma;
   const template = await getOrderContractTemplate(args.templateId, db);
+  if (args.order.lineItemsMode) {
+    const scalarGoodsToken = /{{\s*(?:quotation|order)\.(?:partNumber|quantity|unitPrice|totalPrice)\s*}}/;
+    if (scalarGoodsToken.test(template.bodyTemplate)) {
+      throw new AppError('多行订单必须使用逐行合同模板（order.linesTable），请更换仍使用旧商品标量字段的模板', 409, 'RESOURCE_CONFLICT');
+    }
+    const hasLineTable = /{{\s*(?:order|quotation)\.linesTable\s*}}/.test(template.bodyTemplate);
+    if (!hasLineTable) {
+      throw new AppError('多行订单合同模板缺少逐行明细占位符（order.linesTable）', 409, 'RESOURCE_CONFLICT');
+    }
+  }
   const payload = buildOrderContractPayload(args);
   const contentHtml = renderTemplate(template.bodyTemplate, payload);
 
@@ -288,7 +379,7 @@ export async function createOrderContractDocument(args: {
 export async function ensureOrderContractDocument(args: {
   quotation: Quotation;
   customer: Customer;
-  order: Order;
+  order: ContractOrder;
   templateId?: string | null;
   generatedById?: string;
   tx?: ContractDocumentClient;
@@ -314,9 +405,17 @@ export async function ensureOrderContractDocument(args: {
 export async function generateDocumentPdf(document: {
   title: string;
   contentHtml: string;
+  /** Use the persisted generation time when rendering a stored snapshot. */
+  renderedAt?: Date | string;
 }) {
+  const renderedAt = document.renderedAt
+    ? (document.renderedAt instanceof Date ? document.renderedAt.toISOString() : new Date(document.renderedAt).toISOString())
+    : undefined;
   return generatePDF(document.contentHtml, {
     title: document.title,
+    ...(renderedAt ? {
+      footer: `<div class="footer">AeroLink 航材交易平台 - 生成时间: ${renderedAt}</div>`,
+    } : {}),
   });
 }
 

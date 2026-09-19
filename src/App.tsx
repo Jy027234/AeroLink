@@ -1,5 +1,5 @@
 // App component
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { I18nProvider } from '@/i18n';
 import { Layout } from '@/components/Layout';
@@ -12,6 +12,7 @@ import { getPageCapability, hasCapability } from '@/lib/capabilities';
 import { preloadPages } from '@/lib/pagePreload';
 import { useTranslation } from '@/i18n';
 import { authApi, getAccessToken } from '@/api/client';
+import { useRealtimeUpdates } from '@/lib/useRealtimeUpdates';
 import {
   beginPageNavigation,
   completePageNavigation,
@@ -138,6 +139,14 @@ function App() {
   const bootNavigationMarkedRef = useRef(false);
   const previousUserIdRef = useRef<string | undefined>(user?.id);
   const [sessionRestoring, setSessionRestoring] = useState(false);
+  const handleRealtimeAuthenticationFailure = useCallback(() => {
+    logout();
+  }, [logout]);
+
+  useRealtimeUpdates({
+    enabled: isAuthenticated && Boolean(getAccessToken()),
+    onAuthenticationFailure: handleRealtimeAuthenticationFailure,
+  });
 
   useEffect(() => {
     const syncPageFromLocation = () => {

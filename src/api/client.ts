@@ -31,6 +31,7 @@ import type {
   WorkflowDefinition,
   WorkflowInstance,
   WorkflowInstanceStep,
+  QuotationRevisionSummary,
 } from '@/types';
 import type { CapabilitySnapshot } from '@/lib/capabilities';
 
@@ -130,14 +131,65 @@ export interface SupplierFollowUpLogCreateInput {
   preferredChannel?: 'email' | 'phone' | 'manual';
 }
 
+export type AgentPromptRole = 'system' | 'user' | 'assistant';
+
+export interface AgentPrompt {
+  role: AgentPromptRole;
+  content: string;
+}
+
+export interface AgentConfig {
+  modelId?: string | null;
+  temperature?: number;
+  maxTokens?: number;
+  [key: string]: unknown;
+}
+
+export interface AgentWorkflow {
+  label: string;
+  description: string;
+  variables: string[];
+  inputExample: Record<string, unknown>;
+}
+
 export interface ClientAIAgent {
   id: string;
   name: string;
   type: string;
   description: string | null;
   isActive: boolean;
-  config: Record<string, unknown>;
-  prompts: Array<{ role: string; content: string }>;
+  config: AgentConfig;
+  prompts: AgentPrompt[];
+  builtinKey: string | null;
+  draftRevision: number;
+  publishedVersion: number | null;
+  workflow: AgentWorkflow | null;
+}
+
+export interface AIAgentVersion {
+  version: number;
+  prompts: AgentPrompt[];
+  config: AgentConfig;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface AgentTestResult {
+  output: string;
+  model: string;
+  latency: number;
+  promptVersion: number;
+  agentId: string;
+}
+
+export interface AgentUpdateInput {
+  expectedRevision: number;
+  name?: string;
+  type?: string;
+  description?: string | null;
+  isActive?: boolean;
+  config?: AgentConfig;
+  prompts?: AgentPrompt[];
 }
 
 export interface AgentAuditLog {
@@ -157,12 +209,19 @@ export interface ClientAIModel {
   name: string;
   provider: string;
   modelId: string;
-  apiKey: string | null;
+  hasApiKey: boolean;
   baseUrl: string | null;
   isActive: boolean;
   isDefault: boolean;
   config: Record<string, unknown>;
   capabilities: string[];
+}
+
+export interface AIModelTestResult {
+  status: 'ok';
+  message: string;
+  latency: number;
+  response: string;
 }
 
 interface RuntimeConfirmationOptionPayload {
@@ -201,6 +260,7 @@ interface RuntimeTaskStepPayload {
   action: string;
   params: Record<string, unknown>;
   status: TaskStep['status'];
+  executionState?: AgentTask['executionState'];
   result?: Record<string, unknown>;
   error?: string;
   startedAt?: string;
@@ -216,6 +276,8 @@ interface RuntimeTaskPayload {
   };
   type: AgentTask['type'];
   status: AgentTask['status'];
+  executionState?: AgentTask['executionState'];
+  runtimeTrust?: AgentTask['runtimeTrust'];
   currentStepIndex: number;
   steps: RuntimeTaskStepPayload[];
   confirmationNode?: RuntimeConfirmationPayload;
@@ -227,12 +289,6 @@ interface RuntimeTaskPayload {
   error?: string;
 }
 
-function toIsoDate(value?: Date | string): string | undefined {
-  if (!value) return undefined;
-  if (typeof value === 'string') return value;
-  return value.toISOString();
-}
-
 function toDate(value?: string): Date | undefined {
   return value ? new Date(value) : undefined;
 }
@@ -242,74 +298,24 @@ function cloneRecord<T extends Record<string, unknown> | undefined>(value: T): T
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function serializeConfirmationOption(option: ConfirmationOption): RuntimeConfirmationOptionPayload {
-  return {
-    id: option.id,
-    label: option.label,
-    labelZh: option.labelZh,
-    labelEn: option.labelEn,
-    description: option.description,
-    descriptionZh: option.descriptionZh,
-    descriptionEn: option.descriptionEn,
-    action: option.action,
-    data: cloneRecord(option.data),
-  };
-}
+function inferRuntimeExecutionState(
+  data: Record<string, unknown> | undefined
+): AgentTask['executionState'] | undefined {
+  if (!data) return undefined;
 
-function serializeConfirmationNode(confirmation: ConfirmationNode): RuntimeConfirmationPayload {
-  return {
-    id: confirmation.id,
-    taskId: confirmation.taskId,
-    stepId: confirmation.stepId,
-    type: confirmation.type,
-    title: confirmation.title,
-    titleZh: confirmation.titleZh,
-    titleEn: confirmation.titleEn,
-    description: confirmation.description,
-    descriptionZh: confirmation.descriptionZh,
-    descriptionEn: confirmation.descriptionEn,
-    data: cloneRecord(confirmation.data) || {},
-    options: confirmation.options.map(serializeConfirmationOption),
-    selectedOption: confirmation.selectedOption,
-    confirmedAt: toIsoDate(confirmation.confirmedAt),
-    confirmedBy: confirmation.confirmedBy,
-  };
-}
+  const directState = data.executionState;
+  if (directState === 'manual_workflow_required' || directState === 'not_dispatched') {
+    return directState;
+  }
 
-function serializeTaskStep(step: TaskStep): RuntimeTaskStepPayload {
-  return {
-    id: step.id,
-    capability: step.capability,
-    action: step.action,
-    params: cloneRecord(step.params) || {},
-    status: step.status,
-    result: cloneRecord(step.result),
-    error: step.error,
-    startedAt: toIsoDate(step.startedAt),
-    completedAt: toIsoDate(step.completedAt),
-  };
-}
+  for (const key of ['approvalStatus', 'orderStatus', 'notificationStatus', 'dispatchStatus']) {
+    const marker = data[key];
+    if (marker === 'manual_workflow_required' || marker === 'not_dispatched') {
+      return marker;
+    }
+  }
 
-function serializeAgentTask(task: AgentTask): RuntimeTaskPayload {
-  return {
-    id: task.id,
-    trigger: {
-      type: task.trigger.type,
-      source: task.trigger.source,
-      referenceId: task.trigger.referenceId,
-    },
-    type: task.type,
-    status: task.status,
-    currentStepIndex: task.currentStepIndex,
-    steps: task.steps.map(serializeTaskStep),
-    confirmationNode: task.confirmationNode ? serializeConfirmationNode(task.confirmationNode) : undefined,
-    context: cloneRecord(task.context) || {},
-    result: cloneRecord(task.result),
-    createdAt: toIsoDate(task.createdAt) || new Date().toISOString(),
-    updatedAt: toIsoDate(task.updatedAt) || new Date().toISOString(),
-    completedAt: toIsoDate(task.completedAt),
-    error: task.error,
-  };
+  return undefined;
 }
 
 function deserializeConfirmationOption(option: RuntimeConfirmationOptionPayload): ConfirmationOption {
@@ -347,13 +353,15 @@ function deserializeConfirmationNode(confirmation: RuntimeConfirmationPayload): 
 }
 
 function deserializeTaskStep(step: RuntimeTaskStepPayload): TaskStep {
+  const result = cloneRecord(step.result);
   return {
     id: step.id,
     capability: step.capability,
     action: step.action,
     params: cloneRecord(step.params) || {},
     status: step.status,
-    result: cloneRecord(step.result),
+    executionState: step.executionState || inferRuntimeExecutionState(result),
+    result,
     error: step.error,
     startedAt: toDate(step.startedAt),
     completedAt: toDate(step.completedAt),
@@ -361,6 +369,17 @@ function deserializeTaskStep(step: RuntimeTaskStepPayload): TaskStep {
 }
 
 function deserializeAgentTask(task: RuntimeTaskPayload): AgentTask {
+  const steps = task.steps.map(deserializeTaskStep);
+  const context = cloneRecord(task.context) || {};
+  const result = cloneRecord(task.result);
+  const executionState = task.executionState
+    || inferRuntimeExecutionState(context)
+    || inferRuntimeExecutionState(result)
+    || steps.reduce<AgentTask['executionState'] | undefined>(
+      (state, step) => state || step.executionState,
+      undefined
+    );
+
   return {
     id: task.id,
     trigger: {
@@ -370,11 +389,13 @@ function deserializeAgentTask(task: RuntimeTaskPayload): AgentTask {
     },
     type: task.type,
     status: task.status,
+    executionState,
+    runtimeTrust: task.runtimeTrust || 'legacy_untrusted',
     currentStepIndex: task.currentStepIndex,
-    steps: task.steps.map(deserializeTaskStep),
+    steps,
     confirmationNode: task.confirmationNode ? deserializeConfirmationNode(task.confirmationNode) : undefined,
-    context: cloneRecord(task.context) || {},
-    result: cloneRecord(task.result),
+    context,
+    result,
     createdAt: new Date(task.createdAt),
     updatedAt: new Date(task.updatedAt),
     completedAt: toDate(task.completedAt),
@@ -385,12 +406,15 @@ function deserializeAgentTask(task: RuntimeTaskPayload): AgentTask {
 export interface SupplierQuoteItem {
   id: string;
   rfqId: string | null;
+  rfqLineId?: string | null;
   inquiryId: string | null;
   partNumber: string;
   description: string | null;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  currency: string | null;
+  currencyStatus: 'VERIFIED' | 'HISTORICAL_UNVERIFIED';
   leadTimeDays: number;
   validUntil: string | null;
   notes: string | null;
@@ -419,6 +443,8 @@ export interface SupplierQuoteComparedItem {
   };
   unitPrice: number;
   totalPrice: number;
+  currency: string | null;
+  currencyStatus: 'VERIFIED' | 'HISTORICAL_UNVERIFIED';
   quantity: number;
   leadTimeDays: number;
   priceDiff: number | null;
@@ -543,7 +569,7 @@ async function request<T>(
   const url = `${API_BASE_URL}${endpoint}`;
   const token = accessToken;
   const requestHeaders = new Headers(options.headers || undefined);
-  if (!requestHeaders.has('Content-Type')) {
+  if (!requestHeaders.has('Content-Type') && !(options.body instanceof FormData)) {
     requestHeaders.set('Content-Type', 'application/json');
   }
   if (token && !requestHeaders.has('Authorization')) {
@@ -862,7 +888,7 @@ export interface InventorySummary {
   standardPart: number;
   rawMaterial: number;
   consumable: number;
-  totalValue: number;
+  totalValue: number | null;
   locations: string[];
 }
 
@@ -1313,7 +1339,7 @@ export interface ReportSummary {
   activeCustomers: number;
   customerRetention: number | null;
   avgCustomerValue: number | null;
-  totalInventoryValue: number;
+  totalInventoryValue: number | null;
   avgTurnoverDays: number | null;
   slowMovingValue: number | null;
   slowMovingShare: number | null;
@@ -1415,6 +1441,437 @@ export const rfqApi = {
   } & ControlledListExportOptions = {}) => requestCsv('/rfqs/export.csv', filters),
 };
 
+export type QuotationCostSourceType = 'SUPPLIER_QUOTE' | 'INVENTORY_DETAIL' | 'MANUAL';
+
+export interface MultiLineQuotationLineInput {
+  rfqLineId: string;
+  partNumber: string;
+  quantity: number;
+  unitPrice: number;
+  costPrice: number;
+  costSourceType: QuotationCostSourceType;
+  costSourceId?: string;
+  costSourceReason?: string;
+}
+
+export interface MultiLineQuotationCreateInput {
+  rfqId: string;
+  customerId: string;
+  lines: MultiLineQuotationLineInput[];
+  currency: 'USD';
+  certificateFiles?: string[];
+  template?: string;
+  validityDays?: number;
+  saleType?: 'Sale';
+  shipToId?: string;
+  shipForId?: string;
+  incoterm?: string;
+  incotermLocation?: string;
+  leadTimeDays?: number;
+  leadTimeBasis?: string;
+  moq?: number;
+  mpq?: number;
+  priceBasis?: string;
+  taxIncluded?: boolean;
+  taxRate?: number;
+  warrantyDays?: number;
+  warrantyTerms?: string;
+  packagingRequirement?: string;
+  shippingMethod?: string;
+  ccRecipients?: string[];
+  commonNote?: string;
+  eSignature?: string;
+  eSignatureStatus?: string;
+  countryOfOrigin?: string;
+  hsCode?: string;
+  eccn?: string;
+  dualUse?: boolean;
+}
+
+export interface MultiLineQuotationAcceptInput {
+  lines: Array<{
+    quotationLineId: string;
+    quantity: number;
+    /** Optional explicit inventory parents assigned to the new order line. */
+    allocations?: Array<{ allocationId: string; quantity: number }>;
+  }>;
+  version: number;
+  poNumber?: string;
+  deliveryDate?: string;
+  templateId?: string;
+  confirmationNote?: string;
+  reasonCode?: string;
+  reason?: string;
+}
+
+// ===== D12 modern line inventory allocation API =====
+
+export interface InventoryAllocationAssignmentView {
+  id: string;
+  orderLineId: string;
+  assignedQuantity: number;
+  releasedQuantity: number;
+  consumedQuantity: number;
+  activeQuantity: number;
+  allocationId?: string;
+  inventoryDetailId?: string;
+}
+
+export interface InventoryAllocationView {
+  id: string;
+  quotationLineId: string;
+  inventoryDetailId: string;
+  allocatedQuantity: number;
+  releasedQuantity: number;
+  consumedQuantity: number;
+  activeQuantity: number;
+  unassignedQuantity: number;
+  assignedActiveQuantity: number;
+  expiresAt: string | null;
+  assignments: InventoryAllocationAssignmentView[];
+}
+
+export interface LineInventoryAvailability {
+  quotationLineId: string;
+  quantity: number;
+  acceptedQuantity: number;
+  reservedQuantity: number;
+  unassignedQuantity: number;
+  assignedActiveQuantity: number;
+  activeQuantity: number;
+  allocations: InventoryAllocationView[];
+}
+
+export interface OrderLineInventoryAvailability {
+  id: string;
+  quotationLineId: string;
+  quantity: number;
+  outboundQuantity: number;
+  directShippedQuantity: number;
+  assignments: InventoryAllocationAssignmentView[];
+}
+
+export interface AllocationQualityReviewSnapshot {
+  schemaVersion: number;
+  assignment: { id: string; allocationId: string; orderLineId: string; version: number; assignedQuantity: number; releasedQuantity: number; consumedQuantity: number };
+  allocation: { id: string; quotationLineId: string; inventoryDetailId: string; version: number; allocatedQuantity: number; releasedQuantity: number; consumedQuantity: number };
+  order: { id: string; quotationId: string; version: number; status: string; lineItemsMode: boolean; customerId: string; quantity: number; outboundQuantity: number; certificateRequired: boolean; certificateType: string | null; inspectionRequired: boolean; saleType: string };
+  orderLine: { id: string; orderId: string; lineNo: number; quotationLineId: string; partNumber: string; uom: string; quantity: number; outboundQuantity: number; outboundStatus: string; inventoryDetailId: string | null; serialNumber: string | null; batchNumber: string | null; currency: string };
+  quotationLine: { id: string; quotationId: string; lineNo: number; rfqLineId: string; partNumber: string; uom: string; quantity: number; acceptedQuantity: number; reservedQuantity: number; status: string; currency: string };
+  rfqLine: { id: string; rfqId: string; lineNo: number; partNumber: string; quantity: number; uom?: string; conditionCode: string; certificateRequired: boolean; certificateType: string | null; requiredDate?: string; status: string; updatedAt?: string };
+  rfq: { id: string; version: number; lineItemsMode: boolean; conditionCode: string; certificateRequired: boolean; certificateType: string | null };
+  inventory: { id: string; inventoryItemId: string; partNumber: string; trackingType: string; type: string; serialNumber: string | null; batchNumber: string | null; conditionCode: string; quantity: number; allocatedQuantity: number; status: string; certificateType: string; certificateNumber: string | null; certificateFileUrl: string | null; lifeLimited: boolean; remainingHours: number | null; remainingCycles: number | null; shelfLifeDate?: string | null; shelfLifeDays: number | null; nextOverhaulDue?: string | null; storageCondition: string | null; updatedAt?: string; itemUpdatedAt?: string };
+  certificates: Array<{ id: string; certificateNumber: string; partNumber: string; serialNumber: string | null; batchNumber: string | null; certificateType: string; status: string; expiryDate: string | null; fileUrl: string | null; fileHash: string | null; updatedAt?: string }>;
+  plannedQuantity: number;
+}
+
+export interface AllocationQualityReviewContext {
+  snapshotHash: string;
+  snapshot: AllocationQualityReviewSnapshot;
+  review: { id: string; approved: boolean; snapshotHash: string; consumedAt: string | null; reviewedAt: string; quantity: number } | null;
+}
+
+export interface AllocationQualityReviewInput {
+  assignmentId: string;
+  quantity: number;
+  snapshotHash: string;
+  approved: boolean;
+  evidenceIds: string[];
+  verifiedSerialNumber: string;
+  verifiedBatchNumber: string;
+  checks: { identity: boolean; documents: boolean; conditionAndLife: boolean; customerRequirements: boolean };
+  reason: string;
+  certificateIdentity?: { id?: string; certificateId?: string; certificateNumber?: string; certificateType?: string; partNumber?: string; serialNumber?: string | null; batchNumber?: string | null; fileHash?: string | null };
+}
+
+export interface AllocationQualityReviewResult { id: string; approved: boolean; reviewedAt: string; quantity: number }
+export interface AllocationConsumeResult { assignmentId: string; allocationId: string; inventoryDetailId: string; quantity: number; beforeQuantity: number; afterQuantity: number; transactionId: string; orderId: string; orderStatus: string; allocationVersion: number; assignmentVersion: number }
+
+export const inventoryAllocationApi = {
+  getQuotationLine: async (quotationLineId: string) => request<LineInventoryAvailability>(`/inventory-allocations/quotation-lines/${encodeURIComponent(quotationLineId)}`),
+  getOrderLine: async (orderLineId: string) => request<OrderLineInventoryAvailability>(`/inventory-allocations/order-lines/${encodeURIComponent(orderLineId)}`),
+  reserve: async (payload: { quotationLineId: string; orderLineId?: string; allocations: Array<{ inventoryDetailId: string; quantity: number; stockReceiptLineId?: string; sourceReturnHoldId?: string }> }) => request<LineInventoryAvailability>('/inventory-allocations/reserve', { method: 'POST', body: JSON.stringify(payload) }),
+  assign: async (payload: { orderLineId: string; allocations: Array<{ allocationId: string; quantity: number }> }) => request<LineInventoryAvailability>('/inventory-allocations/assign', { method: 'POST', body: JSON.stringify(payload) }),
+  release: async (payload: { allocationId: string; assignmentId?: string; quantity: number; reason: string }) => request<LineInventoryAvailability>('/inventory-allocations/release', { method: 'POST', body: JSON.stringify(payload) }),
+  getQualityReview: async (assignmentId: string, quantity: number) => request<AllocationQualityReviewContext>(`/inventory-allocations/quality-review/${encodeURIComponent(assignmentId)}?quantity=${encodeURIComponent(String(quantity))}`),
+  createQualityReview: async (payload: AllocationQualityReviewInput) => request<AllocationQualityReviewResult>('/inventory-allocations/quality-reviews', { method: 'POST', body: JSON.stringify(payload) }),
+  consume: async (payload: { assignmentId: string; quantity: number; reviewId: string; notes?: string }) => request<AllocationConsumeResult>('/inventory-allocations/consume', { method: 'POST', body: JSON.stringify(payload) }),
+};
+
+// ===== D13 modern shipment, receipt, and return API =====
+
+export interface ShipmentEvidenceSnapshot {
+  id: string;
+  version: number;
+  sha256: string;
+  status: string;
+}
+
+export interface ShipmentCertificateView {
+  id: string;
+  certificateNumber: string;
+  partNumber: string;
+  serialNumber: string | null;
+  batchNumber: string | null;
+  certificateType: string;
+  status: string;
+  expiryDate: string | null;
+  fileHash: string | null;
+  updatedAt: string;
+}
+
+export interface ShipmentOutboundTransactionView {
+  id: string;
+  orderLineId: string | null;
+  assignmentId: string | null;
+  inventoryDetailId: string;
+  inventoryItemId: string;
+  partNumber: string;
+  trackingType: string;
+  serialNumber: string | null;
+  batchNumber: string | null;
+  conditionCode: string;
+  warehouse: string | null;
+  location: string | null;
+  quantity: number;
+  boundQuantity: number;
+  availableQuantity: number;
+  requiresHistoricalReview: boolean;
+}
+
+export interface ShipmentReturnHoldView {
+  id: string;
+  shipmentLineId: string;
+  inventoryDetailId: string;
+  quantity: number;
+  status: string;
+  version: number;
+  snapshotHash: string;
+  receivedById: string | null;
+  receivedAt: string | null;
+  releasedById: string | null;
+  releasedAt: string | null;
+  releaseReason?: string | null;
+  returnTransactionId?: string | null;
+  identitySnapshot: unknown;
+  evidence: ShipmentEvidenceSnapshot[];
+}
+
+export interface ShipmentLineView {
+  id: string;
+  lineNo: number;
+  orderLineId: string;
+  assignmentId: string;
+  outboundTransactionId: string;
+  quantity: number;
+  receivedQuantity: number;
+  returnedQuantity: number;
+  version: number;
+  identitySnapshot: unknown;
+  returns: ShipmentReturnHoldView[];
+}
+
+export interface ShipmentView {
+  id: string;
+  shipmentNumber: string;
+  carrier: string;
+  trackingNumber: string;
+  origin: string;
+  destination: string;
+  status: string;
+  version: number;
+  shippedAt: string | null;
+  evidence: {
+    qualityReviews: Array<{
+      outboundTransactionId: string;
+      reviewId: string;
+      snapshotHash: string;
+      evidence: unknown[];
+      certificates: unknown[];
+    }>;
+    attachments: unknown[];
+  };
+  lines: ShipmentLineView[];
+}
+
+export interface ShipmentDeliveryLineProgress {
+  orderLineId: string;
+  quantity: number;
+  receivedQuantity: number;
+  remainingQuantity: number;
+  fullyReceived: boolean;
+}
+
+export interface ShipmentDeliveryProgress {
+  requiredQuantity: number;
+  receivedQuantity: number;
+  remainingQuantity: number;
+  complete: boolean;
+  lines: ShipmentDeliveryLineProgress[];
+}
+
+export interface ShipmentOrderView {
+  order: { id: string; status: string; version: number };
+  outboundTransactions: ShipmentOutboundTransactionView[];
+  shipments: ShipmentView[];
+  delivery: ShipmentDeliveryProgress;
+}
+
+export interface CreateShipmentInput {
+  orderId: string;
+  carrier: string;
+  trackingNumber: string;
+  origin: string;
+  destination: string;
+  lines: Array<{ outboundTransactionId: string; quantity: number }>;
+  evidenceIds?: string[];
+}
+
+export interface CreateShipmentReceiptInput {
+  lines: Array<{ shipmentLineId: string; quantity: number }>;
+  evidenceIds: string[];
+  reason: string;
+}
+
+export interface CreateShipmentReturnInput {
+  shipmentLineId: string;
+  quantity: number;
+  evidenceIds: string[];
+  verifiedSerialNumber: string;
+  verifiedBatchNumber: string;
+  reason: string;
+}
+
+export interface ShipmentReturnReleaseContext {
+  id: string;
+  shipmentLineId: string;
+  inventoryDetailId: string;
+  quantity: number;
+  status: string;
+  version: number;
+  identitySnapshot: unknown;
+  evidence: ShipmentEvidenceSnapshot[];
+  receivedById: string;
+  receivedAt: string;
+  releasedById: string | null;
+  releasedAt: string | null;
+  releaseReason?: string | null;
+  returnTransactionId?: string | null;
+  returnHoldId: string;
+  snapshotHash: string;
+  receivedSnapshotHash: string;
+  snapshot: unknown;
+  shipmentLine: {
+    id: string;
+    shipmentId: string;
+    orderLineId: string;
+    assignmentId: string;
+    outboundTransactionId: string;
+    quantity: number;
+    receivedQuantity: number;
+    returnedQuantity: number;
+    version: number;
+    identitySnapshot: unknown;
+  };
+  inventoryDetail: {
+    id: string;
+    inventoryItemId: string;
+    partNumber: string;
+    trackingType: string;
+    serialNumber: string | null;
+    batchNumber: string | null;
+    conditionCode: string | null;
+    warehouse: string | null;
+    location: string | null;
+    status: string;
+    quantity: number;
+    allocatedQuantity: number;
+    certificateType: string | null;
+    certificateNumber: string | null;
+    lifeLimited: boolean;
+    remainingHours: number | null;
+    remainingCycles: number | null;
+    shelfLifeDate: string | null;
+    nextOverhaulDue: string | null;
+  };
+  certificates: ShipmentCertificateView[];
+  currentSnapshotHash: string;
+}
+
+export interface ReleaseShipmentReturnInput {
+  snapshotHash: string;
+  evidenceIds: string[];
+  verifiedSerialNumber: string;
+  verifiedBatchNumber: string;
+  checks: { identity: boolean; documents: boolean; conditionAndLife: boolean; customerRequirements: boolean };
+  reason: string;
+}
+
+export const shipmentApi = {
+  getByOrderId: async (orderId: string) => request<ShipmentOrderView>(`/shipments/orders/${encodeURIComponent(orderId)}`),
+  create: async (payload: CreateShipmentInput) => request<ShipmentView>('/shipments', { method: 'POST', body: JSON.stringify(payload) }),
+  createReceipt: async (shipmentId: string, payload: CreateShipmentReceiptInput) => request<ShipmentView>(`/shipments/dispatches/${encodeURIComponent(shipmentId)}/receipts`, { method: 'POST', body: JSON.stringify(payload) }),
+  createReturn: async (payload: CreateShipmentReturnInput) => request<ShipmentReturnHoldView & { replayed: boolean }>('/shipments/returns', { method: 'POST', body: JSON.stringify(payload) }),
+  getReturnReleaseContext: async (returnHoldId: string) => request<ShipmentReturnReleaseContext>(`/shipments/returns/${encodeURIComponent(returnHoldId)}/release-context`),
+  releaseReturn: async (returnHoldId: string, payload: ReleaseShipmentReturnInput) => request<ShipmentReturnHoldView & { replayed: boolean }>(`/shipments/returns/${encodeURIComponent(returnHoldId)}/release`, { method: 'POST', body: JSON.stringify(payload) }),
+};
+
+/**
+ * The legacy branch of QuotationCreateRequest used by commercial revisions.
+ * Keep this type separate from the generated OpenAPI declaration: the
+ * revision endpoint is introduced by the server in a later contract refresh,
+ * while the client still needs a typed payload during that rollout.
+ */
+export interface LegacyQuotationCreateInput {
+  rfqId: string;
+  customerId: string;
+  partNumber: string;
+  quantity: number;
+  unitPrice: number;
+  costPrice: number;
+  currency: 'USD';
+  costSourceType: QuotationCostSourceType;
+  costSourceId?: string;
+  costSourceReason?: string;
+  certificateFiles?: string[];
+  template?: string;
+  validityDays?: number;
+  saleType?: 'Sale';
+  shipToId?: string;
+  shipForId?: string;
+  incoterm?: string;
+  incotermLocation?: string;
+  leadTimeDays?: number;
+  leadTimeBasis?: string;
+  moq?: number;
+  mpq?: number;
+  priceBasis?: string;
+  taxIncluded?: boolean;
+  taxRate?: number;
+  warrantyDays?: number;
+  warrantyTerms?: string;
+  packagingRequirement?: string;
+  shippingMethod?: string;
+  ccRecipients?: string[];
+  commonNote?: string;
+  eSignature?: string;
+  eSignatureStatus?: string;
+  countryOfOrigin?: string;
+  hsCode?: string;
+  eccn?: string;
+  dualUse?: boolean;
+}
+
+export type QuotationRevisionCreateInput =
+  | (Omit<LegacyQuotationCreateInput, 'validityDays'> & { validityDays: number })
+  | (Omit<MultiLineQuotationCreateInput, 'validityDays'> & { validityDays: number });
+
+export interface QuotationRevisionInput {
+  version: number;
+  reason: string;
+  quotation: QuotationRevisionCreateInput;
+}
+
 // ===== Quotation API =====
 export const quotationApi = {
   getAll: async (filters?: {
@@ -1440,8 +1897,31 @@ export const quotationApi = {
     return request<Quotation>(`/quotations/${id}`);
   },
 
+  getRevisions: async (id: string) => {
+    return request<QuotationRevisionSummary[]>(`/quotations/${id}/revisions`);
+  },
+
   create: async (data: ApiPayload) => {
     return request<Quotation>('/quotations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * D10 line-first quotation creation. Keep this method separate from the
+   * legacy single-row create adapter until the server contract is enabled.
+   */
+  createMultiLine: async (data: MultiLineQuotationCreateInput) => {
+    return request<Quotation>('/quotations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** Create a new commercial revision while preserving the source quotation. */
+  revise: async (id: string, data: QuotationRevisionInput) => {
+    return request<Quotation>(`/quotations/${id}/revise`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -1479,6 +1959,14 @@ export const quotationApi = {
     return request<ApiRecord>(`/quotations/${id}/accept`, {
       method: 'POST',
       body: JSON.stringify(data || {}),
+    });
+  },
+
+  /** Accept selected quantities for D10 quotation lines. */
+  acceptLines: async (id: string, data: MultiLineQuotationAcceptInput) => {
+    return request<ApiRecord>(`/quotations/${id}/accept`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   },
 
@@ -1637,7 +2125,7 @@ export const inventoryApi = {
   },
 
   getByPartNumber: async (partNumber: string) => {
-    return request<Inventory[]>(`/inventory/part/${partNumber}`);
+    return request<Inventory[]>(`/inventory/part/${encodeURIComponent(partNumber)}`);
   },
 
   create: async (data: ApiPayload) => {
@@ -2135,10 +2623,35 @@ export const agentApi = {
     });
   },
 
-  update: async (id: string, data: ApiPayload) => {
+  update: async (id: string, data: AgentUpdateInput) => {
     return request<ClientAIAgent>(`/agents/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
+    });
+  },
+
+  publish: async (id: string, expectedRevision: number) => {
+    return request<ClientAIAgent>(`/agents/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ expectedRevision }),
+    });
+  },
+
+  getVersions: async (id: string) => {
+    return request<AIAgentVersion[]>(`/agents/${id}/versions`);
+  },
+
+  restore: async (id: string, version: number, expectedRevision: number) => {
+    return request<ClientAIAgent>(`/agents/${id}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ version, expectedRevision }),
+    });
+  },
+
+  test: async (id: string, input: Record<string, unknown>) => {
+    return request<AgentTestResult>(`/agents/${id}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ input }),
     });
   },
 
@@ -2148,9 +2661,10 @@ export const agentApi = {
     });
   },
 
-  toggle: async (id: string) => {
+  toggle: async (id: string, expectedRevision: number) => {
     return request<ClientAIAgent>(`/agents/${id}/toggle`, {
       method: 'POST',
+      body: JSON.stringify({ expectedRevision }),
     });
   },
 
@@ -2177,14 +2691,6 @@ export const agentRuntimeApi = {
   getById: async (id: string) => {
     const task = await request<RuntimeTaskPayload>(`/agents/runtime/tasks/${id}`);
     return deserializeAgentTask(task);
-  },
-
-  syncTask: async (task: AgentTask) => {
-    const persistedTask = await request<RuntimeTaskPayload>(`/agents/runtime/tasks/${task.id}`, {
-      method: 'PUT',
-      body: JSON.stringify(serializeAgentTask(task)),
-    });
-    return deserializeAgentTask(persistedTask);
   },
 };
 
@@ -2223,9 +2729,31 @@ export const modelApi = {
       method: 'POST',
     });
   },
+
+  test: async (id: string) => {
+    return request<AIModelTestResult>(`/models/${id}/test`, {
+      method: 'POST',
+    });
+  },
 };
 
 // ===== AI API =====
+export interface AICallMetadata {
+  agentId: string;
+  promptVersion: number;
+  model: string;
+}
+
+export interface AIRfqExtraction {
+  type: 'AOG' | 'STANDARD' | 'INQUIRY' | 'SPAM';
+  partNumbers: string[];
+  quantities: number[];
+  urgency: 'AOG' | 'URGENT' | 'STANDARD';
+  aircraftType?: string;
+  requiredDate?: string;
+  ai: AICallMetadata;
+}
+
 export interface AICompletionResult {
   content: string;
   model: string;
@@ -2235,9 +2763,19 @@ export interface AICompletionResult {
     totalTokens: number;
   };
   latency: number;
+  ai: AICallMetadata;
 }
 
 export const aiApi = {
+  parseEmailById: (emailId: string) => request<AIRfqExtraction>('/ai/parse-email', {
+    method: 'POST', body: JSON.stringify({ emailId }),
+  }),
+  analyzeRfqQuotes: (rfqId: string) => request<{ analysis: string; ai: AICallMetadata }>('/ai/analyze-quotes', {
+    method: 'POST', body: JSON.stringify({ rfqId }),
+  }),
+  generateQuotationEmail: (quotationId: string) => request<{ email: string; ai: AICallMetadata }>('/ai/generate-email', {
+    method: 'POST', body: JSON.stringify({ quotationId }),
+  }),
   parseEmail: async (subject: string, body: string) => {
     return request<{ type: string; partNumbers: string[]; quantities: number[]; urgency: string; aircraftType?: string }>('/ai/parse-email', {
       method: 'POST',
@@ -2269,10 +2807,10 @@ export const aiApi = {
     });
   },
 
-  chat: async (message: string, systemPrompt?: string, temperature?: number, maxTokens?: number) => {
+  chat: async (message: string) => {
     return request<AICompletionResult>('/ai/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, systemPrompt, temperature, maxTokens }),
+      body: JSON.stringify({ message }),
     });
   },
 };
@@ -2411,7 +2949,7 @@ export const webhooksPhase2Api = {
     if (params?.offset) search.set('offset', String(params.offset));
     if (params?.status) search.set('status', params.status);
     const query = search.toString();
-    return request<{ data: WebhookReplayBatch[]; pagination: { limit: number; offset: number; total: number } }>(
+    return requestEnvelope<{ data: WebhookReplayBatch[]; pagination: { limit: number; offset: number; total: number } }>(
       `/webhooks/phase2/replay${query ? `?${query}` : ''}`,
     );
   },
@@ -2745,9 +3283,9 @@ export interface AuditLogItem {
 export interface ConsumptionTrend {
   period: string;
   totalQuantity: number;
-  totalValue: number;
+  totalValue: number | null;
   transactionCount: number;
-  topPartNumbers: Array<{ partNumber: string; quantity: number; value: number }>;
+  topPartNumbers: Array<{ partNumber: string; quantity: number; value: number | null }>;
 }
 
 export interface SafetyStockRecommendation {
@@ -2771,7 +3309,7 @@ export interface InventoryHealthSummary {
   lowItems: number;
   excessItems: number;
   adequateItems: number;
-  totalInventoryValue: number;
+  totalInventoryValue: number | null;
   byCategory?: Record<string, { critical: number; low: number; adequate: number; excess: number }>;
   recommendations: SafetyStockRecommendation[];
 }
@@ -2971,6 +3509,34 @@ export interface ReleaseReservationPayload {
   notes?: string;
 }
 
+export interface QualityReviewContext {
+  snapshotHash: string;
+  snapshot: {
+    inventory: { partNumber: string; serialNumber: string | null; batchNumber: string | null; conditionCode: string; shelfLifeDate: string | null; nextOverhaulDue: string | null; lifeLimited: boolean; remainingHours: number | null; remainingCycles: number | null };
+    requirements: { certificateRequired: boolean; certificateType: string | null; conditionCode: string; inspectionStandard: string | null };
+    order: { certificateRequired: boolean; certificateType: string | null; inspectionRequired: boolean };
+  };
+  review: { approved: boolean; snapshotHash: string; consumedAt: string | null; reviewedAt: string; quantity: number } | null;
+}
+
+export const qualityReviewApi = {
+  preview: (orderId: string, quantity: number) => request<QualityReviewContext>(`/inventory-transactions/quality-review/${orderId}?quantity=${quantity}`),
+  uploadEvidence: (file: File) => {
+    const body = new FormData();
+    body.append('file', file);
+    return request<{ id: string; originalName: string }>('/upload', { method: 'POST', body });
+  },
+  getEvidenceBlob: (id: string) => requestBlob(`/files/${encodeURIComponent(id)}`, {
+    method: 'GET',
+    headers: { Accept: 'application/octet-stream' },
+  }),
+  create: (payload: {
+    orderId: string; quantity: number; snapshotHash: string; approved: boolean; evidenceIds: string[];
+    verifiedSerialNumber: string; verifiedBatchNumber: string;
+    checks: { identity: boolean; documents: boolean; conditionAndLife: boolean; customerRequirements: boolean }; reason: string;
+  }) => request<{ id: string; approved: boolean }>('/inventory-transactions/quality-reviews', { method: 'POST', body: JSON.stringify(payload) }),
+};
+
 export const inventoryTransactionApi = {
   getByDetailId: async (detailId: string) => {
     return request<InventoryTransaction[]>(`/inventory-transactions/detail/${detailId}`);
@@ -3087,6 +3653,7 @@ export interface Inquiry {
 
 export interface CreateInquiryPayload {
   rfqId: string;
+  lineIds?: string[];
   supplierIds: string[];
   isAOG: boolean;
   notes?: string;

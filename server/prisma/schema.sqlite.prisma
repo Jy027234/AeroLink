@@ -1050,17 +1050,37 @@ model Notification {
 }
 
 model AIAgent {
-  id          String   @id @default(uuid())
-  name        String
-  type        String   @default("CHAT")
-  description String?
-  isActive    Boolean  @default(true)
-  config      String   @default("{}")
-  prompts     String   @default("[]")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String            @id @default(uuid())
+  name            String
+  type            String            @default("CHAT")
+  description     String?
+  isActive        Boolean           @default(true)
+  config          String            @default("{}")
+  prompts         String            @default("[]")
+  builtinKey      String?           @unique
+  draftRevision   Int               @default(0)
+  publishedVersion Int?
+  versions        AIAgentVersion[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@map("ai_agents")
+}
+
+model AIAgentVersion {
+  id        String   @id @default(uuid())
+  agentId   String
+  version   Int
+  prompts   String
+  config    String
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  agent AIAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, version])
+  @@index([agentId, createdAt])
+  @@map("ai_agent_versions")
 }
 
 model AIModel {

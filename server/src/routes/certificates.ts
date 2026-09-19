@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { Prisma } from '@prisma/client';
+import { z } from 'zod';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { requireCapability } from '../middleware/capability.js';
@@ -515,37 +516,44 @@ router.post(
 
 router.post(
   '/:id/revoke',
+  requireCertificateMutationRole,
   asyncHandler(async (req, res) => {
-    const { reason } = req.body;
-    const existing = await prisma.certificate.findUnique({
-      where: { id: req.params.id },
-    });
+    const input = z.object({ reason: z.string().trim().min(3).max(4000) }).strict().safeParse(req.body);
+    if (!input.success) throw new AppError('撤销需要 3–4000 字的原因，不接受其他字段', 400, 'VALIDATION_ERROR');
+    const { reason } = input.data;
+    const certificate = await prisma.$transaction(async tx => {
+      const existing = await tx.certificate.findUnique({
+        where: { id: req.params.id },
+      });
 
-    if (!existing) {
-      throw new AppError('证书不存在', 404, 'RESOURCE_NOT_FOUND');
-    }
+      if (!existing) {
+        throw new AppError('证书不存在', 404, 'RESOURCE_NOT_FOUND');
+      }
 
-    if (existing.status === 'REVOKED') {
-      throw new AppError('证书已被撤销', 400, 'BAD_REQUEST');
-    }
+      if (existing.status === 'REVOKED') {
+        throw new AppError('证书已被撤销', 409, 'RESOURCE_CONFLICT');
+      }
 
-    const user = (req as AuthRequest).user;
-    const history = parseTraceHistory(existing.traceHistory);
-    history.push({
-      action: 'REVOKE',
-      timestamp: new Date().toISOString(),
-      userId: user?.id,
-      userName: user?.name,
-      reason: reason || '无说明',
-    });
+      const user = (req as AuthRequest).user;
+      const history = parseTraceHistory(existing.traceHistory);
+      history.push({
+        action: 'REVOKE',
+        timestamp: new Date().toISOString(),
+        userId: user?.id,
+        userName: user?.name,
+        reason,
+      });
 
-    const certificate = await prisma.certificate.update({
-      where: { id: req.params.id },
-      data: {
-        status: 'REVOKED',
-        traceHistory: serializeTraceHistory(history),
-      },
-    });
+      const changed = await tx.certificate.updateMany({
+        where: { id: existing.id, status: existing.status, updatedAt: existing.updatedAt },
+        data: {
+          status: 'REVOKED',
+          traceHistory: serializeTraceHistory(history),
+        },
+      });
+      if (changed.count !== 1) throw new AppError('证书已变化，请刷新后重试', 409, 'RESOURCE_CONFLICT');
+      return tx.certificate.findUniqueOrThrow({ where: { id: existing.id } });
+    }, { isolationLevel: 'Serializable' });
 
     res.json({
       success: true,
@@ -562,56 +570,11 @@ router.post(
 
 router.post(
   '/:id/renew',
-  asyncHandler(async (req, res) => {
-    const { newExpiryDate, reason } = req.body;
-    const existing = await prisma.certificate.findUnique({
-      where: { id: req.params.id },
-    });
-
-    if (!existing) {
-      throw new AppError('证书不存在', 404, 'RESOURCE_NOT_FOUND');
-    }
-
-    if (existing.status === 'REVOKED') {
-      throw new AppError('已撤销的证书不能续期', 400, 'BAD_REQUEST');
-    }
-
-    if (!newExpiryDate) {
-      throw new AppError('续期必须提供新的到期日期', 400, 'VALIDATION_ERROR');
-    }
-
-    const user = (req as AuthRequest).user;
-    const history = parseTraceHistory(existing.traceHistory);
-    history.push({
-      action: 'RENEW',
-      timestamp: new Date().toISOString(),
-      userId: user?.id,
-      userName: user?.name,
-      previousExpiryDate: existing.expiryDate?.toISOString(),
-      newExpiryDate,
-      reason: reason || '无说明',
-    });
-
-    const certificate = await prisma.certificate.update({
-      where: { id: req.params.id },
-      data: {
-        expiryDate: new Date(newExpiryDate),
-        status: 'ISSUED',
-        traceHistory: serializeTraceHistory(history),
-      },
-    });
-
-    res.json({
-      success: true,
-      data: {
-        id: certificate.id,
-        certificateNumber: certificate.certificateNumber,
-        status: certificate.status,
-        expiryDate: certificate.expiryDate?.toISOString(),
-        traceHistory: parseTraceHistory(certificate.traceHistory),
-        updatedAt: certificate.updatedAt.toISOString(),
-      },
-    });
+  requireCertificateMutationRole,
+  asyncHandler(async () => {
+    // A date edit is not new certificate evidence. In particular it must not
+    // reactivate an expired document already bound by hash to a QC snapshot.
+    throw new AppError('证书有效期不能直接延长，请取得并登记新的有效证书后重新质量审核', 409, 'QUALITY_EVIDENCE_REQUIRED');
   })
 );
 

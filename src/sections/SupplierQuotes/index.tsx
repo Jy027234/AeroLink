@@ -42,6 +42,7 @@ import { supplierQuoteApi, type AnalyticsDataAvailability } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
+import { QuoteAnalysisAssistant } from '@/components/BusinessAiAssistants';
 
 interface SupplierQuote {
   id: string;
@@ -52,6 +53,8 @@ interface SupplierQuote {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  currency: string | null;
+  currencyStatus: 'VERIFIED' | 'HISTORICAL_UNVERIFIED';
   leadTimeDays: number;
   validUntil: string | null;
   notes: string | null;
@@ -80,6 +83,8 @@ interface ComparedQuote {
   };
   unitPrice: number;
   totalPrice: number;
+  currency: string | null;
+  currencyStatus: 'VERIFIED' | 'HISTORICAL_UNVERIFIED';
   quantity: number;
   leadTimeDays: number;
   priceDiff: number | null;
@@ -239,6 +244,7 @@ export function SupplierQuotes() {
                   className="pl-10"
                 />
               </div>
+              <QuoteAnalysisAssistant rfqId={rfqFilter === 'all' ? null : rfqFilter} />
               <Select value={rfqFilter} onValueChange={setRfqFilter}>
                 <SelectTrigger className="h-10">
                   <SelectValue />
@@ -312,9 +318,14 @@ export function SupplierQuotes() {
                         {quote.supplier.level} {tx('级', 'Level')}
                       </Badge>
                     </TableCell>
-                    <TableCell>
-                      <span className="font-semibold text-green-600">${quote.unitPrice.toLocaleString()}</span>
-                    </TableCell>
+                     <TableCell>
+                       <span className="font-semibold text-green-600">{quote.currency || '?'} {quote.unitPrice.toLocaleString()}</span>
+                       {quote.currencyStatus === 'HISTORICAL_UNVERIFIED' && (
+                         <Badge variant="outline" className="ml-2 text-amber-700 border-amber-300">
+                           {tx('历史币种待核', 'Historical currency review')}
+                         </Badge>
+                       )}
+                     </TableCell>
                     <TableCell>
                       <span className={cn(quote.leadTimeDays <= 7 ? 'text-green-600' : 'text-yellow-600')}>
                         {quote.leadTimeDays} {tx('天', 'days')}
@@ -442,7 +453,12 @@ export function SupplierQuotes() {
                               <div className="flex items-center gap-4 text-sm text-gray-500">
                                 <span>{quote.supplier.level} {tx('级供应商', 'Level Supplier')}</span>
                                 <span>·</span>
-                                <span>${quote.unitPrice} x {quote.quantity}</span>
+                                 <span>{quote.currency || '?'} {quote.unitPrice} x {quote.quantity}</span>
+                                 {quote.currencyStatus === 'HISTORICAL_UNVERIFIED' && (
+                                   <Badge variant="outline" className="text-amber-700 border-amber-300">
+                                     {tx('币种待核', 'Currency review required')}
+                                   </Badge>
+                                 )}
                                 <span>·</span>
                                 <span className={cn(quote.leadTimeDays <= 7 ? 'text-green-600' : 'text-yellow-600')}>
                                   {quote.leadTimeDays} {tx('天', 'days')}
@@ -461,7 +477,7 @@ export function SupplierQuotes() {
                               <p className="text-2xl font-bold text-purple-600">{quote.ruleScore?.toFixed(0) || '—'}</p>
                               <p className="text-xs text-gray-500">{tx('规则得分', 'Rule Score')}</p>
                             </div>
-                            {!quote.isWinner && can('supplier_quote.update') && (
+                            {!quote.isWinner && quote.currencyStatus === 'VERIFIED' && can('supplier_quote.update') && (
                               <Button
                                 size="sm"
                                 className="bg-green-600 hover:bg-green-700"

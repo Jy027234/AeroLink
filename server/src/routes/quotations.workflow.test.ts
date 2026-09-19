@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import { buildQuotationApprovalSnapshot } from '../lib/quotationApprovalPolicy.js';
 
 function createCustomer() {
   return {
@@ -13,7 +14,7 @@ function createCustomer() {
 
 function createQuotation(status: 'APPROVED' | 'SENT' | 'ACCEPTED' | 'WITHDRAWN' = 'APPROVED') {
   const customer = createCustomer();
-  return {
+  const quotation = {
     id: 'q001',
     quoteNumber: 'QT-20260512-001',
     rfqId: 'r001',
@@ -24,6 +25,11 @@ function createQuotation(status: 'APPROVED' | 'SENT' | 'ACCEPTED' | 'WITHDRAWN' 
     totalPrice: 4200,
     costPrice: 1800,
     margin: 16.7,
+    currency: 'USD',
+    costSourceType: 'MANUAL',
+    costSourceId: null,
+    costSourceReason: '历史成本表 2026-05-12',
+    costSourceSnapshotJson: JSON.stringify({ type: 'MANUAL', id: null, currency: 'USD', costPrice: 1800, partNumber: 'BAC31GK0020', quantity: 2, status: null, supplierId: null, capturedAt: '2026-05-12T08:00:00.000Z', reason: '历史成本表 2026-05-12' }),
     certificateFiles: 'FAA8130,EASAForm1',
     status,
     version: 1,
@@ -54,9 +60,24 @@ function createQuotation(status: 'APPROVED' | 'SENT' | 'ACCEPTED' | 'WITHDRAWN' 
     inventoryDetailId: null,
     reservedQuantity: 0,
     customerConfirmationNote: status === 'ACCEPTED' ? '客户口头确认' : null,
-    expiryDate: new Date('2026-05-26T00:00:00.000Z'),
+    expiryDate: new Date('2027-05-26T00:00:00.000Z'),
+    validityDeadline: new Date('2027-05-26T00:00:00.000Z'),
+    approvals: [] as Array<Record<string, unknown>>,
     customer,
   };
+  quotation.approvals = [{
+    id: 'approval-001',
+    quotationId: quotation.id,
+    level: 'MANAGER',
+    requiredLevel: 'MANAGER',
+    policyVersion: '2026-09-08-usd-tier-v1',
+    reviewedVersion: quotation.version,
+    action: 'APPROVE',
+    approverId: 'u002',
+    snapshotJson: JSON.stringify(buildQuotationApprovalSnapshot(quotation)),
+    createdAt: new Date('2027-05-12T09:00:00.000Z'),
+  }];
+  return quotation;
 }
 
 function createEmailAccount() {
@@ -98,6 +119,7 @@ function createOrder() {
 
 function createPrismaMock() {
   const tx = {
+    $executeRawUnsafe: vi.fn().mockResolvedValue(0),
     quotation: { findUnique: vi.fn(), create: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     order: { findFirst: vi.fn(), findUnique: vi.fn() },
     emailAccount: { findFirst: vi.fn() },
@@ -110,6 +132,10 @@ function createPrismaMock() {
     generatedDocument: { findFirst: vi.fn(), create: vi.fn() },
     inventoryDetail: { findUnique: vi.fn(), updateMany: vi.fn() },
     inventoryTransaction: { create: vi.fn() },
+    rfqLine: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => data), update: vi.fn() },
+    supplierQuote: { findUnique: vi.fn().mockResolvedValue(null) },
+    quotationLine: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => data), update: vi.fn() },
+    orderLine: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn(), update: vi.fn() },
   };
 
   return {
@@ -135,6 +161,8 @@ describe('Quotation workflow routes', () => {
   let mapOrderResponseMock: ReturnType<typeof vi.fn>;
   let ensureOrderContractDocumentMock: ReturnType<typeof vi.fn>;
   let transitionQuotationStatusMock: ReturnType<typeof vi.fn>;
+  let freezeQuotationDocumentMock: ReturnType<typeof vi.fn>;
+  let quotationDocumentPdfMock: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     process.env.JWT_SECRET = 'test-jwt-secret';
@@ -155,6 +183,14 @@ describe('Quotation workflow routes', () => {
     }));
     ensureOrderContractDocumentMock = vi.fn();
     transitionQuotationStatusMock = vi.fn();
+    freezeQuotationDocumentMock = vi.fn().mockResolvedValue({
+      id: 'quotation-pdf-001',
+      snapshotHash: 'snapshot-hash-001',
+    });
+    quotationDocumentPdfMock = vi.fn().mockResolvedValue({
+      document: { id: 'quotation-pdf-001', snapshotHash: 'snapshot-hash-001' },
+      content: Buffer.from('quotation-pdf'),
+    });
 
     vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
     vi.doMock('../lib/outboxService.js', () => ({
@@ -181,6 +217,11 @@ describe('Quotation workflow routes', () => {
       createInitialStatusHistory: vi.fn(),
     }));
     vi.doMock('../lib/pdfService.js', () => ({ generateQuotationPDF: vi.fn() }));
+    vi.doMock('../lib/quotationDocumentService.js', () => ({
+      QUOTATION_PDF_DOCUMENT_TYPE: 'QUOTATION_PDF',
+      freezeQuotationDocument: freezeQuotationDocumentMock,
+      quotationDocumentPdf: quotationDocumentPdfMock,
+    }));
 
     const quotationsRouter = (await import('./quotations.js')).default;
     const { errorHandler } = await import('../middleware/errorHandler.js');
@@ -197,6 +238,7 @@ describe('Quotation workflow routes', () => {
   it('queues an approved quotation email instead of sending SMTP in the HTTP request', async () => {
     const quotation = createQuotation('APPROVED');
     prismaMock.__tx.quotation.findUnique.mockResolvedValue(quotation);
+    prismaMock.__tx.quotation.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.__tx.emailAccount.findFirst.mockResolvedValue(createEmailAccount());
     prismaMock.__tx.outboundEmail.create.mockResolvedValue({ id: 'mail-pending-001' });
 
@@ -217,8 +259,11 @@ describe('Quotation workflow routes', () => {
         eventType: 'quotation.email.send',
         outboundEmailId: 'mail-pending-001',
         includeQuotationPdf: true,
+        attachmentDocumentId: 'quotation-pdf-001',
+        attachmentSnapshotHash: 'snapshot-hash-001',
       }),
     );
+    expect(quotationDocumentPdfMock).toHaveBeenCalledWith(prismaMock.__tx, quotation.id);
     expect(transitionQuotationStatusMock).not.toHaveBeenCalled();
   });
 
@@ -236,7 +281,14 @@ describe('Quotation workflow routes', () => {
 
   it('dual-writes rounded Decimal monetary shadows when creating a quotation', async () => {
     const customer = createCustomer();
-    prismaMock.__tx.rFQ.findUnique.mockResolvedValue(null);
+    prismaMock.__tx.rFQ.findUnique.mockResolvedValue({
+      id: 'r001', partNumber: 'BAC31GK0020', quantity: 3, alternatePartNumbers: null,
+      urgency: 'NORMAL', status: 'PENDING', statusEnum: 'PENDING', version: 1, createdBy: 'u001',
+      uom: 'EA', conditionCode: 'NE', description: null, serialNumber: null, batchNumber: null,
+      certificateRequired: true, certificateType: null, requiredDate: new Date('2026-10-01T00:00:00.000Z'),
+      leadTimeDays: null, targetPrice: null, targetPriceCurrency: 'USD',
+      creator: { department: 'sales' },
+    });
     prismaMock.__tx.quotation.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       ...createQuotation('APPROVED'),
       ...data,
@@ -254,6 +306,8 @@ describe('Quotation workflow routes', () => {
         quantity: 3,
         unitPrice: 12.34565,
         costPrice: 8.10005,
+        costSourceType: 'MANUAL',
+        costSourceReason: '测试成本表 2026-05-12',
       });
 
     expect(response.status).toBe(201);
@@ -351,7 +405,7 @@ describe('Quotation workflow routes', () => {
       releasedInventoryDetailId: 'inv001',
     });
     expect(prismaMock.__tx.inventoryDetail.updateMany).toHaveBeenCalledWith({
-      where: { id: 'inv001', status: 'RESERVED' },
+      where: { id: 'inv001', status: 'RESERVED', allocatedQuantity: 0 },
       data: { status: 'AVAILABLE' },
     });
     expect(prismaMock.__tx.inventoryTransaction.create).toHaveBeenCalledWith({

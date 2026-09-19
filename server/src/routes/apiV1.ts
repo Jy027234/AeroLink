@@ -152,7 +152,7 @@ router.get(
 
     res.json({
       success: true,
-      data: data.map(serializeInventoryDetail),
+      data: data.map((detail) => serializeInventoryDetail(detail)),
       pagination: { page: pageNum, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     });
   })

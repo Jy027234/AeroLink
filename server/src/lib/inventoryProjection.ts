@@ -14,7 +14,13 @@ function toIso(value: Date | null) {
   return value?.toISOString();
 }
 
-export function serializeInventoryDetail(detail: InventoryDetailProjection) {
+export function serializeInventoryDetail(
+  detail: InventoryDetailProjection,
+  options: { includeCost?: boolean } | boolean = false,
+) {
+  const includeCost = typeof options === 'boolean'
+    ? options
+    : options.includeCost === true;
   const item = detail.inventoryItem;
   return {
     id: detail.id,
@@ -22,6 +28,8 @@ export function serializeInventoryDetail(detail: InventoryDetailProjection) {
     partNumber: item.partNumber,
     description: item.description,
     quantity: detail.quantity,
+    allocatedQuantity: detail.allocatedQuantity,
+    availableQuantity: detail.status === 'AVAILABLE' ? Math.max(0, detail.quantity - detail.allocatedQuantity) : 0,
     serialNumber: detail.serialNumber,
     batchNumber: detail.batchNumber,
     partCategory: item.partCategory,
@@ -63,7 +71,7 @@ export function serializeInventoryDetail(detail: InventoryDetailProjection) {
     storageTempMin: detail.storageTempMin,
     storageTempMax: detail.storageTempMax,
     hazardClass: detail.hazardClass,
-    unitCost: detail.unitCost,
+    ...(includeCost ? { unitCost: detail.unitCost } : {}),
     unitOfMeasure: item.unitOfMeasure,
     countryOfOrigin: item.countryOfOrigin,
     hsCode: item.hsCode,
@@ -74,4 +82,31 @@ export function serializeInventoryDetail(detail: InventoryDetailProjection) {
     createdAt: detail.createdAt.toISOString(),
     updatedAt: detail.updatedAt.toISOString(),
   };
+}
+
+/** Remove unit cost from item/detail responses while preserving all stock data. */
+export function projectInventoryItem<T extends { details?: unknown }>(item: T, includeCost: boolean): T {
+  const details = item.details;
+  if (!Array.isArray(details)) return item;
+
+  return {
+    ...item,
+    details: details.map((detail) => {
+      if (!detail || typeof detail !== 'object') return detail;
+      const record = detail as Record<string, unknown> & {
+        stockReceiptLines?: Array<{ id?: unknown }>;
+      };
+      const sourceLines = record.stockReceiptLines;
+      const { stockReceiptLines: _stockReceiptLines, ...withoutSourceRelation } = record;
+      const sourceId = sourceLines?.length === 1 && typeof sourceLines[0]?.id === 'string'
+        ? sourceLines[0].id
+        : undefined;
+      const withSource = sourceId
+        ? { ...withoutSourceRelation, stockReceiptLineId: sourceId }
+        : withoutSourceRelation;
+      if (includeCost) return withSource;
+      const { unitCost: _unitCost, ...safeDetail } = withSource;
+      return safeDetail;
+    }),
+  } as T;
 }

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { AuthRequest } from '../middleware/auth.js';
 import { requireCapability } from '../middleware/capability.js';
+import { canViewReportCost } from '../lib/costVisibility.js';
 import { getProductFeatureStatus } from '../lib/productFeatures.js';
 import prisma from '../lib/prisma.js';
 
@@ -72,7 +74,8 @@ router.use(requireCapability('report', 'read'));
 
 router.get(
   '/summary',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req: AuthRequest, res) => {
+    const includeCost = canViewReportCost(req.user!);
     const feature = getProductFeatureStatus('pricingBi');
     if (!feature.enabled) {
       res.json({
@@ -108,22 +111,32 @@ router.get(
       prisma.quotation.count(),
       prisma.order.count(),
       prisma.quotation.count({ where: { status: { in: LOST_QUOTATION_STATUSES } } }),
-      prisma.quotation.aggregate({ _avg: { margin: true } }),
-      prisma.quotation.aggregate({
-        where: { createdAt: { gte: currentMonth.start, lt: currentMonth.end } },
-        _avg: { margin: true },
-      }),
-      prisma.quotation.aggregate({
-        where: { createdAt: { gte: previousMonth.start, lt: previousMonth.end } },
-        _avg: { margin: true },
-      }),
+      includeCost
+        ? prisma.quotation.aggregate({ _avg: { margin: true } })
+        : Promise.resolve({ _avg: { margin: null } }),
+      includeCost
+        ? prisma.quotation.aggregate({
+          where: { createdAt: { gte: currentMonth.start, lt: currentMonth.end } },
+          _avg: { margin: true },
+        })
+        : Promise.resolve({ _avg: { margin: null } }),
+      includeCost
+        ? prisma.quotation.aggregate({
+          where: { createdAt: { gte: previousMonth.start, lt: previousMonth.end } },
+          _avg: { margin: true },
+        })
+        : Promise.resolve({ _avg: { margin: null } }),
     ]);
 
-    const avgMargin = totalQuotes > 0 && allMargins._avg.margin !== null
+    const avgMargin = includeCost && totalQuotes > 0 && allMargins._avg.margin !== null
       ? round(Number(allMargins._avg.margin))
       : null;
-    const currentMargin = currentMargins._avg.margin === null ? null : Number(currentMargins._avg.margin);
-    const previousMargin = previousMargins._avg.margin === null ? null : Number(previousMargins._avg.margin);
+    const currentMargin = includeCost && currentMargins._avg.margin !== null
+      ? Number(currentMargins._avg.margin)
+      : null;
+    const previousMargin = includeCost && previousMargins._avg.margin !== null
+      ? Number(previousMargins._avg.margin)
+      : null;
 
     res.json({
       success: true,

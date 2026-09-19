@@ -3,12 +3,13 @@
 # ============================================
 # 使用 Node 官方镜像作为基础，复用缓存层
 
-FROM node:22-alpine AS base
+FROM node:22.23.2-alpine AS base
 WORKDIR /app
 
 # 安装依赖阶段 - 复用缓存
 FROM base AS deps
 COPY package*.json ./
+COPY vendor/pptxgenjs ./vendor/pptxgenjs
 RUN npm ci
 
 # 构建阶段

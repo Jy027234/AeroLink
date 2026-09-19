@@ -1,5 +1,6 @@
 import type { Customer, Order, Prisma, Quotation } from '@prisma/client';
 import { AppError } from '../../middleware/errorHandler.js';
+import { assertSupportedSaleType } from '../../lib/commercialScope.js';
 import { enqueueBusinessEvent, enqueueOutboundEmail } from '../../lib/outboxService.js';
 import { isOrderStatusTransitionAllowed, normalizeOrderStatus } from '../../lib/orderStateMachine.js';
 import { isQuotationTransitionAllowed, normalizeQuotationStatus, type QuotationStatus } from '../../lib/quotationStateMachine.js';
@@ -12,9 +13,11 @@ import {
 } from '../../lib/money.js';
 import { isRfqStatusTransitionAllowed, normalizeRfqStatus } from '../../lib/rfqStateMachine.js';
 import { SocketEvents, SocketRooms } from '../../lib/socketEvents.js';
-import { releaseInventoryReservation } from '../inventoryQuality/index.js';
+import { releaseInventoryReservation, releaseUnassignedQuotationInventory } from '../inventoryQuality/index.js';
+import type { LineAcceptance } from './lineService.js';
 import {
   createInitialStatusHistory,
+  StateTransitionConflictError,
   transitionOrderStatus,
   transitionQuotationStatus,
   transitionRfqStatus,
@@ -26,6 +29,29 @@ import {
   toOrderStatusEnum,
   toQuotationStatusEnum,
 } from '../../lib/transactionStatusShadows.js';
+import {
+  assertQuotationApprovalActor,
+  assertQuotationCommercialTerms,
+  assertUsdQuotationCurrency,
+  assertQuotationValidity,
+  buildQuotationApprovalSnapshot,
+  hasCurrentQuotationApproval,
+  QUOTATION_APPROVAL_POLICY_VERSION,
+} from '../../lib/quotationApprovalPolicy.js';
+import {
+  assertQuotationCostSourceCurrent,
+  assertQuotationCostSourceSnapshot,
+  captureQuotationCostSource,
+} from '../../lib/commercialCostSource.js';
+import {
+  ensureSingleOrderLine,
+  ensureSingleQuotationLine,
+  syncQuotationLineSource,
+} from '../../lib/transactionLineService.js';
+
+import { createLineQuotation, loadLineQuotation, submitLineQuotation, approveLineQuotation, acceptLineQuotation, assertLineQuotationCommercialTerms, type LineQuoteCreateInput } from './lineService.js';
+import { assertActiveQuotationRevision } from '../../lib/quotationRevisionPolicy.js';
+import { freezeQuotationDocument, quotationDocumentPdf } from '../../lib/quotationDocumentService.js';
 
 export { createInitialStatusHistory, transitionOrderStatus, transitionQuotationStatus, transitionRfqStatus };
 
@@ -38,7 +64,8 @@ type QuotationRfqAccess = {
   creator?: { department?: string | null } | null;
 };
 
-type CreateQuotationArgs = {
+type LegacyCreateQuotationArgs = {
+  draftOnly?: true;
   tx: Prisma.TransactionClient;
   actorId: string;
   rfqId: string;
@@ -47,6 +74,11 @@ type CreateQuotationArgs = {
   quantity: number;
   unitPrice: number;
   costPrice: number;
+  lines?: never;
+  currency?: string;
+  costSourceType?: string;
+  costSourceId?: string;
+  costSourceReason?: string;
   certificateFiles?: string[] | string;
   template?: string;
   validityDays?: number;
@@ -77,6 +109,11 @@ type CreateQuotationArgs = {
   authorizeRfq?: (rfq: QuotationRfqAccess) => void;
 };
 
+export type CreateQuotationArgs = LegacyCreateQuotationArgs | (LineQuoteCreateInput & {
+  tx: Prisma.TransactionClient; actorId: string;
+  authorizeRfq?: (rfq: QuotationRfqAccess) => void;
+});
+
 function quotationStatus(quotation: Pick<Quotation, 'status' | 'statusEnum'>) {
   return preferredQuotationStatus(quotation.statusEnum, quotation.status);
 }
@@ -96,6 +133,11 @@ function quotationTotalPrice(quotation: Pick<Quotation, 'totalPrice' | 'totalPri
  * not depend on Express or actor request objects.
  */
 export async function createQuotationAggregate(args: CreateQuotationArgs) {
+  if (args.lines) return createLineQuotation({ tx: args.tx, actorId: args.actorId,
+    input: args,
+    authorizeRfq: rfq => args.authorizeRfq?.(rfq),
+  });
+  assertSupportedSaleType(args.saleType);
   const relatedRfq = args.rfqId
     ? await args.tx.rFQ.findUnique({
       where: { id: args.rfqId },
@@ -106,18 +148,41 @@ export async function createQuotationAggregate(args: CreateQuotationArgs) {
   if (relatedRfq) {
     args.authorizeRfq?.(relatedRfq);
   }
+  if (!relatedRfq) {
+    throw new AppError('关联 RFQ 不存在，不能创建报价', 404, 'RESOURCE_NOT_FOUND');
+  }
+  if (relatedRfq.lineItemsMode) {
+    throw new AppError('逐行需求必须使用明确需求行创建报价', 409, 'RESOURCE_CONFLICT');
+  }
 
   const isAog = relatedRfq?.urgency.toUpperCase() === 'AOG';
   const finalValidityDays = isAog ? 1 : (args.validityDays || 7);
+  const currency = assertUsdQuotationCurrency(args.currency);
   const unitPriceDecimal = normalizeMoney(args.unitPrice);
   const costPriceDecimal = normalizeMoney(args.costPrice);
+  const costSource = await captureQuotationCostSource({
+    tx: args.tx,
+    rfqId: relatedRfq.id,
+    rfq: {
+      partNumber: relatedRfq.partNumber,
+      quantity: relatedRfq.quantity,
+      alternatePartNumbers: relatedRfq.alternatePartNumbers,
+    },
+    partNumber: args.partNumber,
+    quantity: args.quantity,
+    costPrice: costPriceDecimal.toNumber(),
+    currency,
+    costSourceType: args.costSourceType,
+    costSourceId: args.costSourceId,
+    costSourceReason: args.costSourceReason,
+  });
   const totalPriceDecimal = calculateMoneyTotal(unitPriceDecimal, args.quantity);
   const margin = calculateMarginPercent(totalPriceDecimal, costPriceDecimal, args.quantity);
   const quoteNumber = `QT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
   const expiryDate = new Date();
   expiryDate.setDate(expiryDate.getDate() + finalValidityDays);
 
-  const initialStatus = isAog ? 'PENDING_APPROVAL' : 'DRAFT';
+  const initialStatus = isAog && !args.draftOnly ? 'PENDING_APPROVAL' : 'DRAFT';
   const initialStatusEnum = toQuotationStatusEnum(initialStatus)!;
   const quotation = await args.tx.quotation.create({
     data: {
@@ -133,6 +198,8 @@ export async function createQuotationAggregate(args: CreateQuotationArgs) {
       costPrice: costPriceDecimal.toNumber(),
       costPriceDecimal,
       margin,
+      currency,
+      ...costSource,
       certificateFiles: Array.isArray(args.certificateFiles) ? args.certificateFiles.join(',') : args.certificateFiles,
       template: args.template?.toUpperCase() || 'STANDARD',
       status: initialStatus,
@@ -163,9 +230,17 @@ export async function createQuotationAggregate(args: CreateQuotationArgs) {
       eccn: args.eccn || null,
       dualUse: args.dualUse !== undefined ? args.dualUse : false,
       expiryDate,
+      validityDeadline: expiryDate,
       createdBy: args.actorId,
     },
     include: { customer: true },
+  });
+
+  await ensureSingleQuotationLine({
+    tx: args.tx,
+    quotation,
+    rfq: relatedRfq,
+    sourceSupplierQuoteId: costSource.costSourceType === 'SUPPLIER_QUOTE' ? costSource.costSourceId : null,
   });
 
   await createInitialStatusHistory(args.tx, {
@@ -238,7 +313,6 @@ export async function createQuotationAggregate(args: CreateQuotationArgs) {
       rfqId: quotation.rfqId,
       status: quotationStatus(quotation),
       totalPrice: quotationTotalPrice(quotation),
-      margin: quotation.margin,
       createdBy: args.actorId,
     },
     socket: { room: SocketRooms.QUOTATIONS, event: SocketEvents.QUOTATION_CREATED },
@@ -264,6 +338,11 @@ export async function submitQuotationAggregate(args: {
   });
   if (!currentQuotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(currentQuotation);
+  assertActiveQuotationRevision(currentQuotation);
+  if (currentQuotation.lineItemsMode) {
+    const result = await submitLineQuotation(args.tx, await loadLineQuotation(args.tx, currentQuotation.id), args.actorId, args.expectedVersion);
+    return { ...result, isNoop: false };
+  }
 
   const currentQuotationStatus = quotationStatus(currentQuotation);
   assertQuotationTransition(currentQuotationStatus, 'PENDING_APPROVAL');
@@ -306,10 +385,14 @@ export async function approveQuotationAggregate(args: {
   tx: Prisma.TransactionClient;
   quotationId: string;
   actorId: string;
+  actorRole: string;
   action: 'approve' | 'reject';
   comment?: string;
   expectedVersion?: number;
   reasonCode?: string;
+  costSourceType?: string;
+  costSourceId?: string;
+  costSourceReason?: string;
   authorize?: QuotationAuthorization;
 }) {
   const quotationWithRfq = await args.tx.quotation.findUnique({
@@ -317,16 +400,75 @@ export async function approveQuotationAggregate(args: {
     include: {
       rfq: true,
       creator: { select: { department: true } },
+      approvals: { orderBy: { createdAt: 'desc' } },
     },
   });
   if (!quotationWithRfq) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(quotationWithRfq);
+  assertActiveQuotationRevision(quotationWithRfq);
+  if (args.action === 'approve') assertQuotationValidity(quotationWithRfq);
+  if (quotationWithRfq.lineItemsMode) {
+    if (args.costSourceType || args.costSourceId || args.costSourceReason) throw new AppError('多行报价必须逐行维护成本来源', 409, 'RESOURCE_CONFLICT');
+    return approveLineQuotation({ tx: args.tx, quotation: await loadLineQuotation(args.tx, quotationWithRfq.id), actorId: args.actorId, actorRole: args.actorRole, action: args.action, version: args.expectedVersion, comment: args.comment });
+  }
 
-  const isAog = quotationWithRfq.rfq?.urgency?.toUpperCase() === 'AOG';
+  const totalPrice = quotationTotalPrice(quotationWithRfq);
+  if (args.action === 'approve') assertSupportedSaleType(quotationWithRfq.saleType);
+  let replacementCostSource: Awaited<ReturnType<typeof captureQuotationCostSource>> | undefined;
+  if (args.action === 'approve') {
+    if (args.costSourceType) {
+      if (quotationWithRfq.costSourceSnapshotJson && quotationWithRfq.approvals.some(approval => approval.action === 'APPROVE')) {
+        throw new AppError('已有审批依据的报价不能原位替换成本来源，请创建商业修订版', 409, 'RESOURCE_CONFLICT');
+      }
+      if (!quotationWithRfq.rfqId || !quotationWithRfq.rfq) {
+        throw new AppError('历史报价缺少 RFQ，无法补录成本来源', 409, 'STATE_CONFLICT');
+      }
+      replacementCostSource = await captureQuotationCostSource({
+        tx: args.tx,
+        rfqId: quotationWithRfq.rfqId,
+        rfq: {
+          partNumber: quotationWithRfq.rfq.partNumber,
+          quantity: quotationWithRfq.rfq.quantity,
+          alternatePartNumbers: quotationWithRfq.rfq.alternatePartNumbers,
+        },
+        partNumber: quotationWithRfq.partNumber,
+        quantity: quotationWithRfq.quantity,
+        costPrice: preferredMoneyValue(quotationWithRfq.costPriceDecimal, quotationWithRfq.costPrice) ?? 0,
+        currency: quotationWithRfq.currency,
+        costSourceType: args.costSourceType,
+        costSourceId: args.costSourceId,
+        costSourceReason: args.costSourceReason,
+        quotationId: quotationWithRfq.id,
+      });
+    } else {
+      await assertQuotationCostSourceCurrent(args.tx, quotationWithRfq);
+    }
+  }
+  if (replacementCostSource) {
+    // captureQuotationCostSource has already validated this source and the
+    // approval transition below records the replacement in the same tx.
+    await syncQuotationLineSource(
+      args.tx,
+      quotationWithRfq,
+      replacementCostSource.costSourceType === 'SUPPLIER_QUOTE' ? replacementCostSource.costSourceId : null,
+    );
+  }
+  const requiredLevel = assertQuotationApprovalActor({
+    actorId: args.actorId,
+    actorRole: args.actorRole,
+    creatorId: quotationWithRfq.createdBy,
+    totalPrice,
+    currency: quotationWithRfq.currency,
+  });
   const targetStatus = args.action === 'approve' ? 'APPROVED' : 'REJECTED';
   const currentQuotationStatus = quotationStatus(quotationWithRfq);
   assertQuotationTransition(currentQuotationStatus, targetStatus);
-  const isNoop = currentQuotationStatus === targetStatus;
+  // An old APPROVED record may have no verifiable approval snapshot.  Allow a
+  // fresh approval decision to repair it while keeping the business status
+  // APPROVED, rather than forcing an artificial state rollback.
+  const needsApprovalReview = args.action === 'approve'
+    && (Boolean(replacementCostSource) || !hasCurrentQuotationApproval(quotationWithRfq));
+  const isNoop = currentQuotationStatus === targetStatus && !needsApprovalReview;
   const quotation = isNoop
     ? quotationWithRfq
     : await transitionQuotationStatus(args.tx, {
@@ -339,16 +481,28 @@ export async function approveQuotationAggregate(args: {
       reasonCode: args.reasonCode || (args.action === 'approve' ? 'QUOTATION_APPROVED' : 'QUOTATION_REJECTED'),
       reason: args.comment,
       data: {
+        ...replacementCostSource,
         approvedBy: args.action === 'approve' ? args.actorId : null,
         approvedAt: args.action === 'approve' ? new Date() : null,
       },
     });
 
   if (!isNoop) {
+    // The transition helper intentionally reloads scalar fields only.  Carry
+    // the original RFQ urgency into the snapshot so AOG and regular quotes
+    // hash the same way at send/accept time.
+    const approvalSnapshot = buildQuotationApprovalSnapshot({
+      ...quotation,
+      rfq: quotationWithRfq.rfq,
+    });
     await args.tx.approval.create({
       data: {
         quotationId: args.quotationId,
-        level: isAog ? 'AOG' : (quotationTotalPrice(quotation) > 50000 ? 'GM' : quotationTotalPrice(quotation) > 5000 ? 'FINANCE' : 'MANAGER'),
+        level: requiredLevel,
+        requiredLevel,
+        policyVersion: QUOTATION_APPROVAL_POLICY_VERSION,
+        reviewedVersion: quotation.version,
+        snapshotJson: JSON.stringify(approvalSnapshot),
         approverId: args.actorId,
         action: args.action.toUpperCase(),
         comment: args.comment,
@@ -376,6 +530,7 @@ export async function approveQuotationAggregate(args: {
     });
   }
 
+  if (args.action === 'approve') await freezeQuotationDocument(args.tx, quotation.id, args.actorId);
   return { quotation, isNoop };
 }
 
@@ -408,8 +563,10 @@ export async function sendQuotationAggregate(args: {
   const quotation = await args.tx.quotation.findUnique({
     where: { id: args.quotationId },
     include: {
+      rfq: true,
       customer: true,
       creator: { select: { department: true } },
+      approvals: { orderBy: { createdAt: 'desc' } },
     },
   });
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
@@ -423,18 +580,23 @@ export async function sendQuotationAggregate(args: {
   if (!['APPROVED', 'SENT'].includes(currentQuotationStatus)) {
     throw new AppError('只有已审批报价才能发送给客户', 400, 'BAD_REQUEST');
   }
+  if (quotation.lineItemsMode) assertLineQuotationCommercialTerms(await loadLineQuotation(args.tx, quotation.id));
+  else { assertQuotationCostSourceSnapshot(quotation); assertQuotationCommercialTerms(quotation); }
   if (!quotation.customer.email) {
     throw new AppError('客户未配置邮箱地址，无法发送报价', 400, 'BAD_REQUEST');
   }
 
   const account = await args.getDefaultOutboundAccount(args.tx);
   const subject = args.subject || `Quotation ${quotation.quoteNumber} - ${quotation.partNumber}`;
+  const lineDescription = quotation.lineItemsMode
+    ? (await loadLineQuotation(args.tx, quotation.id)).lines.map(line => `${line.partNumber} × ${line.quantity}: USD ${line.lineTotal}`).join('\n')
+    : `数量：${quotation.quantity}`;
   const plainBody = args.message || [
     `${quotation.customer.contactName || quotation.customer.name} 您好，`,
     '',
     `附件为报价单 ${quotation.quoteNumber}，对应件号 ${quotation.partNumber}。`,
-    `数量：${quotation.quantity}`,
-    `总价：USD ${quotationTotalPrice(quotation).toLocaleString('en-US')}`,
+    lineDescription,
+    `总价：USD ${quotationTotalPrice(quotation).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`,
     `销售类型：${quotation.saleType || 'Sale'}`,
     `贸易术语：${quotation.incoterm || '-'} ${quotation.incotermLocation || ''}`,
     `交货期：${quotation.leadTimeDays || '-'} 天`,
@@ -445,6 +607,12 @@ export async function sendQuotationAggregate(args: {
     '',
     'AeroLink 销售团队',
   ].join('\n');
+  const sendClaim = await args.tx.quotation.updateMany({
+    where: { id: quotation.id, version: quotation.version, supersededAt: null },
+    data: { version: { increment: 1 } },
+  });
+  if (sendClaim.count !== 1) throw new StateTransitionConflictError();
+  const attachment = await quotationDocumentPdf(args.tx, quotation.id);
   const pendingEmail = await args.tx.outboundEmail.create({
     data: {
       purpose: 'QUOTATION_SEND',
@@ -464,10 +632,12 @@ export async function sendQuotationAggregate(args: {
     aggregateId: quotation.id,
     outboundEmailId: pendingEmail.id,
     includeQuotationPdf: true,
+    attachmentDocumentId: attachment.document.id,
+    attachmentSnapshotHash: attachment.document.snapshotHash!,
     createdById: args.actorId,
   });
 
-  return { quotation, pendingEmail };
+  return { quotation: { ...quotation, version: quotation.version + 1 }, pendingEmail };
 }
 
 type ContractDocument = { id: string; title: string };
@@ -497,6 +667,7 @@ export async function acceptQuotationAggregate(args: {
   reasonCode?: string;
   reason?: string;
   expectedVersion?: number;
+  lines?: LineAcceptance[];
   authorize?: QuotationAuthorization;
   createOrder?: typeof createOrderFromQuotation;
   ensureContractDocument: EnsureContractDocument;
@@ -504,12 +675,24 @@ export async function acceptQuotationAggregate(args: {
   const quotation = await args.tx.quotation.findUnique({
     where: { id: args.quotationId },
     include: {
+      rfq: true,
       customer: true,
       creator: { select: { department: true } },
+      approvals: { orderBy: { createdAt: 'desc' } },
     },
   });
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(quotation);
+  if (quotation.lineItemsMode) {
+    if (!args.lines || args.expectedVersion === undefined) throw new AppError('多行报价成交必须提供 version 和明确行数量', 400, 'BAD_REQUEST');
+    const result = await acceptLineQuotation({ ...args, quotation: await loadLineQuotation(args.tx, quotation.id), version: args.expectedVersion, lines: args.lines });
+    const generatedDocument = await args.ensureContractDocument({ quotation: result.quotation, customer: quotation.customer, order: result.order, templateId: args.templateId, generatedById: args.actorId, tx: args.tx });
+    await enqueueBusinessEvent(args.tx, { eventType: 'order.created', aggregateType: 'ORDER', aggregateId: result.order.id,
+      data: { orderId: result.order.id, quotationId: quotation.id, version: result.order.version },
+      socket: { room: SocketRooms.ORDERS, event: SocketEvents.ORDER_CREATED }, createdById: args.actorId });
+    return { ...result, generatedDocument, isNewOrder: true, wasAlreadyAccepted: false };
+  }
+  if (args.lines) throw new AppError('单行兼容报价不接受多行成交参数', 400, 'BAD_REQUEST');
 
   const currentQuotationStatus = quotationStatus(quotation);
   if (currentQuotationStatus === 'WITHDRAWN') {
@@ -521,6 +704,17 @@ export async function acceptQuotationAggregate(args: {
   }
 
   const wasAlreadyAccepted = currentQuotationStatus === 'ACCEPTED';
+  // Repeating an already completed acceptance is idempotent even if the
+  // commercial deadline has since elapsed.  New acceptance/order creation
+  // must always re-check the current policy snapshot and expiry.
+  if (!wasAlreadyAccepted) {
+    assertQuotationCostSourceSnapshot(quotation);
+    assertQuotationCommercialTerms(quotation);
+  } else {
+    // A completed acceptance remains idempotent, but must never replay a
+    // tampered or unverifiable historical cost source payload.
+    assertQuotationCostSourceSnapshot(quotation);
+  }
   const updatedQuotation = wasAlreadyAccepted
     ? quotation
     : await transitionQuotationStatus(args.tx, {
@@ -650,17 +844,20 @@ export async function createOrderAggregate(args: {
   const quotation = await args.tx.quotation.findUnique({
     where: { id: args.quotationId },
     include: {
+      rfq: true,
       customer: true,
       creator: { select: { department: true } },
+      approvals: { orderBy: { createdAt: 'desc' } },
     },
   });
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(quotation);
+  if (quotation.lineItemsMode) throw new AppError('请从报价登记逐行客户接受以创建订单', 409, 'RESOURCE_CONFLICT');
   if (quotation.customerId !== args.customerId) {
     throw new AppError('订单客户与报价客户不一致', 400, 'BAD_REQUEST');
   }
 
-  const existingOrder = await args.tx.order.findUnique({
+  const existingOrder = await args.tx.order.findFirst({
     where: { quotationId: args.quotationId },
     include: { customer: true },
   });
@@ -673,6 +870,8 @@ export async function createOrderAggregate(args: {
     order = existingOrder;
     updatedQuotation = quotation;
   } else {
+    assertQuotationCostSourceSnapshot(quotation);
+    assertQuotationCommercialTerms(quotation);
     const currentStatus = normalizeQuotationStatus(
       preferredQuotationStatus(quotation.statusEnum, quotation.status),
     );
@@ -812,6 +1011,7 @@ export async function withdrawQuotationAggregate(args: {
   });
   if (!quotation) throw new AppError('报价单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(quotation);
+  assertActiveQuotationRevision(quotation);
 
   const currentQuotationStatus = quotationStatus(quotation);
   if (currentQuotationStatus === 'ACCEPTED') {
@@ -831,13 +1031,13 @@ export async function withdrawQuotationAggregate(args: {
   }
 
   let releasedReservation: {
-    inventoryDetailId: string;
-    partNumber: string;
+    inventoryDetailId?: string;
+    partNumber?: string;
     quantity: number;
     reservedQuantity: number;
-    transactionId: string;
+    transactionId?: string;
   } | undefined;
-  if (quotation.inventoryDetailId && quotation.reservedQuantity > 0) {
+  if (!quotation.lineItemsMode && quotation.inventoryDetailId && quotation.reservedQuantity > 0) {
     const released = await releaseInventoryReservation(args.tx, {
       quotationId: quotation.id,
       notes: args.reason,
@@ -854,7 +1054,7 @@ export async function withdrawQuotationAggregate(args: {
   }
 
   const withdrawnAt = new Date();
-  const updatedQuotation = await transitionQuotationStatus(args.tx, {
+  let updatedQuotation = await transitionQuotationStatus(args.tx, {
     id: quotation.id,
     currentStatus: quotation.status,
     currentVersion: quotation.version,
@@ -869,6 +1069,14 @@ export async function withdrawQuotationAggregate(args: {
       ...(releasedReservation ? { reservedQuantity: 0 } : {}),
     },
   });
+  if (quotation.lineItemsMode) {
+    const released = await releaseUnassignedQuotationInventory({ tx: args.tx, quotationId: quotation.id,
+      actorId: args.actorId, reason: `撤回报价：${args.reason}`, commandId: `withdraw:${quotation.id}:${quotation.version}` });
+    if (released.releasedQuantity > 0) releasedReservation = {
+      quantity: released.releasedQuantity, reservedQuantity: released.releasedQuantity,
+    };
+    updatedQuotation = await args.tx.quotation.findUniqueOrThrow({ where: { id: quotation.id } });
+  }
   await args.tx.outboundEmail.update({
     where: { id: latestSentEmail.id },
     data: {
@@ -971,6 +1179,11 @@ export async function createOrderFromQuotation(args: {
   reasonCode?: string;
   reason?: string | null;
 }) {
+  if (args.certificateDelivered === true || args.inspectionPassed !== undefined || args.inspectionDate) {
+    throw new AppError('新订单不能携带客户端声明的质量审核结果', 409, 'QUALITY_REVIEW_REQUIRED');
+  }
+  assertSupportedSaleType(args.quotation.saleType);
+  assertSupportedSaleType(args.saleType);
   const orderNumber = buildSalesOrderNumber();
   const totalAmountDecimal = normalizeMoney(
     preferredMoneyValue(args.quotation.totalPriceDecimal, args.quotation.totalPrice) ?? args.quotation.totalPrice,
@@ -1030,6 +1243,12 @@ export async function createOrderFromQuotation(args: {
     include: { customer: true },
   });
 
+  await ensureSingleOrderLine({
+    tx: args.tx,
+    order,
+    quotation: args.quotation,
+  });
+
   await createInitialStatusHistory(args.tx, {
     entityType: 'ORDER',
     entityId: order.id,
@@ -1047,6 +1266,8 @@ export function mapOrderResponse(order: Order & { customer: Customer }) {
   return {
     id: order.id,
     orderNumber: order.orderNumber,
+    lineItemsMode: order.lineItemsMode,
+    ...('lines' in order ? { lines: order.lines } : {}),
     soNumber: order.soNumber,
     poNumber: order.poNumber,
     quotationId: order.quotationId,
@@ -1090,6 +1311,7 @@ export function mapOrderResponse(order: Order & { customer: Customer }) {
     serialNumber: order.serialNumber || undefined,
     batchNumber: order.batchNumber || undefined,
     outboundQuantity: order.outboundQuantity,
+    directShippedQuantity: order.directShippedQuantity,
     outboundStatus: order.outboundStatus,
   };
 }
@@ -1134,6 +1356,12 @@ export async function transitionOrderAggregate(
 
   const currentStatus = normalizeOrderStatus(preferredOrderStatus(existing.statusEnum, existing.status));
   const nextStatus = normalizeOrderStatus(args.nextStatus);
+  if (nextStatus === 'SHIPPED' && currentStatus !== 'SHIPPED') {
+    throw new AppError('请通过已审核的库存出库流程登记发货；直发流程尚未开放', 409, 'FULFILLMENT_REQUIRED');
+  }
+  if (existing.lineItemsMode && nextStatus === 'DELIVERED' && currentStatus !== 'DELIVERED') {
+    throw new AppError('现代订单的交付完成由逐行签收数量确认，请通过发运签收入口办理', 409, 'FULFILLMENT_REQUIRED');
+  }
   if (!isOrderStatusTransitionAllowed(currentStatus, nextStatus)) {
     throw new AppError(`订单不允许从 ${currentStatus.toLowerCase()} 变更为 ${nextStatus.toLowerCase()}`, 409, 'INVALID_STATE_TRANSITION');
   }
@@ -1194,6 +1422,20 @@ export async function updateOrderAggregate(
   });
   if (!existing) throw new AppError('订单不存在', 404, 'RESOURCE_NOT_FOUND');
   args.authorize?.(existing);
+
+  if (args.data.saleType !== undefined && args.data.saleType !== existing.saleType) {
+    throw new AppError('订单销售类型来自商业报价，不能通过普通编辑变更', 409, 'BAD_REQUEST');
+  }
+  const protectedQualityFields = ['certificateRequired', 'certificateType', 'certificateDelivered', 'inspectionRequired', 'inspectionPassed', 'inspectionDate'] as const;
+  for (const field of protectedQualityFields) {
+    const value = args.data[field];
+    if (value === undefined) continue;
+    const previous = existing[field];
+    const normalize = (input: unknown) => input instanceof Date ? input.toISOString() : input ?? null;
+    if (normalize(value) !== normalize(previous)) {
+      throw new AppError('质量要求和审核事实不能通过普通订单编辑修改，请使用质量审核流程', 409, 'QUALITY_REVIEW_REQUIRED');
+    }
+  }
 
   return tx.order.update({
     where: { id: args.id },

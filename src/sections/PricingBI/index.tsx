@@ -13,7 +13,7 @@ import {
 import type { AnalyticsDataAvailability } from '@/api/client';
 
 function MetricValue({ value, suffix = '' }: { value: number | null; suffix?: string }) {
-  if (value === null) {
+  if (value == null) {
     return <span className="text-2xl font-bold text-muted-foreground">—</span>;
   }
 
@@ -133,7 +133,7 @@ export function PricingBI() {
             <p className="text-sm text-muted-foreground">{tx('平均毛利率', 'Average Margin')}</p>
             <MetricValue value={summary.avgMargin} suffix="%" />
             <p className="mt-1 text-xs text-muted-foreground">
-              {summary.marginTrend === null
+              {summary.marginTrend == null
                 ? tx('上月样本不足，未计算环比', 'Insufficient prior-month sample for trend')
                 : `${tx('较上月毛利率变化', 'Margin change vs last month')} ${summary.marginTrend >= 0 ? '+' : ''}${summary.marginTrend}${tx(' 个百分点', ' pp')}`}
             </p>

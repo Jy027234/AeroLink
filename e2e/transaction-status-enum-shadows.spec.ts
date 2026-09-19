@@ -18,11 +18,11 @@ function mutationHeaders(token: string, idempotencyKey: string) {
   };
 }
 
-async function login() {
+async function login(email = 'zhang@aerolink.com') {
   const response = await fetch(`${backendBaseUrl}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'zhang@aerolink.com', password: E2E_PASSWORD }),
+    body: JSON.stringify({ email, password: E2E_PASSWORD }),
   });
   expect(response.ok).toBeTruthy();
   const payload = await response.json() as ApiEnvelope<{ token: string }>;
@@ -31,6 +31,7 @@ async function login() {
 
 test('dual-writes canonical enum status shadows while preserving string API contracts', async () => {
   const token = await login();
+  const approverToken = await login('li@aerolink.com');
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const partNumber = `P1-04-STATUS-${suffix}`;
 
@@ -69,6 +70,9 @@ test('dual-writes canonical enum status shadows while preserving string API cont
       quantity: 2,
       unitPrice: 2100,
       costPrice: 1800,
+      currency: 'USD',
+      costSourceType: 'MANUAL',
+      costSourceReason: 'E2E synthetic cost basis for status shadow flow',
       validityDays: 14,
     }),
   });
@@ -96,7 +100,7 @@ test('dual-writes canonical enum status shadows while preserving string API cont
 
   const approveResponse = await fetch(`${backendBaseUrl}/quotations/${quotation.data.id}/approve`, {
     method: 'POST',
-    headers: mutationHeaders(token, `e2e-status-quotation-approve-${suffix}`),
+    headers: mutationHeaders(approverToken, `e2e-status-quotation-approve-${suffix}`),
     body: JSON.stringify({ action: 'approve', version: submitted.data.version, reasonCode: 'E2E_STATUS_APPROVE' }),
   });
   expect(approveResponse.ok).toBeTruthy();
