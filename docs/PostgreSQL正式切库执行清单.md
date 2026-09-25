@@ -1,5 +1,7 @@
 # PostgreSQL 正式切库执行清单
 
+> 历史切库步骤：2026-09-23 对凯奔服务器只读核查时，`aerolink-prod` 已运行 PostgreSQL 和独立 Worker。本清单保留作历史恢复参考，不能再次作为当前生产切库命令执行；新版本发布请使用 [生产运维手册](生产运维手册.md)的 PostgreSQL profile，并先复核服务器实时状态。
+
 本文档用于把当前云端 SQLite 兼容运行态正式迁移到 PostgreSQL profile。当前生产入口为 `http://101.43.50.30:8080`，应用目录为 `/home/ubuntu/aerolink-prod`。
 
 ## 当前结论

@@ -2,6 +2,15 @@ import { createTransport } from 'nodemailer';
 import { simpleParser, type ParsedMail } from 'mailparser';
 import { logger } from './logger.js';
 
+type ParsedMailThreadingHeaders = ParsedMail & {
+  inReplyTo?: string;
+  references?: string[] | string;
+};
+
+type ParsedMailAttachmentWithContentId = NonNullable<ParsedMail['attachments']>[number] & {
+  contentId?: string;
+};
+
 export interface EmailAccountConfig {
   id: string;
   email: string;
@@ -19,13 +28,22 @@ export interface SyncedEmail {
   uidValidity: string;
   mailbox: string;
   messageId: string | null;
+  inReplyTo: string | null;
+  references: string[];
   from: string;
   fromName: string;
   subject: string;
   body: string;
   receivedAt: Date;
-  attachments: string[];
+  attachments: SyncedEmailAttachment[];
   rawHeaders: string;
+}
+
+export interface SyncedEmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+  contentId: string | null;
 }
 
 export interface MailboxFetchResult {
@@ -163,22 +181,32 @@ export async function fetchMailboxMessages(
         : Buffer.from(String(rawPart.body ?? ''), 'utf8');
 
       const parsed: ParsedMail = await simpleParser(raw);
+      const parsedWithThreadingHeaders = parsed as ParsedMailThreadingHeaders;
 
       const fromAddress = parsed.from?.value?.[0]?.address || parsed.from?.text || 'unknown@unknown.com';
       const fromName = parsed.from?.value?.[0]?.name || parsed.from?.text || '未知发件人';
 
-      const attachments: string[] = [];
-      if (parsed.attachments && parsed.attachments.length > 0) {
-        for (const att of parsed.attachments) {
-          attachments.push(att.filename || 'unnamed');
-        }
-      }
+      const parsedAttachments = (parsed.attachments || []) as ParsedMailAttachmentWithContentId[];
+      const attachments: SyncedEmailAttachment[] = parsedAttachments.map((att) => ({
+        filename: att.filename || 'unnamed',
+        content: Buffer.from(att.content),
+        contentType: att.contentType || 'application/octet-stream',
+        contentId: att.contentId || null,
+      }));
+      const rawReferences = parsedWithThreadingHeaders.references;
+      const references = Array.isArray(rawReferences)
+        ? rawReferences
+        : typeof rawReferences === 'string'
+          ? rawReferences.match(/<[^>]+>|[^\s,]+/g) || []
+          : [];
 
       syncedEmails.push({
         uid: Number(message.attributes.uid),
         uidValidity,
         mailbox,
         messageId: parsed.messageId?.trim() || null,
+        inReplyTo: parsedWithThreadingHeaders.inReplyTo?.trim() || null,
+        references,
         from: fromAddress,
         fromName,
         subject: parsed.subject || '(无主题)',

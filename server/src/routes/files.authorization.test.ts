@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Prisma } from '@prisma/client';
-vi.mock('../lib/prisma.js', () => ({ default: { returnHold: { findFirst: vi.fn() } } }));
+vi.mock('../lib/prisma.js', () => ({
+  default: {
+    returnHold: { findFirst: vi.fn() },
+    emailAttachment: { findFirst: vi.fn() },
+    email: { findUnique: vi.fn() },
+  },
+}));
 import prisma from '../lib/prisma.js';
 import { canReadStoredObject, canReadStoredObjectDownload, canReadReturnEvidence } from './files.js';
 
@@ -15,6 +21,49 @@ describe('stored object authorization', () => {
     expect(canReadStoredObject({ ownerId: null, domain: 'stock_receipt' }, { id: 'user-2', role: 'ADMIN' })).toBe(false);
     expect(canReadStoredObject({ ownerId: 'user-1', domain: 'supplier_direct_shipment' }, { id: 'user-1', role: 'sales' })).toBe(false);
     expect(canReadStoredObject({ ownerId: null, domain: 'supplier_direct_shipment' }, { id: 'user-2', role: 'ADMIN' })).toBe(false);
+    expect(canReadStoredObject({ ownerId: 'user-1', domain: 'email' }, { id: 'user-1', role: 'sales' })).toBe(false);
+    expect(canReadStoredObject({ ownerId: null, domain: 'email' }, { id: 'user-2', role: 'ADMIN' })).toBe(false);
+  });
+});
+
+describe('email attachment download authorization', () => {
+  const object = { id: 'stored-email-file', ownerId: 'uploader', domain: 'email', resourceId: 'email-1', version: 1, sha256: 'a'.repeat(64), status: 'AVAILABLE' };
+
+  beforeEach(() => {
+    vi.mocked(prisma.emailAttachment.findFirst).mockReset();
+    vi.mocked(prisma.email.findUnique).mockReset();
+  });
+
+  it('requires email:read and a live EmailAttachment-to-Email relationship', async () => {
+    const tx = {
+      emailAttachment: { findFirst: vi.mocked(prisma.emailAttachment.findFirst) },
+      email: { findUnique: vi.mocked(prisma.email.findUnique) },
+    } as unknown as Prisma.TransactionClient;
+    vi.mocked(prisma.emailAttachment.findFirst).mockResolvedValue({ id: 'attachment-1', emailId: 'email-1' } as never);
+    vi.mocked(prisma.email.findUnique).mockResolvedValue({ id: 'email-1' } as never);
+
+    await expect(canReadStoredObjectDownload(tx, object, { id: 'reader', role: 'SALES' })).resolves.toBe(true);
+    expect(prisma.emailAttachment.findFirst).toHaveBeenCalledWith({
+      where: { storedObjectId: object.id },
+      select: { id: true, emailId: true },
+    });
+    expect(prisma.email.findUnique).toHaveBeenCalledWith({
+      where: { id: 'email-1' },
+      select: { id: true },
+    });
+  });
+
+  it('does not allow owner/admin bypass without an email attachment row or email read capability', async () => {
+    const tx = {
+      emailAttachment: { findFirst: vi.mocked(prisma.emailAttachment.findFirst) },
+      email: { findUnique: vi.mocked(prisma.email.findUnique) },
+    } as unknown as Prisma.TransactionClient;
+    vi.mocked(prisma.emailAttachment.findFirst).mockResolvedValue(null);
+    await expect(canReadStoredObjectDownload(tx, object, { id: 'uploader', role: 'ADMIN' })).resolves.toBe(false);
+
+    vi.mocked(prisma.emailAttachment.findFirst).mockResolvedValue({ id: 'attachment-1', emailId: 'email-1' } as never);
+    await expect(canReadStoredObjectDownload(tx, object, { id: 'uploader', role: 'FINANCE' })).resolves.toBe(false);
+    expect(prisma.email.findUnique).not.toHaveBeenCalled();
   });
 });
 

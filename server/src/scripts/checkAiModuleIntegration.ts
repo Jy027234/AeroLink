@@ -15,7 +15,7 @@ import type { AuthRequest } from '../middleware/auth.js';
 const CONFIRMATION = 'isolated';
 const DEMO_AGENT_IDS = ['agent001', 'agent002', 'agent003', 'agent004'];
 const DEMO_MODEL_IDS = ['model001', 'model002', 'model003', 'model004'];
-const BUILTIN_KEYS = ['rfq_extraction', 'quote_analysis', 'customer_email', 'business_chat'] as const;
+const BUILTIN_KEYS = ['rfq_extraction', 'supplier_quote_extraction', 'quote_analysis', 'customer_email', 'business_chat'] as const;
 const MODEL_SECRET = 'ai-module-integration-secret';
 
 type JsonRecord = Record<string, unknown>;
@@ -120,9 +120,15 @@ async function startFixture(): Promise<Fixture> {
     const prompt = messages.map((message) => message.content).join('\n');
     // The chat safety prompt also mentions emails/RFQs. Identify the extraction
     // fixture by its output contract or explicit revision marker instead.
+    const quoteExtraction = prompt.includes('leadTimeMinDays') && prompt.includes('evidenceText');
     const extraction = prompt.includes('partNumbers') || prompt.includes('V2_EXTRACTION_MARKER');
     let content: string;
-    if (extraction) {
+    if (quoteExtraction) {
+      content = JSON.stringify({ items: [{
+        partNumber: 'FIXTURE-PART', quantity: 2, unitPrice: 125, currency: 'USD',
+        leadTimeMinDays: 14, leadTimeMaxDays: 21, evidenceText: '2 pcs at USD 125 each, 2-3 weeks',
+      }] });
+    } else if (extraction) {
       content = prompt.includes('V2_EXTRACTION_MARKER')
         ? JSON.stringify({ type: 'INQUIRY', partNumbers: ['V2-PART'], quantities: [2], urgency: 'URGENT' })
         : JSON.stringify({ type: 'INQUIRY', partNumbers: ['V1-PART'], quantities: [1], urgency: 'STANDARD' });
@@ -272,9 +278,10 @@ async function main() {
   delete process.env.OPENAI_API_KEY;
   delete process.env.DEEPSEEK_API_KEY;
 
-  const [{ default: prisma }, { ensureBuiltinAgents }, { default: agentsRouter }, { default: modelsRouter }, { default: aiRouter }, { errorHandler }] = await Promise.all([
+  const [{ default: prisma }, { ensureBuiltinAgents }, { extractSupplierQuoteEmail }, { default: agentsRouter }, { default: modelsRouter }, { default: aiRouter }, { errorHandler }] = await Promise.all([
     import('../lib/prisma.js'),
     import('../lib/aiAgentRegistry.js'),
+    import('../lib/aiService.js'),
     import('../routes/agents.js'),
     import('../routes/models.js'),
     import('../routes/ai.js'),
@@ -288,6 +295,7 @@ async function main() {
   let createdBuiltinIds: string[] = [];
   let outboundEmailCount = 0;
   let inboundEmailCount = 0;
+  let supplierQuoteCount = 0;
 
   try {
     const databaseProbe = await prisma.$queryRaw<Array<{ ok: number }>>`SELECT 1 AS ok`;
@@ -306,6 +314,7 @@ async function main() {
       prisma.outboundEmail.count(),
       prisma.email.count(),
     ]);
+    supplierQuoteCount = await prisma.supplierQuote.count();
 
     userId = crypto.randomUUID();
     const email = `ai-module-${userId}@example.test`;
@@ -332,7 +341,7 @@ async function main() {
       where: { builtinKey: { in: [...BUILTIN_KEYS] } },
       select: { id: true, builtinKey: true, draftRevision: true, publishedVersion: true },
     });
-    assert(builtins.length === BUILTIN_KEYS.length, 'builtin initialization did not create exactly four agents');
+    assert(builtins.length === BUILTIN_KEYS.length, 'builtin initialization did not create exactly five agents');
     assert(new Set(builtins.map((agent) => agent.builtinKey)).size === BUILTIN_KEYS.length, 'builtin keys are not unique');
     assert((await prisma.aIAgentVersion.count()) === BUILTIN_KEYS.length, 'builtin initialization did not create exactly one v1 per agent');
     createdBuiltinIds = builtins.map((agent) => agent.id);
@@ -391,6 +400,17 @@ async function main() {
     const initialExtractionData = successData(initialExtraction, 'initial extraction execution');
     assert((initialExtractionData as JsonRecord).partNumbers instanceof Array, 'initial extraction did not return parsed data');
     assert((initialExtractionData.ai as JsonRecord)?.promptVersion === 1, 'initial extraction did not report prompt version 1');
+
+    const supplierQuoteExtraction = await extractSupplierQuoteEmail(
+      'Supplier quote reply',
+      'We can offer FIXTURE-PART: 2 pcs at USD 125 each, 2-3 weeks lead time.',
+      { items: [{ partNumber: 'FIXTURE-PART', quantity: 2 }] },
+      { actorId: userId, action: 'sourcing.extract-supplier-quote' },
+    );
+    assert(supplierQuoteExtraction.items.length === 1, 'supplier quote extraction returned no candidate items');
+    assert(supplierQuoteExtraction.items[0].evidenceText.includes('2 pcs at USD 125 each'), 'supplier quote extraction lost source evidence');
+    assert(supplierQuoteExtraction.ai.promptVersion === 1, 'supplier quote extraction did not use the published v1 prompt');
+    assert(await prisma.supplierQuote.count() === supplierQuoteCount, 'AI supplier quote extraction unexpectedly created a supplier quote record');
 
     const chatPatch = await callRoute(routeBaseUrl, 'patch', `/api/agents/${chatId}`, {
       expectedRevision: chatRevision,
@@ -509,13 +529,14 @@ async function main() {
     assert(activeFixture.requests.every((entry) => entry.authorization?.startsWith('Bearer ')), 'fixture calls did not carry the configured key');
     assert((await prisma.outboundEmail.count()) === outboundEmailCount, 'AI integration unexpectedly created outbound email records');
     assert((await prisma.email.count()) === inboundEmailCount, 'AI integration unexpectedly created inbound email records');
+    assert((await prisma.supplierQuote.count()) === supplierQuoteCount, 'AI integration unexpectedly created supplier quote records');
 
     console.log(JSON.stringify({
       ok: true,
       database: databaseName(process.env.DATABASE_URL!),
       builtins: BUILTIN_KEYS.length,
       fixtureCalls: activeFixture.requests.length,
-      publishedVersions: { chat: 3, extraction: 2 },
+      publishedVersions: { chat: 3, extraction: 2, supplierQuoteExtraction: 1 },
       defaultModelCount: await prisma.aIModel.count({ where: { isDefault: true } }),
     }));
   } finally {

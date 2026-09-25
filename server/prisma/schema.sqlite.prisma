@@ -23,6 +23,9 @@ model User {
   passwordResetTokenExpiresAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  confirmedInquiryEmailLinks InquiryEmailLink[] @relation("InquiryEmailLinkConfirmer")
+  confirmedSupplierQuoteDrafts SupplierQuoteDraft[] @relation("SupplierQuoteDraftConfirmer")
+  sourcingAiTasks SourcingAiTask[] @relation("SourcingAiTaskActor")
   lastLoginAt DateTime?
 
   createdRFQs       RFQ[]
@@ -195,6 +198,7 @@ model Supplier {
   // Historical records retained for data retention; no supplier portal flow reads or writes them.
   portalUsers       SupplierPortalUser[]
   supplierQuotes    SupplierQuote[]
+  supplierQuoteDrafts SupplierQuoteDraft[]
   followUpLogs      SupplierFollowUpLog[]
   certificates      Certificate[]
 
@@ -416,6 +420,12 @@ model Email {
   attachments      String?
   accountId        String?
   messageId        String?
+  inReplyTo        String?
+  references       String?
+  threadMatchStatus String   @default("PENDING")
+  threadMatchReason String?
+  attachmentStatus String   @default("NONE")
+  attachmentError  String?
   mailbox          String    @default("INBOX")
   imapUid          Int?
   imapUidValidity  String?
@@ -426,11 +436,16 @@ model Email {
 
   rfq RFQ?
   account EmailAccount? @relation(fields: [accountId], references: [id])
+  inquiryLinks InquiryEmailLink[]
+  quoteDrafts SupplierQuoteDraft[]
+  attachmentRecords EmailAttachment[]
+  sourcingAiTasks SourcingAiTask[]
 
   @@unique([accountId, messageId], name: "emailAccountMessageId")
   @@unique([accountId, mailbox, imapUidValidity, imapUid], name: "emailAccountMailboxUid")
   @@index([processingStatus, receivedAt])
   @@index([accountId, receivedAt])
+  @@index([threadMatchStatus, receivedAt])
   @@map("emails")
 }
 
@@ -536,6 +551,10 @@ model Inquiry {
   supplier      Supplier      @relation(fields: [supplierId], references: [id])
   items         InquiryItem[]
   supplierQuotes SupplierQuote[]
+  outboundEmails OutboundEmail[]
+  emailLinks InquiryEmailLink[]
+  quoteDrafts SupplierQuoteDraft[]
+  sourcingAiTasks SourcingAiTask[]
 
   @@map("inquiries")
 }
@@ -555,6 +574,8 @@ model InquiryItem {
 
 model SupplierQuote {
   id            String    @id @default(uuid())
+  sourceDraftId String?
+  sourceDraftItemKey String?
   inquiryId    String?
   rfqId        String?
   supplierId   String
@@ -579,7 +600,9 @@ model SupplierQuote {
   inquiry  Inquiry?  @relation(fields: [inquiryId], references: [id])
   rfq     RFQ?     @relation(fields: [rfqId], references: [id])
   supplier Supplier  @relation(fields: [supplierId], references: [id])
+  sourceDraft SupplierQuoteDraft? @relation(fields: [sourceDraftId], references: [id], onDelete: Restrict)
 
+  @@unique([sourceDraftId, sourceDraftItemKey])
   @@map("supplier_quotes")
 }
 
@@ -907,6 +930,7 @@ model OutboundEmail {
   id               String   @id @default(uuid())
   purpose          String
   quotationId      String?
+  inquiryId        String?
   customerId       String?
   accountId        String?
   toEmail          String
@@ -923,11 +947,141 @@ model OutboundEmail {
   updatedAt        DateTime @updatedAt
 
   quotation Quotation?   @relation(fields: [quotationId], references: [id])
+  inquiry   Inquiry?     @relation(fields: [inquiryId], references: [id], onDelete: SetNull)
   customer  Customer?    @relation(fields: [customerId], references: [id])
   account   EmailAccount? @relation(fields: [accountId], references: [id])
 
   @@index([quotationId, purpose, status])
+  @@index([inquiryId, purpose, createdAt])
+  @@index([providerMessageId])
   @@map("outbound_emails")
+}
+
+model InquiryEmailLink {
+  id                 String   @id @default(uuid())
+  emailId            String
+  inquiryId          String
+  method             String
+  manualReason       String?
+  confirmationStatus String   @default("PENDING")
+  confirmedAt        DateTime?
+  confirmedById      String?
+  createdAt          DateTime @default(now())
+
+  email       Email   @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  inquiry     Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  confirmedBy User?   @relation("InquiryEmailLinkConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+
+  @@unique([emailId, inquiryId])
+  @@index([inquiryId, confirmationStatus, createdAt])
+  @@index([emailId, confirmationStatus])
+  @@map("inquiry_email_links")
+}
+
+model EmailAttachment {
+  id             String   @id @default(uuid())
+  emailId        String
+  storedObjectId String
+  filename       String
+  contentType    String
+  sizeBytes      Int
+  sha256         String
+  contentId      String?
+  createdAt      DateTime @default(now())
+
+  email        Email        @relation(fields: [emailId], references: [id], onDelete: Restrict)
+  storedObject StoredObject @relation(fields: [storedObjectId], references: [id], onDelete: Restrict)
+
+  @@index([emailId, createdAt])
+  @@index([storedObjectId])
+  @@map("email_attachments")
+}
+
+model SupplierQuoteDraft {
+  id              String   @id @default(uuid())
+  emailId         String
+  inquiryId       String
+  supplierId      String
+  status          String   @default("DRAFT")
+  version         Int      @default(1)
+  payloadJson     String
+  aiProvider      String?
+  aiModel         String?
+  aiPromptVersion String?
+  aiConfidence    Float?
+  aiMetadataJson  String?
+  confirmedAt     DateTime?
+  confirmedById   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  email         Email         @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  inquiry       Inquiry       @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  supplier      Supplier      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplierQuotes SupplierQuote[]
+  sourcingAiTasks SourcingAiTask[]
+  confirmedBy   User?         @relation("SupplierQuoteDraftConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+
+  @@unique([emailId, inquiryId, version])
+  @@index([inquiryId, status, updatedAt])
+  @@index([supplierId, status, updatedAt])
+  @@map("supplier_quote_drafts")
+}
+
+// Server-owned trusted task records. Legacy AgentRuntimeTask rows are not an
+// authorization source for sourcing work.
+model SourcingAiTask {
+  id             String   @id @default(uuid())
+  actorId        String
+  type           String
+  emailId        String
+  inquiryId      String
+  status         String   @default("PENDING")
+  attempt        Int      @default(1)
+  maxAttempts    Int      @default(3)
+  idempotencyKey String
+  draftId        String?
+  errorSummary   String?
+  createdAt      DateTime @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  updatedAt      DateTime @updatedAt
+
+  actor   User               @relation("SourcingAiTaskActor", fields: [actorId], references: [id], onDelete: Restrict)
+  email   Email              @relation(fields: [emailId], references: [id], onDelete: Restrict)
+  inquiry Inquiry            @relation(fields: [inquiryId], references: [id], onDelete: Restrict)
+  draft   SupplierQuoteDraft? @relation(fields: [draftId], references: [id], onDelete: SetNull)
+
+  @@unique([actorId, idempotencyKey])
+  @@index([actorId, createdAt])
+  @@index([status, updatedAt])
+  @@map("sourcing_ai_tasks")
+}
+
+model StoredObject {
+  id             String   @id @default(uuid())
+  objectKey      String   @unique
+  version        Int      @default(1)
+  sha256         String
+  sizeBytes      Int
+  mimeType       String
+  originalName   String?
+  domain         String?
+  resourceId     String?
+  ownerId        String?
+  status         String   @default("AVAILABLE")
+  retentionUntil DateTime?
+  metadata       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  emailAttachments EmailAttachment[]
+
+  @@index([domain, resourceId])
+  @@index([ownerId, createdAt])
+  @@index([status, retentionUntil])
+  @@map("stored_objects")
 }
 
 // Request keys make client retries replayable without duplicating a committed

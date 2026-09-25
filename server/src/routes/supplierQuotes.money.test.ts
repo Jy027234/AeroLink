@@ -244,9 +244,15 @@ describe('supplier quote monetary shadows', () => {
   });
 
   it('dual-writes the accepted enum when selecting a winner', async () => {
-    prismaMock.supplierQuote.findUnique.mockResolvedValue(createSupplierQuote());
+    prismaMock.supplierQuote.findUnique.mockResolvedValue(createSupplierQuote({
+      rfqId: 'rfq-001', rfqLineId: null, inquiryId: null, inquiryItemId: null,
+    }));
+    prismaMock.rFQ.findUnique.mockResolvedValue({
+      id: 'rfq-001', partNumber: 'BAC31GK0020', quantity: 3, alternatePartNumbers: null,
+    });
     prismaMock.supplierQuote.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.supplierQuote.update.mockResolvedValue(createSupplierQuote({
+      rfqId: 'rfq-001', rfqLineId: null, inquiryId: null, inquiryItemId: null,
       status: 'accepted',
       statusEnum: 'accepted',
       isWinner: true,

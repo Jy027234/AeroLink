@@ -78,6 +78,14 @@
       "description": "Routes mounted under supplierQuotes"
     },
     {
+      "name": "supplierQuoteDrafts",
+      "description": "Routes mounted under supplierQuoteDrafts"
+    },
+    {
+      "name": "sourcingAiTasks",
+      "description": "Routes mounted under sourcingAiTasks"
+    },
+    {
       "name": "upload",
       "description": "Routes mounted under upload"
     },
@@ -5951,12 +5959,12 @@
           "emails"
         ],
         "summary": "GET /api/emails",
-        "description": "Contracted identity and mail-management operation. User responses omit credentials and activation secrets; email-account responses never expose auth codes.",
+        "description": "Lists inbound email with pagination and a database-wide summary. needsInquiryMatch=true filters to unresolved thread matches without a confirmed inquiry link; it cannot be combined with inquiryId. inquiryId filters by persisted links; it never guesses by subject or part number.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 49
+          "line": 107
         },
         "security": [
           {
@@ -6006,6 +6014,29 @@
               "maximum": 100,
               "default": 20
             }
+          },
+          {
+            "name": "inquiryId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "needsInquiryMatch",
+            "in": "query",
+            "required": false,
+            "description": "Use true to return only UNMATCHED or NEEDS_REVIEW emails without any CONFIRMED inquiry link. PENDING emails are excluded. This cannot be combined with inquiryId.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
           }
         ],
         "responses": {
@@ -6051,7 +6082,7 @@
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 95
+          "line": 181
         },
         "security": [
           {
@@ -6111,7 +6142,7 @@
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 115
+          "line": 211
         },
         "security": [
           {
@@ -6182,7 +6213,7 @@
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 131
+          "line": 227
         },
         "security": [
           {
@@ -6244,6 +6275,88 @@
         }
       }
     },
+    "/api/emails/{id}/inquiry-links": {
+      "post": {
+        "operationId": "postEmailsIdInquiryLinks",
+        "tags": [
+          "emails"
+        ],
+        "summary": "POST /api/emails/:id/inquiry-links",
+        "description": "Confirms a manual email-to-inquiry link. A sender mismatch requires an explicit manual reason and is retained for audit; automatic matching remains stricter.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/emails",
+        "x-aerolink-source": {
+          "file": "server/src/routes/emails.ts",
+          "line": 246
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/InquiryEmailLink"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailInquiryLinkRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
     "/api/emails/{id}/discard": {
       "patch": {
         "operationId": "patchEmailsIdDiscard",
@@ -6256,7 +6369,7 @@
         "x-aerolink-owner": "P2-01/emails",
         "x-aerolink-source": {
           "file": "server/src/routes/emails.ts",
-          "line": 150
+          "line": 313
         },
         "security": [
           {
@@ -8302,7 +8415,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 174
+          "line": 175
         },
         "security": [
           {
@@ -8351,7 +8464,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 206
+          "line": 209
         },
         "security": [
           {
@@ -8417,7 +8530,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 188
+          "line": 190
         },
         "security": [
           {
@@ -8475,7 +8588,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 232
+          "line": 235
         },
         "security": [
           {
@@ -8547,7 +8660,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 270
+          "line": 273
         },
         "security": [
           {
@@ -8618,7 +8731,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 283
+          "line": 286
         },
         "security": [
           {
@@ -8689,7 +8802,7 @@
         "x-aerolink-owner": "P2-01/models",
         "x-aerolink-source": {
           "file": "server/src/routes/models.ts",
-          "line": 327
+          "line": 330
         },
         "security": [
           {
@@ -9147,7 +9260,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 304
+          "line": 528
         },
         "security": [
           {
@@ -9258,7 +9371,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 413
+          "line": 637
         },
         "security": [
           {
@@ -9324,7 +9437,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 386
+          "line": 610
         },
         "security": [
           {
@@ -9382,7 +9495,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 477
+          "line": 701
         },
         "security": [
           {
@@ -9454,7 +9567,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 590
+          "line": 814
         },
         "security": [
           {
@@ -9525,7 +9638,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 613
+          "line": 987
         },
         "security": [
           {
@@ -9591,7 +9704,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 760
+          "line": 1369
         },
         "security": [
           {
@@ -9648,6 +9761,818 @@
             "$ref": "#/components/responses/Error"
           }
         }
+      }
+    },
+    "/api/supplier-quote-drafts/extract": {
+      "post": {
+        "operationId": "postSupplierQuoteDraftsExtract",
+        "tags": [
+          "supplierQuoteDrafts"
+        ],
+        "summary": "POST /api/supplier-quote-drafts/extract",
+        "description": "Runs the published supplier quote extraction agent against a confirmed linked email and saves only an editable draft. Evidence must be found in the original email; no formal quote or business action is created.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/supplierQuoteDrafts.ts",
+          "line": 230
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/SupplierQuoteDraft"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierQuoteDraftExtractRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/supplier-quote-drafts": {
+      "post": {
+        "operationId": "postSupplierQuoteDrafts",
+        "tags": [
+          "supplierQuoteDrafts"
+        ],
+        "summary": "POST /api/supplier-quote-drafts",
+        "description": "Creates an editable source-linked draft from confirmed email and inquiry facts. Missing or non-USD values remain draft data and do not create a SupplierQuote.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/supplierQuoteDrafts.ts",
+          "line": 321
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/SupplierQuoteDraft"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierQuoteDraftCreateRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      },
+      "get": {
+        "operationId": "getSupplierQuoteDrafts",
+        "tags": [
+          "supplierQuoteDrafts"
+        ],
+        "summary": "GET /api/supplier-quote-drafts",
+        "description": "Restores the latest persisted draft for one exact email and inquiry pair so a page refresh does not lose the editable work item.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/supplierQuoteDrafts.ts",
+          "line": 336
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "emailId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "inquiryId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SupplierQuoteDraftNullable"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/supplier-quote-drafts/{id}": {
+      "get": {
+        "operationId": "getSupplierQuoteDraftsId",
+        "tags": [
+          "supplierQuoteDrafts"
+        ],
+        "summary": "GET /api/supplier-quote-drafts/:id",
+        "description": "Reads an editable or confirmed supplier quote draft with its source and generated SupplierQuote identities.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/supplierQuoteDrafts.ts",
+          "line": 355
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SupplierQuoteDraft"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      },
+      "patch": {
+        "operationId": "patchSupplierQuoteDraftsId",
+        "tags": [
+          "supplierQuoteDrafts"
+        ],
+        "summary": "PATCH /api/supplier-quote-drafts/:id",
+        "description": "Revises an unconfirmed supplier quote draft using optimistic version checking. Confirmed drafts are immutable.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/supplierQuoteDrafts.ts",
+          "line": 369
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SupplierQuoteDraft"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierQuoteDraftPatchRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/supplier-quote-drafts/{id}/confirm": {
+      "post": {
+        "operationId": "postSupplierQuoteDraftsIdConfirm",
+        "tags": [
+          "supplierQuoteDrafts"
+        ],
+        "summary": "POST /api/supplier-quote-drafts/:id/confirm",
+        "description": "Explicitly confirms one complete draft version. Every item must bind to an immutable inquiry item and provide USD price, positive quantity and one lead-time value. Replays return the same formal quotes.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
+        "x-aerolink-source": {
+          "file": "server/src/routes/supplierQuoteDrafts.ts",
+          "line": 409
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SupplierQuoteDraftConfirm"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierQuoteDraftConfirmRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-ai-tasks": {
+      "post": {
+        "operationId": "postSourcingAiTasks",
+        "tags": [
+          "sourcingAiTasks"
+        ],
+        "summary": "POST /api/sourcing-ai-tasks",
+        "description": "Queues one server-owned supplier quote extraction task for the independent Worker. The persisted task is returned immediately; failures retain a safe summary, and only an editable draft may be created.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingAiTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingAiTasks.ts",
+          "line": 72
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingAiTask"
+          },
+          "201": {
+            "$ref": "#/components/responses/SourcingAiTask"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourcingAiTaskCreateRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      },
+      "get": {
+        "operationId": "getSourcingAiTasks",
+        "tags": [
+          "sourcingAiTasks"
+        ],
+        "summary": "GET /api/sourcing-ai-tasks",
+        "description": "Lists sourcing AI tasks owned by the authenticated actor; administrators may inspect all tasks. Raw email and model inputs are never returned.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingAiTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingAiTasks.ts",
+          "line": 114
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "emailId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "inquiryId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingAiTaskList"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-ai-tasks/{id}": {
+      "get": {
+        "operationId": "getSourcingAiTasksId",
+        "tags": [
+          "sourcingAiTasks"
+        ],
+        "summary": "GET /api/sourcing-ai-tasks/:id",
+        "description": "Reads one actor-owned sourcing AI task, or any task for an administrator.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingAiTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingAiTasks.ts",
+          "line": 138
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingAiTask"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-ai-tasks/{id}/retry": {
+      "post": {
+        "operationId": "postSourcingAiTasksIdRetry",
+        "tags": [
+          "sourcingAiTasks"
+        ],
+        "summary": "POST /api/sourcing-ai-tasks/:id/retry",
+        "description": "Requeues a failed task on the same persistent record when its attempt ceiling has not been reached. Execution occurs in the independent Worker and cannot create a formal supplier quote.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingAiTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingAiTasks.ts",
+          "line": 153
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingAiTask"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/JsonBody"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-ai-tasks/{id}/cancel": {
+      "post": {
+        "operationId": "postSourcingAiTasksIdCancel",
+        "tags": [
+          "sourcingAiTasks"
+        ],
+        "summary": "POST /api/sourcing-ai-tasks/:id/cancel",
+        "description": "Cancels a pending, running, or failed task using a conditional state transition. A running model request may finish, but its stale result cannot create a draft after cancellation.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingAiTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingAiTasks.ts",
+          "line": 194
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingAiTask"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/JsonBody"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
       }
     },
     "/api/upload": {
@@ -9794,7 +10719,7 @@
         "x-aerolink-owner": "P2-01/files",
         "x-aerolink-source": {
           "file": "server/src/routes/files.ts",
-          "line": 103
+          "line": 116
         },
         "security": [
           {
@@ -24050,7 +24975,7 @@
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 78
+          "line": 149
         },
         "security": [
           {
@@ -24099,7 +25024,7 @@
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 121
+          "line": 190
         },
         "security": [
           {
@@ -24165,7 +25090,7 @@
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 98
+          "line": 168
         },
         "security": [
           {
@@ -24220,12 +25145,12 @@
           "inquiries"
         ],
         "summary": "POST /api/inquiries/:id/send",
-        "description": "No dispatch channel is implemented. Returns 409 MANUAL_WORKFLOW_REQUIRED without changing status or sentAt.",
+        "description": "Queues one supplier inquiry email through the transactional outbox. A 202 response means queued, not delivered; deliveryStatus becomes sent only after the worker records SMTP acceptance. Supports Idempotency-Key replay.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 181
+          "line": 250
         },
         "security": [
           {
@@ -24254,6 +25179,9 @@
           }
         ],
         "responses": {
+          "202": {
+            "$ref": "#/components/responses/Inquiry"
+          },
           "400": {
             "$ref": "#/components/responses/Error"
           },
@@ -24267,14 +25195,7 @@
             "$ref": "#/components/responses/Error"
           },
           "409": {
-            "description": "Manual supplier contact required; inquiry has not been sent.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
+            "$ref": "#/components/responses/Error"
           },
           "422": {
             "$ref": "#/components/responses/Error"
@@ -24286,7 +25207,9 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "deprecated": true
+        "requestBody": {
+          "$ref": "#/components/requestBodies/InquirySend"
+        }
       }
     },
     "/api/exchange-vmi/exchanges": {
@@ -25428,7 +26351,7 @@
         "x-aerolink-owner": "P2-01/health",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 254
+          "line": 258
         },
         "security": [],
         "parameters": [],
@@ -25475,7 +26398,7 @@
         "x-aerolink-owner": "P2-01/metrics",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 258
+          "line": 262
         },
         "security": [
           {
@@ -25987,6 +26910,15 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/InquiryCreateRequest"
+            }
+          }
+        }
+      },
+      "InquirySend": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/InquirySendRequest"
             }
           }
         }
@@ -28548,6 +29480,66 @@
             }
           }
         }
+      },
+      "InquiryEmailLink": {
+        "description": "Confirmed email-to-inquiry link",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/InquiryEmailLinkEnvelope"
+            }
+          }
+        }
+      },
+      "SupplierQuoteDraft": {
+        "description": "Editable supplier quote draft",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SupplierQuoteDraftEnvelope"
+            }
+          }
+        }
+      },
+      "SupplierQuoteDraftNullable": {
+        "description": "Latest supplier quote draft, or null when none exists",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SupplierQuoteDraftNullableEnvelope"
+            }
+          }
+        }
+      },
+      "SupplierQuoteDraftConfirm": {
+        "description": "Confirmed draft and formal supplier quote identities",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SupplierQuoteDraftConfirmEnvelope"
+            }
+          }
+        }
+      },
+      "SourcingAiTask": {
+        "description": "Server-owned sourcing AI task",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SourcingAiTaskEnvelope"
+            }
+          }
+        }
+      },
+      "SourcingAiTaskList": {
+        "description": "Visible server-owned sourcing AI tasks",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SourcingAiTaskListEnvelope"
+            }
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -29824,7 +30816,13 @@
           "receivedAt",
           "type",
           "isRead",
-          "attachments"
+          "attachments",
+          "threadMatchStatus",
+          "threadMatchReason",
+          "attachmentStatus",
+          "attachmentError",
+          "inquiryLinks",
+          "attachmentRecords"
         ],
         "properties": {
           "id": {
@@ -29878,6 +30876,56 @@
               "null"
             ],
             "additionalProperties": true
+          },
+          "threadMatchStatus": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "PENDING",
+              "MATCHED",
+              "NEEDS_REVIEW",
+              "UNMATCHED",
+              null
+            ]
+          },
+          "threadMatchReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attachmentStatus": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "NONE",
+              "STORED",
+              "PARTIAL",
+              "REJECTED",
+              null
+            ]
+          },
+          "attachmentError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inquiryLinks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InquiryEmailLink"
+            }
+          },
+          "attachmentRecords": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EmailAttachmentRecord"
+            }
           }
         },
         "additionalProperties": true
@@ -29902,7 +30950,9 @@
         "type": "object",
         "required": [
           "success",
-          "data"
+          "data",
+          "pagination",
+          "summary"
         ],
         "properties": {
           "success": {
@@ -29916,6 +30966,9 @@
           },
           "pagination": {
             "$ref": "#/components/schemas/Pagination"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/EmailSummary"
           }
         },
         "additionalProperties": true
@@ -33930,6 +34983,8 @@
           "items",
           "isAOG",
           "status",
+          "deliveryStatus",
+          "latestOutboundEmail",
           "createdAt"
         ],
         "properties": {
@@ -33994,6 +35049,62 @@
           },
           "status": {
             "type": "string"
+          },
+          "deliveryStatus": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "queued",
+              "sent",
+              "failed"
+            ],
+            "readOnly": true
+          },
+          "latestOutboundEmail": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "status",
+                  "error",
+                  "sentAt"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "sent",
+                      "failed",
+                      "withdrawn"
+                    ]
+                  },
+                  "error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "sentAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "readOnly": true
           },
           "createdAt": {
             "type": "string",
@@ -34096,6 +35207,23 @@
               "type": "string",
               "minLength": 1
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "InquirySendRequest": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "textBody": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
           }
         },
         "additionalProperties": false
@@ -37879,11 +39007,25 @@
               "null"
             ]
           },
+          "rfqLineId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
           "inquiryId": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "inquiryItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
           },
           "partNumber": {
             "type": "string"
@@ -37919,6 +39061,21 @@
               }
             ],
             "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Historical missing currency remains null."
+          },
+          "currencyStatus": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "HISTORICAL_UNVERIFIED"
+            ],
+            "readOnly": true
           },
           "leadTimeDays": {
             "type": "integer",
@@ -38004,35 +39161,6 @@
               }
             },
             "additionalProperties": true
-          },
-          "currency": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Historical missing currency remains null."
-          },
-          "currencyStatus": {
-            "type": "string",
-            "enum": [
-              "VERIFIED",
-              "HISTORICAL_UNVERIFIED"
-            ],
-            "readOnly": true
-          },
-          "rfqLineId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "readOnly": true
-          },
-          "inquiryItemId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "readOnly": true
           }
         },
         "additionalProperties": true
@@ -38100,11 +39228,25 @@
               "null"
             ]
           },
+          "rfqLineId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
+          },
           "inquiryId": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "inquiryItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "readOnly": true
           },
           "partNumber": {
             "type": "string"
@@ -38140,6 +39282,21 @@
               }
             ],
             "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Historical missing currency remains null."
+          },
+          "currencyStatus": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "HISTORICAL_UNVERIFIED"
+            ],
+            "readOnly": true
           },
           "leadTimeDays": {
             "type": "integer",
@@ -38242,35 +39399,6 @@
               "null"
             ],
             "additionalProperties": true
-          },
-          "currency": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Historical missing currency remains null."
-          },
-          "currencyStatus": {
-            "type": "string",
-            "enum": [
-              "VERIFIED",
-              "HISTORICAL_UNVERIFIED"
-            ],
-            "readOnly": true
-          },
-          "rfqLineId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "readOnly": true
-          },
-          "inquiryItemId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "readOnly": true
           }
         },
         "additionalProperties": true
@@ -38351,325 +39479,428 @@
         },
         "additionalProperties": true
       },
-      "SupplierQuoteComparison": {
+      "SupplierQuoteComparisonItem": {
         "type": "object",
         "required": [
+          "id",
+          "rfqId",
+          "rfqLineId",
+          "inquiryId",
+          "inquiryItemId",
+          "partNumber",
+          "quantity",
+          "requiredQuantity",
+          "coversRequiredQuantity",
+          "quantityShortfall",
+          "validUntil",
+          "isExpired",
+          "comparisonEligibility",
+          "eligibleForComparison",
+          "eligibilityReasons",
+          "commercialTerms",
+          "commercialBasisKey",
+          "commercialBasisLabel",
+          "condition",
+          "conditionStatus",
+          "certificate",
+          "certificateStatus",
+          "certificateRequired",
+          "certificateRequirementStatus",
+          "warnings",
+          "supplier",
+          "unitPrice",
+          "totalPrice",
+          "currency",
+          "currencyStatus",
+          "leadTimeDays",
+          "isLowestPrice",
+          "scoreComponents",
+          "status",
+          "isWinner"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rfqId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rfqLineId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inquiryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inquiryItemId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "partNumber": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "requiredQuantity": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "coversRequiredQuantity": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "quantityShortfall": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "validUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "isExpired": {
+            "type": "boolean"
+          },
+          "comparisonEligibility": {
+            "type": "object",
+            "required": [
+              "eligible",
+              "reasons",
+              "warnings"
+            ],
+            "properties": {
+              "eligible": {
+                "type": "boolean"
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "eligibleForComparison": {
+            "type": "boolean"
+          },
+          "eligibilityReasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "commercialTerms": {
+            "type": "object",
+            "required": [
+              "condition",
+              "certificate",
+              "taxIncluded",
+              "freightIncluded",
+              "incoterm"
+            ],
+            "properties": {
+              "condition": {},
+              "certificate": {},
+              "taxIncluded": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "freightIncluded": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "incoterm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "commercialBasisKey": {
+            "type": "string"
+          },
+          "commercialBasisLabel": {
+            "type": "string"
+          },
+          "condition": {},
+          "conditionStatus": {
+            "type": "string",
+            "enum": [
+              "known",
+              "unknown"
+            ]
+          },
+          "certificate": {},
+          "certificateStatus": {
+            "type": "string",
+            "enum": [
+              "provided",
+              "missing",
+              "unknown"
+            ]
+          },
+          "certificateRequired": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "certificateRequirementStatus": {
+            "type": "string",
+            "enum": [
+              "not_required",
+              "provided",
+              "missing",
+              "unknown"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supplier": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "level"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string"
+              },
+              "level": {
+                "type": "string",
+                "enum": [
+                  "S",
+                  "A",
+                  "B",
+                  "C"
+                ]
+              },
+              "performanceScore": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "contactName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "contactEmail": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "email"
+              }
+            },
+            "additionalProperties": true
+          },
+          "unitPrice": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
+          },
+          "totalPrice": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currencyStatus": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "HISTORICAL_UNVERIFIED"
+            ]
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "priceDiff": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "isLowestPrice": {
+            "type": "boolean"
+          },
+          "scoreComponents": {
+            "type": "object",
+            "required": [
+              "price",
+              "leadTime",
+              "supplierPerformance"
+            ],
+            "properties": {
+              "price": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "leadTime": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "supplierPerformance": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "ruleScore": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected",
+              "expired"
+            ]
+          },
+          "isWinner": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      },
+      "SupplierQuoteCommercialBasisGroup": {
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "terms",
           "quotes",
           "topRanked",
           "summary",
           "metadata"
         ],
         "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "terms": {
+            "type": "object",
+            "required": [
+              "condition",
+              "certificate",
+              "taxIncluded",
+              "freightIncluded",
+              "incoterm"
+            ],
+            "properties": {
+              "condition": {},
+              "certificate": {},
+              "taxIncluded": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "freightIncluded": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "incoterm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
           "quotes": {
             "type": "array",
             "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "partNumber",
-                "supplier",
-                "unitPrice",
-                "totalPrice",
-                "leadTimeDays",
-                "isLowestPrice",
-                "scoreComponents",
-                "status",
-                "isWinner"
-              ],
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "partNumber": {
-                  "type": "string"
-                },
-                "supplier": {
-                  "type": "object",
-                  "required": [
-                    "id",
-                    "name",
-                    "level"
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "name": {
-                      "type": "string"
-                    },
-                    "level": {
-                      "type": "string",
-                      "enum": [
-                        "S",
-                        "A",
-                        "B",
-                        "C"
-                      ]
-                    },
-                    "performanceScore": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "contactName": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "contactEmail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "format": "email"
-                    }
-                  },
-                  "additionalProperties": true
-                },
-                "unitPrice": {
-                  "oneOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string"
-                    }
-                  ],
-                  "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
-                },
-                "totalPrice": {
-                  "oneOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string"
-                    }
-                  ],
-                  "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
-                },
-                "leadTimeDays": {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                "priceDiff": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "isLowestPrice": {
-                  "type": "boolean"
-                },
-                "scoreComponents": {
-                  "type": "object",
-                  "required": [
-                    "price",
-                    "leadTime",
-                    "supplierPerformance"
-                  ],
-                  "properties": {
-                    "price": {
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    },
-                    "leadTime": {
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    },
-                    "supplierPerformance": {
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "ruleScore": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "pending",
-                    "accepted",
-                    "rejected",
-                    "expired"
-                  ]
-                },
-                "isWinner": {
-                  "type": "boolean"
-                }
-              },
-              "additionalProperties": true
+              "$ref": "#/components/schemas/SupplierQuoteComparisonItem"
             }
           },
           "topRanked": {
             "oneOf": [
               {
-                "type": "object",
-                "required": [
-                  "id",
-                  "partNumber",
-                  "supplier",
-                  "unitPrice",
-                  "totalPrice",
-                  "leadTimeDays",
-                  "isLowestPrice",
-                  "scoreComponents",
-                  "status",
-                  "isWinner"
-                ],
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "partNumber": {
-                    "type": "string"
-                  },
-                  "supplier": {
-                    "type": "object",
-                    "required": [
-                      "id",
-                      "name",
-                      "level"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "level": {
-                        "type": "string",
-                        "enum": [
-                          "S",
-                          "A",
-                          "B",
-                          "C"
-                        ]
-                      },
-                      "performanceScore": {
-                        "type": [
-                          "number",
-                          "null"
-                        ]
-                      },
-                      "contactName": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "contactEmail": {
-                        "type": [
-                          "string",
-                          "null"
-                        ],
-                        "format": "email"
-                      }
-                    },
-                    "additionalProperties": true
-                  },
-                  "unitPrice": {
-                    "oneOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string"
-                      }
-                    ],
-                    "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
-                  },
-                  "totalPrice": {
-                    "oneOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string"
-                      }
-                    ],
-                    "description": "金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。"
-                  },
-                  "leadTimeDays": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "priceDiff": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "isLowestPrice": {
-                    "type": "boolean"
-                  },
-                  "scoreComponents": {
-                    "type": "object",
-                    "required": [
-                      "price",
-                      "leadTime",
-                      "supplierPerformance"
-                    ],
-                    "properties": {
-                      "price": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ]
-                      },
-                      "leadTime": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ]
-                      },
-                      "supplierPerformance": {
-                        "type": [
-                          "integer",
-                          "null"
-                        ]
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "ruleScore": {
-                    "type": [
-                      "number",
-                      "null"
-                    ]
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "pending",
-                      "accepted",
-                      "rejected",
-                      "expired"
-                    ]
-                  },
-                  "isWinner": {
-                    "type": "boolean"
-                  }
-                },
-                "additionalProperties": true
+                "$ref": "#/components/schemas/SupplierQuoteComparisonItem"
               },
               {
                 "type": "null"
@@ -38680,6 +39911,11 @@
             "type": "object",
             "required": [
               "totalQuotes",
+              "comparableQuoteCount",
+              "expiredQuoteCount",
+              "requiredQuantity",
+              "bestAvailableQuantity",
+              "remainingQuantityGap",
               "lowestPrice",
               "highestPrice",
               "averagePrice"
@@ -38687,6 +39923,46 @@
             "properties": {
               "totalQuotes": {
                 "type": "integer",
+                "minimum": 0
+              },
+              "comparableQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expiredQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "eligibleCommercialBasisGroupCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "differentCommercialBasisGroups": {
+                "type": "boolean"
+              },
+              "missingPerformanceCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "requiredQuantity": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1
+              },
+              "bestAvailableQuantity": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "remainingQuantityGap": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
                 "minimum": 0
               },
               "lowestPrice": {
@@ -38740,6 +40016,442 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "totalQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "excludedQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expiredQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "exclusionCounts": {
+                "type": "object",
+                "properties": {
+                  "expired": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unverifiedCurrency": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unavailableStatus": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "asOf": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "decisionBoundary": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": true
+      },
+      "SupplierQuoteComparisonGroup": {
+        "type": "object",
+        "required": [
+          "partNumber",
+          "quotes",
+          "commercialBasisGroups",
+          "topRanked",
+          "summary",
+          "metadata"
+        ],
+        "properties": {
+          "partNumber": {
+            "type": "string"
+          },
+          "quotes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupplierQuoteComparisonItem"
+            }
+          },
+          "commercialBasisGroups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupplierQuoteCommercialBasisGroup"
+            }
+          },
+          "topRanked": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SupplierQuoteComparisonItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "totalQuotes",
+              "comparableQuoteCount",
+              "expiredQuoteCount",
+              "requiredQuantity",
+              "bestAvailableQuantity",
+              "remainingQuantityGap",
+              "lowestPrice",
+              "highestPrice",
+              "averagePrice"
+            ],
+            "properties": {
+              "totalQuotes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "comparableQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expiredQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "eligibleCommercialBasisGroupCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "differentCommercialBasisGroups": {
+                "type": "boolean"
+              },
+              "missingPerformanceCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "requiredQuantity": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1
+              },
+              "bestAvailableQuantity": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "remainingQuantityGap": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "lowestPrice": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "highestPrice": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "averagePrice": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "metadata": {
+            "type": "object",
+            "required": [
+              "status",
+              "source",
+              "algorithmVersion",
+              "sampleSize",
+              "asOf",
+              "reason",
+              "decisionBoundary"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "available",
+                  "insufficient_data",
+                  "unavailable"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "algorithmVersion": {
+                "type": "string"
+              },
+              "sampleSize": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "totalQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "excludedQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expiredQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "exclusionCounts": {
+                "type": "object",
+                "properties": {
+                  "expired": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unverifiedCurrency": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unavailableStatus": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "asOf": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "decisionBoundary": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": true
+      },
+      "SupplierQuoteComparison": {
+        "type": "object",
+        "required": [
+          "rfqId",
+          "rfqLineId",
+          "inquiryId",
+          "inquiryItemId",
+          "quotes",
+          "partNumberGroups",
+          "topRanked",
+          "summary",
+          "metadata"
+        ],
+        "properties": {
+          "rfqId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rfqLineId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inquiryId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inquiryItemId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quotes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupplierQuoteComparisonItem"
+            }
+          },
+          "partNumberGroups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupplierQuoteComparisonGroup"
+            }
+          },
+          "topRanked": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SupplierQuoteComparisonItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "totalQuotes",
+              "comparableQuoteCount",
+              "expiredQuoteCount",
+              "requiredQuantity",
+              "bestAvailableQuantity",
+              "remainingQuantityGap",
+              "lowestPrice",
+              "highestPrice",
+              "averagePrice"
+            ],
+            "properties": {
+              "totalQuotes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "comparableQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expiredQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "eligibleCommercialBasisGroupCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "differentCommercialBasisGroups": {
+                "type": "boolean"
+              },
+              "missingPerformanceCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "requiredQuantity": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1
+              },
+              "bestAvailableQuantity": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "remainingQuantityGap": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "lowestPrice": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "highestPrice": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "averagePrice": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "metadata": {
+            "type": "object",
+            "required": [
+              "status",
+              "source",
+              "algorithmVersion",
+              "sampleSize",
+              "asOf",
+              "reason",
+              "decisionBoundary"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "available",
+                  "insufficient_data",
+                  "unavailable"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "algorithmVersion": {
+                "type": "string"
+              },
+              "sampleSize": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "totalQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "excludedQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expiredQuoteCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "exclusionCounts": {
+                "type": "object",
+                "properties": {
+                  "expired": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unverifiedCurrency": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unavailableStatus": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
               "asOf": {
                 "type": "string",
                 "format": "date-time"
@@ -38786,7 +40498,15 @@
             "type": "string",
             "minLength": 1
           },
+          "rfqLineId": {
+            "type": "string",
+            "minLength": 1
+          },
           "inquiryId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inquiryItemId": {
             "type": "string",
             "minLength": 1
           },
@@ -38809,6 +40529,13 @@
             "type": "number",
             "minimum": 0
           },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ],
+            "default": "USD"
+          },
           "leadTimeDays": {
             "type": "integer",
             "minimum": 0
@@ -38819,21 +40546,6 @@
           },
           "notes": {
             "type": "string"
-          },
-          "currency": {
-            "type": "string",
-            "enum": [
-              "USD"
-            ],
-            "default": "USD"
-          },
-          "rfqLineId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "inquiryItemId": {
-            "type": "string",
-            "minLength": 1
           }
         },
         "additionalProperties": false,
@@ -38843,39 +40555,6 @@
         "type": "object",
         "required": [],
         "properties": {
-          "unitPrice": {
-            "type": "number",
-            "minimum": 0
-          },
-          "leadTimeDays": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "validUntil": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "notes": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "accepted",
-              "rejected",
-              "expired"
-            ]
-          },
-          "isWinner": {
-            "type": "boolean"
-          },
-          "currency": {
-            "type": "string",
-            "enum": [
-              "USD"
-            ]
-          },
           "rfqId": {
             "type": "string",
             "minLength": 1
@@ -38899,40 +40578,89 @@
           "quantity": {
             "type": "integer",
             "minimum": 1
+          },
+          "unitPrice": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ]
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected",
+              "expired"
+            ]
+          },
+          "isWinner": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
         "description": "Updates commercial availability without rewriting captured quotation cost snapshots. Source identity changes require a new supplier quote; sending the unchanged IDs is allowed."
       },
       "SupplierQuoteCompareRequest": {
-        "oneOf": [
+        "type": "object",
+        "required": [],
+        "properties": {
+          "rfqId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rfqLineId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inquiryItemId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "anyOf": [
           {
-            "type": "object",
             "required": [
-              "rfqId"
-            ],
-            "properties": {
-              "rfqId": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "additionalProperties": false
+              "rfqLineId"
+            ]
           },
           {
-            "type": "object",
+            "required": [
+              "inquiryItemId"
+            ]
+          },
+          {
+            "required": [
+              "rfqId"
+            ]
+          },
+          {
             "required": [
               "inquiryId"
-            ],
-            "properties": {
-              "inquiryId": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "additionalProperties": false
+            ]
           }
-        ]
+        ],
+        "description": "Prefer rfqLineId or inquiryItemId. Legacy rfqId/inquiryId-only requests are accepted only when the server can resolve exactly one demand line."
       },
       "AuditLog": {
         "type": "object",
@@ -56423,12 +58151,917 @@
           "data"
         ],
         "additionalProperties": false
+      },
+      "InquiryEmailLink": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "emailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "AUTO_MESSAGE_ID",
+              "MANUAL"
+            ]
+          },
+          "confirmationStatus": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "CONFIRMED",
+              "REJECTED"
+            ]
+          },
+          "manualReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confirmedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "confirmedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "inquiry": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "inquiryNumber": {
+                    "type": "string"
+                  },
+                  "supplierId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "id",
+                  "inquiryNumber",
+                  "supplierId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "emailId",
+          "inquiryId",
+          "method",
+          "confirmationStatus",
+          "manualReason",
+          "confirmedAt",
+          "confirmedById",
+          "createdAt",
+          "inquiry"
+        ],
+        "additionalProperties": false
+      },
+      "EmailAttachmentRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "filename": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "contentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storedObjectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "downloadUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "contentType",
+          "sizeBytes",
+          "sha256",
+          "contentId",
+          "storedObjectId",
+          "downloadUrl",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "EmailSummary": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "aog": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "standard": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inquiry": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unread": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "spam": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "total",
+          "aog",
+          "standard",
+          "inquiry",
+          "unread",
+          "spam"
+        ],
+        "additionalProperties": false
+      },
+      "EmailInquiryLinkRequest": {
+        "type": "object",
+        "properties": {
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "manualReason": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "inquiryId"
+        ],
+        "additionalProperties": false
+      },
+      "InquiryEmailLinkEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/InquiryEmailLink"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftItem": {
+        "type": "object",
+        "properties": {
+          "itemKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inquiryItemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "partNumber": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantityUnit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "exclusiveMinimum": 0
+          },
+          "unitPrice": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Z]{3}$"
+          },
+          "leadTimeDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "leadTimeMinDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "leadTimeMaxDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "validUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "condition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "certificate": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "taxIncluded": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "freightIncluded": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "incoterm": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 2,
+            "maxLength": 20
+          },
+          "evidenceText": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "itemKey"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftPayload": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/SupplierQuoteDraftItem"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraft": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "emailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "supplierId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "CONFIRMED"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "payload": {
+            "$ref": "#/components/schemas/SupplierQuoteDraftPayload"
+          },
+          "aiProvider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aiModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aiPromptVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aiConfidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "aiMetadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "confirmedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "confirmedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "email": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "inquiry": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "supplier": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "supplierQuotes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "id",
+          "emailId",
+          "inquiryId",
+          "supplierId",
+          "status",
+          "version",
+          "payload",
+          "aiProvider",
+          "aiModel",
+          "aiPromptVersion",
+          "aiConfidence",
+          "aiMetadata",
+          "confirmedAt",
+          "confirmedById",
+          "createdAt",
+          "updatedAt",
+          "email",
+          "inquiry",
+          "supplier",
+          "supplierQuotes"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/SupplierQuoteDraft"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftNullableEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SupplierQuoteDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftCreateRequest": {
+        "type": "object",
+        "properties": {
+          "emailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "payload": {
+            "$ref": "#/components/schemas/SupplierQuoteDraftPayload"
+          }
+        },
+        "required": [
+          "emailId",
+          "inquiryId",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftExtractRequest": {
+        "type": "object",
+        "properties": {
+          "emailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "emailId",
+          "inquiryId"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftPatchRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "payload": {
+            "$ref": "#/components/schemas/SupplierQuoteDraftPayload"
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "expectedVersion"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftConfirmResult": {
+        "type": "object",
+        "properties": {
+          "draftId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "const": "CONFIRMED"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reused": {
+            "type": "boolean"
+          },
+          "supplierQuoteIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "createdSupplierQuoteIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "reusedSupplierQuoteIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "supplierQuotes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupplierQuote"
+            }
+          }
+        },
+        "required": [
+          "draftId",
+          "status",
+          "version",
+          "reused",
+          "supplierQuoteIds",
+          "createdSupplierQuoteIds",
+          "reusedSupplierQuoteIds",
+          "supplierQuotes"
+        ],
+        "additionalProperties": false
+      },
+      "SupplierQuoteDraftConfirmEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/SupplierQuoteDraftConfirmResult"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingAiTask": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "actorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "type": {
+            "type": "string",
+            "const": "supplier_quote_extraction"
+          },
+          "emailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "RUNNING",
+              "COMPLETED",
+              "FAILED",
+              "CANCELLED"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "draftId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "errorSummary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancelledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "actorId",
+          "type",
+          "emailId",
+          "inquiryId",
+          "status",
+          "attempt",
+          "maxAttempts",
+          "draftId",
+          "errorSummary",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "cancelledAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingAiTaskCreateRequest": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "supplier_quote_extraction"
+          },
+          "emailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "type",
+          "emailId",
+          "inquiryId",
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingAiTaskEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/SourcingAiTask"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingAiTaskListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourcingAiTask"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
       }
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
-      "mountCount": 60,
-      "operationCount": 363
+      "mountCount": 62,
+      "operationCount": 375
     }
   }
 }

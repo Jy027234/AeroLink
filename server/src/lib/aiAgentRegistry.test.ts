@@ -60,19 +60,28 @@ function registryDouble() {
 }
 
 describe('AI agent registry', () => {
-  it('exports the four built-in workflows with the agreed input variables', () => {
+  it('exports the five built-in workflows with the agreed input variables', () => {
     expect(BUILTIN_AGENTS.map((agent) => agent.key)).toEqual([
       'rfq_extraction',
+      'supplier_quote_extraction',
       'quote_analysis',
       'customer_email',
       'business_chat',
     ]);
     expect(BUILTIN_AGENTS.map((agent) => agent.variables)).toEqual([
       ['subject', 'body'],
+      ['subject', 'body', 'inquiryContext'],
       ['rfqDetails', 'supplierQuotes'],
       ['quotation'],
       ['message'],
     ]);
+    const quoteExtraction = getBuiltinAgent('supplier_quote_extraction');
+    expect(quoteExtraction?.prompts[0].content).toContain('不可信数据');
+    expect(quoteExtraction?.prompts[0].content).toContain('绝不声称或尝试创建、修改、确认报价');
+    expect(quoteExtraction?.prompts[1].content).toContain('taxIncluded');
+    expect(quoteExtraction?.prompts[1].content).toContain('freightIncluded');
+    expect(quoteExtraction?.prompts[1].content).toContain('incoterm');
+    expect(quoteExtraction?.prompts[1].content).toContain('否则为 null');
     expect(getBuiltinAgent('missing')).toBeUndefined();
   });
 
@@ -91,16 +100,16 @@ describe('AI agent registry', () => {
   it('initializes missing rows and v1 snapshots idempotently without overwriting edits', async () => {
     const double = registryDouble();
     await ensureBuiltinAgents(double.client);
-    expect(double.agents.size).toBe(4);
-    expect(double.versions.size).toBe(4);
-    expect(double.counts()).toEqual({ agentCreates: 4, versionCreates: 4 });
+    expect(double.agents.size).toBe(5);
+    expect(double.versions.size).toBe(5);
+    expect(double.counts()).toEqual({ agentCreates: 5, versionCreates: 5 });
 
     const rfq = double.agents.get('builtin-rfq_extraction');
     rfq.prompts = JSON.stringify([{ role: 'user', content: 'custom draft' }]);
     rfq.config = JSON.stringify({ modelId: 'custom-model', temperature: 0.4 });
     rfq.publishedVersion = null;
     await ensureBuiltinAgents(double.client);
-    expect(double.counts()).toEqual({ agentCreates: 4, versionCreates: 4 });
+    expect(double.counts()).toEqual({ agentCreates: 5, versionCreates: 5 });
     expect(JSON.parse(double.agents.get('builtin-rfq_extraction').prompts)).toEqual([{ role: 'user', content: 'custom draft' }]);
     expect(JSON.parse(double.agents.get('builtin-rfq_extraction').config)).toEqual({ modelId: 'custom-model', temperature: 0.4 });
     expect(double.agents.get('builtin-rfq_extraction').publishedVersion).toBeNull();

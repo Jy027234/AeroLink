@@ -13,6 +13,7 @@ import { applyShipmentContract } from './shipment-contract.mjs';
 import { applyPurchaseCommitmentContract } from './purchase-commitment-contract.mjs';
 import { applySettlementContract } from './settlement-contract.mjs';
 import { applyAiAgentContract } from './ai-agent-contract.mjs';
+import { applySourcingEmailContract } from './sourcing-email-contract.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const outputPath = path.join(repoRoot, 'contracts', 'openapi', 'openapi.json');
@@ -731,7 +732,7 @@ function supportingOperationContract(endpoint, openApiPath) {
     case 'GET /api/inquiries': operation.requestBody = undefined; operation.responses = response('InquiryList'); break;
     case 'GET /api/inquiries/:id': operation.requestBody = undefined; operation.responses = response('Inquiry'); break;
     case 'POST /api/inquiries': operation.requestBody = requestBodyRef('InquiryCreate'); operation.responses = response('InquiryList', '201'); break;
-    case 'POST /api/inquiries/:id/send': operation.requestBody = undefined; operation.responses = response('Inquiry'); break;
+    case 'POST /api/inquiries/:id/send': operation.requestBody = requestBodyRef('InquirySend'); operation.responses = response('Inquiry', '202'); break;
     case 'GET /api/notification-preferences/mine': operation.requestBody = undefined; operation.responses = response('NotificationPreference'); break;
     case 'PUT /api/notification-preferences/mine': operation.requestBody = requestBodyRef('NotificationPreferenceUpdate'); operation.responses = response('NotificationPreference'); break;
     case 'GET /api/channel-bindings/mine': operation.requestBody = undefined; operation.responses = response('ChannelBindingList'); break;
@@ -2023,6 +2024,7 @@ function coreComponents() {
     InventoryRelease: { required: true, content: { 'application/json': { schema: schemaRef('InventoryReleaseRequest') } } },
     InventoryOutbound: { required: true, content: { 'application/json': { schema: schemaRef('InventoryOutboundRequest') } } },
     InquiryCreate: { required: true, content: { 'application/json': { schema: schemaRef('InquiryCreateRequest') } } },
+    InquirySend: { content: { 'application/json': { schema: schemaRef('InquirySendRequest') } } },
     NotificationPreferenceUpdate: { required: true, content: { 'application/json': { schema: schemaRef('NotificationPreferenceUpdateRequest') } } },
     ChannelBindingCreate: { required: true, content: { 'application/json': { schema: schemaRef('ChannelBindingCreateRequest') } } },
     ChannelBindingUpdate: { content: { 'application/json': { schema: schemaRef('ChannelBindingUpdateRequest') } } },
@@ -2252,12 +2254,16 @@ function coreComponents() {
   const supplierQuote = coreResourceSchema({
     id,
     rfqId: { type: ['string', 'null'] },
+    rfqLineId: { type: ['string', 'null'] },
     inquiryId: { type: ['string', 'null'] },
+    inquiryItemId: { type: ['string', 'null'] },
     partNumber: { type: 'string' },
     description: { type: ['string', 'null'] },
     quantity: { type: 'integer', minimum: 1 },
     unitPrice: moneySchema(),
     totalPrice: moneySchema(),
+    currency: { type: ['string', 'null'] },
+    currencyStatus: { type: 'string', enum: ['VERIFIED', 'HISTORICAL_UNVERIFIED'] },
     leadTimeDays: { type: 'integer', minimum: 0 },
     validUntil: { type: ['string', 'null'], format: 'date-time' },
     notes: { type: ['string', 'null'] },
@@ -2269,10 +2275,55 @@ function coreComponents() {
   }, ['id', 'partNumber', 'quantity', 'unitPrice', 'totalPrice', 'leadTimeDays', 'status', 'isWinner', 'createdAt', 'supplier']);
   const supplierQuoteComparisonItem = coreResourceSchema({
     id,
+    rfqId: { type: ['string', 'null'] },
+    rfqLineId: { type: ['string', 'null'] },
+    inquiryId: { type: ['string', 'null'] },
+    inquiryItemId: { type: ['string', 'null'] },
     partNumber: { type: 'string' },
+    quantity: { type: 'integer', minimum: 1 },
+    requiredQuantity: { type: ['integer', 'null'], minimum: 1 },
+    coversRequiredQuantity: { type: ['boolean', 'null'] },
+    quantityShortfall: { type: ['integer', 'null'], minimum: 0 },
+    validUntil: { type: ['string', 'null'], format: 'date-time' },
+    isExpired: { type: 'boolean' },
+    comparisonEligibility: {
+      type: 'object',
+      required: ['eligible', 'reasons', 'warnings'],
+      properties: {
+        eligible: { type: 'boolean' },
+        reasons: { type: 'array', items: { type: 'string' } },
+        warnings: { type: 'array', items: { type: 'string' } },
+      },
+      additionalProperties: false,
+    },
+    eligibleForComparison: { type: 'boolean' },
+    eligibilityReasons: { type: 'array', items: { type: 'string' } },
+    commercialTerms: {
+      type: 'object',
+      required: ['condition', 'certificate', 'taxIncluded', 'freightIncluded', 'incoterm'],
+      properties: {
+        condition: {},
+        certificate: {},
+        taxIncluded: { type: ['boolean', 'null'] },
+        freightIncluded: { type: ['boolean', 'null'] },
+        incoterm: { type: ['string', 'null'] },
+      },
+      additionalProperties: false,
+    },
+    commercialBasisKey: { type: 'string' },
+    commercialBasisLabel: { type: 'string' },
+    condition: {},
+    conditionStatus: { type: 'string', enum: ['known', 'unknown'] },
+    certificate: {},
+    certificateStatus: { type: 'string', enum: ['provided', 'missing', 'unknown'] },
+    certificateRequired: { type: ['boolean', 'null'] },
+    certificateRequirementStatus: { type: 'string', enum: ['not_required', 'provided', 'missing', 'unknown'] },
+    warnings: { type: 'array', items: { type: 'string' } },
     supplier: supplierQuoteSupplier,
     unitPrice: moneySchema(),
     totalPrice: moneySchema(),
+    currency: { type: ['string', 'null'] },
+    currencyStatus: { type: 'string', enum: ['VERIFIED', 'HISTORICAL_UNVERIFIED'] },
     leadTimeDays: { type: 'integer', minimum: 0 },
     priceDiff: { type: ['number', 'null'] },
     isLowestPrice: { type: 'boolean' },
@@ -2289,36 +2340,91 @@ function coreComponents() {
     ruleScore: { type: ['number', 'null'] },
     status: { type: 'string', enum: ['pending', 'accepted', 'rejected', 'expired'] },
     isWinner: { type: 'boolean' },
-  }, ['id', 'partNumber', 'supplier', 'unitPrice', 'totalPrice', 'leadTimeDays', 'isLowestPrice', 'scoreComponents', 'status', 'isWinner']);
+  }, ['id', 'rfqId', 'rfqLineId', 'inquiryId', 'inquiryItemId', 'partNumber', 'quantity', 'requiredQuantity', 'coversRequiredQuantity', 'quantityShortfall', 'validUntil', 'isExpired', 'comparisonEligibility', 'eligibleForComparison', 'eligibilityReasons', 'commercialTerms', 'commercialBasisKey', 'commercialBasisLabel', 'condition', 'conditionStatus', 'certificate', 'certificateStatus', 'certificateRequired', 'certificateRequirementStatus', 'warnings', 'supplier', 'unitPrice', 'totalPrice', 'currency', 'currencyStatus', 'leadTimeDays', 'isLowestPrice', 'scoreComponents', 'status', 'isWinner']);
+  const supplierQuoteComparisonSummary = {
+    type: 'object',
+    required: ['totalQuotes', 'comparableQuoteCount', 'expiredQuoteCount', 'requiredQuantity', 'bestAvailableQuantity', 'remainingQuantityGap', 'lowestPrice', 'highestPrice', 'averagePrice'],
+    properties: {
+      totalQuotes: { type: 'integer', minimum: 0 },
+      comparableQuoteCount: { type: 'integer', minimum: 0 },
+      expiredQuoteCount: { type: 'integer', minimum: 0 },
+      eligibleCommercialBasisGroupCount: { type: 'integer', minimum: 0 },
+      differentCommercialBasisGroups: { type: 'boolean' },
+      missingPerformanceCount: { type: 'integer', minimum: 0 },
+      requiredQuantity: { type: ['integer', 'null'], minimum: 1 },
+      bestAvailableQuantity: { type: ['integer', 'null'], minimum: 0 },
+      remainingQuantityGap: { type: ['integer', 'null'], minimum: 0 },
+      lowestPrice: { type: ['number', 'null'] },
+      highestPrice: { type: ['number', 'null'] },
+      averagePrice: { type: ['number', 'null'] },
+    },
+    additionalProperties: false,
+  };
+  const supplierQuoteComparisonMetadata = {
+    type: 'object',
+    required: ['status', 'source', 'algorithmVersion', 'sampleSize', 'asOf', 'reason', 'decisionBoundary'],
+    properties: {
+      status: { type: 'string', enum: ['available', 'insufficient_data', 'unavailable'] },
+      source: { type: 'string' },
+      algorithmVersion: { type: 'string' },
+      sampleSize: { type: 'integer', minimum: 0 },
+      totalQuoteCount: { type: 'integer', minimum: 0 },
+      excludedQuoteCount: { type: 'integer', minimum: 0 },
+      expiredQuoteCount: { type: 'integer', minimum: 0 },
+      exclusionCounts: {
+        type: 'object',
+        properties: {
+          expired: { type: 'integer', minimum: 0 },
+          unverifiedCurrency: { type: 'integer', minimum: 0 },
+          unavailableStatus: { type: 'integer', minimum: 0 },
+        },
+        additionalProperties: false,
+      },
+      asOf: dateTime,
+      reason: { type: 'string' },
+      decisionBoundary: { type: 'string' },
+    },
+    additionalProperties: false,
+  };
+  const supplierQuoteCommercialBasisGroup = coreResourceSchema({
+    key: { type: 'string' },
+    label: { type: 'string' },
+    terms: {
+      type: 'object',
+      required: ['condition', 'certificate', 'taxIncluded', 'freightIncluded', 'incoterm'],
+      properties: {
+        condition: {},
+        certificate: {},
+        taxIncluded: { type: ['boolean', 'null'] },
+        freightIncluded: { type: ['boolean', 'null'] },
+        incoterm: { type: ['string', 'null'] },
+      },
+      additionalProperties: false,
+    },
+    quotes: { type: 'array', items: schemaRef('SupplierQuoteComparisonItem') },
+    topRanked: { oneOf: [schemaRef('SupplierQuoteComparisonItem'), { type: 'null' }] },
+    summary: supplierQuoteComparisonSummary,
+    metadata: supplierQuoteComparisonMetadata,
+  }, ['key', 'label', 'terms', 'quotes', 'topRanked', 'summary', 'metadata']);
+  const supplierQuoteComparisonGroup = coreResourceSchema({
+    partNumber: { type: 'string' },
+    quotes: { type: 'array', items: schemaRef('SupplierQuoteComparisonItem') },
+    commercialBasisGroups: { type: 'array', items: schemaRef('SupplierQuoteCommercialBasisGroup') },
+    topRanked: { oneOf: [schemaRef('SupplierQuoteComparisonItem'), { type: 'null' }] },
+    summary: supplierQuoteComparisonSummary,
+    metadata: supplierQuoteComparisonMetadata,
+  }, ['partNumber', 'quotes', 'commercialBasisGroups', 'topRanked', 'summary', 'metadata']);
   const supplierQuoteComparison = coreResourceSchema({
-    quotes: { type: 'array', items: supplierQuoteComparisonItem },
-    topRanked: { oneOf: [supplierQuoteComparisonItem, { type: 'null' }] },
-    summary: {
-      type: 'object',
-      required: ['totalQuotes', 'lowestPrice', 'highestPrice', 'averagePrice'],
-      properties: {
-        totalQuotes: { type: 'integer', minimum: 0 },
-        lowestPrice: { type: ['number', 'null'] },
-        highestPrice: { type: ['number', 'null'] },
-        averagePrice: { type: ['number', 'null'] },
-      },
-      additionalProperties: false,
-    },
-    metadata: {
-      type: 'object',
-      required: ['status', 'source', 'algorithmVersion', 'sampleSize', 'asOf', 'reason', 'decisionBoundary'],
-      properties: {
-        status: { type: 'string', enum: ['available', 'insufficient_data', 'unavailable'] },
-        source: { type: 'string' },
-        algorithmVersion: { type: 'string' },
-        sampleSize: { type: 'integer', minimum: 0 },
-        asOf: dateTime,
-        reason: { type: 'string' },
-        decisionBoundary: { type: 'string' },
-      },
-      additionalProperties: false,
-    },
-  }, ['quotes', 'topRanked', 'summary', 'metadata']);
+    rfqId: { type: ['string', 'null'] },
+    rfqLineId: { type: ['string', 'null'] },
+    inquiryId: { type: ['string', 'null'] },
+    inquiryItemId: { type: ['string', 'null'] },
+    quotes: { type: 'array', items: schemaRef('SupplierQuoteComparisonItem') },
+    partNumberGroups: { type: 'array', items: schemaRef('SupplierQuoteComparisonGroup') },
+    topRanked: { oneOf: [schemaRef('SupplierQuoteComparisonItem'), { type: 'null' }] },
+    summary: supplierQuoteComparisonSummary,
+    metadata: supplierQuoteComparisonMetadata,
+  }, ['rfqId', 'rfqLineId', 'inquiryId', 'inquiryItemId', 'quotes', 'partNumberGroups', 'topRanked', 'summary', 'metadata']);
   const auditLog = coreResourceSchema({
     id,
     userId: { type: ['string', 'null'] },
@@ -3152,7 +3258,35 @@ function coreComponents() {
   const shipmentRisk = coreResourceSchema({ partNumber: { type: 'string' }, hsCode: { type: 'string' }, riskLevel: { type: 'string', enum: ['high', 'medium', 'low'] }, inspectionRate: { type: 'number', minimum: 0, maximum: 100 }, requiredDocs: { type: 'array', items: { type: 'string' } }, recommendations: { type: 'array', items: { type: 'string' } } }, ['partNumber', 'hsCode', 'riskLevel', 'inspectionRate', 'requiredDocs', 'recommendations']);
   const shipmentAlert = coreResourceSchema({ id, type: { type: 'string', enum: ['delay', 'customs', 'resolved'] }, title: { type: 'string' }, description: { type: 'string' }, orderId: id, partNumber: { type: 'string' }, status: { type: 'string', enum: ['open', 'in_progress', 'resolved'] }, createdAt: dateTime }, ['id', 'type', 'title', 'description', 'orderId', 'partNumber', 'status', 'createdAt']);
   const inquiryItem = coreResourceSchema({ partNumber: { type: 'string' }, quantity: { type: 'integer', minimum: 1 }, requiredDate: dateTime, certificateRequired: { type: 'boolean' } }, ['partNumber', 'quantity', 'requiredDate', 'certificateRequired']);
-  const inquiry = coreResourceSchema({ id, inquiryNumber: { type: 'string' }, supplierId: id, supplierName: { type: 'string' }, items: { type: 'array', items: inquiryItem }, isAOG: { type: 'boolean' }, status: { type: 'string' }, createdAt: dateTime, sentAt: { type: ['string', 'null'], format: 'date-time' } }, ['id', 'inquiryNumber', 'supplierId', 'supplierName', 'items', 'isAOG', 'status', 'createdAt']);
+  const inquiry = coreResourceSchema({
+    id,
+    inquiryNumber: { type: 'string' },
+    supplierId: id,
+    supplierName: { type: 'string' },
+    items: { type: 'array', items: inquiryItem },
+    isAOG: { type: 'boolean' },
+    status: { type: 'string' },
+    deliveryStatus: { type: 'string', enum: ['draft', 'queued', 'sent', 'failed'], readOnly: true },
+    latestOutboundEmail: {
+      oneOf: [
+        {
+          type: 'object',
+          required: ['id', 'status', 'error', 'sentAt'],
+          properties: {
+            id,
+            status: { type: 'string', enum: ['pending', 'sent', 'failed', 'withdrawn'] },
+            error: { type: ['string', 'null'] },
+            sentAt: { type: ['string', 'null'], format: 'date-time' },
+          },
+          additionalProperties: false,
+        },
+        { type: 'null' },
+      ],
+      readOnly: true,
+    },
+    createdAt: dateTime,
+    sentAt: { type: ['string', 'null'], format: 'date-time' },
+  }, ['id', 'inquiryNumber', 'supplierId', 'supplierName', 'items', 'isAOG', 'status', 'deliveryStatus', 'latestOutboundEmail', 'createdAt']);
   const notificationPreference = coreResourceSchema({ id, userId: id, emailNotify: { type: 'boolean' }, systemNotify: { type: 'boolean' }, approvalNotify: { type: 'boolean' }, aogAlert: { type: 'boolean' }, weeklyReport: { type: 'boolean' }, wechatNotify: { type: 'boolean' }, dingtalkNotify: { type: 'boolean' }, larkNotify: { type: 'boolean' }, smsNotify: { type: 'boolean' }, pushNotify: { type: 'boolean' }, createdAt: dateTime, updatedAt: dateTime }, ['id', 'userId', 'emailNotify', 'systemNotify', 'approvalNotify', 'aogAlert', 'weeklyReport', 'wechatNotify', 'dingtalkNotify', 'larkNotify', 'smsNotify', 'pushNotify', 'createdAt', 'updatedAt']);
   const channelBinding = coreResourceSchema({ id, userId: id, channel: { type: 'string' }, config: { type: 'object', additionalProperties: { type: 'string' } }, isActive: { type: 'boolean' }, createdAt: dateTime, updatedAt: dateTime }, ['id', 'userId', 'channel', 'config', 'isActive', 'createdAt', 'updatedAt']);
   const resourceResponse = (description, schema) => ({
@@ -3316,6 +3450,10 @@ function coreComponents() {
       InquiryEnvelope: envelope(schemaRef('Inquiry')),
       InquiryListEnvelope: envelope({ type: 'array', items: schemaRef('Inquiry') }),
       InquiryCreateRequest: coreRequestSchema({ rfqId: id, supplierIds: { type: 'array', items: id, minItems: 1, maxItems: 100 }, isAOG: { type: 'boolean' } }, ['rfqId', 'supplierIds']),
+      InquirySendRequest: coreRequestSchema({
+        subject: { type: 'string', minLength: 1, maxLength: 255 },
+        textBody: { type: 'string', minLength: 1, maxLength: 20000 },
+      }),
       NotificationPreference: notificationPreference,
       NotificationPreferenceEnvelope: envelope(schemaRef('NotificationPreference')),
       NotificationPreferenceUpdateRequest: coreRequestSchema({ emailNotify: { type: 'boolean' }, systemNotify: { type: 'boolean' }, approvalNotify: { type: 'boolean' }, aogAlert: { type: 'boolean' }, weeklyReport: { type: 'boolean' }, wechatNotify: { type: 'boolean' }, dingtalkNotify: { type: 'boolean' }, larkNotify: { type: 'boolean' }, smsNotify: { type: 'boolean' }, pushNotify: { type: 'boolean' } }),
@@ -3405,22 +3543,35 @@ function coreComponents() {
       SupplierQuoteDeleteEnvelope: envelope(schemaRef('SupplierQuoteDelete')),
       SupplierQuoteWinner: coreResourceSchema({ message: { type: 'string' }, data: schemaRef('SupplierQuote') }, ['message', 'data']),
       SupplierQuoteWinnerEnvelope: envelope(schemaRef('SupplierQuoteWinner')),
+      SupplierQuoteComparisonItem: supplierQuoteComparisonItem,
+      SupplierQuoteCommercialBasisGroup: supplierQuoteCommercialBasisGroup,
+      SupplierQuoteComparisonGroup: supplierQuoteComparisonGroup,
       SupplierQuoteComparison: supplierQuoteComparison,
       SupplierQuoteComparisonEnvelope: envelope(schemaRef('SupplierQuoteComparison')),
       SupplierQuoteCreateRequest: coreRequestSchema({
         rfqId: id,
+        rfqLineId: id,
         inquiryId: id,
+        inquiryItemId: id,
         supplierId: id,
         partNumber: { type: 'string', minLength: 1 },
         description: { type: 'string' },
         quantity: { type: 'integer', minimum: 1 },
         unitPrice: { type: 'number', minimum: 0 },
+        currency: { type: 'string', enum: ['USD'], default: 'USD' },
         leadTimeDays: { type: 'integer', minimum: 0 },
         validUntil: { type: 'string', format: 'date-time' },
         notes: { type: 'string' },
       }, ['supplierId', 'partNumber', 'quantity', 'unitPrice', 'leadTimeDays']),
       SupplierQuoteUpdateRequest: coreRequestSchema({
+        rfqId: id,
+        rfqLineId: id,
+        inquiryId: id,
+        inquiryItemId: id,
+        partNumber: { type: 'string', minLength: 1 },
+        quantity: { type: 'integer', minimum: 1 },
         unitPrice: { type: 'number', minimum: 0 },
+        currency: { type: 'string', enum: ['USD'] },
         leadTimeDays: { type: 'integer', minimum: 0 },
         validUntil: { type: 'string', format: 'date-time' },
         notes: { type: 'string' },
@@ -3428,10 +3579,14 @@ function coreComponents() {
         isWinner: { type: 'boolean' },
       }),
       SupplierQuoteCompareRequest: {
-        oneOf: [
-          coreRequestSchema({ rfqId: id }, ['rfqId']),
-          coreRequestSchema({ inquiryId: id }, ['inquiryId']),
+        ...coreRequestSchema({ rfqId: id, rfqLineId: id, inquiryId: id, inquiryItemId: id }),
+        anyOf: [
+          { required: ['rfqLineId'] },
+          { required: ['inquiryItemId'] },
+          { required: ['rfqId'] },
+          { required: ['inquiryId'] },
         ],
+        description: 'Prefer rfqLineId or inquiryItemId. Legacy rfqId/inquiryId-only requests are accepted only when the server can resolve exactly one demand line.',
       },
       AuditLog: auditLog,
       AuditLogEnvelope: envelope(schemaRef('AuditLog')),
@@ -3996,6 +4151,7 @@ export function buildScaffold() {
   applyPurchaseCommitmentContract(paths, core);
   applySettlementContract(paths, core);
   applyAiAgentContract(paths, core);
+  applySourcingEmailContract(paths, core);
 
   return {
     openapi: '3.1.0',

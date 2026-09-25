@@ -50,6 +50,7 @@ function createPrismaMock() {
   const tx = {
     outboxEvent: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     outboundEmail: { updateMany: vi.fn() },
+    inquiry: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     notification: { create: vi.fn() },
     quotation: { findUnique: vi.fn() },
     transactionStatusHistory: { create: vi.fn() },
@@ -254,6 +255,55 @@ describe('outboxService', () => {
     expect(prismaMock.__tx.notification.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ userId: 'user-1', title: '异步邮件投递失败' }),
     }));
+  });
+
+  it('marks a linked inquiry SENT in the email success transaction after SMTP accepts the message', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'inquiry.email.send',
+      aggregateType: 'INQUIRY',
+      aggregateId: 'i1',
+      payload: JSON.stringify({ outboundEmailId: 'mail-inquiry', includeQuotationPdf: false }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-inquiry',
+      status: 'PENDING',
+      purpose: 'INQUIRY_SEND',
+      inquiryId: 'i1',
+      quotationId: null,
+      toEmail: 'quotes@supplier.example',
+      subject: 'RFQ request',
+      textBody: 'Please quote PN-100',
+      htmlBody: null,
+      account: {
+        id: 'acct-1', email: 'sales@aerolink.com', displayName: null,
+        imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com',
+        smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true,
+      },
+      quotation: null,
+      inquiry: { id: 'i1', status: 'QUEUED' },
+    });
+    sendEmailMock.mockResolvedValue({ messageId: 'provider-inquiry-1' });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.outboundEmail.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.inquiry.updateMany.mockResolvedValue({ count: 1 });
+
+    const delivered = await processOutboxEvent(event.id);
+
+    expect(delivered).toBe(true);
+    expect(sendEmailMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      to: 'quotes@supplier.example', subject: 'RFQ request', body: 'Please quote PN-100',
+    }));
+    expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'mail-inquiry', status: { not: 'WITHDRAWN' } },
+      data: expect.objectContaining({ status: 'SENT', providerMessageId: 'provider-inquiry-1' }),
+    }));
+    expect(prismaMock.__tx.inquiry.updateMany).toHaveBeenCalledWith({
+      where: { id: 'i1' },
+      data: expect.objectContaining({ status: 'SENT', sentAt: expect.any(Date) }),
+    });
   });
 
   it('fails closed when a customer quotation email has no immutable attachment document', async () => {

@@ -8,6 +8,7 @@ import {
 import { pruneExpiredIdempotencyRecords } from './lib/idempotencyService.js';
 import { processDueEmailSyncs } from './lib/inboundEmailSyncService.js';
 import { expireUnassignedAllocations } from './modules/inventoryQuality/allocationExpiry.js';
+import { processPendingSourcingAiTasks } from './lib/sourcingAiTaskService.js';
 
 export interface WorkerRuntime {
   stop: () => Promise<void>;
@@ -19,6 +20,7 @@ export interface WorkerOptions {
   idempotencyIntervalMs?: number;
   emailSyncIntervalMs?: number;
   allocationExpiryIntervalMs?: number;
+  sourcingAiTaskIntervalMs?: number;
   batchSize?: number;
   workerId?: string;
   shutdownTimeoutMs?: number;
@@ -28,6 +30,21 @@ export interface WorkerOptions {
   runIdempotencyCleanup?: boolean;
   runEmailSync?: boolean;
   runAllocationExpiry?: boolean;
+  runSourcingAiTasks?: boolean;
+}
+
+function configuredInterval(value: number | undefined, envName: string, fallback: number) {
+  if (value !== undefined && Number.isFinite(value) && value > 0) return value;
+  const fromEnvironment = Number.parseInt(process.env[envName] ?? '', 10);
+  return Number.isFinite(fromEnvironment) && fromEnvironment > 0 ? fromEnvironment : fallback;
+}
+
+function configuredEnabled(value: boolean | undefined, envName: string, fallback: boolean) {
+  if (value !== undefined) return value;
+  const fromEnvironment = process.env[envName]?.trim().toLowerCase();
+  if (fromEnvironment === 'true' || fromEnvironment === '1' || fromEnvironment === 'yes') return true;
+  if (fromEnvironment === 'false' || fromEnvironment === '0' || fromEnvironment === 'no') return false;
+  return fallback;
 }
 
 /**
@@ -37,11 +54,12 @@ export interface WorkerOptions {
  * restarted independently.
  */
 export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
-  const webhookIntervalMs = options.webhookIntervalMs ?? 30_000;
-  const outboxIntervalMs = options.outboxIntervalMs ?? 5_000;
-  const idempotencyIntervalMs = options.idempotencyIntervalMs ?? 6 * 60 * 60 * 1000;
-  const emailSyncIntervalMs = options.emailSyncIntervalMs ?? 30_000;
-  const allocationExpiryIntervalMs = options.allocationExpiryIntervalMs ?? 60_000;
+  const webhookIntervalMs = configuredInterval(options.webhookIntervalMs, 'WORKER_WEBHOOK_INTERVAL_MS', 30_000);
+  const outboxIntervalMs = configuredInterval(options.outboxIntervalMs, 'WORKER_OUTBOX_INTERVAL_MS', 5_000);
+  const idempotencyIntervalMs = configuredInterval(options.idempotencyIntervalMs, 'WORKER_IDEMPOTENCY_INTERVAL_MS', 6 * 60 * 60 * 1000);
+  const emailSyncIntervalMs = configuredInterval(options.emailSyncIntervalMs, 'WORKER_EMAIL_SYNC_INTERVAL_MS', 30_000);
+  const allocationExpiryIntervalMs = configuredInterval(options.allocationExpiryIntervalMs, 'WORKER_ALLOCATION_EXPIRY_INTERVAL_MS', 60_000);
+  const sourcingAiTaskIntervalMs = configuredInterval(options.sourcingAiTaskIntervalMs, 'WORKER_SOURCING_AI_TASK_INTERVAL_MS', 5_000);
   const batchSize = options.batchSize ?? 30;
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? 30_000;
   const workerId = options.workerId?.trim() || process.env.WORKER_ID?.trim() || `worker-${crypto.randomUUID()}`;
@@ -50,7 +68,13 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
   const runIdempotencyCleanupEnabled = options.runIdempotencyCleanup ?? true;
   const runEmailSyncEnabled = options.runEmailSync ?? true;
   const runAllocationExpiryEnabled = options.runAllocationExpiry ?? true;
+  const runSourcingAiTasksEnabled = configuredEnabled(
+    options.runSourcingAiTasks,
+    'WORKER_SOURCING_AI_TASK_ENABLED',
+    !outboxChannels.includes('SOCKET'),
+  );
   let allocationExpiryRunning = false;
+  let sourcingAiTasksRunning = false;
   const inFlight = new Set<Promise<void>>();
   let stopped = false;
 
@@ -97,6 +121,14 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
       finally { allocationExpiryRunning = false; }
     }, 'allocation-expiry');
   };
+  const runSourcingAiTasks = () => {
+    if (sourcingAiTasksRunning) return;
+    runTask(async () => {
+      sourcingAiTasksRunning = true;
+      try { await processPendingSourcingAiTasks(batchSize); }
+      finally { sourcingAiTasksRunning = false; }
+    }, 'sourcing-ai-task');
+  };
 
   const webhookTimer = runWebhookRetriesEnabled ? setInterval(runWebhooks, webhookIntervalMs) : null;
   const outboxTimer = setInterval(runOutbox, outboxIntervalMs);
@@ -105,12 +137,14 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
     : null;
   const emailSyncTimer = runEmailSyncEnabled ? setInterval(runEmailSync, emailSyncIntervalMs) : null;
   const allocationExpiryTimer = runAllocationExpiryEnabled ? setInterval(runAllocationExpiry, allocationExpiryIntervalMs) : null;
+  const sourcingAiTaskTimer = runSourcingAiTasksEnabled ? setInterval(runSourcingAiTasks, sourcingAiTaskIntervalMs) : null;
 
   if (runWebhookRetriesEnabled) runWebhooks();
   runOutbox();
   if (runIdempotencyCleanupEnabled) runIdempotencyCleanup();
   if (runEmailSyncEnabled) runEmailSync();
   if (runAllocationExpiryEnabled) runAllocationExpiry();
+  if (runSourcingAiTasksEnabled) runSourcingAiTasks();
 
   return {
     stop: async () => {
@@ -121,6 +155,7 @@ export function startWorker(options: WorkerOptions = {}): WorkerRuntime {
       if (idempotencyTimer) clearInterval(idempotencyTimer);
       if (emailSyncTimer) clearInterval(emailSyncTimer);
       if (allocationExpiryTimer) clearInterval(allocationExpiryTimer);
+      if (sourcingAiTaskTimer) clearInterval(sourcingAiTaskTimer);
       const deadline = Date.now() + Math.max(0, shutdownTimeoutMs);
       while (inFlight.size > 0 && Date.now() < deadline) {
         const remainingMs = deadline - Date.now();

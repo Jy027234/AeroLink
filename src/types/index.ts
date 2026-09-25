@@ -34,6 +34,34 @@ export interface Email {
   processedAt?: string | null;
   discardedAt?: string | null;
   rfqId?: string | null;
+  threadMatchStatus?: string | null;
+  threadMatchReason?: string | null;
+  attachmentStatus?: 'NONE' | 'STORED' | 'PARTIAL' | 'REJECTED' | string | null;
+  attachmentError?: string | null;
+  reason?: string | null;
+  inquiryLinks?: Array<{
+    id: string;
+    emailId?: string;
+    inquiryId: string;
+    method: string;
+    confirmationStatus: string;
+    manualReason?: string | null;
+    createdAt?: string;
+    confirmedAt?: string | null;
+    confirmedById?: string | null;
+    inquiry?: { id: string; inquiryNumber: string; supplierId: string } | null;
+  }>;
+  attachmentRecords?: Array<{
+    id: string;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+    sha256: string;
+    storedObjectId: string;
+    downloadUrl?: string | null;
+    contentId?: string | null;
+    createdAt?: string;
+  }>;
 }
 
 // 需求单 (RFQ)

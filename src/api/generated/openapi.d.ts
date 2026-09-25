@@ -1297,7 +1297,7 @@ export interface paths {
         };
         /**
          * GET /api/emails
-         * @description Contracted identity and mail-management operation. User responses omit credentials and activation secrets; email-account responses never expose auth codes.
+         * @description Lists inbound email with pagination and a database-wide summary. needsInquiryMatch=true filters to unresolved thread matches without a confirmed inquiry link; it cannot be combined with inquiryId. inquiryId filters by persisted links; it never guesses by subject or part number.
          */
         get: operations["getEmails"];
         put?: never;
@@ -1366,6 +1366,26 @@ export interface paths {
          * @description Contracted identity and mail-management operation. User responses omit credentials and activation secrets; email-account responses never expose auth codes.
          */
         patch: operations["patchEmailsIdClassify"];
+        trace?: never;
+    };
+    "/api/emails/{id}/inquiry-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/emails/:id/inquiry-links
+         * @description Confirms a manual email-to-inquiry link. A sender mismatch requires an explicit manual reason and is retained for audit; automatic matching remains stricter.
+         */
+        post: operations["postEmailsIdInquiryLinks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/emails/{id}/discard": {
@@ -2067,6 +2087,178 @@ export interface paths {
          * @description Contracted supplier follow-up, supplier quote and controlled supplier compatibility operation. Responses expose internal records only; no supplier portal or external invitation is created.
          */
         post: operations["postSupplierQuotesIdSelectWinner"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/supplier-quote-drafts/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/supplier-quote-drafts/extract
+         * @description Runs the published supplier quote extraction agent against a confirmed linked email and saves only an editable draft. Evidence must be found in the original email; no formal quote or business action is created.
+         */
+        post: operations["postSupplierQuoteDraftsExtract"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/supplier-quote-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/supplier-quote-drafts
+         * @description Restores the latest persisted draft for one exact email and inquiry pair so a page refresh does not lose the editable work item.
+         */
+        get: operations["getSupplierQuoteDrafts"];
+        put?: never;
+        /**
+         * POST /api/supplier-quote-drafts
+         * @description Creates an editable source-linked draft from confirmed email and inquiry facts. Missing or non-USD values remain draft data and do not create a SupplierQuote.
+         */
+        post: operations["postSupplierQuoteDrafts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/supplier-quote-drafts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/supplier-quote-drafts/:id
+         * @description Reads an editable or confirmed supplier quote draft with its source and generated SupplierQuote identities.
+         */
+        get: operations["getSupplierQuoteDraftsId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/supplier-quote-drafts/:id
+         * @description Revises an unconfirmed supplier quote draft using optimistic version checking. Confirmed drafts are immutable.
+         */
+        patch: operations["patchSupplierQuoteDraftsId"];
+        trace?: never;
+    };
+    "/api/supplier-quote-drafts/{id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/supplier-quote-drafts/:id/confirm
+         * @description Explicitly confirms one complete draft version. Every item must bind to an immutable inquiry item and provide USD price, positive quantity and one lead-time value. Replays return the same formal quotes.
+         */
+        post: operations["postSupplierQuoteDraftsIdConfirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sourcing-ai-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/sourcing-ai-tasks
+         * @description Lists sourcing AI tasks owned by the authenticated actor; administrators may inspect all tasks. Raw email and model inputs are never returned.
+         */
+        get: operations["getSourcingAiTasks"];
+        put?: never;
+        /**
+         * POST /api/sourcing-ai-tasks
+         * @description Queues one server-owned supplier quote extraction task for the independent Worker. The persisted task is returned immediately; failures retain a safe summary, and only an editable draft may be created.
+         */
+        post: operations["postSourcingAiTasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sourcing-ai-tasks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/sourcing-ai-tasks/:id
+         * @description Reads one actor-owned sourcing AI task, or any task for an administrator.
+         */
+        get: operations["getSourcingAiTasksId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sourcing-ai-tasks/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/sourcing-ai-tasks/:id/retry
+         * @description Requeues a failed task on the same persistent record when its attempt ceiling has not been reached. Execution occurs in the independent Worker and cannot create a formal supplier quote.
+         */
+        post: operations["postSourcingAiTasksIdRetry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sourcing-ai-tasks/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/sourcing-ai-tasks/:id/cancel
+         * @description Cancels a pending, running, or failed task using a conditional state transition. A running model request may finish, but its stale result cannot create a draft after cancellation.
+         */
+        post: operations["postSourcingAiTasksIdCancel"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5845,8 +6037,7 @@ export interface paths {
         put?: never;
         /**
          * POST /api/inquiries/:id/send
-         * @deprecated
-         * @description No dispatch channel is implemented. Returns 409 MANUAL_WORKFLOW_REQUIRED without changing status or sentAt.
+         * @description Queues one supplier inquiry email through the transactional outbox. A 202 response means queued, not delivered; deliveryStatus becomes sent only after the worker records SMTP acceptance. Supports Idempotency-Key replay.
          */
         post: operations["postInquiriesIdSend"];
         delete?: never;
@@ -6677,6 +6868,14 @@ export interface components {
             rfq?: {
                 [key: string]: unknown;
             } | null;
+            /** @enum {string|null} */
+            threadMatchStatus: "PENDING" | "MATCHED" | "NEEDS_REVIEW" | "UNMATCHED" | null;
+            threadMatchReason: string | null;
+            /** @enum {string|null} */
+            attachmentStatus: "NONE" | "STORED" | "PARTIAL" | "REJECTED" | null;
+            attachmentError: string | null;
+            inquiryLinks: components["schemas"]["InquiryEmailLink"][];
+            attachmentRecords: components["schemas"]["EmailAttachmentRecord"][];
         } & {
             [key: string]: unknown;
         };
@@ -6691,7 +6890,8 @@ export interface components {
             /** @constant */
             success: true;
             data: components["schemas"]["Email"][];
-            pagination?: components["schemas"]["Pagination"];
+            pagination: components["schemas"]["Pagination"];
+            summary: components["schemas"]["EmailSummary"];
         } & {
             [key: string]: unknown;
         };
@@ -7895,6 +8095,16 @@ export interface components {
             })[];
             isAOG: boolean;
             status: string;
+            /** @enum {string} */
+            readonly deliveryStatus: "draft" | "queued" | "sent" | "failed";
+            readonly latestOutboundEmail: {
+                id: string;
+                /** @enum {string} */
+                status: "pending" | "sent" | "failed" | "withdrawn";
+                error: string | null;
+                /** Format: date-time */
+                sentAt: string | null;
+            } | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -7925,6 +8135,10 @@ export interface components {
             isAOG?: boolean;
             notes?: string;
             lineIds?: string[];
+        };
+        InquirySendRequest: {
+            subject?: string;
+            textBody?: string;
         };
         NotificationPreference: {
             id: string;
@@ -9086,7 +9300,9 @@ export interface components {
         SupplierQuote: {
             id: string;
             rfqId?: string | null;
+            readonly rfqLineId?: string | null;
             inquiryId?: string | null;
+            readonly inquiryItemId?: string | null;
             partNumber: string;
             description?: string | null;
             quantity: number;
@@ -9094,6 +9310,10 @@ export interface components {
             unitPrice: number | string;
             /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
             totalPrice: number | string;
+            /** @description Historical missing currency remains null. */
+            currency?: string | null;
+            /** @enum {string} */
+            readonly currencyStatus?: "VERIFIED" | "HISTORICAL_UNVERIFIED";
             leadTimeDays: number;
             /** Format: date-time */
             validUntil?: string | null;
@@ -9116,12 +9336,6 @@ export interface components {
             } & {
                 [key: string]: unknown;
             };
-            /** @description Historical missing currency remains null. */
-            currency?: string | null;
-            /** @enum {string} */
-            readonly currencyStatus?: "VERIFIED" | "HISTORICAL_UNVERIFIED";
-            readonly rfqLineId?: string | null;
-            readonly inquiryItemId?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -9143,7 +9357,9 @@ export interface components {
         SupplierQuoteDetail: {
             id: string;
             rfqId?: string | null;
+            readonly rfqLineId?: string | null;
             inquiryId?: string | null;
+            readonly inquiryItemId?: string | null;
             partNumber: string;
             description?: string | null;
             quantity: number;
@@ -9151,6 +9367,10 @@ export interface components {
             unitPrice: number | string;
             /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
             totalPrice: number | string;
+            /** @description Historical missing currency remains null. */
+            currency?: string | null;
+            /** @enum {string} */
+            readonly currencyStatus?: "VERIFIED" | "HISTORICAL_UNVERIFIED";
             leadTimeDays: number;
             /** Format: date-time */
             validUntil?: string | null;
@@ -9177,12 +9397,6 @@ export interface components {
             inquiry?: {
                 [key: string]: unknown;
             } | null;
-            /** @description Historical missing currency remains null. */
-            currency?: string | null;
-            /** @enum {string} */
-            readonly currencyStatus?: "VERIFIED" | "HISTORICAL_UNVERIFIED";
-            readonly rfqLineId?: string | null;
-            readonly inquiryItemId?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -9218,77 +9432,102 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        SupplierQuoteComparison: {
-            quotes: ({
+        SupplierQuoteComparisonItem: {
+            id: string;
+            rfqId: string | null;
+            rfqLineId: string | null;
+            inquiryId: string | null;
+            inquiryItemId: string | null;
+            partNumber: string;
+            quantity: number;
+            requiredQuantity: number | null;
+            coversRequiredQuantity: boolean | null;
+            quantityShortfall: number | null;
+            /** Format: date-time */
+            validUntil: string | null;
+            isExpired: boolean;
+            comparisonEligibility: {
+                eligible: boolean;
+                reasons: string[];
+                warnings: string[];
+            };
+            eligibleForComparison: boolean;
+            eligibilityReasons: string[];
+            commercialTerms: {
+                condition: unknown;
+                certificate: unknown;
+                taxIncluded: boolean | null;
+                freightIncluded: boolean | null;
+                incoterm: string | null;
+            };
+            commercialBasisKey: string;
+            commercialBasisLabel: string;
+            condition: unknown;
+            /** @enum {string} */
+            conditionStatus: "known" | "unknown";
+            certificate: unknown;
+            /** @enum {string} */
+            certificateStatus: "provided" | "missing" | "unknown";
+            certificateRequired: boolean | null;
+            /** @enum {string} */
+            certificateRequirementStatus: "not_required" | "provided" | "missing" | "unknown";
+            warnings: string[];
+            supplier: {
                 id: string;
-                partNumber: string;
-                supplier: {
-                    id: string;
-                    name: string;
-                    /** @enum {string} */
-                    level: "S" | "A" | "B" | "C";
-                    performanceScore?: number | null;
-                    contactName?: string | null;
-                    /** Format: email */
-                    contactEmail?: string | null;
-                } & {
-                    [key: string]: unknown;
-                };
-                /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
-                unitPrice: number | string;
-                /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
-                totalPrice: number | string;
-                leadTimeDays: number;
-                priceDiff?: number | null;
-                isLowestPrice: boolean;
-                scoreComponents: {
-                    price: number | null;
-                    leadTime: number | null;
-                    supplierPerformance: number | null;
-                };
-                ruleScore?: number | null;
+                name: string;
                 /** @enum {string} */
-                status: "pending" | "accepted" | "rejected" | "expired";
-                isWinner: boolean;
+                level: "S" | "A" | "B" | "C";
+                performanceScore?: number | null;
+                contactName?: string | null;
+                /** Format: email */
+                contactEmail?: string | null;
             } & {
                 [key: string]: unknown;
-            })[];
-            topRanked: ({
-                id: string;
-                partNumber: string;
-                supplier: {
-                    id: string;
-                    name: string;
-                    /** @enum {string} */
-                    level: "S" | "A" | "B" | "C";
-                    performanceScore?: number | null;
-                    contactName?: string | null;
-                    /** Format: email */
-                    contactEmail?: string | null;
-                } & {
-                    [key: string]: unknown;
-                };
-                /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
-                unitPrice: number | string;
-                /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
-                totalPrice: number | string;
-                leadTimeDays: number;
-                priceDiff?: number | null;
-                isLowestPrice: boolean;
-                scoreComponents: {
-                    price: number | null;
-                    leadTime: number | null;
-                    supplierPerformance: number | null;
-                };
-                ruleScore?: number | null;
-                /** @enum {string} */
-                status: "pending" | "accepted" | "rejected" | "expired";
-                isWinner: boolean;
-            } & {
-                [key: string]: unknown;
-            }) | null;
+            };
+            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
+            unitPrice: number | string;
+            /** @description 金额兼容表示：当前 API 投影为 number，Decimal 影子字段保留 string 精度来源。 */
+            totalPrice: number | string;
+            currency: string | null;
+            /** @enum {string} */
+            currencyStatus: "VERIFIED" | "HISTORICAL_UNVERIFIED";
+            leadTimeDays: number;
+            priceDiff?: number | null;
+            isLowestPrice: boolean;
+            scoreComponents: {
+                price: number | null;
+                leadTime: number | null;
+                supplierPerformance: number | null;
+            };
+            ruleScore?: number | null;
+            /** @enum {string} */
+            status: "pending" | "accepted" | "rejected" | "expired";
+            isWinner: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        SupplierQuoteCommercialBasisGroup: {
+            key: string;
+            label: string;
+            terms: {
+                condition: unknown;
+                certificate: unknown;
+                taxIncluded: boolean | null;
+                freightIncluded: boolean | null;
+                incoterm: string | null;
+            };
+            quotes: components["schemas"]["SupplierQuoteComparisonItem"][];
+            topRanked: components["schemas"]["SupplierQuoteComparisonItem"] | null;
             summary: {
                 totalQuotes: number;
+                comparableQuoteCount: number;
+                expiredQuoteCount: number;
+                eligibleCommercialBasisGroupCount?: number;
+                differentCommercialBasisGroups?: boolean;
+                missingPerformanceCount?: number;
+                requiredQuantity: number | null;
+                bestAvailableQuantity: number | null;
+                remainingQuantityGap: number | null;
                 lowestPrice: number | null;
                 highestPrice: number | null;
                 averagePrice: number | null;
@@ -9299,6 +9538,99 @@ export interface components {
                 source: string;
                 algorithmVersion: string;
                 sampleSize: number;
+                totalQuoteCount?: number;
+                excludedQuoteCount?: number;
+                expiredQuoteCount?: number;
+                exclusionCounts?: {
+                    expired?: number;
+                    unverifiedCurrency?: number;
+                    unavailableStatus?: number;
+                };
+                /** Format: date-time */
+                asOf: string;
+                reason: string;
+                decisionBoundary: string;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        SupplierQuoteComparisonGroup: {
+            partNumber: string;
+            quotes: components["schemas"]["SupplierQuoteComparisonItem"][];
+            commercialBasisGroups: components["schemas"]["SupplierQuoteCommercialBasisGroup"][];
+            topRanked: components["schemas"]["SupplierQuoteComparisonItem"] | null;
+            summary: {
+                totalQuotes: number;
+                comparableQuoteCount: number;
+                expiredQuoteCount: number;
+                eligibleCommercialBasisGroupCount?: number;
+                differentCommercialBasisGroups?: boolean;
+                missingPerformanceCount?: number;
+                requiredQuantity: number | null;
+                bestAvailableQuantity: number | null;
+                remainingQuantityGap: number | null;
+                lowestPrice: number | null;
+                highestPrice: number | null;
+                averagePrice: number | null;
+            };
+            metadata: {
+                /** @enum {string} */
+                status: "available" | "insufficient_data" | "unavailable";
+                source: string;
+                algorithmVersion: string;
+                sampleSize: number;
+                totalQuoteCount?: number;
+                excludedQuoteCount?: number;
+                expiredQuoteCount?: number;
+                exclusionCounts?: {
+                    expired?: number;
+                    unverifiedCurrency?: number;
+                    unavailableStatus?: number;
+                };
+                /** Format: date-time */
+                asOf: string;
+                reason: string;
+                decisionBoundary: string;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        SupplierQuoteComparison: {
+            rfqId: string | null;
+            rfqLineId: string | null;
+            inquiryId: string | null;
+            inquiryItemId: string | null;
+            quotes: components["schemas"]["SupplierQuoteComparisonItem"][];
+            partNumberGroups: components["schemas"]["SupplierQuoteComparisonGroup"][];
+            topRanked: components["schemas"]["SupplierQuoteComparisonItem"] | null;
+            summary: {
+                totalQuotes: number;
+                comparableQuoteCount: number;
+                expiredQuoteCount: number;
+                eligibleCommercialBasisGroupCount?: number;
+                differentCommercialBasisGroups?: boolean;
+                missingPerformanceCount?: number;
+                requiredQuantity: number | null;
+                bestAvailableQuantity: number | null;
+                remainingQuantityGap: number | null;
+                lowestPrice: number | null;
+                highestPrice: number | null;
+                averagePrice: number | null;
+            };
+            metadata: {
+                /** @enum {string} */
+                status: "available" | "insufficient_data" | "unavailable";
+                source: string;
+                algorithmVersion: string;
+                sampleSize: number;
+                totalQuoteCount?: number;
+                excludedQuoteCount?: number;
+                expiredQuoteCount?: number;
+                exclusionCounts?: {
+                    expired?: number;
+                    unverifiedCurrency?: number;
+                    unavailableStatus?: number;
+                };
                 /** Format: date-time */
                 asOf: string;
                 reason: string;
@@ -9317,27 +9649,35 @@ export interface components {
         /** @description USD supplier quote with exact source IDs. A unique RFQ line may be selected from the specified RFQ; multi-line RFQs require an explicit line ID. Inquiry ownership and supplier identity are verified in the same transaction. */
         SupplierQuoteCreateRequest: {
             rfqId?: string;
+            rfqLineId?: string;
             inquiryId?: string;
+            inquiryItemId?: string;
             supplierId: string;
             partNumber: string;
             description?: string;
             quantity: number;
             unitPrice: number;
-            leadTimeDays: number;
-            /** Format: date-time */
-            validUntil?: string;
-            notes?: string;
             /**
              * @default USD
              * @enum {string}
              */
             currency: "USD";
-            rfqLineId?: string;
-            inquiryItemId?: string;
+            leadTimeDays: number;
+            /** Format: date-time */
+            validUntil?: string;
+            notes?: string;
         };
         /** @description Updates commercial availability without rewriting captured quotation cost snapshots. Source identity changes require a new supplier quote; sending the unchanged IDs is allowed. */
         SupplierQuoteUpdateRequest: {
+            rfqId?: string;
+            rfqLineId?: string;
+            inquiryId?: string;
+            inquiryItemId?: string;
+            partNumber?: string;
+            quantity?: number;
             unitPrice?: number;
+            /** @enum {string} */
+            currency?: "USD";
             leadTimeDays?: number;
             /** Format: date-time */
             validUntil?: string;
@@ -9345,20 +9685,14 @@ export interface components {
             /** @enum {string} */
             status?: "pending" | "accepted" | "rejected" | "expired";
             isWinner?: boolean;
-            /** @enum {string} */
-            currency?: "USD";
+        };
+        /** @description Prefer rfqLineId or inquiryItemId. Legacy rfqId/inquiryId-only requests are accepted only when the server can resolve exactly one demand line. */
+        SupplierQuoteCompareRequest: {
             rfqId?: string;
             rfqLineId?: string;
             inquiryId?: string;
             inquiryItemId?: string;
-            partNumber?: string;
-            quantity?: number;
-        };
-        SupplierQuoteCompareRequest: {
-            rfqId: string;
-        } | {
-            inquiryId: string;
-        };
+        } | unknown | unknown | unknown | unknown;
         AuditLog: {
             id: string;
             userId?: string | null;
@@ -13748,6 +14082,198 @@ export interface components {
                 createdAt: string;
             }[];
         };
+        InquiryEmailLink: {
+            id: string;
+            emailId: string;
+            inquiryId: string;
+            /** @enum {string} */
+            method: "AUTO_MESSAGE_ID" | "MANUAL";
+            /** @enum {string} */
+            confirmationStatus: "PENDING" | "CONFIRMED" | "REJECTED";
+            manualReason: string | null;
+            /** Format: date-time */
+            confirmedAt: string | null;
+            confirmedById: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            inquiry: {
+                id: string;
+                inquiryNumber: string;
+                supplierId: string;
+            } | null;
+        };
+        EmailAttachmentRecord: {
+            id: string;
+            filename: string;
+            contentType: string;
+            sizeBytes: number;
+            sha256: string;
+            contentId: string | null;
+            storedObjectId: string;
+            downloadUrl: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        EmailSummary: {
+            total: number;
+            aog: number;
+            standard: number;
+            inquiry: number;
+            unread: number;
+            spam: number;
+        };
+        EmailInquiryLinkRequest: {
+            inquiryId: string;
+            manualReason?: string;
+        };
+        InquiryEmailLinkEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["InquiryEmailLink"];
+        };
+        SupplierQuoteDraftItem: {
+            itemKey: string;
+            inquiryItemId?: string | null;
+            partNumber?: string | null;
+            description?: string | null;
+            quantityUnit?: string | null;
+            quantity?: number | null;
+            unitPrice?: number | null;
+            currency?: string | null;
+            leadTimeDays?: number | null;
+            leadTimeMinDays?: number | null;
+            leadTimeMaxDays?: number | null;
+            validUntil?: string | null;
+            condition?: string | null;
+            certificate?: string | boolean | string[] | null;
+            taxIncluded?: boolean | null;
+            freightIncluded?: boolean | null;
+            incoterm?: string | null;
+            evidenceText?: string | null;
+            notes?: string | null;
+        };
+        SupplierQuoteDraftPayload: {
+            items: components["schemas"]["SupplierQuoteDraftItem"][];
+        };
+        SupplierQuoteDraft: {
+            id: string;
+            emailId: string;
+            inquiryId: string;
+            supplierId: string;
+            /** @enum {string} */
+            status: "DRAFT" | "CONFIRMED";
+            version: number;
+            payload: components["schemas"]["SupplierQuoteDraftPayload"];
+            aiProvider: string | null;
+            aiModel: string | null;
+            aiPromptVersion: string | null;
+            aiConfidence: number | null;
+            aiMetadata: {
+                [key: string]: unknown;
+            } | null;
+            /** Format: date-time */
+            confirmedAt: string | null;
+            confirmedById: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            email: {
+                [key: string]: unknown;
+            };
+            inquiry: {
+                [key: string]: unknown;
+            };
+            supplier: {
+                [key: string]: unknown;
+            };
+            supplierQuotes: {
+                [key: string]: unknown;
+            }[];
+        };
+        SupplierQuoteDraftEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["SupplierQuoteDraft"];
+        };
+        SupplierQuoteDraftNullableEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["SupplierQuoteDraft"] | null;
+        };
+        SupplierQuoteDraftCreateRequest: {
+            emailId: string;
+            inquiryId: string;
+            payload: components["schemas"]["SupplierQuoteDraftPayload"];
+        };
+        SupplierQuoteDraftExtractRequest: {
+            emailId: string;
+            inquiryId: string;
+        };
+        SupplierQuoteDraftPatchRequest: {
+            expectedVersion: number;
+            payload: components["schemas"]["SupplierQuoteDraftPayload"];
+        };
+        SupplierQuoteDraftConfirmRequest: {
+            expectedVersion: number;
+        };
+        SupplierQuoteDraftConfirmResult: {
+            draftId: string;
+            /** @constant */
+            status: "CONFIRMED";
+            version: number;
+            reused: boolean;
+            supplierQuoteIds: string[];
+            createdSupplierQuoteIds: string[];
+            reusedSupplierQuoteIds: string[];
+            supplierQuotes: components["schemas"]["SupplierQuote"][];
+        };
+        SupplierQuoteDraftConfirmEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["SupplierQuoteDraftConfirmResult"];
+        };
+        SourcingAiTask: {
+            id: string;
+            actorId: string;
+            /** @constant */
+            type: "supplier_quote_extraction";
+            emailId: string;
+            inquiryId: string;
+            /** @enum {string} */
+            status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+            attempt: number;
+            maxAttempts: number;
+            draftId: string | null;
+            errorSummary: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            completedAt: string | null;
+            /** Format: date-time */
+            cancelledAt: string | null;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        SourcingAiTaskCreateRequest: {
+            /** @constant */
+            type: "supplier_quote_extraction";
+            emailId: string;
+            inquiryId: string;
+            idempotencyKey: string;
+        };
+        SourcingAiTaskEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["SourcingAiTask"];
+        };
+        SourcingAiTaskListEnvelope: {
+            /** @constant */
+            success: true;
+            data: components["schemas"]["SourcingAiTask"][];
+        };
     };
     responses: {
         /** @description Authenticated; refresh token is rotated in an HttpOnly cookie. */
@@ -15503,6 +16029,60 @@ export interface components {
                 "application/json": components["schemas"]["SettlementOrderListEnvelope"];
             };
         };
+        /** @description Confirmed email-to-inquiry link */
+        InquiryEmailLink: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["InquiryEmailLinkEnvelope"];
+            };
+        };
+        /** @description Editable supplier quote draft */
+        SupplierQuoteDraft: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["SupplierQuoteDraftEnvelope"];
+            };
+        };
+        /** @description Latest supplier quote draft, or null when none exists */
+        SupplierQuoteDraftNullable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["SupplierQuoteDraftNullableEnvelope"];
+            };
+        };
+        /** @description Confirmed draft and formal supplier quote identities */
+        SupplierQuoteDraftConfirm: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["SupplierQuoteDraftConfirmEnvelope"];
+            };
+        };
+        /** @description Server-owned sourcing AI task */
+        SourcingAiTask: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["SourcingAiTaskEnvelope"];
+            };
+        };
+        /** @description Visible server-owned sourcing AI tasks */
+        SourcingAiTaskList: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["SourcingAiTaskListEnvelope"];
+            };
+        };
     };
     parameters: never;
     requestBodies: {
@@ -15746,6 +16326,11 @@ export interface components {
         InquiryCreate: {
             content: {
                 "application/json": components["schemas"]["InquiryCreateRequest"];
+            };
+        };
+        InquirySend: {
+            content: {
+                "application/json": components["schemas"]["InquirySendRequest"];
             };
         };
         NotificationPreferenceUpdate: {
@@ -17844,6 +18429,9 @@ export interface operations {
                 isRead?: boolean;
                 page?: number;
                 limit?: number;
+                inquiryId?: string;
+                /** @description Use true to return only UNMATCHED or NEEDS_REVIEW emails without any CONFIRMED inquiry link. PENDING emails are excluded. This cannot be combined with inquiryId. */
+                needsInquiryMatch?: "true" | "false";
             };
             header?: never;
             path?: never;
@@ -17924,6 +18512,35 @@ export interface operations {
         requestBody: components["requestBodies"]["EmailClassify"];
         responses: {
             200: components["responses"]["Email"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postEmailsIdInquiryLinks: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailInquiryLinkRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["InquiryEmailLink"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -19141,6 +19758,287 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["SupplierQuoteWinner"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSupplierQuoteDraftsExtract: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierQuoteDraftExtractRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["SupplierQuoteDraft"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getSupplierQuoteDrafts: {
+        parameters: {
+            query: {
+                emailId: string;
+                inquiryId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["SupplierQuoteDraftNullable"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSupplierQuoteDrafts: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierQuoteDraftCreateRequest"];
+            };
+        };
+        responses: {
+            201: components["responses"]["SupplierQuoteDraft"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getSupplierQuoteDraftsId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["SupplierQuoteDraft"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    patchSupplierQuoteDraftsId: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierQuoteDraftPatchRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["SupplierQuoteDraft"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSupplierQuoteDraftsIdConfirm: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierQuoteDraftConfirmRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["SupplierQuoteDraftConfirm"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getSourcingAiTasks: {
+        parameters: {
+            query?: {
+                limit?: number;
+                emailId?: string;
+                inquiryId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["SourcingAiTaskList"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSourcingAiTasks: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourcingAiTaskCreateRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["SourcingAiTask"];
+            201: components["responses"]["SourcingAiTask"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getSourcingAiTasksId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["SourcingAiTask"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSourcingAiTasksIdRetry: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: components["requestBodies"]["JsonBody"];
+        responses: {
+            200: components["responses"]["SourcingAiTask"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postSourcingAiTasksIdCancel: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Stable key for retry-safe writes. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: components["requestBodies"]["JsonBody"];
+        responses: {
+            200: components["responses"]["SourcingAiTask"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -24231,21 +25129,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: components["requestBodies"]["InquirySend"];
         responses: {
+            202: components["responses"]["Inquiry"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
-            /** @description Manual supplier contact required; inquiry has not been sent. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
+            409: components["responses"]["Error"];
             422: components["responses"]["Error"];
             429: components["responses"]["Error"];
             500: components["responses"]["Error"];

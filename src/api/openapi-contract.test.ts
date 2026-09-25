@@ -14,7 +14,7 @@ type Schema = {
   $ref?: string;
   description?: string;
   required?: string[];
-  properties?: Record<string, any>;
+  properties?: Record<string, Schema>;
   oneOf?: Schema[];
   allOf?: Schema[];
   items?: Schema;
@@ -254,9 +254,144 @@ describe('OpenAPI representative contract invariants', () => {
     expect(supplierQuoteCreate.requestBody).toEqual({ $ref: '#/components/requestBodies/SupplierQuoteCreate' });
     expect(supplierQuoteCompare.requestBody).toEqual({ $ref: '#/components/requestBodies/SupplierQuoteCompare' });
     expect(selectWinner.responses['200']).toEqual({ $ref: '#/components/responses/SupplierQuoteWinner' });
+    expect(contract.components.schemas.SupplierQuoteCompareRequest.properties).toMatchObject({
+      rfqId: { type: 'string' },
+      rfqLineId: { type: 'string' },
+      inquiryId: { type: 'string' },
+      inquiryItemId: { type: 'string' },
+    });
+    expect(contract.components.schemas.SupplierQuoteComparison.required).toEqual(expect.arrayContaining([
+      'rfqLineId', 'inquiryItemId', 'partNumberGroups',
+    ]));
+    expect(contract.components.schemas.SupplierQuoteComparisonItem.properties).toMatchObject({
+      comparisonEligibility: expect.objectContaining({ type: 'object' }),
+      isExpired: { type: 'boolean' },
+      coversRequiredQuantity: { type: ['boolean', 'null'] },
+      quantityShortfall: { type: ['integer', 'null'], minimum: 0 },
+      commercialTerms: expect.objectContaining({ type: 'object' }),
+    });
+    expect(contract.components.schemas.SupplierQuoteComparison.properties?.summary?.properties).toMatchObject({
+      comparableQuoteCount: { type: 'integer', minimum: 0 },
+      expiredQuoteCount: { type: 'integer', minimum: 0 },
+      requiredQuantity: { type: ['integer', 'null'], minimum: 1 },
+      remainingQuantityGap: { type: ['integer', 'null'], minimum: 0 },
+    });
     expect(contract.components.schemas.SupplierQuoteUpdateRequest.properties).toMatchObject({
       status: { enum: ['pending', 'accepted', 'rejected', 'expired'] },
     });
+  });
+
+  it('contracts inquiry dispatch as queued delivery rather than immediate send', () => {
+    const sendInquiry = operation('POST', '/api/inquiries/{id}/send');
+
+    expect(sendInquiry.deprecated).toBeUndefined();
+    expect(sendInquiry.requestBody).toEqual({ $ref: '#/components/requestBodies/InquirySend' });
+    expect(sendInquiry.responses['202']).toEqual({ $ref: '#/components/responses/Inquiry' });
+    expect(sendInquiry.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: false }),
+    ]));
+    expect(contract.components.schemas.Inquiry.properties).toMatchObject({
+      deliveryStatus: { enum: ['draft', 'queued', 'sent', 'failed'], readOnly: true },
+      latestOutboundEmail: { readOnly: true },
+    });
+  });
+
+  it('keeps inbound quote extraction as a source-linked draft until explicit confirmation', () => {
+    const emails = operation('GET', '/api/emails');
+    const link = operation('POST', '/api/emails/{id}/inquiry-links');
+    const createDraft = operation('POST', '/api/supplier-quote-drafts');
+    const restoreDraft = operation('GET', '/api/supplier-quote-drafts');
+    const extractDraft = operation('POST', '/api/supplier-quote-drafts/extract');
+    const patchDraft = operation('PATCH', '/api/supplier-quote-drafts/{id}');
+    const confirmDraft = operation('POST', '/api/supplier-quote-drafts/{id}/confirm');
+
+    expect(emails.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'inquiryId', in: 'query' }),
+      expect.objectContaining({
+        name: 'needsInquiryMatch',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', enum: ['true', 'false'] },
+      }),
+    ]));
+    expect(emails.description).toContain('cannot be combined with inquiryId');
+    expect(emails.responses['200']).toEqual({ $ref: '#/components/responses/EmailList' });
+    expect(emails.responses['400']).toEqual({ $ref: '#/components/responses/Error' });
+    expect(contract.components.schemas.EmailListEnvelope.required).toContain('pagination');
+    expect(contract.components.schemas.EmailListEnvelope.required).toContain('summary');
+    expect(contract.components.schemas.EmailListEnvelope.properties?.summary)
+      .toEqual({ $ref: '#/components/schemas/EmailSummary' });
+    expect(contract.components.schemas.EmailSummary.required).toEqual([
+      'total', 'aog', 'standard', 'inquiry', 'unread', 'spam',
+    ]);
+    expect(contract.components.schemas.Email.required).toEqual(expect.arrayContaining([
+      'threadMatchStatus', 'attachmentStatus', 'inquiryLinks', 'attachmentRecords',
+    ]));
+    expect(link.requestBody).toEqual(expect.objectContaining({ required: true }));
+    expect(link.responses['200']).toEqual({ $ref: '#/components/responses/InquiryEmailLink' });
+    expect(contract.components.schemas.InquiryEmailLink.required).toEqual(expect.arrayContaining([
+      'id', 'emailId', 'inquiryId', 'confirmationStatus', 'confirmedAt', 'confirmedById', 'inquiry',
+    ]));
+    expect(createDraft.responses['201']).toEqual({ $ref: '#/components/responses/SupplierQuoteDraft' });
+    expect(restoreDraft.responses['200']).toEqual({ $ref: '#/components/responses/SupplierQuoteDraftNullable' });
+    expect(restoreDraft.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'emailId', in: 'query', required: true }),
+      expect.objectContaining({ name: 'inquiryId', in: 'query', required: true }),
+    ]));
+    expect(extractDraft.responses['201']).toEqual({ $ref: '#/components/responses/SupplierQuoteDraft' });
+    expect(patchDraft.responses['200']).toEqual({ $ref: '#/components/responses/SupplierQuoteDraft' });
+    expect(confirmDraft.responses['200']).toEqual({ $ref: '#/components/responses/SupplierQuoteDraftConfirm' });
+
+    const item = contract.components.schemas.SupplierQuoteDraftItem;
+    expect(item.required).toEqual(['itemKey']);
+    expect(item.properties).toMatchObject({
+      inquiryItemId: { type: ['string', 'null'] },
+      currency: { type: ['string', 'null'] },
+      leadTimeMinDays: { type: ['integer', 'null'] },
+      leadTimeMaxDays: { type: ['integer', 'null'] },
+      taxIncluded: { type: ['boolean', 'null'] },
+      freightIncluded: { type: ['boolean', 'null'] },
+      incoterm: { type: ['string', 'null'], minLength: 2, maxLength: 20 },
+      evidenceText: { type: ['string', 'null'] },
+    });
+
+    expect(contract.components.schemas.SupplierQuoteComparisonItem.required).toEqual(expect.arrayContaining([
+      'commercialBasisKey', 'commercialBasisLabel',
+    ]));
+    expect(contract.components.schemas.SupplierQuoteComparisonItem.properties?.commercialTerms).toMatchObject({
+      required: ['condition', 'certificate', 'taxIncluded', 'freightIncluded', 'incoterm'],
+    });
+    expect(contract.components.schemas.SupplierQuoteComparisonGroup.required).toContain('commercialBasisGroups');
+    expect(contract.components.schemas.SupplierQuoteComparisonGroup.properties?.commercialBasisGroups).toEqual({
+      type: 'array',
+      items: { $ref: '#/components/schemas/SupplierQuoteCommercialBasisGroup' },
+    });
+  });
+
+  it('contracts server-owned sourcing AI tasks with idempotent create, retry and cancel states', () => {
+    const create = operation('POST', '/api/sourcing-ai-tasks');
+    const list = operation('GET', '/api/sourcing-ai-tasks');
+    const read = operation('GET', '/api/sourcing-ai-tasks/{id}');
+    const retry = operation('POST', '/api/sourcing-ai-tasks/{id}/retry');
+    const cancel = operation('POST', '/api/sourcing-ai-tasks/{id}/cancel');
+
+    expect(create.requestBody).toEqual(expect.objectContaining({ required: true }));
+    expect(create.responses['201']).toEqual({ $ref: '#/components/responses/SourcingAiTask' });
+    expect(create.responses['200']).toEqual({ $ref: '#/components/responses/SourcingAiTask' });
+    expect(list.responses['200']).toEqual({ $ref: '#/components/responses/SourcingAiTaskList' });
+    expect(list.parameters).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'emailId', in: 'query', required: false }),
+      expect.objectContaining({ name: 'inquiryId', in: 'query', required: false }),
+    ]));
+    expect(read.responses['200']).toEqual({ $ref: '#/components/responses/SourcingAiTask' });
+    expect(retry.responses['200']).toEqual({ $ref: '#/components/responses/SourcingAiTask' });
+    expect(cancel.responses['200']).toEqual({ $ref: '#/components/responses/SourcingAiTask' });
+    expect(contract.components.schemas.SourcingAiTask.required).toEqual(expect.arrayContaining([
+      'actorId', 'status', 'attempt', 'maxAttempts', 'draftId', 'errorSummary',
+    ]));
+    expect(contract.components.schemas.SourcingAiTaskCreateRequest.required).toEqual([
+      'type', 'emailId', 'inquiryId', 'idempotencyKey',
+    ]);
   });
 
   it('contracts audit administration, API key secrecy, feature flags and IPC reference reads', () => {

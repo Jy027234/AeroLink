@@ -81,6 +81,32 @@ describe('published agent execution', () => {
     expect(mocks.updateLog.mock.calls[0][0].data.status).toBe('ERROR');
   });
 
+  it('validates supplier quote drafts and records malformed model output as a failed invocation', async () => {
+    mocks.agent.mockResolvedValue({ isActive: true, publishedVersion: 2, builtinKey: 'supplier_quote_extraction' });
+    mocks.version.mockResolvedValue({ version: 2,
+      config: JSON.stringify({ modelId: 'model-2', temperature: 0.2, maxTokens: 900 }),
+      prompts: JSON.stringify([{ role: 'user', content: '{{subject}} {{body}} {{inquiryContext}}' }]),
+    });
+    mocks.completion.mockResolvedValue({ content: JSON.stringify({
+      items: [{ partNumber: 'PN-1', quantity: 2, currency: 'USD', evidenceText: '2 pcs, USD 125 each' }],
+    }), model: 'model-2' });
+    await expect(executeAgent('agent-1', { subject: 'quote', body: '2 pcs, USD 125 each', inquiryContext: {} }))
+      .resolves.toMatchObject({ output: expect.stringContaining('PN-1') });
+    expect(mocks.updateLog.mock.calls[0][0].data.status).toBe('SUCCESS');
+
+    mocks.completion.mockResolvedValue({ content: '{"items":[{"partNumber":"PN-1","evidenceText":"USD 125","invented":true}]}', model: 'model-2' });
+    await expect(executeAgent('agent-1', { subject: 'quote', body: 'USD 125', inquiryContext: {} }))
+      .rejects.toThrow('供应商报价提取结果不符合格式');
+    expect(mocks.updateLog.mock.calls[1][0].data.status).toBe('ERROR');
+
+    mocks.completion.mockResolvedValue({ content: JSON.stringify({
+      items: [{ partNumber: 'PN-1', unitPrice: 125, currency: 'USD', evidenceText: 'PN-2 USD 125 each' }],
+    }), model: 'model-2' });
+    await expect(executeAgent('agent-1', { subject: 'quote', body: 'PN-1 USD 125 each', inquiryContext: {} }))
+      .rejects.toThrow('报价依据无法在原邮件中定位');
+    expect(mocks.updateLog.mock.calls[2][0].data.status).toBe('ERROR');
+  });
+
   it('does one-pass variable substitution without interpreting source documents as templates', () => {
     expect(renderAgentPrompts([{ role: 'user', content: 'Mail: {{body}}' }], { body: '{{secret}}', secret: 'never-insert' }))
       .toEqual([{ role: 'user', content: 'Mail: {{secret}}' }]);

@@ -16,7 +16,7 @@ export function canReadStoredObject(
 ) {
   // Commercial documents require current order scope and cost access, even
   // for their uploader or a manager using an old /uploads link.
-  if (['purchase_commitment', 'stock_receipt', 'supplier_direct_shipment', 'settlement_account'].includes(storedObject.domain ?? '')) return false;
+  if (['email', 'purchase_commitment', 'stock_receipt', 'supplier_direct_shipment', 'settlement_account'].includes(storedObject.domain ?? '')) return false;
   const role = user?.role?.toLowerCase();
   const privileged = role === 'admin' || role === 'manager';
   return privileged || Boolean(user?.id && storedObject.ownerId === user.id);
@@ -69,6 +69,19 @@ export async function canReadStoredObjectDownload(
       if (error instanceof AppError && error.code === 'AUTH_FORBIDDEN') return false;
       throw error;
     }
+  }
+  if (storedObject.domain === 'email') {
+    if (!user || !hasCapability(user, 'email', 'read')) return false;
+    const attachment = await tx.emailAttachment.findFirst({
+      where: { storedObjectId: storedObject.id },
+      select: { id: true, emailId: true },
+    });
+    if (!attachment) return false;
+    const email = await tx.email.findUnique({
+      where: { id: attachment.emailId },
+      select: { id: true },
+    });
+    return Boolean(email);
   }
   return canReadStoredObject(storedObject, user) || await canReadReturnEvidence(storedObject, user);
 }

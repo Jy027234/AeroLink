@@ -389,6 +389,7 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
     include: {
       account: true,
       quotation: true,
+      inquiry: true,
     },
   });
 
@@ -448,9 +449,19 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
       },
     });
 
-    if (updateResult.count !== 1 || email.purpose !== 'QUOTATION_SEND' || !email.quotationId) {
+    if (updateResult.count !== 1) {
       return;
     }
+
+    if (email.purpose === 'INQUIRY_SEND' && email.inquiryId) {
+      await tx.inquiry.updateMany({
+        where: { id: email.inquiryId },
+        data: { status: 'SENT', sentAt },
+      });
+      return;
+    }
+
+    if (email.purpose !== 'QUOTATION_SEND' || !email.quotationId) return;
 
     const currentQuotation = await tx.quotation.findUnique({ where: { id: email.quotationId } });
     const currentQuotationStatus = currentQuotation
@@ -590,7 +601,7 @@ async function markOutboxFailure(event: OutboxEvent, workerId: string, error: un
           title: '异步邮件投递失败',
           message: `邮件投递已重试 ${event.attemptCount} 次仍未成功：${message}`,
           type: 'error',
-          link: '/quotations',
+          link: event.aggregateType === 'INQUIRY' ? '/sourcing' : '/quotations',
         },
       });
     }

@@ -295,8 +295,8 @@ export function applyTransactionLineContract(paths, core) {
   createOperation.parameters ??= [];
   if (!createOperation.parameters.some(parameter => parameter.name === 'Idempotency-Key')) createOperation.parameters.push({ name: 'Idempotency-Key', in: 'header', required: false, schema: str });
   const send = paths['/api/inquiries/{id}/send'].post;
-  send.deprecated = true;
-  send.description = 'No dispatch channel is implemented. Returns 409 MANUAL_WORKFLOW_REQUIRED without changing status or sentAt.';
-  delete send.responses['200'];
-  send.responses['409'] = { description: 'Manual supplier contact required; inquiry has not been sent.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } };
+  delete send.deprecated;
+  send.description = 'Queues one supplier inquiry email through the transactional outbox. A 202 response means queued, not delivered; deliveryStatus becomes sent only after the worker records SMTP acceptance. Supports Idempotency-Key replay.';
+  send.parameters ??= [];
+  if (!send.parameters.some(parameter => parameter.name === 'Idempotency-Key')) send.parameters.push({ name: 'Idempotency-Key', in: 'header', required: false, schema: str });
 }
