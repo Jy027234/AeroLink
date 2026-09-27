@@ -182,6 +182,7 @@ function buildMessageId(outboxEventId: string) {
 }
 
 class CancelledOutboxEventError extends Error {}
+class InquiryDeliveryUncertainError extends Error {}
 
 function inferSocketCapability(eventType: string, aggregateType: string) {
   const eventResource = eventType.trim().toLowerCase().split(/[.:]/)[0];
@@ -402,6 +403,12 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
   if (email.status === 'WITHDRAWN') {
     throw new CancelledOutboxEventError('Outbound email was withdrawn');
   }
+  if (email.purpose === 'INQUIRY_SEND' && ['SENDING', 'NEEDS_VERIFICATION'].includes(email.status)) {
+    // The worker may have crashed after SMTP accepted the message but before
+    // the SENT transaction committed. Retrying this event could deliver a
+    // duplicate, so require manual verification and stop all automatic replay.
+    throw new InquiryDeliveryUncertainError('Inquiry email delivery outcome is uncertain; manual verification is required before any new send');
+  }
   if (!email.account || !email.account.isActive) {
     throw new Error('Outbound email account is unavailable');
   }
@@ -425,14 +432,32 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
     }
     attachments = [await buildDocumentSnapshotAttachment(payload.attachmentDocumentId, email.quotationId, payload.attachmentSnapshotHash)];
   }
-  const sentResult = await sendEmail(buildEmailAccountConfig(email.account), {
-    to: email.toEmail,
-    subject: email.subject,
-    body: email.textBody,
-    html: email.htmlBody || undefined,
-    attachments,
-    messageId: buildMessageId(event.id),
-  });
+  if (email.purpose === 'INQUIRY_SEND') {
+    const beganDelivery = await prisma.outboundEmail.updateMany({
+      where: { id: email.id, status: 'PENDING' },
+      data: { status: 'SENDING', errorMessage: null },
+    });
+    if (beganDelivery.count !== 1) {
+      throw new InquiryDeliveryUncertainError('Inquiry email state changed before SMTP delivery; manual verification is required');
+    }
+  }
+
+  let sentResult: Awaited<ReturnType<typeof sendEmail>>;
+  try {
+    sentResult = await sendEmail(buildEmailAccountConfig(email.account), {
+      to: email.toEmail,
+      subject: email.subject,
+      body: email.textBody,
+      html: email.htmlBody || undefined,
+      attachments,
+      messageId: buildMessageId(event.id),
+    });
+  } catch (error) {
+    if (email.purpose === 'INQUIRY_SEND') {
+      throw new InquiryDeliveryUncertainError(`Inquiry email SMTP result is uncertain; automatic retry stopped: ${errorMessage(error)}`);
+    }
+    throw error;
+  }
   const sentAt = new Date();
 
   await prisma.$transaction(async (tx) => {
@@ -548,9 +573,9 @@ async function dispatchOutboxEvent(event: OutboxEvent) {
   throw new Error(`Unsupported outbox channel: ${event.channel}`);
 }
 
-async function markOutboxFailure(event: OutboxEvent, workerId: string, error: unknown) {
+async function markOutboxFailure(event: OutboxEvent, workerId: string, error: unknown, forceTerminal = false) {
   const message = errorMessage(error);
-  const terminal = event.attemptCount >= event.maxAttempts;
+  const terminal = forceTerminal || event.attemptCount >= event.maxAttempts;
   const nextStatus = terminal ? OutboxStatus.FAILED : OutboxStatus.RETRYING;
   let emailPayload: EmailPayload | null = null;
 
@@ -586,10 +611,10 @@ async function markOutboxFailure(event: OutboxEvent, workerId: string, error: un
     await tx.outboundEmail.updateMany({
       where: {
         id: emailPayload.outboundEmailId,
-        status: { notIn: ['SENT', 'WITHDRAWN'] },
+        status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] },
       },
       data: {
-        status: 'FAILED',
+        status: error instanceof InquiryDeliveryUncertainError ? 'NEEDS_VERIFICATION' : 'FAILED',
         errorMessage: message,
       },
     });
@@ -599,7 +624,9 @@ async function markOutboxFailure(event: OutboxEvent, workerId: string, error: un
         data: {
           userId: event.createdById,
           title: '异步邮件投递失败',
-          message: `邮件投递已重试 ${event.attemptCount} 次仍未成功：${message}`,
+          message: error instanceof InquiryDeliveryUncertainError
+            ? `询价邮件投递结果不确定，系统已停止自动重试。请核实供应商是否收到邮件后再决定后续操作：${message}`
+            : `邮件投递已重试 ${event.attemptCount} 次仍未成功：${message}`,
           type: 'error',
           link: event.aggregateType === 'INQUIRY' ? '/sourcing' : '/quotations',
         },
@@ -607,7 +634,16 @@ async function markOutboxFailure(event: OutboxEvent, workerId: string, error: un
     }
   });
 
-  if (terminal) {
+  if (error instanceof InquiryDeliveryUncertainError) {
+    recordOperationalAlert({
+      key: `worker.outbox.inquiry-outcome-uncertain.${event.id}`,
+      severity: 'critical',
+      title: 'Inquiry email delivery outcome requires verification',
+      message: 'An inquiry email entered SMTP delivery but its outcome could not be confirmed. Automatic replay was stopped to avoid a duplicate supplier email.',
+      source: 'worker.outbox',
+      metadata: { outboxEventId: event.id, attemptCount: event.attemptCount, outboundEmailId: emailPayload?.outboundEmailId },
+    });
+  } else if (terminal) {
     recordOperationalAlert({
       key: `worker.outbox.retry-exhausted.${event.id}`,
       severity: 'critical',
@@ -648,7 +684,7 @@ async function markOutboxCancelled(event: OutboxEvent, workerId: string, error: 
     await tx.outboundEmail.updateMany({
       where: {
         id: emailPayload.outboundEmailId,
-        status: { notIn: ['SENT', 'WITHDRAWN'] },
+        status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] },
       },
       data: {
         status: 'FAILED',
@@ -750,6 +786,11 @@ export async function processOutboxEvent(
       return released.count === 1;
     }));
   } catch (error) {
+    if (error instanceof InquiryDeliveryUncertainError) {
+      await markOutboxFailure(event, workerId, error, true);
+      logger.warn({ error, outboxEventId: event.id, channel: event.channel, eventType: event.eventType, requestId: event.requestId, traceId: event.traceId }, 'Inquiry email delivery outcome requires manual verification');
+      return false;
+    }
     if (error instanceof CancelledOutboxEventError) {
       await markOutboxCancelled(event, workerId, error);
       return false;
@@ -822,6 +863,17 @@ export async function retryOutboxEvent(id: string) {
   }
   if (event.status !== OutboxStatus.FAILED && event.status !== OutboxStatus.RETRYING) {
     throw new AppError('只有失败或等待重试的 Outbox 事件可以人工重试', 409, 'STATE_CONFLICT');
+  }
+
+  if (event.eventType === 'inquiry.email.send' && event.channel === OutboxChannel.EMAIL) {
+    const payload = parseEmailPayload(event.payload);
+    const email = await prisma.outboundEmail.findUnique({
+      where: { id: payload.outboundEmailId },
+      select: { status: true },
+    });
+    if (email?.status === 'NEEDS_VERIFICATION' || email?.status === 'SENDING' || email?.status === 'SENT') {
+      throw new AppError('询价邮件投递结果需要人工核实；此 Outbox 事件禁止重放以避免重复发送', 409, 'STATE_CONFLICT');
+    }
   }
 
   await prisma.$transaction(async (tx) => {
@@ -898,7 +950,7 @@ export async function cancelOutboxEvent(id: string, reason?: string) {
     await tx.outboundEmail.updateMany({
       where: {
         id: emailPayload.outboundEmailId,
-        status: { notIn: ['SENT', 'WITHDRAWN'] },
+        status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] },
       },
       data: {
         status: 'FAILED',

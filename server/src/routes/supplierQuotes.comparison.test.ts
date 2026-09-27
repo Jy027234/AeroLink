@@ -6,8 +6,10 @@ function buildLine(overrides: Record<string, unknown> = {}) {
   return {
     id: 'rfq-line-1',
     rfqId: 'rfq-1',
+    lineNo: 1,
     partNumber: '3214-567-100',
     quantity: 10,
+    uom: 'EA',
     alternatePartNumbers: null,
     ...overrides,
   };
@@ -23,6 +25,7 @@ function buildQuote(overrides: Record<string, unknown> = {}) {
     supplierId: 'supplier-1',
     partNumber: '3214-567-100',
     quantity: 1,
+    quantityUnit: 'EA',
     unitPrice: 100,
     unitPriceDecimal: null,
     totalPrice: 100,
@@ -34,6 +37,11 @@ function buildQuote(overrides: Record<string, unknown> = {}) {
     status: 'pending',
     statusEnum: null,
     isWinner: false,
+    updatedAt: new Date('2026-09-24T08:00:00.000Z'),
+    supersededAt: null,
+    revisionOfId: null,
+    revisionRootId: 'supplier-quote-1',
+    revisionNumber: 1,
     inquiry: null,
     inquiryItem: null,
     supplier: {
@@ -49,11 +57,16 @@ function buildQuote(overrides: Record<string, unknown> = {}) {
 describe('supplier quote rule comparison and line winner selection', () => {
   let prismaMock: {
     $transaction: ReturnType<typeof vi.fn>;
-    rFQ: { findUnique: ReturnType<typeof vi.fn> };
+    rFQ: { findUnique: ReturnType<typeof vi.fn>; findFirst: ReturnType<typeof vi.fn> };
     rfqLine: { findUnique: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
     inquiry: { findUnique: ReturnType<typeof vi.fn> };
     inquiryItem: { findUnique: ReturnType<typeof vi.fn> };
+    quotation: { findFirst: ReturnType<typeof vi.fn> };
+    quotationLine: { findFirst: ReturnType<typeof vi.fn> };
+    purchaseCommitmentLine: { findFirst: ReturnType<typeof vi.fn> };
+    auditLog: { create: ReturnType<typeof vi.fn> };
     supplierQuote: {
+      create: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
       updateMany: ReturnType<typeof vi.fn>;
@@ -65,11 +78,16 @@ describe('supplier quote rule comparison and line winner selection', () => {
     vi.resetModules();
     prismaMock = {
       $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(prismaMock)),
-      rFQ: { findUnique: vi.fn() },
+      rFQ: { findUnique: vi.fn(), findFirst: vi.fn().mockResolvedValue({ id: 'rfq-1', createdBy: 'test-user', creator: { department: 'Sales' } }) },
       rfqLine: { findUnique: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
       inquiry: { findUnique: vi.fn() },
       inquiryItem: { findUnique: vi.fn() },
+      quotation: { findFirst: vi.fn().mockResolvedValue(null) },
+      quotationLine: { findFirst: vi.fn().mockResolvedValue(null) },
+      purchaseCommitmentLine: { findFirst: vi.fn().mockResolvedValue(null) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
       supplierQuote: {
+        create: vi.fn(),
         findMany: vi.fn(),
         findUnique: vi.fn(),
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -79,13 +97,13 @@ describe('supplier quote rule comparison and line winner selection', () => {
     vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
   });
 
-  async function buildApp() {
+  async function buildApp(user: { id: string; role: string; name?: string } = { id: 'admin-1', role: 'admin' }) {
     const router = (await import('./supplierQuotes.js')).default;
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
-      Object.assign(req, { user: { id: 'admin-1', role: 'admin' } });
+      Object.assign(req, { user });
       next();
     });
     app.use('/api/supplier-quotes', router);
@@ -102,16 +120,95 @@ describe('supplier quote rule comparison and line winner selection', () => {
     expect(prismaMock.supplierQuote.findMany).not.toHaveBeenCalled();
   });
 
-  it('rejects the legacy RFQ-only request when the RFQ has multiple lines', async () => {
+  it('does not expose a multi-line RFQ outside the caller read scope', async () => {
+    prismaMock.rFQ.findFirst.mockResolvedValue(null);
+    const response = await request(await buildApp()).post('/api/supplier-quotes/compare').send({ rfqId: 'rfq-1' });
+    expect(response.status).toBe(404);
+    expect(prismaMock.rfqLine.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.supplierQuote.findMany).not.toHaveBeenCalled();
+  });
+
+  it('persists an explicitly supplied unit on a manual quote and keeps an omitted unit unknown', async () => {
+    prismaMock.supplierQuote.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'manual-quote',
+      ...data,
+      unitPriceDecimal: null,
+      totalPriceDecimal: null,
+    }));
+    const app = await buildApp();
+    const base = {
+      supplierId: 'supplier-1', partNumber: 'PN-MANUAL', quantity: 2, unitPrice: 10, leadTimeDays: 3,
+    };
+
+    const explicit = await request(app).post('/api/supplier-quotes').send({ ...base, quantityUnit: 'EA' });
+    const unknown = await request(app).post('/api/supplier-quotes').send(base);
+
+    expect(explicit.status).toBe(201);
+    expect(explicit.body.data.quantityUnit).toBe('EA');
+    expect(unknown.status).toBe(201);
+    expect(unknown.body.data.quantityUnit).toBeNull();
+    expect(prismaMock.supplierQuote.create.mock.calls.map(([args]) => args.data.quantityUnit)).toEqual(['EA', null]);
+  });
+
+  it('returns independent line groups for a multi-line legacy RFQ comparison, including repeated part numbers and empty rows', async () => {
+    const lineOne = buildLine({ lineNo: 1, partNumber: 'SAME-PN', quantity: 10 });
+    const lineTwo = buildLine({ id: 'rfq-line-2', lineNo: 2, partNumber: 'SAME-PN', quantity: 20 });
+    const emptyLine = buildLine({ id: 'rfq-line-3', lineNo: 3, partNumber: 'NO-QUOTES', quantity: 5 });
     prismaMock.rfqLine.findMany.mockResolvedValue([
-      buildLine(), buildLine({ id: 'rfq-line-2', partNumber: 'PN-2' }),
+      lineOne, lineTwo, emptyLine,
+    ]);
+    prismaMock.supplierQuote.findMany.mockResolvedValue([
+      buildQuote({ id: 'line-1-supplier-a', rfqLineId: lineOne.id, partNumber: lineOne.partNumber, quantity: 10, unitPrice: 80, totalPrice: 800 }),
+      buildQuote({
+        id: 'line-1-supplier-b', rfqLineId: lineOne.id, partNumber: lineOne.partNumber, quantity: 10,
+        supplierId: 'supplier-2', supplier: { id: 'supplier-2', name: 'Supplier B', level: 'B', performanceScore: 80 },
+        unitPrice: 100, totalPrice: 1000,
+      }),
+      buildQuote({ id: 'line-2-supplier-a', rfqLineId: lineTwo.id, partNumber: lineTwo.partNumber, quantity: 20, unitPrice: 20, totalPrice: 400 }),
+      buildQuote({
+        id: 'line-2-supplier-b', rfqLineId: lineTwo.id, partNumber: lineTwo.partNumber, quantity: 20,
+        supplierId: 'supplier-2', supplier: { id: 'supplier-2', name: 'Supplier B', level: 'B', performanceScore: 80 },
+        unitPrice: 30, totalPrice: 600,
+      }),
     ]);
     const app = await buildApp();
     const response = await request(app).post('/api/supplier-quotes/compare').send({ rfqId: 'rfq-1' });
 
-    expect(response.status).toBe(409);
-    expect(response.body.code).toBe('LINE_ID_REQUIRED');
-    expect(prismaMock.supplierQuote.findMany).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({
+      rfqId: 'rfq-1',
+      lineGroups: [
+        { rfqLineId: 'rfq-line-1', lineNo: 1, partNumber: 'SAME-PN' },
+        { rfqLineId: 'rfq-line-2', lineNo: 2, partNumber: 'SAME-PN' },
+        { rfqLineId: 'rfq-line-3', lineNo: 3, partNumber: 'NO-QUOTES' },
+      ],
+    });
+    const [firstLine, secondLine, noQuoteLine] = response.body.data.lineGroups;
+    expect(firstLine.comparison.quotes.map((quote: { id: string }) => quote.id).sort()).toEqual([
+      'line-1-supplier-a', 'line-1-supplier-b',
+    ]);
+    expect(secondLine.comparison.quotes.map((quote: { id: string }) => quote.id).sort()).toEqual([
+      'line-2-supplier-a', 'line-2-supplier-b',
+    ]);
+    expect(firstLine.comparison.summary.lowestPrice).toBe(80);
+    expect(secondLine.comparison.summary.lowestPrice).toBe(20);
+    expect(firstLine.comparison.topRanked).not.toBeNull();
+    expect(secondLine.comparison.topRanked).not.toBeNull();
+    expect(noQuoteLine.comparison).toMatchObject({
+      rfqLineId: 'rfq-line-3', quotes: [], topRanked: null, metadata: { status: 'unavailable' },
+    });
+    expect(response.body.data).not.toHaveProperty('topRanked');
+    expect(response.body.data).not.toHaveProperty('summary');
+    expect(response.body.data).not.toHaveProperty('quotes');
+    expect(prismaMock.rfqLine.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { rfqId: 'rfq-1' }, orderBy: { lineNo: 'asc' },
+    }));
+    expect(prismaMock.supplierQuote.findMany).toHaveBeenCalledTimes(3);
+    expect(prismaMock.supplierQuote.findMany.mock.calls.map(([args]) => args.where)).toEqual([
+      { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }], supersededAt: null },
+      { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-2' }], supersededAt: null },
+      { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-3' }], supersededAt: null },
+    ]);
   });
 
   it('rejects an RFQ line that does not belong to the requested RFQ', async () => {
@@ -151,7 +248,43 @@ describe('supplier quote rule comparison and line winner selection', () => {
     expect(response.status).toBe(200);
     expect(response.body.data).toMatchObject({ rfqId: 'rfq-1', rfqLineId: 'rfq-line-1' });
     expect(prismaMock.supplierQuote.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }, { rfqLineId: null }] },
+      where: { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }, { rfqLineId: null }], supersededAt: null },
+    }));
+  });
+
+  it('omits cancelled demand rows from the read-only AI comparison while preserving the active line scope', async () => {
+    prismaMock.rfqLine.findMany.mockResolvedValue([
+      buildLine({ id: 'cancelled-line', lineNo: 1, status: 'CANCELLED' }),
+      buildLine({ id: 'active-line', lineNo: 2, status: 'OPEN' }),
+    ]);
+    prismaMock.supplierQuote.findMany.mockResolvedValue([]);
+
+    const { compareRfqSupplierQuotesDeterministically } = await import('./supplierQuotes.js');
+    const result = await compareRfqSupplierQuotesDeterministically('rfq-1', { activeLinesOnly: true });
+
+    expect(result.data).toMatchObject({ rfqLineId: 'active-line' });
+    expect(prismaMock.supplierQuote.findMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.supplierQuote.findMany.mock.calls[0][0].where).toEqual({
+      rfqId: 'rfq-1', OR: [{ rfqLineId: 'active-line' }], supersededAt: null,
+    });
+  });
+
+  it('excludes superseded quote revisions from the comparison results and ranking', async () => {
+    prismaMock.rfqLine.findUnique.mockResolvedValue(buildLine());
+    prismaMock.rfqLine.findMany.mockResolvedValue([buildLine()]);
+    prismaMock.supplierQuote.findMany.mockResolvedValue([
+      buildQuote({ id: 'old-version', unitPrice: 1, totalPrice: 1, supersededAt: new Date() }),
+      buildQuote({ id: 'current-version', unitPrice: 100, totalPrice: 100 }),
+    ]);
+
+    const app = await buildApp();
+    const response = await request(app).post('/api/supplier-quotes/compare').send({ rfqLineId: 'rfq-line-1' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.quotes.map((quote: { id: string }) => quote.id)).toEqual(['current-version']);
+    expect(response.body.data.topRanked).toBeNull();
+    expect(prismaMock.supplierQuote.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ supersededAt: null }),
     }));
   });
 
@@ -168,7 +301,7 @@ describe('supplier quote rule comparison and line winner selection', () => {
     expect(response.status).toBe(200);
     expect(response.body.data.rfqLineId).toBe('rfq-line-1');
     expect(prismaMock.supplierQuote.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }] },
+      where: { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }], supersededAt: null },
     }));
   });
 
@@ -192,7 +325,7 @@ describe('supplier quote rule comparison and line winner selection', () => {
       },
     });
     expect(prismaMock.supplierQuote.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }, { rfqLineId: null }] },
+      where: { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }, { rfqLineId: null }], supersededAt: null },
     }));
   });
 
@@ -226,7 +359,7 @@ describe('supplier quote rule comparison and line winner selection', () => {
         metadata: {
           status: 'available',
           source: 'AeroLink supplier quote and supplier master records',
-          algorithmVersion: 'supplier-quote-rule-v3',
+          algorithmVersion: 'supplier-quote-rule-v4',
           sampleSize: 2,
         },
       },
@@ -235,6 +368,7 @@ describe('supplier quote rule comparison and line winner selection', () => {
       expect.objectContaining({
         id: 'supplier-quote-1',
         rfqLineId: 'rfq-line-1',
+        updatedAt: '2026-09-24T08:00:00.000Z',
         partNumber: '3214-567-100',
         unitPrice: 100,
         totalPrice: 100,
@@ -246,6 +380,51 @@ describe('supplier quote rule comparison and line winner selection', () => {
         id: 'supplier-quote-2',
         ruleScore: 41.5,
         scoreComponents: { price: 0, leadTime: 85, supplierPerformance: 80 },
+      }),
+    ]));
+  });
+
+  it('compares quantity and price only when quote and demand units match after normalization', async () => {
+    prismaMock.rfqLine.findUnique.mockResolvedValue(buildLine({ uom: 'EA' }));
+    prismaMock.rfqLine.findMany.mockResolvedValue([buildLine({ uom: 'EA' })]);
+    prismaMock.supplierQuote.findMany.mockResolvedValue([
+      buildQuote({ id: 'unit-match-a', quantity: 10, quantityUnit: ' eA  ', unitPrice: 100, totalPrice: 1000 }),
+      buildQuote({
+        id: 'unit-match-b', quantity: 8, quantityUnit: 'EA', unitPrice: 120, totalPrice: 960,
+        supplierId: 'supplier-2',
+        supplier: { id: 'supplier-2', name: 'Supplier 2', level: 'B', performanceScore: 80 },
+      }),
+      buildQuote({ id: 'unit-mismatch', quantity: 5, quantityUnit: 'BOX', unitPrice: 1, totalPrice: 5 }),
+      buildQuote({ id: 'unit-unknown', quantity: 10, quantityUnit: null, unitPrice: 0.5, totalPrice: 5 }),
+    ]);
+
+    const app = await buildApp();
+    const response = await request(app).post('/api/supplier-quotes/compare').send({ rfqLineId: 'rfq-line-1' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({
+      requiredQuantityUnit: 'EA',
+      topRanked: { id: 'unit-match-a' },
+      summary: { comparableQuoteCount: 2, bestAvailableQuantity: 10, lowestPrice: 100 },
+      metadata: { exclusionCounts: { quantityUnitUnknown: 1, quantityUnitMismatch: 1 } },
+    });
+    expect(response.body.data.quotes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'unit-match-a', quantityUnit: ' eA  ', requiredQuantityUnit: 'EA',
+        quantityUnitComparison: { compatible: true, status: 'compatible', reason: 'MATCH', quoteUnit: ' eA  ', demandUnit: 'EA' },
+        coversRequiredQuantity: true, isLowestPrice: true,
+      }),
+      expect.objectContaining({
+        id: 'unit-mismatch', eligibleForComparison: false,
+        eligibilityReasons: expect.arrayContaining(['QUANTITY_UNIT_MISMATCH']),
+        quantityUnitComparison: { compatible: false, status: 'incompatible', reason: 'UNIT_MISMATCH', quoteUnit: 'BOX', demandUnit: 'EA' },
+        coversRequiredQuantity: null, quantityShortfall: null, priceDiff: null, isLowestPrice: false, ruleScore: null,
+      }),
+      expect.objectContaining({
+        id: 'unit-unknown', eligibleForComparison: false,
+        eligibilityReasons: expect.arrayContaining(['QUANTITY_UNIT_UNKNOWN']),
+        quantityUnitComparison: { compatible: false, status: 'unknown', reason: 'QUOTE_UNIT_UNKNOWN', quoteUnit: null, demandUnit: 'EA' },
+        coversRequiredQuantity: null, quantityShortfall: null, priceDiff: null, isLowestPrice: false, ruleScore: null,
       }),
     ]));
   });
@@ -504,7 +683,7 @@ describe('supplier quote rule comparison and line winner selection', () => {
 
     expect(response.status).toBe(200);
     expect(prismaMock.supplierQuote.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }] },
+      where: { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }], supersededAt: null },
     }));
     expect(response.body.data.quotes.map((quote: { id: string }) => quote.id)).toEqual(['supplier-quote-1']);
     expect(response.body.data.summary).toMatchObject({ lowestPrice: 100, highestPrice: 100 });
@@ -594,6 +773,222 @@ describe('supplier quote rule comparison and line winner selection', () => {
       { isolationLevel: 'Serializable' },
       { isolationLevel: 'Serializable' },
     ]);
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(2);
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'APPROVE', resourceType: 'SUPPLIER_QUOTE', resourceId: 'quote-a', userId: 'admin-1' }),
+    }));
+  });
+
+  it('does not duplicate a winner-selection audit event on a repeated click', async () => {
+    const selected = buildQuote({ isWinner: true, status: 'accepted' });
+    prismaMock.supplierQuote.findUnique.mockResolvedValue(selected);
+    prismaMock.rfqLine.findUnique.mockResolvedValue(buildLine());
+    const response = await request(await buildApp()).post('/api/supplier-quotes/supplier-quote-1/select-winner');
+    expect(response.status).toBe(200);
+    expect(prismaMock.supplierQuote.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('does not select a winner for an RFQ outside the caller read scope', async () => {
+    prismaMock.supplierQuote.findUnique.mockResolvedValue(buildQuote());
+    prismaMock.rFQ.findFirst.mockResolvedValue(null);
+    const response = await request(await buildApp()).post('/api/supplier-quotes/supplier-quote-1/select-winner');
+    expect(response.status).toBe(404);
+    expect(prismaMock.supplierQuote.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('blocks winner selection when a quote unit is incompatible or missing', async () => {
+    const line = buildLine({ uom: 'EA' });
+    prismaMock.rfqLine.findUnique.mockResolvedValue(line);
+    prismaMock.supplierQuote.findUnique
+      .mockResolvedValueOnce(buildQuote({ id: 'mismatch-winner', quantityUnit: 'BOX' }))
+      .mockResolvedValueOnce(buildQuote({ id: 'unknown-winner', quantityUnit: null }));
+
+    const app = await buildApp();
+    const mismatch = await request(app).post('/api/supplier-quotes/mismatch-winner/select-winner');
+    const unknown = await request(app).post('/api/supplier-quotes/unknown-winner/select-winner');
+
+    expect(mismatch.status).toBe(409);
+    expect(mismatch.body.message).toContain('单位');
+    expect(unknown.status).toBe(409);
+    expect(unknown.body.message).toContain('单位');
+    expect(prismaMock.supplierQuote.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.supplierQuote.update).not.toHaveBeenCalled();
+  });
+
+  it('blocks winner selection for a superseded quote version', async () => {
+    prismaMock.supplierQuote.findUnique.mockResolvedValue(buildQuote({ supersededAt: new Date() }));
+
+    const app = await buildApp();
+    const response = await request(app).post('/api/supplier-quotes/supplier-quote-1/select-winner');
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('STATE_CONFLICT');
+    expect(prismaMock.supplierQuote.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('rejects generic quote updates that attempt to set isWinner=%s', async (isWinner) => {
+    const app = await buildApp();
+    const response = await request(app).put('/api/supplier-quotes/supplier-quote-1').send({ isWinner });
+
+    expect(response.status).toBe(400);
+    expect(response.body.details.isWinner).toContain('请使用专用中选接口修改中选状态');
+    expect(prismaMock.supplierQuote.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.supplierQuote.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.supplierQuote.update).not.toHaveBeenCalled();
+  });
+
+  it('requires supplier quote update permission to clear a winner', async () => {
+    const app = await buildApp({ id: 'viewer-1', role: 'viewer' });
+    const response = await request(app)
+      .post('/api/supplier-quotes/supplier-quote-1/clear-winner')
+      .send({ expectedUpdatedAt: '2026-09-24T08:00:00.000Z' });
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('AUTH_FORBIDDEN');
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('requires RFQ read access before clearing an associated winner', async () => {
+    prismaMock.supplierQuote.findUnique.mockResolvedValue(buildQuote({ isWinner: true }));
+    prismaMock.rFQ.findFirst.mockResolvedValue(null);
+
+    const app = await buildApp({ id: 'sales-1', role: 'sales' });
+    const response = await request(app)
+      .post('/api/supplier-quotes/supplier-quote-1/clear-winner')
+      .send({ expectedUpdatedAt: '2026-09-24T08:00:00.000Z' });
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('RESOURCE_NOT_FOUND');
+    expect(prismaMock.supplierQuote.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('clears only the target winner in a serializable transaction and is idempotent on repeat', async () => {
+    const originalUpdatedAt = new Date('2026-09-24T08:00:00.000Z');
+    const clearedUpdatedAt = new Date('2026-09-24T08:05:00.000Z');
+    let quoteState = buildQuote({ id: 'target-quote', isWinner: true, updatedAt: originalUpdatedAt });
+    const otherWinner = buildQuote({ id: 'other-quote', isWinner: true });
+    prismaMock.supplierQuote.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === otherWinner.id ? otherWinner : quoteState);
+    prismaMock.supplierQuote.updateMany.mockImplementation(async ({ where, data }: {
+      where: { id: string; isWinner: boolean; updatedAt: Date };
+      data: { isWinner: boolean };
+    }) => {
+      expect(where).toEqual({
+        id: 'target-quote', isWinner: true, supersededAt: null, updatedAt: originalUpdatedAt,
+      });
+      quoteState = { ...quoteState, ...data, updatedAt: clearedUpdatedAt };
+      return { count: 1 };
+    });
+
+    const app = await buildApp();
+    const body = { expectedUpdatedAt: originalUpdatedAt.toISOString() };
+    const first = await request(app).post('/api/supplier-quotes/target-quote/clear-winner').send(body);
+    const second = await request(app).post('/api/supplier-quotes/target-quote/clear-winner').send(body);
+
+    expect(first.status).toBe(200);
+    expect(first.body.data).toMatchObject({ id: 'target-quote', isWinner: false, updatedAt: clearedUpdatedAt.toISOString() });
+    expect(second.status).toBe(200);
+    expect(second.body.data).toMatchObject({ id: 'target-quote', isWinner: false });
+    expect(quoteState.isWinner).toBe(false);
+    expect(otherWinner.isWinner).toBe(true);
+    expect(prismaMock.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'Serializable' });
+    expect(prismaMock.supplierQuote.updateMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows clearing the current revised quote and derives read scope from its RFQ line', async () => {
+    const updatedAt = new Date('2026-09-24T08:00:00.000Z');
+    prismaMock.supplierQuote.findUnique
+      .mockResolvedValueOnce(buildQuote({
+        id: 'current-revision', rfqId: null, rfqLineId: 'rfq-line-1', revisionNumber: 2,
+        revisionRootId: 'root-quote', isWinner: true, updatedAt,
+      }))
+      .mockResolvedValueOnce(buildQuote({
+        id: 'current-revision', rfqId: null, rfqLineId: 'rfq-line-1', revisionNumber: 2,
+        revisionRootId: 'root-quote', isWinner: false, updatedAt: new Date('2026-09-24T08:01:00.000Z'),
+      }));
+    prismaMock.rfqLine.findUnique.mockResolvedValue({ rfqId: 'rfq-1' });
+    prismaMock.supplierQuote.updateMany.mockResolvedValue({ count: 1 });
+
+    const app = await buildApp();
+    const response = await request(app)
+      .post('/api/supplier-quotes/current-revision/clear-winner')
+      .send({ expectedUpdatedAt: updatedAt.toISOString() });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({ id: 'current-revision', isWinner: false });
+    expect(prismaMock.rFQ.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ AND: expect.arrayContaining([{ id: 'rfq-1' }]) }),
+    }));
+    expect(prismaMock.supplierQuote.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'current-revision', isWinner: true, supersededAt: null, updatedAt,
+      },
+      data: { isWinner: false },
+    });
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a stale quote version before mutation or audit', async () => {
+    prismaMock.supplierQuote.findUnique.mockResolvedValue(buildQuote({
+      isWinner: true,
+      updatedAt: new Date('2026-09-24T08:01:00.000Z'),
+    }));
+
+    const app = await buildApp();
+    const response = await request(app)
+      .post('/api/supplier-quotes/supplier-quote-1/clear-winner')
+      .send({ expectedUpdatedAt: '2026-09-24T08:00:00.000Z' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('STATE_CONFLICT');
+    expect(prismaMock.supplierQuote.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('treats a concurrent clear that already removed winner status as an idempotent success', async () => {
+    const requestedVersion = new Date('2026-09-24T08:00:00.000Z');
+    const clearedQuote = buildQuote({ isWinner: false, updatedAt: new Date('2026-09-24T08:01:00.000Z') });
+    prismaMock.supplierQuote.findUnique
+      .mockResolvedValueOnce(buildQuote({ isWinner: true, updatedAt: requestedVersion }))
+      .mockResolvedValueOnce(clearedQuote);
+    prismaMock.supplierQuote.updateMany.mockResolvedValue({ count: 0 });
+
+    const app = await buildApp();
+    const response = await request(app)
+      .post('/api/supplier-quotes/supplier-quote-1/clear-winner')
+      .send({ expectedUpdatedAt: requestedVersion.toISOString() });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({ isWinner: false });
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('returns a conflict when another quote mutation wins the conditional update race', async () => {
+    const requestedVersion = new Date('2026-09-24T08:00:00.000Z');
+    prismaMock.supplierQuote.findUnique
+      .mockResolvedValueOnce(buildQuote({ isWinner: true, updatedAt: requestedVersion }))
+      .mockResolvedValueOnce(buildQuote({ isWinner: true, updatedAt: new Date('2026-09-24T08:01:00.000Z') }));
+    prismaMock.supplierQuote.updateMany.mockResolvedValue({ count: 0 });
+
+    const app = await buildApp();
+    const response = await request(app)
+      .post('/api/supplier-quotes/supplier-quote-1/clear-winner')
+      .send({ expectedUpdatedAt: requestedVersion.toISOString() });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('STATE_CONFLICT');
+    expect(prismaMock.supplierQuote.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'supplier-quote-1', isWinner: true, supersededAt: null, updatedAt: requestedVersion,
+      },
+      data: { isWinner: false },
+    });
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
   });
 
   it('clears bound and historical unbound winners together for a one-line RFQ', async () => {
@@ -611,6 +1006,28 @@ describe('supplier quote rule comparison and line winner selection', () => {
       where: { rfqId: 'rfq-1', OR: [{ rfqLineId: 'rfq-line-1' }, { rfqLineId: null }] },
       data: { isWinner: false },
     });
+  });
+
+  it('requires the staged quote version when selecting through a shared transaction', async () => {
+    const { selectSupplierQuoteWinnerInTransaction } = await import('../lib/supplierQuoteSelectWinnerCommand.js');
+    const tx = prismaMock as unknown as Parameters<typeof selectSupplierQuoteWinnerInTransaction>[0];
+    const actor = { id: 'admin-1', email: 'admin@example.test', name: 'Admin', role: 'admin' };
+    const stagedVersion = new Date('2026-09-24T08:00:00.000Z');
+    prismaMock.supplierQuote.findUnique.mockResolvedValue(buildQuote({ updatedAt: new Date('2026-09-24T08:01:00.000Z') }));
+
+    await expect(selectSupplierQuoteWinnerInTransaction(tx, 'supplier-quote-1', actor, stagedVersion))
+      .rejects.toMatchObject({ statusCode: 409, code: 'STATE_CONFLICT' });
+    expect(prismaMock.supplierQuote.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.auditLog.create).not.toHaveBeenCalled();
+
+    prismaMock.supplierQuote.findUnique.mockResolvedValue(buildQuote({ updatedAt: stagedVersion }));
+    prismaMock.rfqLine.findUnique.mockResolvedValue(buildLine());
+    prismaMock.rfqLine.findMany.mockResolvedValue([buildLine()]);
+    prismaMock.supplierQuote.update.mockResolvedValue(buildQuote({ isWinner: true, status: 'accepted' }));
+    const selected = await selectSupplierQuoteWinnerInTransaction(tx, 'supplier-quote-1', actor, stagedVersion);
+    expect(selected.isWinner).toBe(true);
+    expect(prismaMock.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 
   it('does not block selection solely because a quote covers only part of the demand', async () => {

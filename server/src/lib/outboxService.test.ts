@@ -49,7 +49,7 @@ function frozenQuotationSnapshot(quotationId: string, commonNote = 'Frozen terms
 function createPrismaMock() {
   const tx = {
     outboxEvent: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    outboundEmail: { updateMany: vi.fn() },
+    outboundEmail: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     inquiry: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     notification: { create: vi.fn() },
     quotation: { findUnique: vi.fn() },
@@ -64,7 +64,7 @@ function createPrismaMock() {
       findMany: vi.fn(),
       groupBy: vi.fn(),
     },
-    outboundEmail: { findUnique: vi.fn() },
+    outboundEmail: { findUnique: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     generatedDocument: { findUnique: vi.fn() },
     customer: { findUnique: vi.fn() },
     $transaction: vi.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
@@ -249,7 +249,7 @@ describe('outboxService', () => {
       data: expect.objectContaining({ status: 'FAILED', nextRetryAt: null, lastError: 'SMTP unavailable' }),
     });
     expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
-      where: { id: 'mail-1', status: { notIn: ['SENT', 'WITHDRAWN'] } },
+      where: { id: 'mail-1', status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] } },
       data: { status: 'FAILED', errorMessage: 'SMTP unavailable' },
     });
     expect(prismaMock.__tx.notification.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -300,10 +300,127 @@ describe('outboxService', () => {
       where: { id: 'mail-inquiry', status: { not: 'WITHDRAWN' } },
       data: expect.objectContaining({ status: 'SENT', providerMessageId: 'provider-inquiry-1' }),
     }));
+    expect(prismaMock.outboundEmail.updateMany).toHaveBeenCalledWith({
+      where: { id: 'mail-inquiry', status: 'PENDING' },
+      data: { status: 'SENDING', errorMessage: null },
+    });
     expect(prismaMock.__tx.inquiry.updateMany).toHaveBeenCalledWith({
       where: { id: 'i1' },
       data: expect.objectContaining({ status: 'SENT', sentAt: expect.any(Date) }),
     });
+  });
+
+  it('stops after recovering an inquiry email left SENDING by a worker crash and requires manual verification', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'inquiry.email.send',
+      aggregateType: 'INQUIRY',
+      aggregateId: 'i-crashed',
+      status: 'PROCESSING',
+      attemptCount: 2,
+      payload: JSON.stringify({ outboundEmailId: 'mail-crashed-inquiry', includeQuotationPdf: false }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-crashed-inquiry',
+      status: 'SENDING',
+      purpose: 'INQUIRY_SEND',
+      inquiryId: 'i-crashed',
+      toEmail: 'quotes@supplier.example',
+      subject: 'RFQ request',
+      textBody: 'Please quote PN-100',
+      account: { id: 'acct-1', isActive: true },
+    });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.outboundEmail.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.notification.create.mockResolvedValue({ id: 'notification-uncertain' });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenCalledWith({
+      where: { id: event.id, status: 'PROCESSING', workerId: expect.stringMatching(/^worker-/) },
+      data: expect.objectContaining({
+        status: 'FAILED',
+        nextRetryAt: null,
+        lastError: expect.stringContaining('manual verification is required'),
+      }),
+    });
+    expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
+      where: { id: 'mail-crashed-inquiry', status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] } },
+      data: { status: 'NEEDS_VERIFICATION', errorMessage: expect.stringContaining('manual verification is required') },
+    });
+    expect(prismaMock.__tx.notification.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ message: expect.stringContaining('已停止自动重试') }),
+    }));
+  });
+
+  it('does not redeliver an inquiry after SMTP accepts but the SENT database write fails', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'inquiry.email.send',
+      aggregateType: 'INQUIRY',
+      aggregateId: 'i-db-crash',
+      status: 'PROCESSING',
+      attemptCount: 1,
+      payload: JSON.stringify({ outboundEmailId: 'mail-db-crash', includeQuotationPdf: false }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValueOnce(event).mockResolvedValueOnce({ ...event, attemptCount: 2 });
+    prismaMock.outboundEmail.findUnique
+      .mockResolvedValueOnce({
+        id: 'mail-db-crash', status: 'PENDING', purpose: 'INQUIRY_SEND', inquiryId: 'i-db-crash',
+        toEmail: 'quotes@supplier.example', subject: 'RFQ request', textBody: 'Please quote PN-100', htmlBody: null,
+        account: {
+          id: 'acct-1', email: 'sales@aerolink.com', displayName: null, imapServer: 'imap.example.com', imapPort: '993',
+          smtpServer: 'smtp.example.com', smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true,
+        },
+        inquiry: { id: 'i-db-crash', status: 'QUEUED' },
+      })
+      .mockResolvedValueOnce({ id: 'mail-db-crash', status: 'SENDING', purpose: 'INQUIRY_SEND', inquiryId: 'i-db-crash' });
+    sendEmailMock.mockResolvedValue({ messageId: 'provider-accepted-before-db-crash' });
+    prismaMock.__tx.outboundEmail.updateMany
+      .mockRejectedValueOnce(new Error('database connection lost before SENT commit'))
+      .mockResolvedValue({ count: 1 });
+    prismaMock.__tx.notification.create.mockResolvedValue({ id: 'notification-db-crash' });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+    // This models the worker recovering the RETRYING event after the first
+    // process died with the durable email state still at SENDING.
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+
+    expect(sendEmailMock).toHaveBeenCalledTimes(1);
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenLastCalledWith({
+      where: { id: event.id, status: 'PROCESSING', workerId: expect.stringMatching(/^worker-/) },
+      data: expect.objectContaining({ status: 'FAILED', nextRetryAt: null }),
+    });
+    expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'mail-db-crash', status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] } },
+      data: { status: 'NEEDS_VERIFICATION', errorMessage: expect.stringContaining('manual verification is required') },
+    });
+  });
+
+  it('rejects manual Outbox replay when an inquiry email needs delivery verification', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'inquiry.email.send',
+      aggregateType: 'INQUIRY',
+      aggregateId: 'i-uncertain',
+      status: 'FAILED',
+      attemptCount: 1,
+      payload: JSON.stringify({ outboundEmailId: 'mail-uncertain' }),
+    });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({ id: 'mail-uncertain', status: 'NEEDS_VERIFICATION' });
+
+    await expect(retryOutboxEvent(event.id)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'STATE_CONFLICT',
+      message: expect.stringContaining('人工核实'),
+    });
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
   it('fails closed when a customer quotation email has no immutable attachment document', async () => {
@@ -337,7 +454,7 @@ describe('outboxService', () => {
       data: expect.objectContaining({ status: 'CANCELLED', lastError: 'Quotation PDF attachment snapshot is missing' }),
     });
     expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
-      where: { id: 'mail-immutable', status: { notIn: ['SENT', 'WITHDRAWN'] } },
+      where: { id: 'mail-immutable', status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] } },
       data: { status: 'FAILED', errorMessage: 'Quotation PDF attachment snapshot is missing' },
     });
   });
@@ -526,7 +643,7 @@ describe('outboxService', () => {
     await expect(processOutboxEvent(event.id)).resolves.toBe(false);
     expect(sendEmailMock).not.toHaveBeenCalled();
     expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
-      where: { id: 'mail-wrong-source', status: { notIn: ['SENT', 'WITHDRAWN'] } },
+      where: { id: 'mail-wrong-source', status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] } },
       data: { status: 'FAILED', errorMessage: 'Outbound quotation attachment belongs to a different quotation' },
     });
   });
@@ -560,7 +677,7 @@ describe('outboxService', () => {
       data: expect.objectContaining({ status: 'CANCELLED', lastError: 'Quotation was superseded before email delivery' }),
     });
     expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
-      where: { id: 'mail-old', status: { notIn: ['SENT', 'WITHDRAWN'] } },
+      where: { id: 'mail-old', status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] } },
       data: { status: 'FAILED', errorMessage: 'Quotation was superseded before email delivery' },
     });
   });
@@ -766,7 +883,7 @@ describe('outboxService', () => {
       }),
     });
     expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
-      where: { id: 'mail-manual-cancel', status: { notIn: ['SENT', 'WITHDRAWN'] } },
+      where: { id: 'mail-manual-cancel', status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] } },
       data: { status: 'FAILED', errorMessage: '报价已修订' },
     });
   });
@@ -791,5 +908,25 @@ describe('outboxService', () => {
       data: expect.objectContaining({ status: 'CANCELLED' }),
     });
     expect(prismaMock.__tx.outboundEmail.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('preserves manual verification state when a generic admin cancellation touches an inquiry event', async () => {
+    const event = createOutboxEvent({
+      channel: 'EMAIL',
+      eventType: 'inquiry.email.send',
+      aggregateType: 'INQUIRY',
+      aggregateId: 'i-uncertain-cancel',
+      status: 'FAILED',
+      payload: JSON.stringify({ outboundEmailId: 'mail-needs-verification' }),
+    });
+    prismaMock.__tx.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.__tx.outboundEmail.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(cancelOutboxEvent(event.id, '管理员关闭任务')).resolves.toBeUndefined();
+
+    expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith({
+      where: { id: 'mail-needs-verification', status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] } },
+      data: { status: 'FAILED', errorMessage: '管理员关闭任务' },
+    });
   });
 });

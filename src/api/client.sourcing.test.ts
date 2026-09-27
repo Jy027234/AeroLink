@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { emailApi, fileApi, setAccessToken, sourcingAiTaskApi, supplierQuoteDraftApi } from './client';
+import { emailApi, fileApi, setAccessToken, sourcingActionTaskApi, sourcingAiTaskApi, supplierQuoteDraftApi } from './client';
 
 const jsonResponse = (body: unknown, status = 200) => ({
   ok: status >= 200 && status < 300,
@@ -79,7 +79,7 @@ describe('sourcing reply API contracts', () => {
       .rejects.toThrow('AI model is unavailable');
   });
 
-  it('creates, reads, retries and cancels server-owned sourcing AI tasks', async () => {
+  it('creates, reads, retries, cancels and explicitly confirms server-owned sourcing AI tasks', async () => {
     const task = { id: 'task-1', status: 'FAILED' };
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, data: task }));
     vi.stubGlobal('fetch', fetchMock);
@@ -91,6 +91,7 @@ describe('sourcing reply API contracts', () => {
     await sourcingAiTaskApi.getById('task/1');
     await sourcingAiTaskApi.retry('task/1');
     await sourcingAiTaskApi.cancel('task/1');
+    await sourcingAiTaskApi.confirmDraft('task/1', { expectedVersion: 4 });
 
     expect(fetchMock.mock.calls.map(([url, init]) => [new URL(String(url)).pathname + new URL(String(url)).search, init?.method ?? 'GET'])).toEqual([
       ['/api/sourcing-ai-tasks', 'POST'],
@@ -98,10 +99,12 @@ describe('sourcing reply API contracts', () => {
       ['/api/sourcing-ai-tasks/task%2F1', 'GET'],
       ['/api/sourcing-ai-tasks/task%2F1/retry', 'POST'],
       ['/api/sourcing-ai-tasks/task%2F1/cancel', 'POST'],
+      ['/api/sourcing-ai-tasks/task%2F1/confirm-draft', 'POST'],
     ]);
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({
       type: 'supplier_quote_extraction', emailId: 'email/1', inquiryId: 'inquiry/1', idempotencyKey: 'request-1',
     });
+    expect(JSON.parse(String(fetchMock.mock.calls[5][1].body))).toEqual({ expectedVersion: 4 });
   });
 
   it('downloads attachments through the authenticated API client', async () => {
@@ -118,5 +121,31 @@ describe('sourcing reply API contracts', () => {
 
     expect(String(fetchMock.mock.calls[0][0])).toContain('/files/stored%2F1');
     expect(new Headers(fetchMock.mock.calls[0][1].headers).get('Authorization')).toBe('Bearer access-token');
+  });
+
+  it('uses versioned controlled-action endpoints without claiming an action was delivered', async () => {
+    const task = { id: 'action-1', action: 'SEND_INQUIRY', status: 'WAITING_HUMAN', version: 1 };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, data: task }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await sourcingActionTaskApi.create({ action: 'SEND_INQUIRY', targetId: 'inquiry/1', content: { subject: 'Quote', textBody: 'Please quote' }, idempotencyKey: 'send-1' });
+    await sourcingActionTaskApi.create({ action: 'SELECT_WINNER', targetId: 'quote/1', expectedUpdatedAt: '2026-09-27T08:00:00.000Z', idempotencyKey: 'winner-1' });
+    await sourcingActionTaskApi.list({ targetId: 'quote/1', limit: 20 });
+    await sourcingActionTaskApi.getById('action/1');
+    await sourcingActionTaskApi.confirm('action/1', 2);
+    await sourcingActionTaskApi.retry('action/1');
+    await sourcingActionTaskApi.cancel('action/1');
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [new URL(String(url)).pathname + new URL(String(url)).search, init?.method ?? 'GET'])).toEqual([
+      ['/api/sourcing-action-tasks', 'POST'],
+      ['/api/sourcing-action-tasks', 'POST'],
+      ['/api/sourcing-action-tasks?limit=20&targetId=quote%2F1', 'GET'],
+      ['/api/sourcing-action-tasks/action%2F1', 'GET'],
+      ['/api/sourcing-action-tasks/action%2F1/confirm', 'POST'],
+      ['/api/sourcing-action-tasks/action%2F1/retry', 'POST'],
+      ['/api/sourcing-action-tasks/action%2F1/cancel', 'POST'],
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toMatchObject({ expectedUpdatedAt: '2026-09-27T08:00:00.000Z' });
+    expect(JSON.parse(String(fetchMock.mock.calls[4][1].body))).toEqual({ expectedVersion: 2 });
   });
 });

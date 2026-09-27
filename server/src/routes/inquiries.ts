@@ -7,9 +7,8 @@ import { assertCapability, requireCapability } from '../middleware/capability.js
 import type { AuthRequest } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { buildRfqReadScope } from '../lib/rfqAccess.js';
-import { getCapabilityScope } from '../lib/capabilityPolicy.js';
 import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperation } from '../lib/idempotencyService.js';
-import { enqueueOutboundEmail } from '../lib/outboxService.js';
+import { inquiryReadScope, sendInquiryCommand } from '../lib/inquirySendCommand.js';
 import { legacyRfqLineData } from '../modules/rfqSourcing/index.js';
 import prisma from '../lib/prisma.js';
 
@@ -26,51 +25,74 @@ const createInquirySchema = z.object({
 }).strict();
 
 const sendInquirySchema = z.object({
-  subject: z.string().max(255).trim().min(1).refine(value => !/[\r\n\u0000]/.test(value), '主题不能包含换行符').optional(),
+  subject: z.string().max(255).trim().min(1).refine(value =>
+    !value.includes('\r') && !value.includes('\n') && !value.includes('\u0000'), '主题不能包含换行符').optional(),
   textBody: z.string().max(20_000).trim().min(1).refine(value => !value.includes('\u0000'), '正文包含无效字符').optional(),
 }).strict().default({});
 
-function inquiryReadScope(actor: NonNullable<AuthRequest['user']>): Prisma.InquiryWhereInput {
-  const linked = { rfq: { is: buildRfqReadScope(actor) } } satisfies Prisma.InquiryWhereInput;
-  // Unknown historical ownership is never inferred from a matching part number.
-  return getCapabilityScope(actor, 'rfq.read') === 'all' ? { OR: [linked, { rfqId: null }] } : linked;
-}
-
 function inquiryDeliveryStatus(inquiryStatus: string, emailStatus?: string) {
-  if (emailStatus === 'SENT' || inquiryStatus === 'SENT') return 'sent';
-  if (emailStatus === 'FAILED' || emailStatus === 'WITHDRAWN') return 'failed';
+  if (emailStatus === 'SENT' || inquiryStatus === 'SENT') return 'smtp_accepted';
+  if (emailStatus === 'WITHDRAWN') return 'cancelled';
+  if (emailStatus === 'FAILED') return 'failed';
   if (emailStatus === 'PENDING' || inquiryStatus === 'QUEUED') return 'queued';
   return 'draft';
 }
 
-function defaultInquirySubject(inquiry: { inquiryNumber: string; isAOG: boolean; rfq?: { rfqNumber: string } | null }) {
-  const markers = [inquiry.isAOG ? 'AOG' : null, inquiry.rfq?.rfqNumber].filter(Boolean).join(' · ');
-  return `航材询价 ${inquiry.inquiryNumber}${markers ? ` - ${markers}` : ''}`;
+type InquiryOutboxEvent = {
+  id: string;
+  status: string;
+  attemptCount: number;
+  payload: string;
+  workerId?: string | null;
+  lockedAt?: Date | null;
+};
+
+function outboundEmailIdFromPayload(payload: string) {
+  try {
+    const parsed = JSON.parse(payload) as { outboundEmailId?: unknown };
+    return typeof parsed.outboundEmailId === 'string' ? parsed.outboundEmailId : null;
+  } catch {
+    return null;
+  }
 }
 
-function defaultInquiryText(inquiry: {
-  inquiryNumber: string;
-  isAOG: boolean;
-  rfq?: { rfqNumber: string } | null;
-  items: Array<{ lineNo: number; partNumber: string; quantity: number; requiredDate: Date; certificateRequired: boolean }>;
-}) {
-  const lines = [
-    '尊敬的供应商：',
-    '',
-    '请贵司就以下航材需求提供报价。',
-    `询价单号：${inquiry.inquiryNumber}`,
-    ...(inquiry.rfq?.rfqNumber ? [`需求单号：${inquiry.rfq.rfqNumber}`] : []),
-    `紧急程度：${inquiry.isAOG ? 'AOG（停场紧急）' : '标准'}`,
-    '',
-    '需求明细：',
-    ...inquiry.items.map(item => `${item.lineNo}. 件号 ${item.partNumber}；数量 ${item.quantity}；需求日期 ${item.requiredDate.toISOString().slice(0, 10)}；要求适航证书 ${item.certificateRequired ? '是' : '否'}`),
-    '',
-    '请回复单价及币种、航材状态、交期、证书情况和报价有效期。',
-    '',
-    '谢谢。',
-  ];
-  return lines.join('\n');
+function inquiryDeliveryAssessment(emailStatus: string, event?: InquiryOutboxEvent | null) {
+  const status = event?.status;
+  const attemptCount = event?.attemptCount ?? null;
+  const safeToCancel = emailStatus === 'PENDING'
+    && status === 'PENDING'
+    && attemptCount === 0
+    && !event?.workerId
+    && !event?.lockedAt;
+
+  if (emailStatus === 'SENT') {
+    return { deliveryStatus: 'smtp_accepted', safeToCancel: false, manualVerificationRequired: false, outboxStatus: status ?? null, attemptCount };
+  }
+  if (emailStatus === 'WITHDRAWN') {
+    return { deliveryStatus: 'cancelled', safeToCancel: false, manualVerificationRequired: false, outboxStatus: status ?? null, attemptCount };
+  }
+  if (emailStatus === 'SENDING') {
+    return { deliveryStatus: 'processing', safeToCancel: false, manualVerificationRequired: false, outboxStatus: status ?? null, attemptCount };
+  }
+  if (emailStatus === 'FAILED') {
+    return { deliveryStatus: 'failed', safeToCancel: false, manualVerificationRequired: false, outboxStatus: status ?? null, attemptCount };
+  }
+  if (emailStatus === 'NEEDS_VERIFICATION' || (status && ['FAILED', 'CANCELLED', 'DELIVERED'].includes(status))) {
+    return { deliveryStatus: 'needs_verification', safeToCancel: false, manualVerificationRequired: true, outboxStatus: status ?? null, attemptCount };
+  }
+  if (status === 'PROCESSING') {
+    return { deliveryStatus: 'processing', safeToCancel: false, manualVerificationRequired: false, outboxStatus: status, attemptCount };
+  }
+  if (status === 'RETRYING') {
+    return { deliveryStatus: 'retrying', safeToCancel: false, manualVerificationRequired: false, outboxStatus: status, attemptCount };
+  }
+  if (safeToCancel) {
+    return { deliveryStatus: 'queued', safeToCancel: true, manualVerificationRequired: false, outboxStatus: status, attemptCount };
+  }
+  return { deliveryStatus: 'needs_verification', safeToCancel: false, manualVerificationRequired: true, outboxStatus: status ?? null, attemptCount };
 }
+
+const manualVerificationMessage = '询价邮件投递结果不确定，当前记录无法证明供应商未收到邮件。请核对发件箱或联系供应商后再决定是否重新询价；此状态不支持安全自动重试。';
 
 function serializeInquiry(inquiry: {
   id: string;
@@ -99,8 +121,11 @@ function serializeInquiry(inquiry: {
     requiredDate: Date;
     certificateRequired: boolean;
   }>;
-}) {
+}, outboxEvent?: InquiryOutboxEvent | null) {
   const latestEmail = inquiry.outboundEmails?.[0] ?? null;
+  const assessment = latestEmail
+    ? inquiryDeliveryAssessment(latestEmail.status, outboxEvent)
+    : null;
   return {
     id: inquiry.id,
     inquiryNumber: inquiry.inquiryNumber,
@@ -122,7 +147,7 @@ function serializeInquiry(inquiry: {
     status: inquiry.status.toLowerCase(),
     createdAt: inquiry.createdAt.toISOString(),
     sentAt: inquiry.sentAt?.toISOString(),
-    deliveryStatus: inquiryDeliveryStatus(inquiry.status, latestEmail?.status),
+    deliveryStatus: assessment?.deliveryStatus ?? inquiryDeliveryStatus(inquiry.status, latestEmail?.status),
     latestOutboundEmail: latestEmail ? {
       id: latestEmail.id,
       status: latestEmail.status.toLowerCase(),
@@ -130,8 +155,59 @@ function serializeInquiry(inquiry: {
       // stable, actionable message while keeping those details in the logs.
       error: latestEmail.errorMessage ? '邮件投递失败，请检查邮箱配置或联系管理员' : null,
       sentAt: latestEmail.sentAt?.toISOString() ?? null,
+      outboxStatus: assessment?.outboxStatus?.toLowerCase() ?? null,
+      attemptCount: assessment?.attemptCount,
+      canCancel: assessment?.safeToCancel ?? false,
+      manualVerificationRequired: assessment?.manualVerificationRequired ?? true,
+      manualVerificationMessage: assessment?.manualVerificationRequired ? manualVerificationMessage : null,
     } : null,
   };
+}
+
+async function loadInquiryOutboxEvents(inquiryIds: string[]) {
+  if (inquiryIds.length === 0) return new Map<string, InquiryOutboxEvent>();
+  const events = await prisma.outboxEvent.findMany({
+    where: {
+      channel: 'EMAIL',
+      eventType: 'inquiry.email.send',
+      aggregateType: 'INQUIRY',
+      aggregateId: { in: inquiryIds },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, aggregateId: true, status: true, attemptCount: true, payload: true, workerId: true, lockedAt: true },
+  });
+  const latestByOutboundEmailId = new Map<string, InquiryOutboxEvent>();
+  for (const event of events) {
+    const outboundEmailId = outboundEmailIdFromPayload(event.payload);
+    if (outboundEmailId && !latestByOutboundEmailId.has(outboundEmailId)) {
+      latestByOutboundEmailId.set(outboundEmailId, event);
+    }
+  }
+  return latestByOutboundEmailId;
+}
+
+async function findInquiryOutboxEvent(tx: Prisma.TransactionClient, inquiryId: string, outboundEmailId: string) {
+  const events = await tx.outboxEvent.findMany({
+    where: {
+      channel: 'EMAIL',
+      eventType: 'inquiry.email.send',
+      aggregateType: 'INQUIRY',
+      aggregateId: inquiryId,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, status: true, attemptCount: true, payload: true, workerId: true, lockedAt: true },
+  });
+  return events.find(event => outboundEmailIdFromPayload(event.payload) === outboundEmailId) ?? null;
+}
+
+function assertInquiryDeliveryAccess(actor: NonNullable<AuthRequest['user']>, inquiry: {
+  rfq?: { createdBy: string; creator?: { department?: string | null } | null } | null;
+}) {
+  assertCapability(actor, 'supplier_quote', 'update');
+  assertCapability(actor, 'rfq', 'update', {
+    ownerId: inquiry.rfq?.createdBy,
+    department: inquiry.rfq?.creator?.department,
+  });
 }
 
 const inquiryEmailInclude = {
@@ -158,9 +234,13 @@ router.get(
       orderBy: { createdAt: 'desc' },
     });
 
+    const eventsByOutboundEmailId = await loadInquiryOutboxEvents(inquiries.map(inquiry => inquiry.id));
     res.json({
       success: true,
-      data: inquiries.map(serializeInquiry),
+      data: inquiries.map(inquiry => serializeInquiry(
+        inquiry,
+        inquiry.outboundEmails?.[0] ? eventsByOutboundEmailId.get(inquiry.outboundEmails[0].id) : null,
+      )),
     });
   })
 );
@@ -180,9 +260,14 @@ router.get(
       throw new AppError('询价单不存在', 404, 'RESOURCE_NOT_FOUND');
     }
 
+    const eventsByOutboundEmailId = await loadInquiryOutboxEvents([inquiry.id]);
+
     res.json({
       success: true,
-      data: serializeInquiry(inquiry),
+      data: serializeInquiry(
+        inquiry,
+        inquiry.outboundEmails?.[0] ? eventsByOutboundEmailId.get(inquiry.outboundEmails[0].id) : null,
+      ),
     });
   })
 );
@@ -234,7 +319,7 @@ router.post(
           },
         }));
       }
-      return { payload: inquiries.map(serializeInquiry), statusCode: 201, resourceType: 'RFQ', resourceId: rfqId };
+      return { payload: inquiries.map(inquiry => serializeInquiry(inquiry)), statusCode: 201, resourceType: 'RFQ', resourceId: rfqId };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     // Cached payloads are still subject to current RFQ access on every replay.
     const current = await prisma.rFQ.findFirst({ where: { id: rfqId, ...buildRfqReadScope(actor) }, select: { id: true } });
@@ -258,64 +343,12 @@ router.post(
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actor.id, `POST:/inquiries/${inquiryId}/send`),
       async tx => {
-        const inquiry = await tx.inquiry.findFirst({
-          where: { id: inquiryId, ...inquiryReadScope(actor) },
-          include: {
-            supplier: { select: { id: true, name: true, email: true } },
-            items: { orderBy: { lineNo: 'asc' } },
-            rfq: { include: { creator: { select: { department: true } } } },
-          },
-        });
-
-        if (!inquiry) throw new AppError('询价单不存在或当前无权访问', 404, 'RESOURCE_NOT_FOUND');
-        if (inquiry.status !== 'DRAFT') {
-          throw new AppError(`询价状态为 ${inquiry.status}，只有草稿可以发送`, 409, 'STATE_CONFLICT');
-        }
-        if (inquiry.rfq) {
-          assertCapability(actor, 'rfq', 'read', {
-            ownerId: inquiry.rfq.createdBy,
-            department: inquiry.rfq.creator.department,
-          });
-        }
-        if (!inquiry.items.length) throw new AppError('询价没有需求明细，无法发送', 409, 'STATE_CONFLICT');
-
-        const recipient = inquiry.supplier.email?.trim();
-        if (!recipient || !z.string().email().safeParse(recipient).success) {
-          throw new AppError('供应商没有有效的询价邮箱，无法发送', 409, 'RESOURCE_CONFLICT');
-        }
-
-        const account = await tx.emailAccount.findFirst({
-          where: { isDefault: true, isActive: true },
-          orderBy: { createdAt: 'asc' },
-          select: { id: true },
-        });
-        if (!account) throw new AppError('没有已启用的默认邮箱账户，无法发送询价', 409, 'RESOURCE_CONFLICT');
-
-        const emailSubject = subject ?? defaultInquirySubject(inquiry);
-        const emailText = textBody ?? defaultInquiryText(inquiry);
-        const outboundEmail = await tx.outboundEmail.create({
-          data: {
-            purpose: 'INQUIRY_SEND',
-            inquiryId: inquiry.id,
-            accountId: account.id,
-            toEmail: recipient,
-            subject: emailSubject,
-            textBody: emailText,
-            status: 'PENDING',
-          },
-          select: { id: true, status: true, errorMessage: true, sentAt: true },
-        });
-        const queuedInquiry = await tx.inquiry.update({
-          where: { id: inquiry.id },
-          data: { status: 'QUEUED' },
-        });
-        await enqueueOutboundEmail(tx, {
-          eventType: 'inquiry.email.send',
-          aggregateType: 'INQUIRY',
-          aggregateId: inquiry.id,
-          outboundEmailId: outboundEmail.id,
-          createdById: actor.id,
-        });
+        const { inquiry, queuedInquiry, outboundEmail, outboxEvent } = await sendInquiryCommand(
+          tx,
+          actor,
+          inquiryId,
+          { subject, textBody },
+        );
 
         return {
           payload: serializeInquiry({
@@ -323,7 +356,7 @@ router.post(
             ...queuedInquiry,
             status: 'QUEUED',
             outboundEmails: [outboundEmail],
-          }),
+          }, outboxEvent as InquiryOutboxEvent),
           statusCode: 202,
           resourceType: 'INQUIRY',
           resourceId: inquiry.id,
@@ -341,6 +374,90 @@ router.post(
     applyIdempotencyHeaders(res, execution);
     res.status(execution.statusCode).json({ success: true, data: execution.payload });
   })
+);
+
+router.post(
+  '/:id/cancel-send',
+  requireCapability('supplier_quote', 'update'),
+  asyncHandler(async (req, res) => {
+    const actor = (req as AuthRequest).user!;
+    const result = await prisma.$transaction(async (tx) => {
+      const inquiry = await tx.inquiry.findFirst({
+        where: { id: req.params.id, ...inquiryReadScope(actor) },
+        include: {
+          supplier: { select: { name: true } },
+          items: { orderBy: { lineNo: 'asc' } },
+          rfq: { include: { creator: { select: { department: true } } } },
+          outboundEmails: {
+            where: { purpose: 'INQUIRY_SEND' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { id: true, status: true, errorMessage: true, sentAt: true },
+          },
+        },
+      });
+      if (!inquiry) throw new AppError('询价单不存在或当前无权访问', 404, 'RESOURCE_NOT_FOUND');
+      assertInquiryDeliveryAccess(actor, inquiry);
+
+      const email = inquiry.outboundEmails[0];
+      if (inquiry.status !== 'QUEUED' || !email || email.status !== 'PENDING') {
+        throw new AppError('只有尚未投递的排队询价可以取消；失败或结果不确定时请先核实供应商是否收到邮件', 409, 'STATE_CONFLICT');
+      }
+      const event = await findInquiryOutboxEvent(tx, inquiry.id, email.id);
+      if (!event || event.status !== 'PENDING' || event.attemptCount !== 0 || event.workerId || event.lockedAt) {
+        throw new AppError('Worker 可能已领取或尝试投递该邮件，无法安全取消；请核实供应商是否收到邮件', 409, 'STATE_CONFLICT');
+      }
+
+      const now = new Date();
+      const cancelled = await tx.outboxEvent.updateMany({
+        where: {
+          id: event.id,
+          channel: 'EMAIL',
+          status: 'PENDING',
+          attemptCount: 0,
+          workerId: null,
+          lockedAt: null,
+        },
+        data: {
+          status: 'CANCELLED',
+          nextRetryAt: null,
+          lastError: 'Inquiry email cancelled before worker claim',
+        },
+      });
+      if (cancelled.count !== 1) {
+        throw new AppError('Worker 已领取该邮件，无法安全取消；请核实供应商是否收到邮件', 409, 'STATE_CONFLICT');
+      }
+
+      const withdrawn = await tx.outboundEmail.updateMany({
+        where: { id: email.id, inquiryId: inquiry.id, purpose: 'INQUIRY_SEND', status: 'PENDING' },
+        data: {
+          status: 'WITHDRAWN',
+          withdrawnAt: now,
+          withdrawalReason: 'Cancelled before worker claim',
+        },
+      });
+      if (withdrawn.count !== 1) {
+        throw new AppError('邮件状态已变化，无法安全取消；请刷新并核实投递结果', 409, 'STATE_CONFLICT');
+      }
+
+      const resetInquiry = await tx.inquiry.updateMany({
+        where: { id: inquiry.id, status: 'QUEUED' },
+        data: { status: 'DRAFT' },
+      });
+      if (resetInquiry.count !== 1) {
+        throw new AppError('询价状态已变化，无法安全取消；请刷新并核实投递结果', 409, 'STATE_CONFLICT');
+      }
+
+      return serializeInquiry({
+        ...inquiry,
+        status: 'DRAFT',
+        sentAt: null,
+        outboundEmails: [{ ...email, status: 'WITHDRAWN', sentAt: null, errorMessage: null }],
+      }, { ...event, status: 'CANCELLED' });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    res.json({ success: true, data: result });
+  }),
 );
 
 export default router;

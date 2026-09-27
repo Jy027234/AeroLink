@@ -336,6 +336,14 @@ function coreOperationContract(endpoint, openApiPath) {
     operation.requestBody = requestBodyRef('RfqStatusUpdate');
     operation.responses = coreResponse('Rfq');
   }
+  if (endpoint.path === '/api/rfqs/:id/sourcing-candidates' && endpoint.method === 'GET') {
+    operation.description = 'Per-demand-line supplier candidate evidence. Historical quotes and inventory attribution are not current supplier offers or availability.';
+    operation.responses = coreResponse('RfqSourcingCandidates');
+  }
+  if (endpoint.path === '/api/rfqs/:id/sourcing-timeline' && endpoint.method === 'GET') {
+    operation.description = 'Chronological sourcing facts derived from persisted RFQ records. Unknown historical actors remain null; the current winner timestamp is not a complete selection history.';
+    operation.responses = coreResponse('RfqSourcingTimeline');
+  }
   if (endpoint.path === '/api/quotations/:id/status-history' && endpoint.method === 'GET') {
     operation.responses = coreResponse('StatusHistory');
   }
@@ -733,6 +741,7 @@ function supportingOperationContract(endpoint, openApiPath) {
     case 'GET /api/inquiries/:id': operation.requestBody = undefined; operation.responses = response('Inquiry'); break;
     case 'POST /api/inquiries': operation.requestBody = requestBodyRef('InquiryCreate'); operation.responses = response('InquiryList', '201'); break;
     case 'POST /api/inquiries/:id/send': operation.requestBody = requestBodyRef('InquirySend'); operation.responses = response('Inquiry', '202'); break;
+    case 'POST /api/inquiries/:id/cancel-send': operation.requestBody = undefined; operation.responses = response('Inquiry'); break;
     case 'GET /api/notification-preferences/mine': operation.requestBody = undefined; operation.responses = response('NotificationPreference'); break;
     case 'PUT /api/notification-preferences/mine': operation.requestBody = requestBodyRef('NotificationPreferenceUpdate'); operation.responses = response('NotificationPreference'); break;
     case 'GET /api/channel-bindings/mine': operation.requestBody = undefined; operation.responses = response('ChannelBindingList'); break;
@@ -1271,6 +1280,11 @@ function supplierCommercialOperationContract(endpoint, openApiPath) {
     operation.responses = response('SupplierQuoteDetail');
     return operation;
   }
+  if (key === 'POST /api/supplier-quotes/:id/revise') {
+    operation.requestBody = requestBodyRef('SupplierQuoteRevision');
+    operation.responses = response('SupplierQuote', '201');
+    return operation;
+  }
   if (key === 'PUT /api/supplier-quotes/:id') {
     operation.requestBody = requestBodyRef('SupplierQuoteUpdate');
     operation.responses = response('SupplierQuote');
@@ -1288,6 +1302,11 @@ function supplierCommercialOperationContract(endpoint, openApiPath) {
   }
   if (key === 'POST /api/supplier-quotes/:id/select-winner') {
     operation.requestBody = undefined;
+    operation.responses = response('SupplierQuoteWinner');
+    return operation;
+  }
+  if (key === 'POST /api/supplier-quotes/:id/clear-winner') {
+    operation.requestBody = requestBodyRef('SupplierQuoteClearWinner');
     operation.responses = response('SupplierQuoteWinner');
     return operation;
   }
@@ -1759,6 +1778,136 @@ function coreComponents() {
     createdBy: { type: 'string' },
   }, ['id', 'rfqNumber', 'customerId', 'customerName', 'partNumber', 'quantity', 'uom', 'conditionCode', 'targetPriceCurrency', 'certificateRequired', 'requiredDate', 'urgency', 'status', 'version', 'createdAt', 'createdBy']);
 
+  const rfqSourcingCandidates = coreResourceSchema({
+    rfqId: id,
+    rfqNumber: { type: 'string' },
+    evidenceSemantics: { type: 'object', properties: {
+      historicalQuotesAreNotCurrentOffers: { const: true },
+      inventoryAttributionIsNotCurrentAvailability: { const: true },
+      supplierCategoriesAreProfileDeclarations: { const: true },
+      currentAvailabilityVerified: { const: false },
+      currentPricingVerified: { const: false },
+      supplyCommitmentCreated: { const: false },
+    }, additionalProperties: true },
+    lines: { type: 'array', items: { type: 'object', required: ['id', 'rfqLineId', 'identitySource', 'lineNo', 'partNumber', 'quantity', 'uom', 'sourcingStatus', 'candidateCount', 'candidatesTruncated', 'candidates'], properties: {
+      id,
+      rfqLineId: { type: ['string', 'null'] },
+      identitySource: { type: 'string', enum: ['RFQ_LINE', 'RFQ_HEADER'] },
+      lineNo: { type: 'integer', minimum: 1 },
+      partNumber: { type: 'string' },
+      quantity: { type: 'integer', minimum: 1 },
+      uom: { type: 'string' },
+      conditionCode: { type: ['string', 'null'] },
+      description: { type: ['string', 'null'] },
+      ataChapter: { type: ['string', 'null'] },
+      sourcingStatus: { type: 'string', enum: ['EVIDENCE_FOUND', 'INQUIRY_REQUIRED'] },
+      candidateCount: { type: 'integer', minimum: 0 },
+      candidatesTruncated: { type: 'boolean' },
+      candidates: { type: 'array', items: { type: 'object', required: ['supplier', 'evidence', 'currentSupplyPromiseVerified'], properties: {
+        supplier: { type: 'object', required: ['id', 'name', 'status', 'level'], properties: {
+          id, name: { type: 'string' }, status: { type: 'string' }, level: { type: 'string' },
+        }, additionalProperties: false },
+        evidence: { type: 'array', items: { type: 'object', required: ['type'], properties: {
+          type: { type: 'string', enum: ['HISTORICAL_SUPPLIER_QUOTE', 'INVENTORY_SUPPLIER_ATTRIBUTION', 'SUPPLIER_PROFILE_CATEGORY'] },
+          recordId: { type: 'string' },
+          partNumber: { type: 'string' },
+          matchedCategory: { type: 'string' },
+          recordedAt: dateTime,
+          currentOfferVerified: { const: false },
+          currentAvailabilityVerified: { const: false },
+          currentSupplyPromiseVerified: { const: false },
+        }, additionalProperties: true } },
+        currentSupplyPromiseVerified: { const: false },
+      }, additionalProperties: false } },
+    }, additionalProperties: false } },
+    limits: { type: 'object', required: ['candidatesPerLine', 'evidenceTruncated'], properties: {
+      candidatesPerLine: { type: 'integer', minimum: 1 }, evidenceTruncated: { type: 'boolean' },
+    }, additionalProperties: false },
+  }, ['rfqId', 'rfqNumber', 'evidenceSemantics', 'lines', 'limits']);
+
+  const rfqSourcingTimeline = coreResourceSchema({
+    rfqId: id,
+    events: { type: 'array', items: { type: 'object', required: ['id', 'type', 'status', 'occurredAt', 'actor', 'summary'], properties: {
+      id,
+      type: { type: 'string' },
+      status: { type: 'string' },
+      occurredAt: dateTime,
+      actor: { oneOf: [
+        { type: 'object', required: ['id', 'name', 'kind'], properties: { id, name: { type: 'string' }, kind: { type: 'string', enum: ['user', 'external_email'] } }, additionalProperties: false },
+        { type: 'null' },
+      ] },
+      rfqLineId: { type: ['string', 'null'] },
+      inquiryId: id,
+      emailId: id,
+      outboundEmailId: id,
+      draftId: id,
+      supplierQuoteId: id,
+      actionTaskId: id,
+      originalAiCandidates: { type: 'object', description: 'Immutable, bounded AI quote candidate fields captured when an AI draft is created. Evidence, email text, descriptions, and other freeform fields are intentionally excluded. Historical AI drafts without this snapshot return available=false.', required: ['available', 'candidateCount', 'truncated', 'items'], properties: {
+        available: { type: 'boolean' },
+        candidateCount: { type: ['integer', 'null'], minimum: 0, maximum: 100 },
+        truncated: { type: 'boolean' },
+        items: { type: 'array', maxItems: 100, items: {
+          type: 'object', required: ['itemKey', 'inquiryItemId', 'partNumber', 'quantity', 'quantityUnit', 'unitPrice', 'currency', 'leadTimeDays', 'leadTimeMinDays', 'leadTimeMaxDays', 'validUntil', 'taxIncluded', 'freightIncluded', 'incoterm'], properties: {
+            itemKey: { type: ['string', 'null'], maxLength: 128 },
+            inquiryItemId: { type: ['string', 'null'], maxLength: 128 },
+            partNumber: { type: ['string', 'null'], maxLength: 120 },
+            quantity: { type: ['number', 'null'], minimum: 0, maximum: 1000000000 },
+            quantityUnit: { type: ['string', 'null'], maxLength: 80 },
+            unitPrice: { type: ['number', 'null'], minimum: 0, maximum: 1000000000 },
+            currency: { type: ['string', 'null'], pattern: '^[A-Z]{3}$' },
+            leadTimeDays: { type: ['number', 'null'], minimum: 0, maximum: 1000000000 },
+            leadTimeMinDays: { type: ['number', 'null'], minimum: 0, maximum: 1000000000 },
+            leadTimeMaxDays: { type: ['number', 'null'], minimum: 0, maximum: 1000000000 },
+            validUntil: { type: ['string', 'null'], format: 'date' },
+            taxIncluded: { type: ['boolean', 'null'] },
+            freightIncluded: { type: ['boolean', 'null'] },
+            incoterm: { type: ['string', 'null'], maxLength: 20 },
+          }, additionalProperties: false,
+        } },
+      }, additionalProperties: false },
+      summary: { type: 'string' },
+    }, additionalProperties: false } },
+    counts: { type: 'object', required: ['lines', 'unassignedNeedsVerification'], properties: {
+      lines: { type: 'array', description: 'Per-active-RFQ-line derived counts. Ownership requires explicit InquiryItem/quote foreign keys; partNumber is never used to infer a line.', items: {
+        type: 'object', required: ['rfqLineId', 'pendingQuoteCount', 'pendingConfirmationCount'], properties: {
+          rfqLineId: id,
+          pendingQuoteCount: { type: 'integer', minimum: 0, description: 'SMTP-accepted or legacy-sent inquiry items with no exact draft or formal quote item; unsent and delivery-uncertain inquiries are excluded. Partial quotes count as quoted; quantity gaps remain in comparison summary.' },
+          pendingConfirmationCount: { type: 'integer', minimum: 0, description: 'DRAFT payload items explicitly bound by inquiryItemId to this RFQ active line.' },
+        }, additionalProperties: false,
+      } },
+      unassignedNeedsVerification: { type: 'object', description: 'Counts of pending items or persisted records that cannot safely be assigned to an active RFQ line; no same-part-number inference is performed.', required: ['pendingQuoteCount', 'pendingConfirmationCount', 'supplierQuoteCount', 'unreadableDraftCount'], properties: {
+        pendingQuoteCount: { type: 'integer', minimum: 0, description: 'Sent inquiry items with a missing, inactive, foreign, or ambiguous RFQ line binding.' },
+        pendingConfirmationCount: { type: 'integer', minimum: 0, description: 'DRAFT payload items missing a valid inquiryItemId/active-line binding or with inconsistent references.' },
+        supplierQuoteCount: { type: 'integer', minimum: 0, description: 'Formal quote records with missing, conflicting, or ambiguous explicit links.' },
+        unreadableDraftCount: { type: 'integer', minimum: 0, description: 'DRAFT records whose payload cannot be parsed into an items array; this is a record count, not an inferred item count.' },
+      }, additionalProperties: false },
+    }, additionalProperties: false },
+    workflowStates: { type: 'array', description: 'Recoverable per-Inquiry state derived from persisted RFQ, send, confirmed-reply, AI-task, quote-draft, and current supplier-quote records. SMTP acceptance is not supplier receipt/read; a draft is not a formal quote; RFQ completion alone does not complete an Inquiry. A newer accepted send makes older replies/quotes stale. Unknown delivery is NEEDS_VERIFICATION; a definitive send failure is FAILED.', items: {
+      type: 'object', required: ['inquiryId', 'status', 'nextAction'], properties: {
+        inquiryId: id,
+        status: { type: 'string', enum: ['WAITING_REPLY', 'WAITING_HUMAN', 'PROCESSING', 'FAILED', 'CANCELLED', 'NEEDS_VERIFICATION', 'COMPLETED'] },
+        nextAction: { type: 'string', enum: ['VERIFY_DELIVERY', 'VERIFY_REPLY_LINK', 'VERIFY_RECORD', 'REVIEW_DRAFT_BINDING', 'REVIEW_QUOTE_DRAFT', 'CREATE_MANUAL_DRAFT', 'WAIT_FOR_PROCESSING', 'FOLLOW_UP_SUPPLIER', 'REVIEW_MISSING_ITEMS', 'REVIEW_COMPARISON', 'REVIEW_BEFORE_RESEND', 'STOP_CANCELLED_RFQ', 'SEND_INQUIRY', 'NO_ACTION'] },
+      }, additionalProperties: false,
+    } },
+    lineWorkflowStates: { type: 'array', description: 'Per-demand-line stage and formal quote record coverage derived only from explicit InquiryItem/quote associations. A quote from an older outbound version remains historical but does not cover the latest send. COMPLETED is not quantity sufficiency or a purchase commitment.', items: {
+      type: 'object', required: ['rfqLineId', 'status', 'nextAction', 'inquiryIds', 'quoteCoverage'], properties: {
+        rfqLineId: id,
+        status: { type: 'string', enum: ['WAITING_REPLY', 'WAITING_HUMAN', 'PROCESSING', 'FAILED', 'CANCELLED', 'NEEDS_VERIFICATION', 'COMPLETED'] },
+        nextAction: { type: 'string', enum: ['VERIFY_DELIVERY', 'VERIFY_REPLY_LINK', 'VERIFY_RECORD', 'REVIEW_DRAFT_BINDING', 'REVIEW_QUOTE_DRAFT', 'CREATE_MANUAL_DRAFT', 'WAIT_FOR_PROCESSING', 'FOLLOW_UP_SUPPLIER', 'REVIEW_MISSING_ITEMS', 'REVIEW_COMPARISON', 'REVIEW_BEFORE_RESEND', 'STOP_CANCELLED_RFQ', 'SEND_INQUIRY', 'NO_ACTION'] },
+        inquiryIds: { type: 'array', items: id },
+        quoteCoverage: { type: 'object', required: ['currentFormalQuoteCount', 'activeInquiryItemCount', 'quotedInquiryItemCount', 'basis', 'quantitySufficiencyAssessed', 'purchasingCommitted'], properties: {
+          currentFormalQuoteCount: { type: 'integer', minimum: 0, description: 'All non-superseded formal quote records explicitly bound to the line, including historical outbound versions.' },
+          activeInquiryItemCount: { type: 'integer', minimum: 0 },
+          quotedInquiryItemCount: { type: 'integer', minimum: 0, description: 'Inquiry items covered by formal quotes from the latest accepted outbound version, or explicit manual records when no outbound version exists.' },
+          basis: { const: 'CURRENT_FORMAL_QUOTE_RECORDS_ONLY' },
+          quantitySufficiencyAssessed: { const: false },
+          purchasingCommitted: { const: false },
+        }, additionalProperties: false },
+      }, additionalProperties: false,
+    } },
+  }, ['rfqId', 'events', 'counts', 'workflowStates', 'lineWorkflowStates']);
+
   const quotation = coreResourceSchema({
     id,
     quoteNumber: { type: 'string' },
@@ -2037,7 +2186,9 @@ function coreComponents() {
     SupplierFollowUpLogBatchCreate: { required: true, content: { 'application/json': { schema: schemaRef('SupplierFollowUpLogBatchCreateRequest') } } },
     SupplierQuoteCreate: { required: true, content: { 'application/json': { schema: schemaRef('SupplierQuoteCreateRequest') } } },
     SupplierQuoteUpdate: { content: { 'application/json': { schema: schemaRef('SupplierQuoteUpdateRequest') } } },
+    SupplierQuoteRevision: { required: true, content: { 'application/json': { schema: schemaRef('SupplierQuoteRevisionRequest') } } },
     SupplierQuoteCompare: { required: true, content: { 'application/json': { schema: schemaRef('SupplierQuoteCompareRequest') } } },
+    SupplierQuoteClearWinner: { required: true, content: { 'application/json': { schema: schemaRef('SupplierQuoteClearWinnerRequest') } } },
     AuditLogCreate: { required: true, content: { 'application/json': { schema: schemaRef('AuditLogCreateRequest') } } },
     ApiKeyCreate: { required: true, content: { 'application/json': { schema: schemaRef('ApiKeyCreateRequest') } } },
     ApiKeyUpdate: { content: { 'application/json': { schema: schemaRef('ApiKeyUpdateRequest') } } },
@@ -2260,6 +2411,7 @@ function coreComponents() {
     partNumber: { type: 'string' },
     description: { type: ['string', 'null'] },
     quantity: { type: 'integer', minimum: 1 },
+    quantityUnit: { type: ['string', 'null'] },
     unitPrice: moneySchema(),
     totalPrice: moneySchema(),
     currency: { type: ['string', 'null'] },
@@ -2269,19 +2421,35 @@ function coreComponents() {
     notes: { type: ['string', 'null'] },
     status: { type: 'string', enum: ['pending', 'accepted', 'rejected', 'expired'] },
     isWinner: { type: 'boolean' },
+    revisionOfId: { type: ['string', 'null'] },
+    revisionRootId: { type: 'string' },
+    revisionNumber: { type: 'integer', minimum: 1 },
+    supersededAt: { type: ['string', 'null'], format: 'date-time' },
+    revisionReason: { type: ['string', 'null'] },
     ruleScore: { type: ['number', 'null'] },
     createdAt: dateTime,
+    updatedAt: dateTime,
     supplier: supplierQuoteSupplier,
   }, ['id', 'partNumber', 'quantity', 'unitPrice', 'totalPrice', 'leadTimeDays', 'status', 'isWinner', 'createdAt', 'supplier']);
   const supplierQuoteComparisonItem = coreResourceSchema({
     id,
+    updatedAt: dateTime,
     rfqId: { type: ['string', 'null'] },
     rfqLineId: { type: ['string', 'null'] },
     inquiryId: { type: ['string', 'null'] },
     inquiryItemId: { type: ['string', 'null'] },
     partNumber: { type: 'string' },
     quantity: { type: 'integer', minimum: 1 },
+    quantityUnit: { type: ['string', 'null'] },
     requiredQuantity: { type: ['integer', 'null'], minimum: 1 },
+    requiredQuantityUnit: { type: ['string', 'null'] },
+    quantityUnitComparison: { type: 'object', required: ['status', 'compatible', 'reason', 'quoteUnit', 'demandUnit'], properties: {
+      status: { type: 'string', enum: ['compatible', 'incompatible', 'unknown'] },
+      compatible: { type: 'boolean' },
+      reason: { type: 'string' },
+      quoteUnit: { type: ['string', 'null'] },
+      demandUnit: { type: ['string', 'null'] },
+    }, additionalProperties: false },
     coversRequiredQuantity: { type: ['boolean', 'null'] },
     quantityShortfall: { type: ['integer', 'null'], minimum: 0 },
     validUntil: { type: ['string', 'null'], format: 'date-time' },
@@ -2340,7 +2508,7 @@ function coreComponents() {
     ruleScore: { type: ['number', 'null'] },
     status: { type: 'string', enum: ['pending', 'accepted', 'rejected', 'expired'] },
     isWinner: { type: 'boolean' },
-  }, ['id', 'rfqId', 'rfqLineId', 'inquiryId', 'inquiryItemId', 'partNumber', 'quantity', 'requiredQuantity', 'coversRequiredQuantity', 'quantityShortfall', 'validUntil', 'isExpired', 'comparisonEligibility', 'eligibleForComparison', 'eligibilityReasons', 'commercialTerms', 'commercialBasisKey', 'commercialBasisLabel', 'condition', 'conditionStatus', 'certificate', 'certificateStatus', 'certificateRequired', 'certificateRequirementStatus', 'warnings', 'supplier', 'unitPrice', 'totalPrice', 'currency', 'currencyStatus', 'leadTimeDays', 'isLowestPrice', 'scoreComponents', 'status', 'isWinner']);
+  }, ['id', 'updatedAt', 'rfqId', 'rfqLineId', 'inquiryId', 'inquiryItemId', 'partNumber', 'quantity', 'quantityUnit', 'requiredQuantity', 'requiredQuantityUnit', 'quantityUnitComparison', 'coversRequiredQuantity', 'quantityShortfall', 'validUntil', 'isExpired', 'comparisonEligibility', 'eligibleForComparison', 'eligibilityReasons', 'commercialTerms', 'commercialBasisKey', 'commercialBasisLabel', 'condition', 'conditionStatus', 'certificate', 'certificateStatus', 'certificateRequired', 'certificateRequirementStatus', 'warnings', 'supplier', 'unitPrice', 'totalPrice', 'currency', 'currencyStatus', 'leadTimeDays', 'isLowestPrice', 'scoreComponents', 'status', 'isWinner']);
   const supplierQuoteComparisonSummary = {
     type: 'object',
     required: ['totalQuotes', 'comparableQuoteCount', 'expiredQuoteCount', 'requiredQuantity', 'bestAvailableQuantity', 'remainingQuantityGap', 'lowestPrice', 'highestPrice', 'averagePrice'],
@@ -2352,6 +2520,7 @@ function coreComponents() {
       differentCommercialBasisGroups: { type: 'boolean' },
       missingPerformanceCount: { type: 'integer', minimum: 0 },
       requiredQuantity: { type: ['integer', 'null'], minimum: 1 },
+      requiredQuantityUnit: { type: ['string', 'null'] },
       bestAvailableQuantity: { type: ['integer', 'null'], minimum: 0 },
       remainingQuantityGap: { type: ['integer', 'null'], minimum: 0 },
       lowestPrice: { type: ['number', 'null'] },
@@ -2425,6 +2594,15 @@ function coreComponents() {
     summary: supplierQuoteComparisonSummary,
     metadata: supplierQuoteComparisonMetadata,
   }, ['rfqId', 'rfqLineId', 'inquiryId', 'inquiryItemId', 'quotes', 'partNumberGroups', 'topRanked', 'summary', 'metadata']);
+  const supplierQuoteComparisonMultiLine = coreResourceSchema({
+    rfqId: id,
+    lineGroups: { type: 'array', items: { type: 'object', required: ['rfqLineId', 'lineNo', 'partNumber', 'comparison'], properties: {
+      rfqLineId: id,
+      lineNo: { type: 'integer', minimum: 1 },
+      partNumber: { type: 'string' },
+      comparison: schemaRef('SupplierQuoteComparison'),
+    }, additionalProperties: false } },
+  }, ['rfqId', 'lineGroups']);
   const auditLog = coreResourceSchema({
     id,
     userId: { type: ['string', 'null'] },
@@ -2939,11 +3117,19 @@ function coreComponents() {
   }, ['tasks', 'recentTasks', 'pendingConfirmations']);
   const aiParsedEmail = coreResourceSchema({
     type: { type: 'string', enum: ['AOG', 'STANDARD', 'INQUIRY', 'SPAM'] },
+    items: { type: 'array', items: { type: 'object', properties: {
+      partNumber: { type: 'string' },
+      quantity: { type: ['integer', 'null'], minimum: 1 },
+      quantityUnit: { type: ['string', 'null'] },
+      requiredDate: { type: ['string', 'null'], format: 'date' },
+      evidenceText: { type: ['string', 'null'] },
+    }, required: ['partNumber', 'evidenceText'], additionalProperties: false } },
     partNumbers: { type: 'array', items: { type: 'string' } },
-    quantities: { type: 'array', items: { type: 'integer', minimum: 0 } },
+    quantities: { type: 'array', items: { type: ['integer', 'null'], minimum: 1 } },
     urgency: { type: 'string', enum: ['AOG', 'URGENT', 'STANDARD'] },
     aircraftType: { type: ['string', 'null'] },
-  }, ['type', 'partNumbers', 'quantities', 'urgency']);
+    requiredDate: { type: ['string', 'null'], format: 'date' },
+  }, ['type', 'items', 'partNumbers', 'quantities', 'urgency']);
   const aiQuoteAnalysis = coreResourceSchema({ analysis: { type: 'string' } }, ['analysis']);
   const aiGeneratedEmail = coreResourceSchema({ email: { type: 'string' } }, ['email']);
   const aiCompletion = coreResourceSchema({
@@ -3476,6 +3662,10 @@ function coreComponents() {
       InventoryReconciliationEnvelope: envelope({ type: 'object', required: ['status', 'checkedPartNumbers'], properties: { status: { type: 'string', enum: ['PASS', 'MISMATCH'] }, checkedPartNumbers: { type: 'integer' }, legacyTotal: { type: 'integer' }, comparedLegacyTotal: { type: 'integer' }, detailTotal: { type: 'integer' }, comparedDetailTotal: { type: 'integer' }, mismatches: { type: 'array', items: { type: 'object', additionalProperties: true } } } }),
       TrackingEnvelope: envelope({ type: ['object', 'null'], additionalProperties: true }),
       Rfq: rfq,
+      RfqSourcingCandidates: rfqSourcingCandidates,
+      RfqSourcingCandidatesEnvelope: envelope(schemaRef('RfqSourcingCandidates')),
+      RfqSourcingTimeline: rfqSourcingTimeline,
+      RfqSourcingTimelineEnvelope: envelope(schemaRef('RfqSourcingTimeline')),
       RfqListEnvelope: envelope({ type: 'array', items: schemaRef('Rfq') }, { summary: { type: 'object', additionalProperties: true }, pagination: schemaRef('Pagination') }),
       RfqEnvelope: envelope(schemaRef('Rfq')),
       RfqCreateRequest: coreRequestSchema(rfqBase, ['customerId', 'partNumber', 'quantity']),
@@ -3547,7 +3737,8 @@ function coreComponents() {
       SupplierQuoteCommercialBasisGroup: supplierQuoteCommercialBasisGroup,
       SupplierQuoteComparisonGroup: supplierQuoteComparisonGroup,
       SupplierQuoteComparison: supplierQuoteComparison,
-      SupplierQuoteComparisonEnvelope: envelope(schemaRef('SupplierQuoteComparison')),
+      SupplierQuoteComparisonMultiLine: supplierQuoteComparisonMultiLine,
+      SupplierQuoteComparisonEnvelope: envelope({ oneOf: [schemaRef('SupplierQuoteComparison'), schemaRef('SupplierQuoteComparisonMultiLine')] }),
       SupplierQuoteCreateRequest: coreRequestSchema({
         rfqId: id,
         rfqLineId: id,
@@ -3557,6 +3748,7 @@ function coreComponents() {
         partNumber: { type: 'string', minLength: 1 },
         description: { type: 'string' },
         quantity: { type: 'integer', minimum: 1 },
+        quantityUnit: { type: ['string', 'null'], minLength: 1, maxLength: 80 },
         unitPrice: { type: 'number', minimum: 0 },
         currency: { type: 'string', enum: ['USD'], default: 'USD' },
         leadTimeDays: { type: 'integer', minimum: 0 },
@@ -3570,14 +3762,27 @@ function coreComponents() {
         inquiryItemId: id,
         partNumber: { type: 'string', minLength: 1 },
         quantity: { type: 'integer', minimum: 1 },
+        quantityUnit: { type: ['string', 'null'], minLength: 1, maxLength: 80 },
         unitPrice: { type: 'number', minimum: 0 },
         currency: { type: 'string', enum: ['USD'] },
         leadTimeDays: { type: 'integer', minimum: 0 },
         validUntil: { type: 'string', format: 'date-time' },
         notes: { type: 'string' },
         status: { type: 'string', enum: ['pending', 'accepted', 'rejected', 'expired'] },
-        isWinner: { type: 'boolean' },
       }),
+      SupplierQuoteClearWinnerRequest: coreRequestSchema({ expectedUpdatedAt: dateTime }, ['expectedUpdatedAt']),
+      SupplierQuoteRevisionRequest: coreRequestSchema({
+        expectedUpdatedAt: dateTime,
+        revisionReason: { type: 'string', minLength: 1, maxLength: 2000 },
+        description: { type: ['string', 'null'] },
+        quantity: { type: 'integer', minimum: 1 },
+        quantityUnit: { type: ['string', 'null'], minLength: 1, maxLength: 80 },
+        unitPrice: { type: 'number', minimum: 0 },
+        currency: { type: 'string', enum: ['USD'] },
+        leadTimeDays: { type: 'integer', minimum: 0 },
+        validUntil: { type: ['string', 'null'], format: 'date-time' },
+        notes: { type: ['string', 'null'] },
+      }, ['expectedUpdatedAt', 'revisionReason', 'description', 'quantity', 'quantityUnit', 'unitPrice', 'currency', 'leadTimeDays', 'validUntil', 'notes']),
       SupplierQuoteCompareRequest: {
         ...coreRequestSchema({ rfqId: id, rfqLineId: id, inquiryId: id, inquiryItemId: id }),
         anyOf: [
@@ -3910,6 +4115,8 @@ function coreComponents() {
     },
     responses: {
       Rfq: { description: 'RFQ response', content: { 'application/json': { schema: schemaRef('RfqEnvelope') } } },
+      RfqSourcingCandidates: resourceResponse('Per-line supplier evidence without current supply claims', 'RfqSourcingCandidatesEnvelope'),
+      RfqSourcingTimeline: resourceResponse('Chronological sourcing facts', 'RfqSourcingTimelineEnvelope'),
       RfqList: { description: 'Paginated RFQ response', content: { 'application/json': { schema: schemaRef('RfqListEnvelope') } } },
       Quotation: { description: 'Quotation response', content: { 'application/json': { schema: schemaRef('QuotationEnvelope') } } },
       QuotationList: { description: 'Paginated quotation response', content: { 'application/json': { schema: schemaRef('QuotationListEnvelope') } } },

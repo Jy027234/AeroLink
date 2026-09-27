@@ -28,6 +28,7 @@ import usersRoutes from './routes/users.js';
 import supplierQuoteRoutes from './routes/supplierQuotes.js';
 import supplierQuoteDraftRoutes from './routes/supplierQuoteDrafts.js';
 import sourcingAiTaskRoutes from './routes/sourcingAiTasks.js';
+import sourcingActionTaskRoutes from './routes/sourcingActionTasks.js';
 import uploadRoutes from './routes/upload.js';
 import filesRoutes from './routes/files.js';
 import { legacyUploadsMiddleware } from './routes/legacyUploads.js';
@@ -214,6 +215,7 @@ app.use('/api/users', authenticate, auditLogger({ resourceType: 'SETTINGS', acti
 app.use('/api/supplier-quotes', authenticate, auditLogger({ resourceType: 'QUOTATION', actions: ['CREATE', 'UPDATE', 'DELETE'] }), supplierQuoteRoutes);
 app.use('/api/supplier-quote-drafts', authenticate, auditLogger({ resourceType: 'QUOTATION', actions: ['CREATE', 'UPDATE'] }), supplierQuoteDraftRoutes);
 app.use('/api/sourcing-ai-tasks', authenticate, sourcingAiTaskRoutes);
+app.use('/api/sourcing-action-tasks', authenticate, sourcingActionTaskRoutes);
 app.use('/api/upload', authenticate, uploadRoutes);
 app.use('/api/files', authenticate, filesRoutes);
 app.use('/api/webhooks', authenticate, webhookRoutes);

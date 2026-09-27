@@ -1,5 +1,42 @@
 import { describe, expect, it } from 'vitest';
-import { parseSupplierQuoteExtractionOutput } from './aiOutputValidation.js';
+import { assertRfqExtractionEvidence, parseRfqExtractionOutput, parseSupplierQuoteExtractionOutput } from './aiOutputValidation.js';
+
+describe('RFQ extraction output validation', () => {
+  it('keeps duplicate part numbers as separate source-backed items and leaves unknown fields empty', () => {
+    const output = parseRfqExtractionOutput(JSON.stringify({
+      type: 'STANDARD', urgency: 'STANDARD', items: [
+        { partNumber: 'PN-1', quantity: 2, quantityUnit: 'EA', evidenceText: 'PN-1 Qty 2 EA' },
+        { partNumber: 'PN-1', quantity: null, requiredDate: null, evidenceText: 'another PN-1' },
+      ],
+    }));
+    expect(assertRfqExtractionEvidence(output, 'Need parts', 'PN-1 Qty 2 EA; another PN-1').items).toHaveLength(2);
+    expect(output.partNumbers).toEqual(['PN-1', 'PN-1']);
+    expect(output.quantities).toEqual([2, null]);
+    expect(output.items[1].quantity).toBeNull();
+  });
+
+  it('normalizes already-published parallel-array outputs without merging lines', () => {
+    const output = parseRfqExtractionOutput(JSON.stringify({
+      type: 'AOG', urgency: 'AOG', partNumbers: ['PN-1', 'PN-1'], quantities: [2, 3],
+    }));
+    expect(output.items.map((item) => item.partNumber)).toEqual(['PN-1', 'PN-1']);
+    expect(output.items[0].evidenceText).toBeNull();
+  });
+
+  it.each([
+    ['fabricated evidence', { type: 'STANDARD', urgency: 'STANDARD', items: [{ partNumber: 'PN-1', evidenceText: 'not in email' }] }],
+    ['part not in evidence', { type: 'STANDARD', urgency: 'STANDARD', items: [{ partNumber: 'PN-2', evidenceText: 'PN-1' }] }],
+    ['injected action', { type: 'STANDARD', urgency: 'STANDARD', items: [{ partNumber: 'PN-1', evidenceText: 'PN-1', action: 'create' }] }],
+    ['nonpositive quantity', { type: 'STANDARD', urgency: 'STANDARD', items: [{ partNumber: 'PN-1', quantity: 0, evidenceText: 'PN-1' }] }],
+    ['impossible date', { type: 'STANDARD', urgency: 'STANDARD', items: [{ partNumber: 'PN-1', requiredDate: '2026-02-30', evidenceText: 'PN-1' }] }],
+  ])('rejects %s', (caseName, value) => {
+    if (caseName === 'fabricated evidence' || caseName === 'part not in evidence') {
+      expect(() => assertRfqExtractionEvidence(parseRfqExtractionOutput(JSON.stringify(value)), 'RFQ', 'PN-1')).toThrow('依据无法在原邮件中定位');
+    } else {
+      expect(() => parseRfqExtractionOutput(JSON.stringify(value))).toThrow('需求提取结果不符合格式');
+    }
+  });
+});
 
 describe('supplier quote extraction output validation', () => {
   it('accepts multiple evidence-backed candidates with sparse fields and lead-time ranges', () => {

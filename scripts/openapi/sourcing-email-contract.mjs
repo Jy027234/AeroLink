@@ -212,12 +212,107 @@ export function applySourcingEmailContract(paths, core) {
     items: schemaRef('SourcingAiTask'),
   });
 
+  core.schemas.SourcingActionTaskContent = objectSchema({
+    subject: { type: 'string', minLength: 1, maxLength: 255 },
+    textBody: { type: 'string', minLength: 1, maxLength: 20000 },
+  });
+  core.schemas.SourcingActionTaskSendResult = objectSchema({
+    inquiryId: id,
+    inquiryStatus: { type: 'string', const: 'QUEUED' },
+    outboundEmailId: id,
+    outboundEmailStatus: { type: 'string' },
+    outboxEventId: id,
+  });
+  core.schemas.SourcingActionTaskWinnerResult = objectSchema({
+    supplierQuoteId: id,
+    rfqLineId: nullableId,
+    isWinner: { type: 'boolean', const: true },
+    status: { type: 'string', const: 'accepted' },
+  });
+  core.schemas.SourcingActionTaskOutboundEmail = objectSchema({
+    id,
+    status: { type: 'string' },
+    deliveryIssue: nullableText,
+    sentAt: dateTime,
+    createdAt: dateTime,
+    updatedAt: dateTime,
+  });
+  core.schemas.SourcingActionTask = objectSchema({
+    id,
+    actorId: id,
+    action: { type: 'string', enum: ['SEND_INQUIRY', 'SELECT_WINNER'] },
+    targetType: { type: 'string', enum: ['INQUIRY', 'SUPPLIER_QUOTE'] },
+    targetId: id,
+    targetVersion: { type: 'string', minLength: 1, maxLength: 256 },
+    version: { type: 'integer', minimum: 1 },
+    contentSnapshot: {
+      oneOf: [schemaRef('SourcingActionTaskContent'), { type: 'null' }],
+    },
+    requestId: id,
+    idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 },
+    status: { type: 'string', enum: ['WAITING_HUMAN', 'COMPLETED', 'FAILED', 'CANCELLED'] },
+    attempt: { type: 'integer', minimum: 1 },
+    maxAttempts: { type: 'integer', minimum: 1 },
+    confirmedById: nullableId,
+    confirmedAt: dateTime,
+    retriedById: nullableId,
+    retryHistory: { type: 'array', items: objectSchema({
+      actorId: id,
+      attempt: { type: 'integer', minimum: 1 },
+      occurredAt: { type: 'string', format: 'date-time' },
+    }) },
+    cancelledById: nullableId,
+    outboundEmailId: nullableId,
+    result: { oneOf: [
+      schemaRef('SourcingActionTaskSendResult'),
+      schemaRef('SourcingActionTaskWinnerResult'),
+      { type: 'null' },
+    ] },
+    errorSummary: nullableText,
+    outboundEmail: { oneOf: [schemaRef('SourcingActionTaskOutboundEmail'), { type: 'null' }] },
+    createdAt: dateTime,
+    completedAt: dateTime,
+    cancelledAt: dateTime,
+    updatedAt: dateTime,
+  }, [
+    'id', 'actorId', 'action', 'targetType', 'targetId', 'targetVersion', 'version',
+    'contentSnapshot', 'requestId', 'idempotencyKey', 'status', 'attempt', 'maxAttempts',
+    'confirmedById', 'confirmedAt', 'retriedById', 'retryHistory', 'cancelledById',
+    'outboundEmailId', 'result', 'errorSummary',
+    'outboundEmail', 'createdAt', 'completedAt', 'cancelledAt', 'updatedAt',
+  ]);
+  core.schemas.SourcingActionTaskCreateSendRequest = objectSchema({
+    action: { type: 'string', const: 'SEND_INQUIRY' },
+    targetId: id,
+    content: schemaRef('SourcingActionTaskContent'),
+    idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 },
+  });
+  core.schemas.SourcingActionTaskCreateWinnerRequest = objectSchema({
+    action: { type: 'string', const: 'SELECT_WINNER' },
+    targetId: id,
+    expectedUpdatedAt: { type: 'string', format: 'date-time' },
+    idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 },
+  }, ['action', 'targetId', 'idempotencyKey']);
+  core.schemas.SourcingActionTaskCreateRequest = {
+    oneOf: [schemaRef('SourcingActionTaskCreateSendRequest'), schemaRef('SourcingActionTaskCreateWinnerRequest')],
+  };
+  core.schemas.SourcingActionTaskConfirmRequest = objectSchema({
+    expectedVersion: { type: 'integer', minimum: 1 },
+  });
+  core.schemas.SourcingActionTaskEnvelope = successEnvelope(schemaRef('SourcingActionTask'));
+  core.schemas.SourcingActionTaskListEnvelope = successEnvelope({
+    type: 'array',
+    items: schemaRef('SourcingActionTask'),
+  });
+
   core.responses.InquiryEmailLink = resourceResponse('Confirmed email-to-inquiry link', 'InquiryEmailLinkEnvelope');
   core.responses.SupplierQuoteDraft = resourceResponse('Editable supplier quote draft', 'SupplierQuoteDraftEnvelope');
   core.responses.SupplierQuoteDraftNullable = resourceResponse('Latest supplier quote draft, or null when none exists', 'SupplierQuoteDraftNullableEnvelope');
   core.responses.SupplierQuoteDraftConfirm = resourceResponse('Confirmed draft and formal supplier quote identities', 'SupplierQuoteDraftConfirmEnvelope');
   core.responses.SourcingAiTask = resourceResponse('Server-owned sourcing AI task', 'SourcingAiTaskEnvelope');
   core.responses.SourcingAiTaskList = resourceResponse('Visible server-owned sourcing AI tasks', 'SourcingAiTaskListEnvelope');
+  core.responses.SourcingActionTask = resourceResponse('Server-owned sourcing action task; SEND_INQUIRY completion means queued, while SELECT_WINNER completion means an internal selection was committed', 'SourcingActionTaskEnvelope');
+  core.responses.SourcingActionTaskList = resourceResponse('Visible server-owned sourcing action tasks', 'SourcingActionTaskListEnvelope');
 
   const errorResponses = Object.fromEntries([400, 401, 403, 404, 409, 422, 429, 500]
     .map((status) => [String(status), responseRef('Error')]));
@@ -342,5 +437,61 @@ export function applySourcingEmailContract(paths, core) {
     'Cancels a pending, running, or failed task using a conditional state transition. A running model request may finish, but its stale result cannot create a draft after cancellation.',
     null,
     'SourcingAiTask',
+  );
+  configure(
+    '/api/sourcing-ai-tasks/{id}/confirm-draft',
+    'post',
+    'A person confirms the completed extraction task\'s exact editable draft version. The task source and quote permissions are revalidated transactionally; only this explicit action may create formal supplier quotes. Replays return the same quotes.',
+    schemaRef('SupplierQuoteDraftConfirmRequest'),
+    'SupplierQuoteDraftConfirm',
+  );
+
+  configure(
+    '/api/sourcing-action-tasks',
+    'post',
+    'Creates an actor-owned SEND_INQUIRY or SELECT_WINNER task with an immutable source snapshot. Sending additionally captures immutable content. A repeated actor/idempotencyKey pair returns the original task; only a human-authenticated confirm call can execute it.',
+    schemaRef('SourcingActionTaskCreateRequest'),
+    'SourcingActionTask',
+    '201',
+  );
+  paths['/api/sourcing-action-tasks'].post.responses['200'] = responseRef('SourcingActionTask');
+  configure(
+    '/api/sourcing-action-tasks',
+    'get',
+    'Lists tasks owned by the authenticated actor; administrators may inspect all tasks. A completed send records the queued command, while outboundEmail reports its independent delivery state. A completed winner task records the internal selection.',
+    null,
+    'SourcingActionTaskList',
+  );
+  paths['/api/sourcing-action-tasks'].get.parameters = [
+    { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
+    { name: 'targetId', in: 'query', required: false, schema: id },
+  ];
+  configure(
+    '/api/sourcing-action-tasks/{id}',
+    'get',
+    'Reads one actor-owned sourcing action task, or any task for an administrator, including its immutable source/content snapshot and current outbound email status.',
+    null,
+    'SourcingActionTask',
+  );
+  configure(
+    '/api/sourcing-action-tasks/{id}/confirm',
+    'post',
+    'Requires a human-authenticated user with the current permission for the action. Confirms only the exact expected task version; source, scope and business eligibility are revalidated in the same Serializable transaction as the existing send or winner command and task result update. Replays return the persisted result.',
+    schemaRef('SourcingActionTaskConfirmRequest'),
+    'SourcingActionTask',
+  );
+  configure(
+    '/api/sourcing-action-tasks/{id}/retry',
+    'post',
+    'Reopens only a failed task with no committed outbound email or result and an unchanged target fingerprint. A changed source requires a new task; completed sends are never re-enqueued.',
+    null,
+    'SourcingActionTask',
+  );
+  configure(
+    '/api/sourcing-action-tasks/{id}/cancel',
+    'post',
+    'Cancels an unconfirmed task using a conditional state transition. A task with a committed outbound email/result cannot be cancelled or resent through this action task.',
+    null,
+    'SourcingActionTask',
   );
 }

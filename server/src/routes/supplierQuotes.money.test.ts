@@ -35,6 +35,7 @@ describe('supplier quote monetary shadows', () => {
     inquiryItem: { findUnique: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
     quotation: { findFirst: ReturnType<typeof vi.fn> };
     quotationLine: { findFirst: ReturnType<typeof vi.fn> };
+    purchaseCommitmentLine: { findFirst: ReturnType<typeof vi.fn> };
     supplierQuote: {
       create: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
@@ -53,6 +54,7 @@ describe('supplier quote monetary shadows', () => {
       inquiryItem: { findUnique: vi.fn(), findMany: vi.fn() },
       quotation: { findFirst: vi.fn() },
       quotationLine: { findFirst: vi.fn() },
+      purchaseCommitmentLine: { findFirst: vi.fn().mockResolvedValue(null) },
       supplierQuote: {
         create: vi.fn(),
         findUnique: vi.fn(),
@@ -246,9 +248,10 @@ describe('supplier quote monetary shadows', () => {
   it('dual-writes the accepted enum when selecting a winner', async () => {
     prismaMock.supplierQuote.findUnique.mockResolvedValue(createSupplierQuote({
       rfqId: 'rfq-001', rfqLineId: null, inquiryId: null, inquiryItemId: null,
+      quantityUnit: 'EA',
     }));
     prismaMock.rFQ.findUnique.mockResolvedValue({
-      id: 'rfq-001', partNumber: 'BAC31GK0020', quantity: 3, alternatePartNumbers: null,
+      id: 'rfq-001', partNumber: 'BAC31GK0020', quantity: 3, uom: 'EA', alternatePartNumbers: null,
     });
     prismaMock.supplierQuote.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.supplierQuote.update.mockResolvedValue(createSupplierQuote({

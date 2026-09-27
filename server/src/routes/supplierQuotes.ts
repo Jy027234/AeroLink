@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { Prisma, type RfqStatusEnum, type SupplierQuoteStatusEnum } from '@prisma/client';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-import { requireCapability } from '../middleware/capability.js';
+import { assertCapability, requireCapability } from '../middleware/capability.js';
+import type { AuthRequest } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { calculateMoneyTotal, normalizeMoney, preferredMoneyValue } from '../lib/money.js';
 import {
@@ -9,7 +10,13 @@ import {
   preferredSupplierQuoteStatus,
   toSupplierQuoteStatusEnum,
 } from '../lib/transactionStatusShadows.js';
-import { supplierQuoteCreateSchema, supplierQuoteUpdateSchema } from '../lib/validation.js';
+import {
+  compareQuantityUnits,
+  supplierQuoteClearWinnerSchema,
+  supplierQuoteCreateSchema,
+  supplierQuoteRevisionSchema,
+  supplierQuoteUpdateSchema,
+} from '../lib/validation.js';
 import prisma from '../lib/prisma.js';
 import {
   assertQuotationMatchesRfq,
@@ -17,6 +24,8 @@ import {
   VERIFIED_CURRENCY_STATUS,
 } from '../lib/commercialCostSource.js';
 import { resolveSupplierQuoteSourceBinding } from '../lib/supplierQuoteSourceBinding.js';
+import { buildRfqReadScope } from '../lib/rfqAccess.js';
+import { selectSupplierQuoteWinner } from '../lib/supplierQuoteSelectWinnerCommand.js';
 
 const router = Router();
 
@@ -52,6 +61,7 @@ const supplierQuoteLineSelect = {
   rfqId: true,
   partNumber: true,
   quantity: true,
+  uom: true,
   alternatePartNumbers: true,
   certificateRequired: true,
   certificateType: true,
@@ -62,6 +72,7 @@ const supplierQuoteRfqSelect = {
   id: true,
   partNumber: true,
   quantity: true,
+  uom: true,
   alternatePartNumbers: true,
   certificateRequired: true,
   certificateType: true,
@@ -77,6 +88,7 @@ type SupplierQuoteComparisonScope = {
   partScope: {
     partNumber: string;
     quantity: number;
+    uom?: string | null;
     alternatePartNumbers?: string | null;
     certificateRequired?: boolean | null;
     certificateType?: string | null;
@@ -107,11 +119,24 @@ function compareRequestId(value: unknown, fieldName: string): string | null {
   return value;
 }
 
+async function assertComparisonRfqReadAccess(req: AuthRequest, rfqId: string | null) {
+  if (!rfqId) return;
+  const actor = req.user!;
+  assertCapability(actor, 'rfq', 'read');
+  const rfq = await prisma.rFQ.findFirst({
+    where: { AND: [{ id: rfqId }, buildRfqReadScope(actor)] },
+    select: { id: true, createdBy: true, creator: { select: { department: true } } },
+  });
+  if (!rfq) throw new AppError('关联 RFQ 不存在', 404, 'RESOURCE_NOT_FOUND');
+  assertCapability(actor, 'rfq', 'read', { ownerId: rfq.createdBy, department: rfq.creator?.department });
+}
+
 function comparisonScopeFromLine(line: {
   id: string;
   rfqId: string;
   partNumber: string;
   quantity: number;
+  uom: string;
   alternatePartNumbers: string | null;
   certificateRequired: boolean;
   certificateType: string | null;
@@ -125,6 +150,19 @@ function comparisonScopeFromLine(line: {
     allowUnboundLegacyQuotes,
     partScope: line,
   };
+}
+
+async function unboundInquiryItemDemandUnit(inquiry: {
+  rfqId: string | null;
+  rfq: { uom: string } | null;
+}): Promise<string | null> {
+  if (!inquiry.rfqId) return null;
+  const lines = await prisma.rfqLine.findMany({
+    where: { rfqId: inquiry.rfqId },
+    select: { id: true, uom: true },
+  });
+  if (lines.length > 1) return null;
+  return lines[0]?.uom ?? inquiry.rfq?.uom ?? null;
 }
 
 async function resolveSupplierQuoteComparisonScope(
@@ -161,6 +199,7 @@ async function resolveSupplierQuoteComparisonScope(
         id: true,
         rfqId: true,
         supplierId: true,
+        rfq: { select: { uom: true } },
         items: { select: { id: true, rfqLineId: true, partNumber: true, quantity: true, certificateRequired: true } },
       },
     })
@@ -182,7 +221,7 @@ async function resolveSupplierQuoteComparisonScope(
     partNumber: string;
     quantity: number;
     certificateRequired: boolean;
-    inquiry: { id: string; rfqId: string | null; supplierId: string };
+    inquiry: { id: string; rfqId: string | null; supplierId: string; rfq: { uom: string } | null };
   } | null = null;
   if (inquiryItemIdInput) {
     requestedItem = await prisma.inquiryItem.findUnique({
@@ -194,7 +233,7 @@ async function resolveSupplierQuoteComparisonScope(
         partNumber: true,
         quantity: true,
         certificateRequired: true,
-        inquiry: { select: { id: true, rfqId: true, supplierId: true } },
+        inquiry: { select: { id: true, rfqId: true, supplierId: true, rfq: { select: { uom: true } } } },
       },
     });
     if (!requestedItem) throw new AppError('指定的询价需求项不存在', 404, 'RESOURCE_NOT_FOUND');
@@ -226,6 +265,7 @@ async function resolveSupplierQuoteComparisonScope(
       partScope: {
         partNumber: requestedItem.partNumber,
         quantity: requestedItem.quantity,
+        uom: await unboundInquiryItemDemandUnit(requestedItem.inquiry),
         certificateRequired: requestedItem.certificateRequired,
       },
     };
@@ -263,6 +303,7 @@ async function resolveSupplierQuoteComparisonScope(
         partScope: {
           partNumber: item.partNumber,
           quantity: item.quantity,
+          uom: inquiry.rfq?.uom ?? null,
           certificateRequired: item.certificateRequired,
         },
       };
@@ -497,7 +538,8 @@ function supplierQuoteTotalPrice(quote: Pick<SupplierQuoteMoneySource, 'totalPri
 }
 
 function projectSupplierQuoteMoney<
-  T extends SupplierQuoteMoneySource & SupplierQuoteStatusShadow & SupplierQuoteLegacyComparison & SupplierQuoteCurrency,
+  T extends SupplierQuoteMoneySource & SupplierQuoteStatusShadow & SupplierQuoteLegacyComparison & SupplierQuoteCurrency
+    & { id: string; revisionRootId: string | null },
 >(quote: T) {
   const {
     unitPriceDecimal,
@@ -510,10 +552,12 @@ function projectSupplierQuoteMoney<
     aiRecommendation: _legacyAiRecommendation,
     currency: rawCurrency,
     currencyReviewStatus,
+    revisionRootId: rawRevisionRootId,
     ...rest
   } = quote;
   return {
     ...rest,
+    revisionRootId: rawRevisionRootId ?? quote.id,
     currency: rawCurrency || null,
     currencyStatus: supplierQuoteCurrencyStatus(rawCurrency, currencyReviewStatus),
     status: supplierQuoteStatus({ status, statusEnum }),
@@ -523,6 +567,26 @@ function projectSupplierQuoteMoney<
     // version needed to audit them. Do not project them as current analysis.
     ruleScore: null,
   };
+}
+
+async function assertSupplierQuoteHasNoDownstreamReferences(quoteId: string) {
+  const [quotationReference, quotationLineReference, commitmentLineReference] = await Promise.all([
+    prisma.quotation.findFirst({
+      where: { costSourceType: 'SUPPLIER_QUOTE', costSourceId: quoteId },
+      select: { id: true },
+    }),
+    prisma.quotationLine.findFirst({
+      where: { sourceSupplierQuoteId: quoteId },
+      select: { id: true },
+    }),
+    prisma.purchaseCommitmentLine.findFirst({
+      where: { sourceSupplierQuoteId: quoteId },
+      select: { id: true },
+    }),
+  ]);
+  if (quotationReference || quotationLineReference || commitmentLineReference) {
+    throw new AppError('供应商报价已被报价或采购承诺引用，不能原位修改；请创建报价修订', 409, 'STATE_CONFLICT');
+  }
 }
 
 router.get(
@@ -577,6 +641,7 @@ router.get(
         partNumber: q.partNumber,
         description: q.description,
         quantity: q.quantity,
+        quantityUnit: q.quantityUnit,
         unitPrice: supplierQuoteUnitPrice(q),
          totalPrice: supplierQuoteTotalPrice(q),
          currency: q.currency || null,
@@ -586,8 +651,14 @@ router.get(
         notes: q.notes,
         status: supplierQuoteStatus(q),
         isWinner: q.isWinner,
+        revisionOfId: q.revisionOfId,
+        revisionRootId: q.revisionRootId ?? q.id,
+        revisionNumber: q.revisionNumber,
+        supersededAt: q.supersededAt?.toISOString() ?? null,
+        revisionReason: q.revisionReason,
         ruleScore: null,
         createdAt: q.createdAt.toISOString(),
+        updatedAt: q.updatedAt.toISOString(),
         supplier: {
           id: q.supplier.id,
           name: q.supplier.name,
@@ -648,6 +719,7 @@ router.post(
       partNumber,
       description,
       quantity,
+      quantityUnit,
       unitPrice,
       currency,
       leadTimeDays,
@@ -676,6 +748,7 @@ router.post(
           partNumber,
           description,
           quantity,
+          quantityUnit: quantityUnit ?? null,
           unitPrice: unitPriceDecimal.toNumber(),
           unitPriceDecimal,
           totalPrice: totalPriceDecimal.toNumber(),
@@ -698,6 +771,104 @@ router.post(
   })
 );
 
+router.post(
+  '/:id/revise',
+  requireCapability('supplier_quote', 'update'),
+  validateBody(supplierQuoteRevisionSchema),
+  asyncHandler(async (req, res) => {
+    const {
+      expectedUpdatedAt,
+      revisionReason,
+      description,
+      quantity,
+      quantityUnit,
+      unitPrice,
+      currency,
+      leadTimeDays,
+      validUntil,
+      notes,
+    } = req.body;
+    const expectedUpdatedAtDate = new Date(expectedUpdatedAt);
+    const unitPriceDecimal = normalizeMoney(unitPrice);
+    const totalPriceDecimal = calculateMoneyTotal(unitPriceDecimal, quantity);
+
+    const revision = await prisma.$transaction(async (tx) => {
+      const existing = await tx.supplierQuote.findUnique({ where: { id: req.params.id } });
+      if (!existing) throw new AppError('供应商报价不存在', 404, 'RESOURCE_NOT_FOUND');
+      if (existing.supersededAt || existing.updatedAt.getTime() !== expectedUpdatedAtDate.getTime()) {
+        throw new AppError('供应商报价已被修改或修订，请刷新后重试', 409, 'STATE_CONFLICT');
+      }
+
+      if (existing.rfqId) {
+        const currentScope = existing.rfqLineId
+          ? await tx.rfqLine.findUnique({ where: { id: existing.rfqLineId }, select: supplierQuoteLineSelect })
+          : await tx.rFQ.findUnique({ where: { id: existing.rfqId }, select: supplierQuoteRfqSelect });
+        if (!currentScope) throw new AppError('供应商报价来源 RFQ 需求范围不存在', 409, 'RESOURCE_CONFLICT');
+        assertQuotationMatchesRfq(existing.partNumber, quantity, currentScope);
+        if (existing.inquiryItemId) {
+          const currentItem = await tx.inquiryItem.findUnique({ where: { id: existing.inquiryItemId }, select: { quantity: true } });
+          if (!currentItem || quantity > currentItem.quantity) {
+            throw new AppError('供应商报价数量不能超过询价需求项数量', 409, 'RESOURCE_CONFLICT');
+          }
+        }
+      }
+
+      const revisionRootId = existing.revisionRootId ?? existing.id;
+      const supersededAt = new Date();
+      const superseded = await tx.supplierQuote.updateMany({
+        where: {
+          id: existing.id,
+          updatedAt: expectedUpdatedAtDate,
+          supersededAt: null,
+        },
+        data: {
+          supersededAt,
+          isWinner: false,
+          revisionRootId,
+        },
+      });
+      if (superseded.count !== 1) {
+        throw new AppError('供应商报价已被并发修改或修订，请刷新后重试', 409, 'STATE_CONFLICT');
+      }
+
+      return tx.supplierQuote.create({
+        data: {
+          revisionOfId: existing.id,
+          revisionRootId,
+          revisionNumber: existing.revisionNumber + 1,
+          revisionReason,
+          rfqId: existing.rfqId,
+          rfqLineId: existing.rfqLineId,
+          inquiryId: existing.inquiryId,
+          inquiryItemId: existing.inquiryItemId,
+          supplierId: existing.supplierId,
+          partNumber: existing.partNumber,
+          description,
+          quantity,
+          quantityUnit,
+          unitPrice: unitPriceDecimal.toNumber(),
+          unitPriceDecimal,
+          totalPrice: totalPriceDecimal.toNumber(),
+          totalPriceDecimal,
+          currency,
+          currencyReviewStatus: VERIFIED_CURRENCY_STATUS,
+          leadTimeDays,
+          validUntil: validUntil ? new Date(validUntil) : null,
+          notes,
+          status: 'pending',
+          statusEnum: toSupplierQuoteStatusEnum('pending')!,
+          isWinner: false,
+        },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    res.status(201).json({
+      success: true,
+      data: projectSupplierQuoteMoney(revision),
+    });
+  })
+);
+
 router.put(
   '/:id',
   requireCapability('supplier_quote', 'update'),
@@ -711,12 +882,12 @@ router.put(
       validUntil,
       notes,
       status,
-      isWinner,
       rfqId,
       rfqLineId,
       inquiryId,
       inquiryItemId,
       partNumber,
+      quantityUnit,
     } = req.body;
 
     const existing = await prisma.supplierQuote.findUnique({
@@ -726,6 +897,10 @@ router.put(
     if (!existing) {
       throw new AppError('供应商报价不存在', 404);
     }
+    if (existing.supersededAt || existing.revisionNumber > 1) {
+      throw new AppError('已修订报价不可原位修改，请创建新的报价修订', 409, 'STATE_CONFLICT');
+    }
+    await assertSupplierQuoteHasNoDownstreamReferences(existing.id);
 
     const identityChanges = [
       ['rfqId', rfqId, existing.rfqId],
@@ -735,19 +910,6 @@ router.put(
       ['partNumber', partNumber, existing.partNumber],
     ].filter(([, requested, current]) => requested !== undefined && requested !== current);
     if (identityChanges.length > 0) {
-      const [quotationReference, quotationLineReference] = await Promise.all([
-        prisma.quotation.findFirst({
-          where: { costSourceType: 'SUPPLIER_QUOTE', costSourceId: existing.id },
-          select: { id: true },
-        }),
-        prisma.quotationLine.findFirst({
-          where: { sourceSupplierQuoteId: existing.id },
-          select: { id: true },
-        }),
-      ]);
-      if (quotationReference || quotationLineReference) {
-        throw new AppError('供应商报价已被报价或报价行引用，不能修改来源身份', 409, 'STATE_CONFLICT');
-      }
       throw new AppError('供应商报价来源身份不可修改，请新建供应商报价', 409, 'STATE_CONFLICT');
     }
 
@@ -778,6 +940,7 @@ router.put(
       updateData.currency = currency;
       updateData.currencyReviewStatus = VERIFIED_CURRENCY_STATUS;
     }
+    if (quantityUnit !== undefined) updateData.quantityUnit = quantityUnit;
     if (leadTimeDays !== undefined) updateData.leadTimeDays = leadTimeDays;
     if (validUntil !== undefined) updateData.validUntil = new Date(validUntil);
     if (notes !== undefined) updateData.notes = notes;
@@ -789,8 +952,6 @@ router.put(
       updateData.status = statusEnum;
       updateData.statusEnum = statusEnum;
     }
-    if (isWinner !== undefined) updateData.isWinner = isWinner;
-
     if (quantity !== undefined) updateData.quantity = quantity;
     if (unitPriceDecimal || quantity !== undefined) {
       const nextUnitPriceDecimal = unitPriceDecimal ?? normalizeMoney(preferredMoneyValue(existing.unitPriceDecimal, existing.unitPrice) ?? 0);
@@ -800,7 +961,11 @@ router.put(
     }
 
     const quote = await prisma.supplierQuote.update({
-      where: { id: req.params.id },
+      where: {
+        id: req.params.id,
+        supersededAt: null,
+        ...(existing.updatedAt ? { updatedAt: existing.updatedAt } : {}),
+      },
       data: updateData,
     });
 
@@ -823,6 +988,18 @@ router.delete(
       throw new AppError('供应商报价不存在', 404);
     }
 
+    if (quote.supersededAt || quote.revisionNumber > 1) {
+      throw new AppError('已修订报价不可删除，修订历史需要保留', 409, 'STATE_CONFLICT');
+    }
+    await assertSupplierQuoteHasNoDownstreamReferences(quote.id);
+    const revision = await prisma.supplierQuote.findFirst({
+      where: { revisionOfId: quote.id },
+      select: { id: true },
+    });
+    if (revision) {
+      throw new AppError('已有后续报价修订，原报价不可删除', 409, 'STATE_CONFLICT');
+    }
+
     await prisma.supplierQuote.delete({
       where: { id: req.params.id },
     });
@@ -834,161 +1011,7 @@ router.delete(
   })
 );
 
-async function assertWinnerQuoteSource(
-  tx: Prisma.TransactionClient,
-  quote: {
-    rfqId: string | null;
-    rfqLineId: string | null;
-    inquiryId: string | null;
-    inquiryItemId: string | null;
-    supplierId: string;
-    partNumber: string;
-    quantity: number;
-  },
-  expectedRfqId: string | null,
-  expectedRfqLineId: string | null,
-) {
-  if (quote.inquiryId) {
-    const inquiry = await tx.inquiry.findUnique({
-      where: { id: quote.inquiryId },
-      select: { id: true, rfqId: true, supplierId: true },
-    });
-    if (!inquiry || inquiry.supplierId !== quote.supplierId || (inquiry.rfqId && expectedRfqId && inquiry.rfqId !== expectedRfqId)) {
-      throw new AppError('供应商报价的询价来源与 RFQ 或供应商不一致，不能标记中选', 409, 'RESOURCE_CONFLICT');
-    }
-  }
-  if (quote.inquiryItemId) {
-    const item = await tx.inquiryItem.findUnique({
-      where: { id: quote.inquiryItemId },
-      select: {
-        id: true,
-        inquiryId: true,
-        rfqLineId: true,
-        partNumber: true,
-        quantity: true,
-        inquiry: { select: { id: true, rfqId: true, supplierId: true } },
-      },
-    });
-    if (
-      !item || item.inquiryId !== quote.inquiryId || item.inquiry.supplierId !== quote.supplierId ||
-      (item.inquiry.rfqId && expectedRfqId && item.inquiry.rfqId !== expectedRfqId) ||
-      (expectedRfqLineId && item.rfqLineId !== expectedRfqLineId &&
-        !(quote.rfqLineId === null && item.rfqLineId === null))
-    ) {
-      throw new AppError('供应商报价与询价需求项来源不一致，不能标记中选', 409, 'RESOURCE_CONFLICT');
-    }
-    if (item.rfqLineId) {
-      const itemLine = await tx.rfqLine.findUnique({ where: { id: item.rfqLineId }, select: supplierQuoteLineSelect });
-      if (!itemLine || (expectedRfqId && itemLine.rfqId !== expectedRfqId) ||
-        (expectedRfqLineId && itemLine.id !== expectedRfqLineId)) {
-        throw new AppError('供应商报价的询价需求项不属于中选需求行', 409, 'INVALID_RFQ_LINE');
-      }
-    }
-  }
-}
-
-async function resolveWinnerClearScope(
-  tx: Prisma.TransactionClient,
-  quote: {
-    rfqId: string | null;
-    rfqLineId: string | null;
-    inquiryId: string | null;
-    inquiryItemId: string | null;
-    supplierId: string;
-    partNumber: string;
-    quantity: number;
-  },
-): Promise<Prisma.SupplierQuoteWhereInput> {
-  if (quote.rfqLineId) {
-    const line = await tx.rfqLine.findUnique({ where: { id: quote.rfqLineId }, select: supplierQuoteLineSelect });
-    if (!line || quote.rfqId !== line.rfqId) {
-      throw new AppError('供应商报价与 RFQ 需求行来源不一致，不能标记中选', 409, 'INVALID_RFQ_LINE');
-    }
-    assertQuotationMatchesRfq(quote.partNumber, quote.quantity, line);
-    await assertWinnerQuoteSource(tx, quote, line.rfqId, line.id);
-    const siblingLines = await tx.rfqLine.findMany({ where: { rfqId: line.rfqId }, select: supplierQuoteLineSelect });
-    if (siblingLines.length === 1 && siblingLines[0].id === line.id) {
-      // A historical quote for a one-line RFQ may predate rfqLineId. It still
-      // represents this same line, so selecting a bound quote must clear both
-      // shapes in the same transaction. Multi-line RFQs remain ID-only.
-      return { rfqId: line.rfqId, OR: [{ rfqLineId: line.id }, { rfqLineId: null }] };
-    }
-    return { rfqLineId: line.id };
-  }
-
-  if (quote.rfqId) {
-    const rfq = await tx.rFQ.findUnique({ where: { id: quote.rfqId }, select: supplierQuoteRfqSelect });
-    if (!rfq) throw new AppError('供应商报价来源 RFQ 不存在', 409, 'RESOURCE_CONFLICT');
-    const lines = await tx.rfqLine.findMany({ where: { rfqId: rfq.id }, select: supplierQuoteLineSelect });
-    if (lines.length > 1) {
-      throw new AppError('多行 RFQ 的报价没有需求行绑定，不能标记中选', 409, 'LINE_ID_REQUIRED');
-    }
-    const line = lines[0];
-    assertQuotationMatchesRfq(quote.partNumber, quote.quantity, line ?? rfq);
-    await assertWinnerQuoteSource(tx, quote, rfq.id, line?.id ?? null);
-    if (line) {
-      return { rfqId: rfq.id, OR: [{ rfqLineId: line.id }, { rfqLineId: null }] };
-    }
-    return { rfqId: rfq.id, rfqLineId: null };
-  }
-
-  if (quote.inquiryItemId && quote.inquiryId) {
-    await assertWinnerQuoteSource(tx, quote, null, null);
-    return { inquiryId: quote.inquiryId, inquiryItemId: quote.inquiryItemId };
-  }
-
-  if (quote.inquiryId) {
-    const inquiry = await tx.inquiry.findUnique({
-      where: { id: quote.inquiryId },
-      select: { id: true, rfqId: true, supplierId: true },
-    });
-    if (!inquiry || inquiry.supplierId !== quote.supplierId) {
-      throw new AppError('供应商报价的询价来源与供应商不一致，不能标记中选', 409, 'RESOURCE_CONFLICT');
-    }
-    const lines = inquiry.rfqId
-      ? await tx.rfqLine.findMany({ where: { rfqId: inquiry.rfqId }, select: supplierQuoteLineSelect })
-      : [];
-    if (lines.length > 1) {
-      throw new AppError('多行 RFQ 的报价没有需求行绑定，不能标记中选', 409, 'LINE_ID_REQUIRED');
-    }
-    if (lines.length === 1) {
-      assertQuotationMatchesRfq(quote.partNumber, quote.quantity, lines[0]);
-      await assertWinnerQuoteSource(tx, quote, inquiry.rfqId, null);
-      return { inquiryId: inquiry.id, OR: [{ rfqLineId: lines[0].id }, { rfqLineId: null }] };
-    }
-    const items = await tx.inquiryItem.findMany({
-      where: { inquiryId: inquiry.id },
-      select: { id: true, rfqLineId: true, partNumber: true, quantity: true },
-    });
-    if (items.length === 0) {
-      throw new AppError('询价单缺少可复核的需求项，不能安全标记中选', 409, 'LINE_ID_REQUIRED');
-    }
-    const itemScopes = new Set(items.map((item) => item.rfqLineId || item.id));
-    if (itemScopes.size > 1) {
-      throw new AppError('询价单包含多条需求项，报价没有需求行绑定，不能标记中选', 409, 'LINE_ID_REQUIRED');
-    }
-    const onlyItemLineId = items[0].rfqLineId;
-    if (onlyItemLineId) {
-      const itemLine = await tx.rfqLine.findUnique({ where: { id: onlyItemLineId }, select: supplierQuoteLineSelect });
-      if (!itemLine || (inquiry.rfqId && itemLine.rfqId !== inquiry.rfqId) || quote.rfqId !== itemLine.rfqId) {
-        throw new AppError('供应商报价与询价需求项的 RFQ 来源不一致', 409, 'INVALID_RFQ_LINE');
-      }
-      assertQuotationMatchesRfq(quote.partNumber, quote.quantity, itemLine);
-      await assertWinnerQuoteSource(tx, quote, itemLine.rfqId, null);
-      return { rfqLineId: itemLine.id };
-    }
-    await assertWinnerQuoteSource(tx, quote, inquiry.rfqId, null);
-    return { inquiryId: inquiry.id, inquiryItemId: null };
-  }
-
-  throw new AppError('供应商报价缺少可复核的 RFQ 或询价需求行来源，不能标记中选', 409, 'LINE_ID_REQUIRED');
-}
-
-router.post(
-  '/compare',
-  requireCapability('supplier_quote', 'update'),
-  asyncHandler(async (req, res) => {
-    const scope = await resolveSupplierQuoteComparisonScope(req.body ?? {});
+async function compareSupplierQuoteScope(scope: SupplierQuoteComparisonScope) {
     const where: Prisma.SupplierQuoteWhereInput = scope.rfqLineId
       ? {
         rfqId: scope.rfqId,
@@ -1001,28 +1024,30 @@ router.post(
         : { rfqId: scope.rfqId, rfqLineId: null, inquiryId: scope.inquiryId };
 
     const loadedQuotes = await prisma.supplierQuote.findMany({
-      where,
+      where: { ...where, supersededAt: null },
       include: supplierQuoteComparisonInclude,
     });
-    const quotes = loadedQuotes.filter((quote) => quoteHasConsistentComparisonBinding(quote, scope));
+    const quotes = loadedQuotes.filter((quote) => !quote.supersededAt && quoteHasConsistentComparisonBinding(quote, scope));
     const comparisonTime = new Date();
     const asOf = comparisonTime.toISOString();
     const requiredQuantity = scope.partScope?.quantity ?? null;
+    const requiredQuantityUnit = scope.partScope?.uom ?? null;
     const baseMetadata = {
       source: 'AeroLink supplier quote and supplier master records',
-      algorithmVersion: 'supplier-quote-rule-v3',
+      algorithmVersion: 'supplier-quote-rule-v4',
       asOf,
       decisionBoundary: '不推测质量、响应速度、适航资质、可供货量、外部市场价格或客户偏好；规则排序仅供人工复核，不构成中选建议。',
     };
 
     if (quotes.length === 0) {
-      res.json({
+      return {
         success: true,
         data: {
           rfqId: scope.rfqId,
           rfqLineId: scope.rfqLineId,
           inquiryId: scope.inquiryId,
           inquiryItemId: scope.inquiryItemId,
+          requiredQuantityUnit,
           quotes: [],
           partNumberGroups: [],
           topRanked: null,
@@ -1047,8 +1072,7 @@ router.post(
             reason: '尚无该需求行的来源一致供应商报价，无法进行规则排序。',
           },
         },
-      });
-      return;
+      };
     }
 
     const partNumberBuckets = new Map<string, typeof quotes>();
@@ -1066,17 +1090,28 @@ router.post(
         const currencyStatus = supplierQuoteCurrencyStatus(quote.currency, quote.currencyReviewStatus);
         const statusAvailable = supplierQuoteComparisonStatusIsAvailable(status);
         const currencyAvailable = currencyStatus === VERIFIED_CURRENCY_STATUS;
+        const quantityUnitComparison = compareQuantityUnits(quote.quantityUnit, requiredQuantityUnit);
         const eligibilityReasons: string[] = [];
         if (isExpired) eligibilityReasons.push('EXPIRED');
         if (!currencyAvailable) eligibilityReasons.push('CURRENCY_NOT_VERIFIED_USD');
         if (!statusAvailable && !isExpired) eligibilityReasons.push('STATUS_NOT_AVAILABLE');
+        if (!quantityUnitComparison.compatible) {
+          eligibilityReasons.push(quantityUnitComparison.status === 'incompatible'
+            ? 'QUANTITY_UNIT_MISMATCH'
+            : 'QUANTITY_UNIT_UNKNOWN');
+        }
         const eligible = eligibilityReasons.length === 0;
         const terms = supplierQuoteDraftTerms(quote.sourceDraft?.payloadJson, quote.sourceDraftItemKey);
-        const coversRequiredQuantity = requiredQuantity === null ? null : quote.quantity >= requiredQuantity;
-        const quantityShortfall = requiredQuantity === null ? null : Math.max(0, requiredQuantity - quote.quantity);
+        const coversRequiredQuantity = requiredQuantity === null || !quantityUnitComparison.compatible
+          ? null
+          : quote.quantity >= requiredQuantity;
+        const quantityShortfall = requiredQuantity === null || !quantityUnitComparison.compatible
+          ? null
+          : Math.max(0, requiredQuantity - quote.quantity);
         const warnings: string[] = [];
         if (!quote.validUntil) warnings.push('VALID_UNTIL_UNKNOWN');
         if (coversRequiredQuantity === false) warnings.push('PARTIAL_QUANTITY');
+        if (!quantityUnitComparison.compatible) warnings.push(quantityUnitComparison.reason);
         if (terms.conditionStatus === 'unknown') warnings.push('CONDITION_UNKNOWN');
         if (terms.certificateStatus === 'unknown') warnings.push('CERTIFICATE_UNKNOWN');
         if (terms.taxIncluded === null) warnings.push('TAX_BASIS_UNKNOWN');
@@ -1105,6 +1140,7 @@ router.post(
           commercialBasis,
           coversRequiredQuantity,
           quantityShortfall,
+          quantityUnitComparison,
           warnings,
           certificateRequirementStatus,
         };
@@ -1114,8 +1150,9 @@ router.post(
       const expiredQuoteCount = quoteFacts.filter((fact) => fact.isExpired).length;
       const unverifiedCurrencyQuoteCount = quoteFacts.filter((fact) => !fact.eligible && !fact.isExpired
         && fact.currencyStatus !== VERIFIED_CURRENCY_STATUS).length;
-      const unavailableStatusQuoteCount = quoteFacts.filter((fact) => !fact.eligible
-        && !fact.isExpired && fact.currencyStatus === VERIFIED_CURRENCY_STATUS).length;
+      const unavailableStatusQuoteCount = quoteFacts.filter((fact) => fact.eligibilityReasons.includes('STATUS_NOT_AVAILABLE')).length;
+      const quantityUnitUnknownQuoteCount = quoteFacts.filter((fact) => fact.eligibilityReasons.includes('QUANTITY_UNIT_UNKNOWN')).length;
+      const quantityUnitMismatchQuoteCount = quoteFacts.filter((fact) => fact.eligibilityReasons.includes('QUANTITY_UNIT_MISMATCH')).length;
       const excludedQuoteCount = groupQuotes.length - eligibleQuotes.length;
       const basisBuckets = new Map<string, typeof quoteFacts>();
       for (const fact of quoteFacts) {
@@ -1160,13 +1197,21 @@ router.post(
 
           return {
             id: quote.id,
+            updatedAt: quote.updatedAt.toISOString(),
             rfqId: quote.rfqId,
             rfqLineId: quote.rfqLineId,
             inquiryId: quote.inquiryId,
             inquiryItemId: quote.inquiryItemId,
             partNumber: quote.partNumber,
             quantity: quote.quantity,
+            quantityUnit: quote.quantityUnit ?? null,
             requiredQuantity,
+            requiredQuantityUnit,
+            quantityUnitComparison: {
+              ...fact.quantityUnitComparison,
+              quoteUnit: quote.quantityUnit ?? null,
+              demandUnit: requiredQuantityUnit,
+            },
             coversRequiredQuantity: fact.coversRequiredQuantity,
             quantityShortfall: fact.quantityShortfall,
             validUntil: quote.validUntil?.toISOString() ?? null,
@@ -1222,11 +1267,14 @@ router.post(
         const basisExcludedQuoteCount = basisFacts.length - basisEligibleQuotes.length;
         const basisUnverifiedCurrencyQuoteCount = basisFacts.filter((fact) => !fact.eligible && !fact.isExpired
           && fact.currencyStatus !== VERIFIED_CURRENCY_STATUS).length;
-        const basisUnavailableStatusQuoteCount = basisFacts.filter((fact) => !fact.eligible
-          && !fact.isExpired && fact.currencyStatus === VERIFIED_CURRENCY_STATUS).length;
+        const basisUnavailableStatusQuoteCount = basisFacts.filter((fact) => fact.eligibilityReasons.includes('STATUS_NOT_AVAILABLE')).length;
+        const basisQuantityUnitUnknownQuoteCount = basisFacts.filter((fact) => fact.eligibilityReasons.includes('QUANTITY_UNIT_UNKNOWN')).length;
+        const basisQuantityUnitMismatchQuoteCount = basisFacts.filter((fact) => fact.eligibilityReasons.includes('QUANTITY_UNIT_MISMATCH')).length;
         const exclusionDetails = [
           basisExpiredQuoteCount > 0 ? `${basisExpiredQuoteCount} 份已过期` : null,
           basisUnverifiedCurrencyQuoteCount > 0 ? `${basisUnverifiedCurrencyQuoteCount} 份币种未核为 USD` : null,
+          basisQuantityUnitUnknownQuoteCount > 0 ? `${basisQuantityUnitUnknownQuoteCount} 份数量单位未知` : null,
+          basisQuantityUnitMismatchQuoteCount > 0 ? `${basisQuantityUnitMismatchQuoteCount} 份数量单位不兼容` : null,
           basisUnavailableStatusQuoteCount > 0 ? `${basisUnavailableStatusQuoteCount} 份状态不可用` : null,
         ].filter((value): value is string => value !== null).join('、');
         const reason = comparisonAvailable
@@ -1248,6 +1296,7 @@ router.post(
             comparableQuoteCount: basisEligibleQuotes.length,
             expiredQuoteCount: basisExpiredQuoteCount,
             requiredQuantity,
+            requiredQuantityUnit,
             bestAvailableQuantity,
             remainingQuantityGap: requiredQuantity === null ? null : Math.max(0, requiredQuantity - bestAvailableQuantity),
             lowestPrice: minPrice,
@@ -1264,6 +1313,8 @@ router.post(
             exclusionCounts: {
               expired: basisExpiredQuoteCount,
               unverifiedCurrency: basisUnverifiedCurrencyQuoteCount,
+              quantityUnitUnknown: basisQuantityUnitUnknownQuoteCount,
+              quantityUnitMismatch: basisQuantityUnitMismatchQuoteCount,
               unavailableStatus: basisUnavailableStatusQuoteCount,
             },
             reason,
@@ -1282,7 +1333,7 @@ router.post(
         : onlyEligibleBasisGroup
           ? onlyEligibleBasisGroup.metadata.reason
           : eligibleQuotes.length === 0
-            ? `该件号没有可参与比较的有效 USD 报价；排除 ${excludedQuoteCount} 份。`
+            ? `该件号没有可参与比较的有效 USD 报价；排除 ${excludedQuoteCount} 份，其中数量单位未知 ${quantityUnitUnknownQuoteCount} 份、不兼容 ${quantityUnitMismatchQuoteCount} 份。`
             : `${missingPerformanceCount} 家可比报价供应商缺少绩效记录，无法生成完整规则排序。`;
       const bestAvailableQuantity = eligibleQuotes.length > 0
         ? Math.max(...eligibleQuotes.map((quote) => quote.quantity))
@@ -1298,6 +1349,7 @@ router.post(
           comparableQuoteCount: eligibleQuotes.length,
           expiredQuoteCount,
           requiredQuantity,
+          requiredQuantityUnit,
           bestAvailableQuantity,
           remainingQuantityGap: requiredQuantity === null ? null : Math.max(0, requiredQuantity - bestAvailableQuantity),
           lowestPrice: partMinPrice,
@@ -1317,6 +1369,8 @@ router.post(
           exclusionCounts: {
             expired: expiredQuoteCount,
             unverifiedCurrency: unverifiedCurrencyQuoteCount,
+            quantityUnitUnknown: quantityUnitUnknownQuoteCount,
+            quantityUnitMismatch: quantityUnitMismatchQuoteCount,
             unavailableStatus: unavailableStatusQuoteCount,
           },
           reason: partReason,
@@ -1328,6 +1382,8 @@ router.post(
     const allComparedQuotes = partNumberGroups.flatMap((group) => group.quotes);
     const totalComparableQuoteCount = partNumberGroups.reduce((sum, group) => sum + group.summary.comparableQuoteCount, 0);
     const totalExpiredQuoteCount = partNumberGroups.reduce((sum, group) => sum + group.summary.expiredQuoteCount, 0);
+    const totalQuantityUnitUnknownQuoteCount = partNumberGroups.reduce((sum, group) => sum + group.metadata.exclusionCounts.quantityUnitUnknown, 0);
+    const totalQuantityUnitMismatchQuoteCount = partNumberGroups.reduce((sum, group) => sum + group.metadata.exclusionCounts.quantityUnitMismatch, 0);
     const totalExcludedQuoteCount = quotes.length - totalComparableQuoteCount;
     const combinedMetadata = onlyGroup?.metadata ?? {
       ...baseMetadata,
@@ -1336,16 +1392,21 @@ router.post(
       totalQuoteCount: quotes.length,
       excludedQuoteCount: totalExcludedQuoteCount,
       expiredQuoteCount: totalExpiredQuoteCount,
+      exclusionCounts: {
+        quantityUnitUnknown: totalQuantityUnitUnknownQuoteCount,
+        quantityUnitMismatch: totalQuantityUnitMismatchQuoteCount,
+      },
       reason: `该需求行包含多个实际件号；各件号已分组比较，不能跨件号合并价格区间或给出全局中选排序。共排除 ${totalExcludedQuoteCount} 份报价，其中 ${totalExpiredQuoteCount} 份已过期。`,
     };
 
-    res.json({
+    return {
       success: true,
       data: {
         rfqId: scope.rfqId,
         rfqLineId: scope.rfqLineId,
         inquiryId: scope.inquiryId,
         inquiryItemId: scope.inquiryItemId,
+        requiredQuantityUnit,
         quotes: allComparedQuotes,
         partNumberGroups,
         topRanked: onlyGroup?.topRanked ?? null,
@@ -1354,6 +1415,7 @@ router.post(
           comparableQuoteCount: totalComparableQuoteCount,
           expiredQuoteCount: totalExpiredQuoteCount,
           requiredQuantity,
+          requiredQuantityUnit,
           bestAvailableQuantity: null,
           remainingQuantityGap: null,
           lowestPrice: null,
@@ -1362,6 +1424,165 @@ router.post(
         },
         metadata: combinedMetadata,
       },
+    };
+}
+
+/**
+ * Build the existing deterministic comparison for an RFQ without selecting or
+ * mutating quotes. Callers must establish RFQ read access before invoking this.
+ */
+export async function compareRfqSupplierQuotesDeterministically(
+  rfqId: string,
+  options: { activeLinesOnly?: boolean } = {},
+) {
+  const allLines = await prisma.rfqLine.findMany({
+    where: { rfqId },
+    orderBy: { lineNo: 'asc' },
+    select: { ...supplierQuoteLineSelect, lineNo: true, status: true },
+  });
+  const lines = options.activeLinesOnly
+    ? allLines.filter((line) => line.status.trim().toUpperCase() !== 'CANCELLED')
+    : allLines;
+  if (options.activeLinesOnly && lines.length === 0 && allLines.length > 0) {
+    return { success: true as const, data: { rfqId, lineGroups: [] } };
+  }
+  if (lines.length > 1) {
+    const lineGroups = [];
+    for (const line of lines) {
+      const comparison = await compareSupplierQuoteScope(comparisonScopeFromLine(line, false));
+      lineGroups.push({
+        rfqLineId: line.id,
+        lineNo: line.lineNo,
+        partNumber: line.partNumber,
+        comparison: comparison.data,
+      });
+    }
+    return { success: true as const, data: { rfqId, lineGroups } };
+  }
+
+  if (options.activeLinesOnly && lines.length === 1) {
+    const scope = comparisonScopeFromLine(lines[0], allLines.length === 1);
+    return compareSupplierQuoteScope(scope);
+  }
+
+  const scope = await resolveSupplierQuoteComparisonScope({ rfqId });
+  return compareSupplierQuoteScope(scope);
+}
+
+router.post(
+  '/compare',
+  requireCapability('supplier_quote', 'update'),
+  asyncHandler(async (req, res) => {
+    const input = req.body ?? {};
+    const rfqId = compareRequestId(input.rfqId, 'rfqId');
+    const hasLineOrInquiryScope = Boolean(
+      compareRequestId(input.inquiryId, 'inquiryId')
+      || compareRequestId(input.rfqLineId, 'rfqLineId')
+      || compareRequestId(input.inquiryItemId, 'inquiryItemId'),
+    );
+
+    if (rfqId && !hasLineOrInquiryScope) {
+      await assertComparisonRfqReadAccess(req as AuthRequest, rfqId);
+      res.json(await compareRfqSupplierQuotesDeterministically(rfqId));
+      return;
+    }
+
+    const scope = await resolveSupplierQuoteComparisonScope(input);
+    await assertComparisonRfqReadAccess(req as AuthRequest, scope.rfqId);
+    res.json(await compareSupplierQuoteScope(scope));
+  })
+);
+
+router.post(
+  '/:id/clear-winner',
+  requireCapability('supplier_quote', 'update'),
+  validateBody(supplierQuoteClearWinnerSchema),
+  asyncHandler(async (req, res) => {
+    const quoteId = req.params.id;
+    const actor = (req as AuthRequest).user!;
+    const expectedUpdatedAt = new Date(req.body.expectedUpdatedAt);
+
+    const clearWinnerTransaction = () => prisma.$transaction(async (tx) => {
+      const quote = await tx.supplierQuote.findUnique({ where: { id: quoteId } });
+      if (!quote) throw new AppError('供应商报价不存在', 404, 'RESOURCE_NOT_FOUND');
+
+      let associatedRfqId: string | null = quote.rfqId;
+      if (!associatedRfqId && quote.rfqLineId) {
+        const line = await tx.rfqLine.findUnique({
+          where: { id: quote.rfqLineId },
+          select: { rfqId: true },
+        });
+        if (!line) throw new AppError('供应商报价来源 RFQ 需求行不存在', 409, 'INVALID_RFQ_LINE');
+        associatedRfqId = line.rfqId;
+      }
+      if (!associatedRfqId && quote.inquiryId) {
+        const inquiry = await tx.inquiry.findUnique({
+          where: { id: quote.inquiryId },
+          select: { rfqId: true },
+        });
+        associatedRfqId = inquiry?.rfqId ?? null;
+      }
+      await assertComparisonRfqReadAccess(req as AuthRequest, associatedRfqId);
+
+      // A repeat after a successful clear is an idempotent no-op, including when
+      // the original version token is now stale because the first clear updated it.
+      if (!quote.isWinner) return quote;
+      if (quote.supersededAt) {
+        throw new AppError('已修订报价不可取消中选状态', 409, 'STATE_CONFLICT');
+      }
+      if (!quote.updatedAt || quote.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+        throw new AppError('供应商报价已被修改，请刷新后重试', 409, 'STATE_CONFLICT');
+      }
+
+      const cleared = await tx.supplierQuote.updateMany({
+        where: {
+          id: quoteId,
+          isWinner: true,
+          supersededAt: null,
+          updatedAt: expectedUpdatedAt,
+        },
+        data: { isWinner: false },
+      });
+      if (cleared.count !== 1) {
+        // Another clear may have won the race. Treat that exact outcome as the
+        // same idempotent operation; any still-winning/stale row is a conflict.
+        const current = await tx.supplierQuote.findUnique({ where: { id: quoteId } });
+        if (current && !current.isWinner) return current;
+        throw new AppError('供应商报价已被并发修改，请刷新后重试', 409, 'STATE_CONFLICT');
+      }
+
+      const clearedQuote = await tx.supplierQuote.findUnique({ where: { id: quoteId } });
+      if (!clearedQuote) throw new AppError('供应商报价不存在', 404, 'RESOURCE_NOT_FOUND');
+
+      await tx.auditLog.create({
+        data: {
+          userId: actor.id,
+          userName: actor.name || null,
+          userRole: actor.role,
+          action: 'UPDATE',
+          resourceType: 'SUPPLIER_QUOTE',
+          resourceId: quoteId,
+          changes: JSON.stringify({ isWinner: { before: true, after: false } }),
+          details: 'Cleared current sourcing winner',
+        },
+      });
+      return clearedQuote;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    let updated;
+    try {
+      updated = await clearWinnerTransaction();
+    } catch (error) {
+      // Serializable transactions can reject the losing half of a simultaneous
+      // double-click before its conditional update observes the cleared row.
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034') throw error;
+      updated = await clearWinnerTransaction();
+    }
+
+    res.json({
+      success: true,
+      message: '已取消该报价的中选状态',
+      data: projectSupplierQuoteMoney(updated),
     });
   })
 );
@@ -1371,32 +1592,8 @@ router.post(
   requireCapability('supplier_quote', 'update'),
   asyncHandler(async (req, res) => {
     const quoteId = req.params.id;
-    const updated = await prisma.$transaction(async (tx) => {
-      const quote = await tx.supplierQuote.findUnique({ where: { id: quoteId } });
-      if (!quote) throw new AppError('供应商报价不存在', 404, 'RESOURCE_NOT_FOUND');
-      if (supplierQuoteCurrencyStatus(quote.currency, quote.currencyReviewStatus) !== VERIFIED_CURRENCY_STATUS) {
-        throw new AppError('历史供应商报价币种待核，确认 USD 后才能标记中选', 409, 'STATE_CONFLICT');
-      }
-      if (!supplierQuoteComparisonStatusIsAvailable(supplierQuoteStatus(quote))) {
-        throw new AppError('供应商报价状态不可用，不能标记中选', 409, 'STATE_CONFLICT');
-      }
-      if (quote.validUntil && quote.validUntil.getTime() <= Date.now()) {
-        throw new AppError('供应商报价已过期，不能标记中选', 409, 'STATE_CONFLICT');
-      }
-
-      const clearScope = await resolveWinnerClearScope(tx, quote);
-      // The line-scoped clear and winner update share a serializable transaction.
-      // Concurrent selections for one line therefore serialize or one fails with P2034.
-      await tx.supplierQuote.updateMany({ where: clearScope, data: { isWinner: false } });
-      return tx.supplierQuote.update({
-        where: { id: quoteId },
-        data: {
-          isWinner: true,
-          status: 'accepted',
-          statusEnum: toSupplierQuoteStatusEnum('accepted')!,
-        },
-      });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    const actor = (req as AuthRequest).user!;
+    const updated = await selectSupplierQuoteWinner(quoteId, actor);
 
     res.json({
       success: true,

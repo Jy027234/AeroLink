@@ -34,14 +34,21 @@ describe('reviewable business AI suggestions', () => {
     await act(async () => { resolve({ email: 'Old quote draft', ai }); });
     expect(screen.queryByText('Old quote draft')).not.toBeInTheDocument();
   });
-  it('shows all extracted lines and requires explicit selection', async () => {
-    const extracted = { partNumbers: ['PN-1', 'PN-2'], quantities: [2, 3], urgency: 'STANDARD', type: 'STANDARD', ai };
+  it('shows every extracted line, including duplicate part numbers, and applies them together', async () => {
+    const extracted = { items: [
+      { partNumber: 'PN-1', quantity: 2, quantityUnit: 'EA', requiredDate: null, evidenceText: 'PN-1 x 2 EA' },
+      { partNumber: 'PN-1', quantity: 3, quantityUnit: 'EA', requiredDate: null, evidenceText: 'PN-1 x 3 EA' },
+      { partNumber: 'PN-2', quantity: 4, quantityUnit: 'EA', requiredDate: null, evidenceText: 'PN-2 x 4 EA' },
+    ], partNumbers: ['PN-1', 'PN-1', 'PN-2'], quantities: [2, 3, 4], urgency: 'STANDARD', type: 'STANDARD', ai };
     mocks.extract.mockResolvedValue(extracted); const apply = vi.fn();
     render(<RfqExtractionAssistant emailId="email-1" onApply={apply} />);
     fireEvent.click(screen.getByRole('button', { name: 'AI 提取需求建议' }));
-    await waitFor(() => expect(screen.getAllByRole('button', { name: '填入待确认卡片' })).toHaveLength(2));
+    await waitFor(() => expect(screen.getByRole('button', { name: '将全部需求行填入草稿' })).toBeInTheDocument());
+    expect(screen.getByText(/PN-1 × 2 EA/)).toBeInTheDocument();
+    expect(screen.getByText(/PN-1 × 3 EA/)).toBeInTheDocument();
+    expect(screen.getByText(/PN-2 × 4 EA/)).toBeInTheDocument();
     expect(apply).not.toHaveBeenCalled();
-    fireEvent.click(screen.getAllByRole('button', { name: '填入待确认卡片' })[1]);
-    expect(apply).toHaveBeenCalledWith(extracted, 1);
+    fireEvent.click(screen.getByRole('button', { name: '将全部需求行填入草稿' }));
+    expect(apply).toHaveBeenCalledWith(extracted);
   });
 });

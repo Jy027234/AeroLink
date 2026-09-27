@@ -58,6 +58,27 @@ function costSourceBranches(schema: Schema): Schema[] {
 }
 
 describe('OpenAPI representative contract invariants', () => {
+  it('contracts the scoped sourcing timeline with explicit unknown actors', () => {
+    const timeline = operation('GET', '/api/rfqs/{id}/sourcing-timeline');
+    expect(timeline.responses['200']).toEqual({ $ref: '#/components/responses/RfqSourcingTimeline' });
+    expect(contract.components.schemas.RfqSourcingTimeline.required).toEqual(['rfqId', 'events', 'counts', 'workflowStates', 'lineWorkflowStates']);
+    expect(contract.components.schemas.RfqSourcingTimeline.properties?.events?.items?.properties?.actor?.oneOf).toEqual([
+      expect.objectContaining({ type: 'object' }),
+      { type: 'null' },
+    ]);
+    expect(contract.components.schemas.RfqSourcingTimeline.properties?.counts?.properties?.lines?.items?.required)
+      .toEqual(['rfqLineId', 'pendingQuoteCount', 'pendingConfirmationCount']);
+    expect(contract.components.schemas.RfqSourcingTimeline.properties?.workflowStates?.items?.required)
+      .toEqual(['inquiryId', 'status', 'nextAction']);
+    expect(contract.components.schemas.RfqSourcingTimeline.properties?.workflowStates?.items?.properties?.status?.enum)
+      .toEqual(['WAITING_REPLY', 'WAITING_HUMAN', 'PROCESSING', 'FAILED', 'CANCELLED', 'NEEDS_VERIFICATION', 'COMPLETED']);
+    expect(contract.components.schemas.RfqSourcingTimeline.properties?.events?.items?.properties?.actionTaskId).toBeDefined();
+    expect(contract.components.schemas.RfqSourcingTimeline.properties?.lineWorkflowStates?.items?.required)
+      .toEqual(['rfqLineId', 'status', 'nextAction', 'inquiryIds', 'quoteCoverage']);
+    expect(contract.components.schemas.RfqSourcingTimeline.properties?.lineWorkflowStates?.items?.properties?.quoteCoverage?.required)
+      .toEqual(['currentFormalQuoteCount', 'activeInquiryItemCount', 'quotedInquiryItemCount', 'basis', 'quantitySufficiencyAssessed', 'purchasingCommitted']);
+  });
+
   it('describes cookie-based login and refresh without exposing refresh tokens', () => {
     const login = operation('POST', '/api/auth/login');
     const refresh = operation('POST', '/api/auth/refresh');
@@ -236,6 +257,7 @@ describe('OpenAPI representative contract invariants', () => {
     const supplierQuoteCreate = operation('POST', '/api/supplier-quotes');
     const supplierQuoteCompare = operation('POST', '/api/supplier-quotes/compare');
     const selectWinner = operation('POST', '/api/supplier-quotes/{id}/select-winner');
+    const clearWinner = operation('POST', '/api/supplier-quotes/{id}/clear-winner');
 
     expect(createUser.requestBody).toEqual({ $ref: '#/components/requestBodies/ManagedUserCreate' });
     expect(createUser.responses['201']).toEqual({ $ref: '#/components/responses/ManagedUserOnboarding' });
@@ -254,6 +276,11 @@ describe('OpenAPI representative contract invariants', () => {
     expect(supplierQuoteCreate.requestBody).toEqual({ $ref: '#/components/requestBodies/SupplierQuoteCreate' });
     expect(supplierQuoteCompare.requestBody).toEqual({ $ref: '#/components/requestBodies/SupplierQuoteCompare' });
     expect(selectWinner.responses['200']).toEqual({ $ref: '#/components/responses/SupplierQuoteWinner' });
+    expect(clearWinner.requestBody).toEqual({ $ref: '#/components/requestBodies/SupplierQuoteClearWinner' });
+    expect(clearWinner.responses['200']).toEqual({ $ref: '#/components/responses/SupplierQuoteWinner' });
+    expect(contract.components.schemas.SupplierQuoteClearWinnerRequest.required).toContain('expectedUpdatedAt');
+    expect(contract.components.schemas.SupplierQuoteUpdateRequest.properties).not.toHaveProperty('isWinner');
+    expect(contract.components.schemas.SupplierQuoteComparisonItem.required).toContain('updatedAt');
     expect(contract.components.schemas.SupplierQuoteCompareRequest.properties).toMatchObject({
       rfqId: { type: 'string' },
       rfqLineId: { type: 'string' },
@@ -263,6 +290,14 @@ describe('OpenAPI representative contract invariants', () => {
     expect(contract.components.schemas.SupplierQuoteComparison.required).toEqual(expect.arrayContaining([
       'rfqLineId', 'inquiryItemId', 'partNumberGroups',
     ]));
+    expect(contract.components.schemas.SupplierQuoteComparisonMultiLine.required).toEqual(['rfqId', 'lineGroups']);
+    expect(contract.components.schemas.SupplierQuoteComparisonMultiLine.properties?.lineGroups?.items?.properties?.comparison).toEqual({
+      $ref: '#/components/schemas/SupplierQuoteComparison',
+    });
+    expect(contract.components.schemas.SupplierQuoteComparisonEnvelope.properties?.data?.oneOf).toEqual([
+      { $ref: '#/components/schemas/SupplierQuoteComparison' },
+      { $ref: '#/components/schemas/SupplierQuoteComparisonMultiLine' },
+    ]);
     expect(contract.components.schemas.SupplierQuoteComparisonItem.properties).toMatchObject({
       comparisonEligibility: expect.objectContaining({ type: 'object' }),
       isExpired: { type: 'boolean' },
@@ -283,6 +318,7 @@ describe('OpenAPI representative contract invariants', () => {
 
   it('contracts inquiry dispatch as queued delivery rather than immediate send', () => {
     const sendInquiry = operation('POST', '/api/inquiries/{id}/send');
+    const cancelSendInquiry = operation('POST', '/api/inquiries/{id}/cancel-send');
 
     expect(sendInquiry.deprecated).toBeUndefined();
     expect(sendInquiry.requestBody).toEqual({ $ref: '#/components/requestBodies/InquirySend' });
@@ -290,9 +326,19 @@ describe('OpenAPI representative contract invariants', () => {
     expect(sendInquiry.parameters).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: false }),
     ]));
+    expect(sendInquiry.description).toContain('SMTP acceptance is not confirmation');
+    expect(cancelSendInquiry.requestBody).toBeUndefined();
+    expect(cancelSendInquiry.responses['200']).toEqual({ $ref: '#/components/responses/Inquiry' });
+    expect(cancelSendInquiry.responses['409']).toEqual({ $ref: '#/components/responses/Error' });
+    expect(cancelSendInquiry.description).toContain('attemptCount 0');
+    expect(cancelSendInquiry.description).toContain('manual verification');
     expect(contract.components.schemas.Inquiry.properties).toMatchObject({
-      deliveryStatus: { enum: ['draft', 'queued', 'sent', 'failed'], readOnly: true },
+      deliveryStatus: { enum: ['draft', 'queued', 'processing', 'retrying', 'smtp_accepted', 'needs_verification', 'failed', 'cancelled', 'skipped'], readOnly: true },
       latestOutboundEmail: { readOnly: true },
+    });
+    expect(contract.components.schemas.Inquiry.properties.latestOutboundEmail.oneOf[0].properties).toMatchObject({
+      canCancel: { type: 'boolean', readOnly: true },
+      manualVerificationRequired: { type: 'boolean', readOnly: true },
     });
   });
 
@@ -368,12 +414,13 @@ describe('OpenAPI representative contract invariants', () => {
     });
   });
 
-  it('contracts server-owned sourcing AI tasks with idempotent create, retry and cancel states', () => {
+  it('contracts server-owned sourcing AI tasks with idempotent create, retry, cancel and human draft confirmation', () => {
     const create = operation('POST', '/api/sourcing-ai-tasks');
     const list = operation('GET', '/api/sourcing-ai-tasks');
     const read = operation('GET', '/api/sourcing-ai-tasks/{id}');
     const retry = operation('POST', '/api/sourcing-ai-tasks/{id}/retry');
     const cancel = operation('POST', '/api/sourcing-ai-tasks/{id}/cancel');
+    const confirmDraft = operation('POST', '/api/sourcing-ai-tasks/{id}/confirm-draft');
 
     expect(create.requestBody).toEqual(expect.objectContaining({ required: true }));
     expect(create.responses['201']).toEqual({ $ref: '#/components/responses/SourcingAiTask' });
@@ -386,6 +433,8 @@ describe('OpenAPI representative contract invariants', () => {
     expect(read.responses['200']).toEqual({ $ref: '#/components/responses/SourcingAiTask' });
     expect(retry.responses['200']).toEqual({ $ref: '#/components/responses/SourcingAiTask' });
     expect(cancel.responses['200']).toEqual({ $ref: '#/components/responses/SourcingAiTask' });
+    expect(confirmDraft.requestBody.content['application/json'].schema).toEqual({ $ref: '#/components/schemas/SupplierQuoteDraftConfirmRequest' });
+    expect(confirmDraft.responses['200']).toEqual({ $ref: '#/components/responses/SupplierQuoteDraftConfirm' });
     expect(contract.components.schemas.SourcingAiTask.required).toEqual(expect.arrayContaining([
       'actorId', 'status', 'attempt', 'maxAttempts', 'draftId', 'errorSummary',
     ]));

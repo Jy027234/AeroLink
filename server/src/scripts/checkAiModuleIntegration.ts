@@ -121,7 +121,7 @@ async function startFixture(): Promise<Fixture> {
     // The chat safety prompt also mentions emails/RFQs. Identify the extraction
     // fixture by its output contract or explicit revision marker instead.
     const quoteExtraction = prompt.includes('leadTimeMinDays') && prompt.includes('evidenceText');
-    const extraction = prompt.includes('partNumbers') || prompt.includes('V2_EXTRACTION_MARKER');
+    const extraction = prompt.includes('partNumbers') || prompt.includes('逐行提取') || prompt.includes('V2_EXTRACTION_MARKER');
     let content: string;
     if (quoteExtraction) {
       content = JSON.stringify({ items: [{
@@ -131,7 +131,8 @@ async function startFixture(): Promise<Fixture> {
     } else if (extraction) {
       content = prompt.includes('V2_EXTRACTION_MARKER')
         ? JSON.stringify({ type: 'INQUIRY', partNumbers: ['V2-PART'], quantities: [2], urgency: 'URGENT' })
-        : JSON.stringify({ type: 'INQUIRY', partNumbers: ['V1-PART'], quantities: [1], urgency: 'STANDARD' });
+        : JSON.stringify({ type: 'INQUIRY', items: [{ partNumber: 'V1-PART', quantity: 1, quantityUnit: null,
+          requiredDate: null, evidenceText: 'Please quote V1-PART' }], urgency: 'STANDARD' });
     } else if (prompt.includes('V3_CHAT_MARKER')) {
       content = 'V3_CHAT_OUTPUT';
     } else if (prompt.includes('V2_CHAT_MARKER')) {
@@ -395,7 +396,7 @@ async function main() {
 
     const initialExtraction = await callRoute(routeBaseUrl, 'post', '/api/ai/parse-email', {
       subject: 'initial RFQ',
-      body: 'Please quote one test part',
+      body: 'Please quote V1-PART one test part',
     });
     const initialExtractionData = successData(initialExtraction, 'initial extraction execution');
     assert((initialExtractionData as JsonRecord).partNumbers instanceof Array, 'initial extraction did not return parsed data');
@@ -442,7 +443,7 @@ async function main() {
 
     const draftExtraction = await callRoute(routeBaseUrl, 'post', '/api/ai/parse-email', {
       subject: 'draft RFQ',
-      body: 'Please quote draft test part',
+      body: 'Please quote V1-PART draft test part',
     });
     const draftExtractionData = successData(draftExtraction, 'extraction execution after draft save');
     assert(firstArrayItem(draftExtractionData, 'partNumbers') === 'V1-PART', 'saving extraction draft changed runtime output before publish');

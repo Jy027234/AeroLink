@@ -4,6 +4,10 @@ const { state, prismaMock, extractSupplierQuoteEmail } = vi.hoisted(() => {
   const state = {
     tasks: [] as Array<Record<string, any>>,
     drafts: [] as Array<Record<string, any>>,
+    actor: {} as Record<string, any>,
+    email: {} as Record<string, any>,
+    inquiry: {} as Record<string, any>,
+    link: {} as Record<string, any>,
   };
   const matches = (task: Record<string, any>, where: Record<string, any> = {}) => {
     if (where.id && task.id !== where.id) return false;
@@ -43,14 +47,13 @@ const { state, prismaMock, extractSupplierQuoteEmail } = vi.hoisted(() => {
         return { count: 1 };
       }),
     },
-    email: { findUnique: vi.fn(async () => ({ id: 'email-1', subject: 'Vendor quote', body: 'private vendor email' })) },
+    user: { findUnique: vi.fn(async ({ where }: { where: Record<string, any> }) => where.id === state.actor.id ? state.actor : null) },
+    email: { findUnique: vi.fn(async ({ where }: { where: Record<string, any> }) => where.id === state.email.id ? state.email : null) },
     inquiry: {
-      findUnique: vi.fn(async () => ({
-        id: 'inquiry-1', inquiryNumber: 'INQ-001', supplierId: 'supplier-1',
-        items: [{ id: 'item-1', partNumber: 'PN-1', quantity: 3 }],
-      })),
+      findUnique: vi.fn(async ({ where }: { where: Record<string, any> }) => where.id === state.inquiry.id ? state.inquiry : null),
+      findFirst: vi.fn(async ({ where }: { where: Record<string, any> }) => where.id === state.inquiry.id ? state.inquiry : null),
     },
-    inquiryEmailLink: { findUnique: vi.fn(async () => ({ confirmationStatus: 'CONFIRMED' })) },
+    inquiryEmailLink: { findUnique: vi.fn(async () => state.link) },
     supplierQuoteDraft: {
       findFirst: vi.fn(async () => state.drafts[0] ?? null),
       create: vi.fn(async ({ data }: { data: Record<string, any> }) => {
@@ -63,6 +66,8 @@ const { state, prismaMock, extractSupplierQuoteEmail } = vi.hoisted(() => {
   };
   return { state, prismaMock, extractSupplierQuoteEmail: vi.fn() };
 });
+
+let validSourceFingerprint = '';
 
 vi.mock('./prisma.js', () => ({ default: prismaMock }));
 vi.mock('./aiService.js', () => ({ extractSupplierQuoteEmail }));
@@ -83,15 +88,38 @@ describe('sourcing AI task worker service', () => {
       id: 'task-1', actorId: 'sales-1', type: 'supplier_quote_extraction', emailId: 'email-1',
       inquiryId: 'inquiry-1', status: 'PENDING', attempt: 1, maxAttempts: 3,
       idempotencyKey: 'key-1', draftId: null, errorSummary: null, createdAt: now,
+      sourceFingerprint: validSourceFingerprint,
       startedAt: null, completedAt: null, cancelledAt: null, updatedAt: now,
       ...overrides,
     };
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     state.tasks.length = 0;
     state.drafts.length = 0;
+    state.actor = { id: 'sales-1', role: 'sales', department: 'Sales', isActive: true };
+    state.email = {
+      id: 'email-1', subject: 'Vendor quote', body: 'private vendor email', type: 'INQUIRY',
+      processingStatus: 'PENDING', discardedAt: null, receivedAt: new Date('2026-09-20T00:00:00.000Z'), rfq: null,
+    };
+    state.inquiry = {
+      id: 'inquiry-1', inquiryNumber: 'INQ-001', supplierId: 'supplier-1', rfqId: 'rfq-1',
+      status: 'SENT', sentAt: new Date('2026-09-19T00:00:00.000Z'),
+      items: [{ id: 'item-1', lineNo: 1, rfqLineId: 'line-1', partNumber: 'PN-1', quantity: 3 }],
+      rfq: {
+        id: 'rfq-1', createdBy: 'sales-1', status: 'QUOTING', version: 1,
+        creator: { department: 'Sales' },
+      },
+    };
+    state.link = {
+      id: 'link-1', emailId: 'email-1', inquiryId: 'inquiry-1', method: 'MANUAL', manualReason: null,
+      confirmationStatus: 'CONFIRMED', confirmedAt: new Date('2026-09-20T01:00:00.000Z'),
+      confirmedById: 'sales-1', createdAt: new Date('2026-09-20T01:00:00.000Z'),
+    };
     extractSupplierQuoteEmail.mockReset().mockResolvedValue(extraction);
+    vi.clearAllMocks();
+    const { captureSourcingAiTaskSourceFingerprint } = await import('./sourcingAiTaskService.js');
+    validSourceFingerprint = await captureSourcingAiTaskSourceFingerprint('sales-1', 'email-1', 'inquiry-1');
     vi.clearAllMocks();
   });
 
@@ -110,6 +138,18 @@ describe('sourcing AI task worker service', () => {
     expect(JSON.parse(state.drafts[0].payloadJson).items[0]).toMatchObject({
       taxIncluded: true, freightIncluded: false, incoterm: 'FCA',
     });
+    const metadata = JSON.parse(state.drafts[0].aiMetadataJson);
+    expect(metadata.originalAiCandidates).toMatchObject({
+      schemaVersion: 1,
+      candidateCount: 1,
+      truncated: false,
+      items: [{
+        itemKey: expect.any(String), inquiryItemId: 'item-1', partNumber: 'PN-1',
+        quantity: 2, unitPrice: 100, currency: 'USD', leadTimeDays: 5,
+        taxIncluded: true, freightIncluded: false, incoterm: 'FCA',
+      }],
+    });
+    expect(JSON.stringify(metadata.originalAiCandidates)).not.toContain('USD 100, five days');
   });
 
   it('stores only a safe error summary when model execution fails', async () => {
@@ -176,6 +216,78 @@ describe('sourcing AI task worker service', () => {
     await processing;
 
     expect(state.tasks[0]).toMatchObject({ status: 'RUNNING', startedAt: newerClaim });
+    expect(state.drafts).toHaveLength(0);
+  });
+
+  it('rechecks the current actor capabilities before invoking the model', async () => {
+    state.tasks.push(taskRecord());
+    state.actor.role = 'viewer';
+
+    const { processPendingSourcingAiTasks } = await import('./sourcingAiTaskService.js');
+    await processPendingSourcingAiTasks(10);
+
+    expect(extractSupplierQuoteEmail).not.toHaveBeenCalled();
+    expect(state.tasks[0]).toMatchObject({ status: 'FAILED', errorSummary: '任务发起人当前无权执行报价邮件提取' });
+    expect(state.drafts).toHaveLength(0);
+  });
+
+  it('fails an enqueued task before the model when its source changed before the first worker read', async () => {
+    state.tasks.push(taskRecord());
+    state.email.body = 'human-edited after enqueue';
+
+    const { processPendingSourcingAiTasks } = await import('./sourcingAiTaskService.js');
+    await processPendingSourcingAiTasks(10);
+
+    expect(extractSupplierQuoteEmail).not.toHaveBeenCalled();
+    expect(state.tasks[0]).toMatchObject({
+      status: 'FAILED', errorSummary: '来源在任务入队后已变化，请重新创建任务',
+    });
+    expect(state.drafts).toHaveLength(0);
+  });
+
+  it('safely fails legacy tasks without an enqueue fingerprint before invoking the model', async () => {
+    state.tasks.push(taskRecord({ sourceFingerprint: null }));
+
+    const { processPendingSourcingAiTasks } = await import('./sourcingAiTaskService.js');
+    await processPendingSourcingAiTasks(10);
+
+    expect(extractSupplierQuoteEmail).not.toHaveBeenCalled();
+    expect(state.tasks[0]).toMatchObject({
+      status: 'FAILED', errorSummary: '任务未记录来源版本，请重新创建任务',
+    });
+    expect(state.drafts).toHaveLength(0);
+  });
+
+  it('does not save a draft when permissions or a source version changes while the model is running', async () => {
+    state.tasks.push(taskRecord());
+    extractSupplierQuoteEmail.mockImplementationOnce(async () => {
+      state.actor.role = 'viewer';
+      state.inquiry.rfq.version += 1;
+      return extraction;
+    });
+
+    const { processPendingSourcingAiTasks } = await import('./sourcingAiTaskService.js');
+    await processPendingSourcingAiTasks(10);
+
+    expect(extractSupplierQuoteEmail).toHaveBeenCalledTimes(1);
+    expect(state.tasks[0]).toMatchObject({ status: 'FAILED', errorSummary: '任务发起人当前无权执行报价邮件提取' });
+    expect(state.drafts).toHaveLength(0);
+  });
+
+  it('does not save a draft when the email or confirmed association changes while the model is running', async () => {
+    state.tasks.push(taskRecord());
+    extractSupplierQuoteEmail.mockImplementationOnce(async () => {
+      state.email.body = 'human-edited body';
+      state.link.confirmedAt = new Date('2026-09-21T00:00:00.000Z');
+      return extraction;
+    });
+
+    const { processPendingSourcingAiTasks } = await import('./sourcingAiTaskService.js');
+    await processPendingSourcingAiTasks(10);
+
+    expect(state.tasks[0]).toMatchObject({
+      status: 'FAILED', errorSummary: '源邮件、询价单或关联版本已变化，未保存提取草稿',
+    });
     expect(state.drafts).toHaveLength(0);
   });
 

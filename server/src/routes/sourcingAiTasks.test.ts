@@ -3,13 +3,19 @@ import request from 'supertest';
 import express from 'express';
 
 const extractSupplierQuoteEmail = vi.fn();
+const confirmSupplierQuoteDraftCommand = vi.fn();
 
 describe('sourcing AI task routes', () => {
   let app: express.Application;
   let prismaMock: Record<string, any>;
   let tasks: Array<Record<string, any>>;
   let drafts: Array<Record<string, any>>;
-  let activeUser = { id: 'sales-1', email: 'sales@example.com', name: 'Sales', role: 'sales' };
+  let activeUser = { id: 'sales-1', email: 'sales@example.com', name: 'Sales', role: 'sales', department: 'Sales' as string | null };
+  let actors: Record<string, Record<string, any>>;
+  let sourceEmail: Record<string, any>;
+  let sourceInquiry: Record<string, any>;
+  let sourceLink: Record<string, any>;
+  let validSourceFingerprint = '';
 
   function matches(task: Record<string, any>, where: Record<string, any> = {}) {
     if (where.id && task.id !== where.id) return false;
@@ -48,6 +54,7 @@ describe('sourcing AI task routes', () => {
       idempotencyKey: 'seeded-key',
       draftId: null,
       errorSummary: null,
+      sourceFingerprint: validSourceFingerprint,
       createdAt: now,
       startedAt: null,
       completedAt: null,
@@ -61,7 +68,29 @@ describe('sourcing AI task routes', () => {
     vi.resetModules();
     tasks = [];
     drafts = [];
-    activeUser = { id: 'sales-1', email: 'sales@example.com', name: 'Sales', role: 'sales' };
+    activeUser = { id: 'sales-1', email: 'sales@example.com', name: 'Sales', role: 'sales', department: 'Sales' };
+    actors = {
+      'sales-1': { id: 'sales-1', role: 'sales', department: 'Sales', isActive: true },
+      'admin-1': { id: 'admin-1', role: 'administrator', department: null, isActive: true },
+    };
+    sourceEmail = {
+      id: 'email-1', subject: 'Vendor quote', body: 'private email body', type: 'INQUIRY',
+      processingStatus: 'PENDING', discardedAt: null, receivedAt: new Date('2026-09-20T00:00:00.000Z'), rfq: null,
+    };
+    sourceInquiry = {
+      id: 'inquiry-1', inquiryNumber: 'INQ-001', supplierId: 'supplier-1', rfqId: 'rfq-1',
+      status: 'SENT', sentAt: new Date('2026-09-19T00:00:00.000Z'),
+      items: [{ id: 'item-1', lineNo: 1, rfqLineId: 'line-1', partNumber: 'PN-1', quantity: 4 }],
+      rfq: {
+        id: 'rfq-1', createdBy: 'sales-1', status: 'QUOTING', version: 4,
+        creator: { department: 'Sales' },
+      },
+    };
+    sourceLink = {
+      id: 'link-1', emailId: 'email-1', inquiryId: 'inquiry-1', method: 'MANUAL', manualReason: null,
+      confirmationStatus: 'CONFIRMED', confirmedAt: new Date('2026-09-20T01:00:00.000Z'),
+      confirmedById: 'sales-1', createdAt: new Date('2026-09-20T01:00:00.000Z'),
+    };
     extractSupplierQuoteEmail.mockReset().mockResolvedValue({
       items: [{
         partNumber: 'PN-1',
@@ -78,6 +107,11 @@ describe('sourcing AI task routes', () => {
         evidenceText: 'USD 100, five days',
       }],
       ai: { agentId: 'agent-quote', promptVersion: 3, model: 'model-x' },
+    });
+    confirmSupplierQuoteDraftCommand.mockReset().mockResolvedValue({
+      draftId: 'draft-1', status: 'CONFIRMED', version: 4, reused: false,
+      supplierQuoteIds: ['quote-1'], createdSupplierQuoteIds: ['quote-1'],
+      reusedSupplierQuoteIds: [], supplierQuotes: [],
     });
 
     const taskModel = {
@@ -118,18 +152,21 @@ describe('sourcing AI task routes', () => {
         return { count: 1 };
       }),
     };
-    const email = { id: 'email-1', subject: 'Vendor quote', body: 'private email body' };
-    const inquiry = {
-      id: 'inquiry-1',
-      inquiryNumber: 'INQ-001',
-      supplierId: 'supplier-1',
-      items: [{ id: 'item-1', partNumber: 'PN-1', quantity: 4 }],
-    };
     prismaMock = {
       sourcingAiTask: taskModel,
-      email: { findUnique: vi.fn(async () => email) },
-      inquiry: { findUnique: vi.fn(async () => inquiry) },
-      inquiryEmailLink: { findUnique: vi.fn(async () => ({ confirmationStatus: 'CONFIRMED' })) },
+      user: {
+        findUnique: vi.fn(async ({ where }: { where: Record<string, any> }) => actors[where.id] ?? null),
+      },
+      email: { findUnique: vi.fn(async ({ where }: { where: Record<string, any> }) => where.id === sourceEmail.id ? sourceEmail : null) },
+      inquiry: {
+        findUnique: vi.fn(async ({ where }: { where: Record<string, any> }) => where.id === sourceInquiry.id ? sourceInquiry : null),
+        findFirst: vi.fn(async ({ where }: { where: Record<string, any> }) => where.id === sourceInquiry.id ? sourceInquiry : null),
+      },
+      inquiryEmailLink: {
+        findUnique: vi.fn(async ({ where }: { where: Record<string, any> }) =>
+          where.emailId_inquiryId?.emailId === sourceLink.emailId
+          && where.emailId_inquiryId?.inquiryId === sourceLink.inquiryId ? sourceLink : null),
+      },
       supplierQuoteDraft: {
         findFirst: vi.fn(async () => [...drafts].sort((a, b) => b.version - a.version)[0] ?? null),
         create: vi.fn(async ({ data }: { data: Record<string, any> }) => {
@@ -143,8 +180,12 @@ describe('sourcing AI task routes', () => {
     };
     vi.doMock('../lib/prisma.js', () => ({ default: prismaMock }));
     vi.doMock('../lib/aiService.js', () => ({ extractSupplierQuoteEmail }));
+    vi.doMock('../lib/supplierQuoteDraftConfirmCommand.js', () => ({ confirmSupplierQuoteDraftCommand }));
 
     const router = (await import('./sourcingAiTasks.js')).default;
+    const { captureSourcingAiTaskSourceFingerprint } = await import('../lib/sourcingAiTaskService.js');
+    validSourceFingerprint = await captureSourcingAiTaskSourceFingerprint('sales-1', 'email-1', 'inquiry-1');
+    vi.clearAllMocks();
     const { errorHandler } = await import('../middleware/errorHandler.js');
     app = express();
     app.use(express.json());
@@ -179,13 +220,58 @@ describe('sourcing AI task routes', () => {
       draftId: null,
     });
     expect(first.body.data).not.toHaveProperty('idempotencyKey');
+    expect(first.body.data).not.toHaveProperty('sourceFingerprint');
     expect(JSON.stringify(first.body)).not.toContain('private email body');
     expect(replay.status).toBe(200);
     expect(replay.body.data.id).toBe(first.body.data.id);
     expect(tasks).toHaveLength(1);
+    expect(tasks[0].sourceFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(drafts).toHaveLength(0);
     expect(extractSupplierQuoteEmail).not.toHaveBeenCalled();
     expect(prismaMock.supplierQuote.create).not.toHaveBeenCalled();
+  });
+
+  it('checks current actor capabilities and RFQ visibility before persisting a task', async () => {
+    actors['sales-1'].role = 'viewer';
+    const revokedCapability = await request(app).post('/api/sourcing-ai-tasks').send({
+      type: 'supplier_quote_extraction', emailId: 'email-1', inquiryId: 'inquiry-1', idempotencyKey: 'revoked',
+    });
+    expect(revokedCapability.status).toBe(403);
+    expect(tasks).toHaveLength(0);
+
+    actors['sales-1'].role = 'sales';
+    sourceInquiry.rfq.createdBy = 'another-sales-user';
+    sourceInquiry.rfq.creator.department = 'Other';
+    const inaccessibleRfq = await request(app).post('/api/sourcing-ai-tasks').send({
+      type: 'supplier_quote_extraction', emailId: 'email-1', inquiryId: 'inquiry-1', idempotencyKey: 'inaccessible',
+    });
+    expect(inaccessibleRfq.status).toBe(404);
+    expect(tasks).toHaveLength(0);
+  });
+
+  it('requires a live email, a sent inquiry, and a confirmed email association on create', async () => {
+    sourceLink.confirmationStatus = 'PENDING';
+    const unconfirmed = await request(app).post('/api/sourcing-ai-tasks').send({
+      type: 'supplier_quote_extraction', emailId: 'email-1', inquiryId: 'inquiry-1', idempotencyKey: 'unconfirmed',
+    });
+    expect(unconfirmed.status).toBe(409);
+    expect(tasks).toHaveLength(0);
+
+    sourceLink.confirmationStatus = 'CONFIRMED';
+    sourceEmail.discardedAt = new Date();
+    const discarded = await request(app).post('/api/sourcing-ai-tasks').send({
+      type: 'supplier_quote_extraction', emailId: 'email-1', inquiryId: 'inquiry-1', idempotencyKey: 'discarded',
+    });
+    expect(discarded.status).toBe(409);
+    expect(tasks).toHaveLength(0);
+
+    sourceEmail.discardedAt = null;
+    sourceInquiry.status = 'DRAFT';
+    const unsent = await request(app).post('/api/sourcing-ai-tasks').send({
+      type: 'supplier_quote_extraction', emailId: 'email-1', inquiryId: 'inquiry-1', idempotencyKey: 'unsent',
+    });
+    expect(unsent.status).toBe(409);
+    expect(tasks).toHaveLength(0);
   });
 
   it('does not reveal another actor’s tasks, while an admin can inspect them', async () => {
@@ -200,7 +286,7 @@ describe('sourcing AI task routes', () => {
     expect(own.body.data.id).toBe('owned-task');
     expect(ownList.body.data.map((task: { id: string }) => task.id)).toEqual(['owned-task']);
 
-    activeUser = { id: 'admin-1', email: 'admin@example.com', name: 'Admin', role: 'administrator' };
+    activeUser = { id: 'admin-1', email: 'admin@example.com', name: 'Admin', role: 'administrator', department: null };
     const admin = await request(app).get('/api/sourcing-ai-tasks/other-task');
     const adminList = await request(app).get('/api/sourcing-ai-tasks');
     expect(admin.status).toBe(200);
@@ -240,7 +326,7 @@ describe('sourcing AI task routes', () => {
     const partial = await request(app).get('/api/sourcing-ai-tasks').query({ emailId: 'email-match' });
     expect(partial.status).toBe(400);
 
-    activeUser = { id: 'admin-1', email: 'admin@example.com', name: 'Admin', role: 'administrator' };
+    activeUser = { id: 'admin-1', email: 'admin@example.com', name: 'Admin', role: 'administrator', department: null };
     const admin = await request(app).get('/api/sourcing-ai-tasks')
       .query({ emailId: 'email-match', inquiryId: 'inquiry-match' });
     expect(admin.status).toBe(200);
@@ -259,6 +345,40 @@ describe('sourcing AI task routes', () => {
     expect(prismaMock.supplierQuote.create).not.toHaveBeenCalled();
     const retryAgain = await request(app).post('/api/sourcing-ai-tasks/retry-task/retry');
     expect(retryAgain.status).toBe(409);
+  });
+
+  it('refuses to retry when the current email association is no longer confirmed', async () => {
+    tasks.push(taskRecord({ id: 'retry-unconfirmed', status: 'FAILED' }));
+    sourceLink.confirmationStatus = 'PENDING';
+
+    const retry = await request(app).post('/api/sourcing-ai-tasks/retry-unconfirmed/retry');
+
+    expect(retry.status).toBe(409);
+    expect(tasks[0]).toMatchObject({ status: 'FAILED', attempt: 1 });
+    expect(prismaMock.sourcingAiTask.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses retry after the source changed since the task was enqueued', async () => {
+    tasks.push(taskRecord({ id: 'retry-stale-source', status: 'FAILED' }));
+    sourceEmail.body = 'human-edited after enqueue';
+
+    const retry = await request(app).post('/api/sourcing-ai-tasks/retry-stale-source/retry');
+
+    expect(retry.status).toBe(409);
+    expect(retry.body.message).toContain('来源在任务入队后已变化');
+    expect(tasks[0]).toMatchObject({ status: 'FAILED', attempt: 1 });
+    expect(prismaMock.sourcingAiTask.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('requires legacy tasks without a fingerprint to be recreated instead of retried', async () => {
+    tasks.push(taskRecord({ id: 'retry-legacy', status: 'FAILED', sourceFingerprint: null }));
+
+    const retry = await request(app).post('/api/sourcing-ai-tasks/retry-legacy/retry');
+
+    expect(retry.status).toBe(409);
+    expect(retry.body.message).toContain('任务未记录来源版本，请重新创建任务');
+    expect(tasks[0]).toMatchObject({ status: 'FAILED', attempt: 1 });
+    expect(prismaMock.sourcingAiTask.updateMany).not.toHaveBeenCalled();
   });
 
   it('allows cancellation of running tasks and enforces the retry ceiling', async () => {
@@ -281,6 +401,29 @@ describe('sourcing AI task routes', () => {
     expect(cancelRunning.body.data.status).toBe('CANCELLED');
     expect(cancelCompleted.status).toBe(409);
     expect(retryExhausted.status).toBe(409);
+  });
+
+  it('routes explicit confirmation of a completed task to the shared versioned quote command', async () => {
+    tasks.push(taskRecord({ id: 'completed-task', status: 'COMPLETED', draftId: 'draft-1' }));
+
+    const confirmed = await request(app).post('/api/sourcing-ai-tasks/completed-task/confirm-draft').send({ expectedVersion: 4 });
+
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.data).toMatchObject({ draftId: 'draft-1', supplierQuoteIds: ['quote-1'] });
+    expect(confirmSupplierQuoteDraftCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'sales-1' }), 'draft-1', 4, { sourcingAiTaskId: 'completed-task' },
+    );
+  });
+
+  it('does not confirm an unfinished, hidden or versionless task', async () => {
+    tasks.push(taskRecord({ id: 'running-task', status: 'RUNNING', draftId: null }));
+    tasks.push(taskRecord({ id: 'hidden-task', actorId: 'other-user', status: 'COMPLETED', draftId: 'draft-2' }));
+    tasks.push(taskRecord({ id: 'completed-task', status: 'COMPLETED', draftId: 'draft-1' }));
+
+    expect((await request(app).post('/api/sourcing-ai-tasks/running-task/confirm-draft').send({ expectedVersion: 4 })).status).toBe(409);
+    expect((await request(app).post('/api/sourcing-ai-tasks/hidden-task/confirm-draft').send({ expectedVersion: 4 })).status).toBe(404);
+    expect((await request(app).post('/api/sourcing-ai-tasks/completed-task/confirm-draft').send({})).status).toBe(400);
+    expect(confirmSupplierQuoteDraftCommand).not.toHaveBeenCalled();
   });
 
 });

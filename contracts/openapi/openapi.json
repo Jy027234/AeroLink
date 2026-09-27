@@ -86,6 +86,10 @@
       "description": "Routes mounted under sourcingAiTasks"
     },
     {
+      "name": "sourcingActionTasks",
+      "description": "Routes mounted under sourcingActionTasks"
+    },
+    {
       "name": "upload",
       "description": "Routes mounted under upload"
     },
@@ -1355,7 +1359,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 172
+          "line": 856
         },
         "security": [
           {
@@ -1480,7 +1484,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 369
+          "line": 1737
         },
         "security": [
           {
@@ -1546,7 +1550,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 237
+          "line": 921
         },
         "security": [
           {
@@ -1713,7 +1717,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 299
+          "line": 983
         },
         "security": [
           {
@@ -1761,6 +1765,126 @@
         }
       }
     },
+    "/api/rfqs/{id}/sourcing-timeline": {
+      "get": {
+        "operationId": "getRfqsIdSourcingTimeline",
+        "tags": [
+          "rfqs"
+        ],
+        "summary": "GET /api/rfqs/:id/sourcing-timeline",
+        "description": "Chronological sourcing facts derived from persisted RFQ records. Unknown historical actors remain null; the current winner timestamp is not a complete selection history.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/rfqs",
+        "x-aerolink-source": {
+          "file": "server/src/routes/rfqs.ts",
+          "line": 1019
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/RfqSourcingTimeline"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/rfqs/{id}/sourcing-candidates": {
+      "get": {
+        "operationId": "getRfqsIdSourcingCandidates",
+        "tags": [
+          "rfqs"
+        ],
+        "summary": "GET /api/rfqs/:id/sourcing-candidates",
+        "description": "Per-demand-line supplier candidate evidence. Historical quotes and inventory attribution are not current supplier offers or availability.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/rfqs",
+        "x-aerolink-source": {
+          "file": "server/src/routes/rfqs.ts",
+          "line": 1371
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/RfqSourcingCandidates"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/rfqs/{id}": {
       "get": {
         "operationId": "getRfqsId",
@@ -1773,7 +1897,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 334
+          "line": 1702
         },
         "security": [
           {
@@ -1831,7 +1955,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 473
+          "line": 1841
         },
         "security": [
           {
@@ -1905,7 +2029,7 @@
         "x-aerolink-owner": "P2-01/rfqs",
         "x-aerolink-source": {
           "file": "server/src/routes/rfqs.ts",
-          "line": 554
+          "line": 1922
         },
         "security": [
           {
@@ -9260,7 +9384,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 528
+          "line": 592
         },
         "security": [
           {
@@ -9371,7 +9495,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 637
+          "line": 708
         },
         "security": [
           {
@@ -9437,7 +9561,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 610
+          "line": 681
         },
         "security": [
           {
@@ -9495,7 +9619,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 701
+          "line": 872
         },
         "security": [
           {
@@ -9567,7 +9691,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 814
+          "line": 979
         },
         "security": [
           {
@@ -9626,6 +9750,80 @@
         }
       }
     },
+    "/api/supplier-quotes/{id}/revise": {
+      "post": {
+        "operationId": "postSupplierQuotesIdRevise",
+        "tags": [
+          "supplierQuotes"
+        ],
+        "summary": "POST /api/supplier-quotes/:id/revise",
+        "description": "Contracted supplier follow-up, supplier quote and controlled supplier compatibility operation. Responses expose internal records only; no supplier portal or external invitation is created.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/supplierQuotes",
+        "x-aerolink-source": {
+          "file": "server/src/routes/supplierQuotes.ts",
+          "line": 774
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/SupplierQuote"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SupplierQuoteRevision"
+        }
+      }
+    },
     "/api/supplier-quotes/compare": {
       "post": {
         "operationId": "postSupplierQuotesCompare",
@@ -9638,7 +9836,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 987
+          "line": 1472
         },
         "security": [
           {
@@ -9692,6 +9890,80 @@
         }
       }
     },
+    "/api/supplier-quotes/{id}/clear-winner": {
+      "post": {
+        "operationId": "postSupplierQuotesIdClearWinner",
+        "tags": [
+          "supplierQuotes"
+        ],
+        "summary": "POST /api/supplier-quotes/:id/clear-winner",
+        "description": "Contracted supplier follow-up, supplier quote and controlled supplier compatibility operation. Responses expose internal records only; no supplier portal or external invitation is created.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/supplierQuotes",
+        "x-aerolink-source": {
+          "file": "server/src/routes/supplierQuotes.ts",
+          "line": 1496
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SupplierQuoteWinner"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SupplierQuoteClearWinner"
+        }
+      }
+    },
     "/api/supplier-quotes/{id}/select-winner": {
       "post": {
         "operationId": "postSupplierQuotesIdSelectWinner",
@@ -9704,7 +9976,7 @@
         "x-aerolink-owner": "P2-01/supplierQuotes",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuotes.ts",
-          "line": 1369
+          "line": 1590
         },
         "security": [
           {
@@ -9775,7 +10047,7 @@
         "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuoteDrafts.ts",
-          "line": 230
+          "line": 222
         },
         "security": [
           {
@@ -9849,7 +10121,7 @@
         "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuoteDrafts.ts",
-          "line": 321
+          "line": 307
         },
         "security": [
           {
@@ -9921,7 +10193,7 @@
         "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuoteDrafts.ts",
-          "line": 336
+          "line": 322
         },
         "security": [
           {
@@ -9994,7 +10266,7 @@
         "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuoteDrafts.ts",
-          "line": 355
+          "line": 343
         },
         "security": [
           {
@@ -10053,7 +10325,7 @@
         "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuoteDrafts.ts",
-          "line": 369
+          "line": 364
         },
         "security": [
           {
@@ -10135,7 +10407,7 @@
         "x-aerolink-owner": "P2-01/supplierQuoteDrafts",
         "x-aerolink-source": {
           "file": "server/src/routes/supplierQuoteDrafts.ts",
-          "line": 409
+          "line": 417
         },
         "security": [
           {
@@ -10217,7 +10489,7 @@
         "x-aerolink-owner": "P2-01/sourcingAiTasks",
         "x-aerolink-source": {
           "file": "server/src/routes/sourcingAiTasks.ts",
-          "line": 72
+          "line": 77
         },
         "security": [
           {
@@ -10292,7 +10564,7 @@
         "x-aerolink-owner": "P2-01/sourcingAiTasks",
         "x-aerolink-source": {
           "file": "server/src/routes/sourcingAiTasks.ts",
-          "line": 114
+          "line": 125
         },
         "security": [
           {
@@ -10376,7 +10648,7 @@
         "x-aerolink-owner": "P2-01/sourcingAiTasks",
         "x-aerolink-source": {
           "file": "server/src/routes/sourcingAiTasks.ts",
-          "line": 138
+          "line": 149
         },
         "security": [
           {
@@ -10437,7 +10709,7 @@
         "x-aerolink-owner": "P2-01/sourcingAiTasks",
         "x-aerolink-source": {
           "file": "server/src/routes/sourcingAiTasks.ts",
-          "line": 153
+          "line": 164
         },
         "security": [
           {
@@ -10512,7 +10784,7 @@
         "x-aerolink-owner": "P2-01/sourcingAiTasks",
         "x-aerolink-source": {
           "file": "server/src/routes/sourcingAiTasks.ts",
-          "line": 194
+          "line": 225
         },
         "security": [
           {
@@ -10543,6 +10815,530 @@
         "responses": {
           "200": {
             "$ref": "#/components/responses/SourcingAiTask"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/JsonBody"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-ai-tasks/{id}/confirm-draft": {
+      "post": {
+        "operationId": "postSourcingAiTasksIdConfirmDraft",
+        "tags": [
+          "sourcingAiTasks"
+        ],
+        "summary": "POST /api/sourcing-ai-tasks/:id/confirm-draft",
+        "description": "A person confirms the completed extraction task's exact editable draft version. The task source and quote permissions are revalidated transactionally; only this explicit action may create formal supplier quotes. Replays return the same quotes.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingAiTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingAiTasks.ts",
+          "line": 253
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SupplierQuoteDraftConfirm"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupplierQuoteDraftConfirmRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-action-tasks": {
+      "post": {
+        "operationId": "postSourcingActionTasks",
+        "tags": [
+          "sourcingActionTasks"
+        ],
+        "summary": "POST /api/sourcing-action-tasks",
+        "description": "Creates an actor-owned SEND_INQUIRY or SELECT_WINNER task with an immutable source snapshot. Sending additionally captures immutable content. A repeated actor/idempotencyKey pair returns the original task; only a human-authenticated confirm call can execute it.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingActionTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingActionTasks.ts",
+          "line": 233
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingActionTask"
+          },
+          "201": {
+            "$ref": "#/components/responses/SourcingActionTask"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourcingActionTaskCreateRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      },
+      "get": {
+        "operationId": "getSourcingActionTasks",
+        "tags": [
+          "sourcingActionTasks"
+        ],
+        "summary": "GET /api/sourcing-action-tasks",
+        "description": "Lists tasks owned by the authenticated actor; administrators may inspect all tasks. A completed send records the queued command, while outboundEmail reports its independent delivery state. A completed winner task records the internal selection.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingActionTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingActionTasks.ts",
+          "line": 307
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "targetId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingActionTaskList"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-action-tasks/{id}": {
+      "get": {
+        "operationId": "getSourcingActionTasksId",
+        "tags": [
+          "sourcingActionTasks"
+        ],
+        "summary": "GET /api/sourcing-action-tasks/:id",
+        "description": "Reads one actor-owned sourcing action task, or any task for an administrator, including its immutable source/content snapshot and current outbound email status.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingActionTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingActionTasks.ts",
+          "line": 327
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingActionTask"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-action-tasks/{id}/confirm": {
+      "post": {
+        "operationId": "postSourcingActionTasksIdConfirm",
+        "tags": [
+          "sourcingActionTasks"
+        ],
+        "summary": "POST /api/sourcing-action-tasks/:id/confirm",
+        "description": "Requires a human-authenticated user with the current permission for the action. Confirms only the exact expected task version; source, scope and business eligibility are revalidated in the same Serializable transaction as the existing send or winner command and task result update. Replays return the persisted result.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingActionTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingActionTasks.ts",
+          "line": 342
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingActionTask"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourcingActionTaskConfirmRequest"
+              }
+            }
+          }
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-action-tasks/{id}/retry": {
+      "post": {
+        "operationId": "postSourcingActionTasksIdRetry",
+        "tags": [
+          "sourcingActionTasks"
+        ],
+        "summary": "POST /api/sourcing-action-tasks/:id/retry",
+        "description": "Reopens only a failed task with no committed outbound email or result and an unchanged target fingerprint. A changed source requires a new task; completed sends are never re-enqueued.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingActionTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingActionTasks.ts",
+          "line": 475
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingActionTask"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "requestBody": {
+          "$ref": "#/components/requestBodies/JsonBody"
+        },
+        "x-aerolink-contract-level": "baseline-json-envelope"
+      }
+    },
+    "/api/sourcing-action-tasks/{id}/cancel": {
+      "post": {
+        "operationId": "postSourcingActionTasksIdCancel",
+        "tags": [
+          "sourcingActionTasks"
+        ],
+        "summary": "POST /api/sourcing-action-tasks/:id/cancel",
+        "description": "Cancels an unconfirmed task using a conditional state transition. A task with a committed outbound email/result cannot be cancelled or resent through this action task.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/sourcingActionTasks",
+        "x-aerolink-source": {
+          "file": "server/src/routes/sourcingActionTasks.ts",
+          "line": 531
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourcingActionTask"
           },
           "400": {
             "$ref": "#/components/responses/Error"
@@ -20380,7 +21176,7 @@
         "x-aerolink-owner": "P2-01/ai",
         "x-aerolink-source": {
           "file": "server/src/routes/ai.ts",
-          "line": 20
+          "line": 21
         },
         "security": [
           {
@@ -20446,7 +21242,7 @@
         "x-aerolink-owner": "P2-01/ai",
         "x-aerolink-source": {
           "file": "server/src/routes/ai.ts",
-          "line": 37
+          "line": 38
         },
         "security": [
           {
@@ -20512,7 +21308,7 @@
         "x-aerolink-owner": "P2-01/ai",
         "x-aerolink-source": {
           "file": "server/src/routes/ai.ts",
-          "line": 73
+          "line": 162
         },
         "security": [
           {
@@ -20578,7 +21374,7 @@
         "x-aerolink-owner": "P2-01/ai",
         "x-aerolink-source": {
           "file": "server/src/routes/ai.ts",
-          "line": 103
+          "line": 192
         },
         "security": [
           {
@@ -24975,7 +25771,7 @@
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 149
+          "line": 225
         },
         "security": [
           {
@@ -25024,7 +25820,7 @@
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 190
+          "line": 275
         },
         "security": [
           {
@@ -25090,7 +25886,7 @@
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 168
+          "line": 248
         },
         "security": [
           {
@@ -25145,12 +25941,12 @@
           "inquiries"
         ],
         "summary": "POST /api/inquiries/:id/send",
-        "description": "Queues one supplier inquiry email through the transactional outbox. A 202 response means queued, not delivered; deliveryStatus becomes sent only after the worker records SMTP acceptance. Supports Idempotency-Key replay.",
+        "description": "Queues one supplier inquiry email through the transactional outbox. A 202 response means queued, not delivered. SMTP acceptance is not confirmation that the supplier received or read the message. Inquiry delivery errors with an uncertain outcome require manual verification and are not safely replayable.",
         "x-aerolink-contract-status": "contracted",
         "x-aerolink-owner": "P2-01/inquiries",
         "x-aerolink-source": {
           "file": "server/src/routes/inquiries.ts",
-          "line": 250
+          "line": 335
         },
         "security": [
           {
@@ -25209,6 +26005,62 @@
         },
         "requestBody": {
           "$ref": "#/components/requestBodies/InquirySend"
+        }
+      }
+    },
+    "/api/inquiries/{id}/cancel-send": {
+      "post": {
+        "operationId": "postInquiriesIdCancelSend",
+        "tags": [
+          "inquiries"
+        ],
+        "summary": "POST /api/inquiries/:id/cancel-send",
+        "description": "Cancels a queued inquiry only when its EMAIL Outbox event is still PENDING with attemptCount 0 and no worker lease. A conditional update races safely with worker claiming. SMTP-started, retrying, failed, or otherwise uncertain deliveries cannot be cancelled or replayed here and require manual verification. The original outbound email snapshot is retained.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "P2-01/inquiries",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inquiries.ts",
+          "line": 379
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Stable key for retry-safe writes.",
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Inquiry"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
         }
       }
     },
@@ -26351,7 +27203,7 @@
         "x-aerolink-owner": "P2-01/health",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 258
+          "line": 260
         },
         "security": [],
         "parameters": [],
@@ -26398,7 +27250,7 @@
         "x-aerolink-owner": "P2-01/metrics",
         "x-aerolink-source": {
           "file": "server/src/index.ts",
-          "line": 262
+          "line": 264
         },
         "security": [
           {
@@ -27039,12 +27891,32 @@
           }
         }
       },
+      "SupplierQuoteRevision": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SupplierQuoteRevisionRequest"
+            }
+          }
+        }
+      },
       "SupplierQuoteCompare": {
         "required": true,
         "content": {
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SupplierQuoteCompareRequest"
+            }
+          }
+        }
+      },
+      "SupplierQuoteClearWinner": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SupplierQuoteClearWinnerRequest"
             }
           }
         }
@@ -27555,6 +28427,26 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/RfqEnvelope"
+            }
+          }
+        }
+      },
+      "RfqSourcingCandidates": {
+        "description": "Per-line supplier evidence without current supply claims",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RfqSourcingCandidatesEnvelope"
+            }
+          }
+        }
+      },
+      "RfqSourcingTimeline": {
+        "description": "Chronological sourcing facts",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RfqSourcingTimelineEnvelope"
             }
           }
         }
@@ -29537,6 +30429,26 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SourcingAiTaskListEnvelope"
+            }
+          }
+        }
+      },
+      "SourcingActionTask": {
+        "description": "Server-owned sourcing action task; SEND_INQUIRY completion means queued, while SELECT_WINNER completion means an internal selection was committed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SourcingActionTaskEnvelope"
+            }
+          }
+        }
+      },
+      "SourcingActionTaskList": {
+        "description": "Visible server-owned sourcing action tasks",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SourcingActionTaskListEnvelope"
             }
           }
         }
@@ -35055,10 +35967,16 @@
             "enum": [
               "draft",
               "queued",
-              "sent",
-              "failed"
+              "processing",
+              "retrying",
+              "smtp_accepted",
+              "needs_verification",
+              "failed",
+              "cancelled",
+              "skipped"
             ],
-            "readOnly": true
+            "readOnly": true,
+            "description": "SMTP acceptance is not proof of supplier delivery or reading. needs_verification means replay is unsafe until a person checks the delivery outcome."
           },
           "latestOutboundEmail": {
             "oneOf": [
@@ -35068,7 +35986,12 @@
                   "id",
                   "status",
                   "error",
-                  "sentAt"
+                  "sentAt",
+                  "outboxStatus",
+                  "attemptCount",
+                  "canCancel",
+                  "manualVerificationRequired",
+                  "manualVerificationMessage"
                 ],
                 "properties": {
                   "id": {
@@ -35079,8 +36002,10 @@
                     "type": "string",
                     "enum": [
                       "pending",
+                      "sending",
                       "sent",
                       "failed",
+                      "needs_verification",
                       "withdrawn"
                     ]
                   },
@@ -35096,6 +36021,46 @@
                       "null"
                     ],
                     "format": "date-time"
+                  },
+                  "outboxStatus": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "pending",
+                      "processing",
+                      "retrying",
+                      "delivered",
+                      "failed",
+                      "cancelled",
+                      null
+                    ],
+                    "readOnly": true
+                  },
+                  "attemptCount": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0,
+                    "readOnly": true
+                  },
+                  "canCancel": {
+                    "type": "boolean",
+                    "readOnly": true,
+                    "description": "True only before any Worker claim or SMTP attempt."
+                  },
+                  "manualVerificationRequired": {
+                    "type": "boolean",
+                    "readOnly": true
+                  },
+                  "manualVerificationMessage": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "readOnly": true
                   }
                 },
                 "additionalProperties": false
@@ -36053,6 +37018,753 @@
             "items": {
               "$ref": "#/components/schemas/RfqLine"
             }
+          }
+        },
+        "additionalProperties": true
+      },
+      "RfqSourcingCandidates": {
+        "type": "object",
+        "required": [
+          "rfqId",
+          "rfqNumber",
+          "evidenceSemantics",
+          "lines",
+          "limits"
+        ],
+        "properties": {
+          "rfqId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rfqNumber": {
+            "type": "string"
+          },
+          "evidenceSemantics": {
+            "type": "object",
+            "properties": {
+              "historicalQuotesAreNotCurrentOffers": {
+                "const": true
+              },
+              "inventoryAttributionIsNotCurrentAvailability": {
+                "const": true
+              },
+              "supplierCategoriesAreProfileDeclarations": {
+                "const": true
+              },
+              "currentAvailabilityVerified": {
+                "const": false
+              },
+              "currentPricingVerified": {
+                "const": false
+              },
+              "supplyCommitmentCreated": {
+                "const": false
+              }
+            },
+            "additionalProperties": true
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "rfqLineId",
+                "identitySource",
+                "lineNo",
+                "partNumber",
+                "quantity",
+                "uom",
+                "sourcingStatus",
+                "candidateCount",
+                "candidatesTruncated",
+                "candidates"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "rfqLineId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "identitySource": {
+                  "type": "string",
+                  "enum": [
+                    "RFQ_LINE",
+                    "RFQ_HEADER"
+                  ]
+                },
+                "lineNo": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "partNumber": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "uom": {
+                  "type": "string"
+                },
+                "conditionCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ataChapter": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sourcingStatus": {
+                  "type": "string",
+                  "enum": [
+                    "EVIDENCE_FOUND",
+                    "INQUIRY_REQUIRED"
+                  ]
+                },
+                "candidateCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "candidatesTruncated": {
+                  "type": "boolean"
+                },
+                "candidates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "supplier",
+                      "evidence",
+                      "currentSupplyPromiseVerified"
+                    ],
+                    "properties": {
+                      "supplier": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "status",
+                          "level"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "level": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "evidence": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "HISTORICAL_SUPPLIER_QUOTE",
+                                "INVENTORY_SUPPLIER_ATTRIBUTION",
+                                "SUPPLIER_PROFILE_CATEGORY"
+                              ]
+                            },
+                            "recordId": {
+                              "type": "string"
+                            },
+                            "partNumber": {
+                              "type": "string"
+                            },
+                            "matchedCategory": {
+                              "type": "string"
+                            },
+                            "recordedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "currentOfferVerified": {
+                              "const": false
+                            },
+                            "currentAvailabilityVerified": {
+                              "const": false
+                            },
+                            "currentSupplyPromiseVerified": {
+                              "const": false
+                            }
+                          },
+                          "additionalProperties": true
+                        }
+                      },
+                      "currentSupplyPromiseVerified": {
+                        "const": false
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "limits": {
+            "type": "object",
+            "required": [
+              "candidatesPerLine",
+              "evidenceTruncated"
+            ],
+            "properties": {
+              "candidatesPerLine": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "evidenceTruncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": true
+      },
+      "RfqSourcingCandidatesEnvelope": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/RfqSourcingCandidates"
+          }
+        },
+        "additionalProperties": true
+      },
+      "RfqSourcingTimeline": {
+        "type": "object",
+        "required": [
+          "rfqId",
+          "events",
+          "counts",
+          "workflowStates",
+          "lineWorkflowStates"
+        ],
+        "properties": {
+          "rfqId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "type",
+                "status",
+                "occurredAt",
+                "actor",
+                "summary"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "type": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "actor": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "kind"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "external_email"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rfqLineId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "inquiryId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "emailId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "outboundEmailId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "draftId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "supplierQuoteId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "actionTaskId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "originalAiCandidates": {
+                  "type": "object",
+                  "description": "Immutable, bounded AI quote candidate fields captured when an AI draft is created. Evidence, email text, descriptions, and other freeform fields are intentionally excluded. Historical AI drafts without this snapshot return available=false.",
+                  "required": [
+                    "available",
+                    "candidateCount",
+                    "truncated",
+                    "items"
+                  ],
+                  "properties": {
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "candidateCount": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    },
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "itemKey",
+                          "inquiryItemId",
+                          "partNumber",
+                          "quantity",
+                          "quantityUnit",
+                          "unitPrice",
+                          "currency",
+                          "leadTimeDays",
+                          "leadTimeMinDays",
+                          "leadTimeMaxDays",
+                          "validUntil",
+                          "taxIncluded",
+                          "freightIncluded",
+                          "incoterm"
+                        ],
+                        "properties": {
+                          "itemKey": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 128
+                          },
+                          "inquiryItemId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 128
+                          },
+                          "partNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 120
+                          },
+                          "quantity": {
+                            "type": [
+                              "number",
+                              "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 1000000000
+                          },
+                          "quantityUnit": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 80
+                          },
+                          "unitPrice": {
+                            "type": [
+                              "number",
+                              "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 1000000000
+                          },
+                          "currency": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "pattern": "^[A-Z]{3}$"
+                          },
+                          "leadTimeDays": {
+                            "type": [
+                              "number",
+                              "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 1000000000
+                          },
+                          "leadTimeMinDays": {
+                            "type": [
+                              "number",
+                              "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 1000000000
+                          },
+                          "leadTimeMaxDays": {
+                            "type": [
+                              "number",
+                              "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 1000000000
+                          },
+                          "validUntil": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date"
+                          },
+                          "taxIncluded": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "freightIncluded": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "incoterm": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 20
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "counts": {
+            "type": "object",
+            "required": [
+              "lines",
+              "unassignedNeedsVerification"
+            ],
+            "properties": {
+              "lines": {
+                "type": "array",
+                "description": "Per-active-RFQ-line derived counts. Ownership requires explicit InquiryItem/quote foreign keys; partNumber is never used to infer a line.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "rfqLineId",
+                    "pendingQuoteCount",
+                    "pendingConfirmationCount"
+                  ],
+                  "properties": {
+                    "rfqLineId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "pendingQuoteCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "SMTP-accepted or legacy-sent inquiry items with no exact draft or formal quote item; unsent and delivery-uncertain inquiries are excluded. Partial quotes count as quoted; quantity gaps remain in comparison summary."
+                    },
+                    "pendingConfirmationCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "DRAFT payload items explicitly bound by inquiryItemId to this RFQ active line."
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "unassignedNeedsVerification": {
+                "type": "object",
+                "description": "Counts of pending items or persisted records that cannot safely be assigned to an active RFQ line; no same-part-number inference is performed.",
+                "required": [
+                  "pendingQuoteCount",
+                  "pendingConfirmationCount",
+                  "supplierQuoteCount",
+                  "unreadableDraftCount"
+                ],
+                "properties": {
+                  "pendingQuoteCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Sent inquiry items with a missing, inactive, foreign, or ambiguous RFQ line binding."
+                  },
+                  "pendingConfirmationCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "DRAFT payload items missing a valid inquiryItemId/active-line binding or with inconsistent references."
+                  },
+                  "supplierQuoteCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Formal quote records with missing, conflicting, or ambiguous explicit links."
+                  },
+                  "unreadableDraftCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "DRAFT records whose payload cannot be parsed into an items array; this is a record count, not an inferred item count."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "workflowStates": {
+            "type": "array",
+            "description": "Recoverable per-Inquiry state derived from persisted RFQ, send, confirmed-reply, AI-task, quote-draft, and current supplier-quote records. SMTP acceptance is not supplier receipt/read; a draft is not a formal quote; RFQ completion alone does not complete an Inquiry. A newer accepted send makes older replies/quotes stale. Unknown delivery is NEEDS_VERIFICATION; a definitive send failure is FAILED.",
+            "items": {
+              "type": "object",
+              "required": [
+                "inquiryId",
+                "status",
+                "nextAction"
+              ],
+              "properties": {
+                "inquiryId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "WAITING_REPLY",
+                    "WAITING_HUMAN",
+                    "PROCESSING",
+                    "FAILED",
+                    "CANCELLED",
+                    "NEEDS_VERIFICATION",
+                    "COMPLETED"
+                  ]
+                },
+                "nextAction": {
+                  "type": "string",
+                  "enum": [
+                    "VERIFY_DELIVERY",
+                    "VERIFY_REPLY_LINK",
+                    "VERIFY_RECORD",
+                    "REVIEW_DRAFT_BINDING",
+                    "REVIEW_QUOTE_DRAFT",
+                    "CREATE_MANUAL_DRAFT",
+                    "WAIT_FOR_PROCESSING",
+                    "FOLLOW_UP_SUPPLIER",
+                    "REVIEW_MISSING_ITEMS",
+                    "REVIEW_COMPARISON",
+                    "REVIEW_BEFORE_RESEND",
+                    "STOP_CANCELLED_RFQ",
+                    "SEND_INQUIRY",
+                    "NO_ACTION"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "lineWorkflowStates": {
+            "type": "array",
+            "description": "Per-demand-line stage and formal quote record coverage derived only from explicit InquiryItem/quote associations. A quote from an older outbound version remains historical but does not cover the latest send. COMPLETED is not quantity sufficiency or a purchase commitment.",
+            "items": {
+              "type": "object",
+              "required": [
+                "rfqLineId",
+                "status",
+                "nextAction",
+                "inquiryIds",
+                "quoteCoverage"
+              ],
+              "properties": {
+                "rfqLineId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "WAITING_REPLY",
+                    "WAITING_HUMAN",
+                    "PROCESSING",
+                    "FAILED",
+                    "CANCELLED",
+                    "NEEDS_VERIFICATION",
+                    "COMPLETED"
+                  ]
+                },
+                "nextAction": {
+                  "type": "string",
+                  "enum": [
+                    "VERIFY_DELIVERY",
+                    "VERIFY_REPLY_LINK",
+                    "VERIFY_RECORD",
+                    "REVIEW_DRAFT_BINDING",
+                    "REVIEW_QUOTE_DRAFT",
+                    "CREATE_MANUAL_DRAFT",
+                    "WAIT_FOR_PROCESSING",
+                    "FOLLOW_UP_SUPPLIER",
+                    "REVIEW_MISSING_ITEMS",
+                    "REVIEW_COMPARISON",
+                    "REVIEW_BEFORE_RESEND",
+                    "STOP_CANCELLED_RFQ",
+                    "SEND_INQUIRY",
+                    "NO_ACTION"
+                  ]
+                },
+                "inquiryIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "quoteCoverage": {
+                  "type": "object",
+                  "required": [
+                    "currentFormalQuoteCount",
+                    "activeInquiryItemCount",
+                    "quotedInquiryItemCount",
+                    "basis",
+                    "quantitySufficiencyAssessed",
+                    "purchasingCommitted"
+                  ],
+                  "properties": {
+                    "currentFormalQuoteCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "All non-superseded formal quote records explicitly bound to the line, including historical outbound versions."
+                    },
+                    "activeInquiryItemCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "quotedInquiryItemCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Inquiry items covered by formal quotes from the latest accepted outbound version, or explicit manual records when no outbound version exists."
+                    },
+                    "basis": {
+                      "const": "CURRENT_FORMAL_QUOTE_RECORDS_ONLY"
+                    },
+                    "quantitySufficiencyAssessed": {
+                      "const": false
+                    },
+                    "purchasingCommitted": {
+                      "const": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "RfqSourcingTimelineEnvelope": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/RfqSourcingTimeline"
           }
         },
         "additionalProperties": true
@@ -39040,6 +40752,12 @@
             "type": "integer",
             "minimum": 1
           },
+          "quantityUnit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "unitPrice": {
             "oneOf": [
               {
@@ -39106,6 +40824,32 @@
           "isWinner": {
             "type": "boolean"
           },
+          "revisionOfId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revisionRootId": {
+            "type": "string"
+          },
+          "revisionNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "supersededAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revisionReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ruleScore": {
             "type": [
               "number",
@@ -39113,6 +40857,10 @@
             ]
           },
           "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
             "type": "string",
             "format": "date-time"
           },
@@ -39261,6 +41009,12 @@
             "type": "integer",
             "minimum": 1
           },
+          "quantityUnit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "unitPrice": {
             "oneOf": [
               {
@@ -39327,6 +41081,32 @@
           "isWinner": {
             "type": "boolean"
           },
+          "revisionOfId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revisionRootId": {
+            "type": "string"
+          },
+          "revisionNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "supersededAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "revisionReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ruleScore": {
             "type": [
               "number",
@@ -39334,6 +41114,10 @@
             ]
           },
           "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
             "type": "string",
             "format": "date-time"
           },
@@ -39483,13 +41267,17 @@
         "type": "object",
         "required": [
           "id",
+          "updatedAt",
           "rfqId",
           "rfqLineId",
           "inquiryId",
           "inquiryItemId",
           "partNumber",
           "quantity",
+          "quantityUnit",
           "requiredQuantity",
+          "requiredQuantityUnit",
+          "quantityUnitComparison",
           "coversRequiredQuantity",
           "quantityShortfall",
           "validUntil",
@@ -39523,6 +41311,10 @@
             "type": "string",
             "minLength": 1
           },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
           "rfqId": {
             "type": [
               "string",
@@ -39554,12 +41346,63 @@
             "type": "integer",
             "minimum": 1
           },
+          "quantityUnit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "requiredQuantity": {
             "type": [
               "integer",
               "null"
             ],
             "minimum": 1
+          },
+          "requiredQuantityUnit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantityUnitComparison": {
+            "type": "object",
+            "required": [
+              "status",
+              "compatible",
+              "reason",
+              "quoteUnit",
+              "demandUnit"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "compatible",
+                  "incompatible",
+                  "unknown"
+                ]
+              },
+              "compatible": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "quoteUnit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "demandUnit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
           },
           "coversRequiredQuantity": {
             "type": [
@@ -39951,6 +41794,12 @@
                 ],
                 "minimum": 1
               },
+              "requiredQuantityUnit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "bestAvailableQuantity": {
                 "type": [
                   "integer",
@@ -40141,6 +41990,12 @@
                   "null"
                 ],
                 "minimum": 1
+              },
+              "requiredQuantityUnit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "bestAvailableQuantity": {
                 "type": [
@@ -40357,6 +42212,12 @@
                 ],
                 "minimum": 1
               },
+              "requiredQuantityUnit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "bestAvailableQuantity": {
                 "type": [
                   "integer",
@@ -40468,6 +42329,49 @@
         },
         "additionalProperties": true
       },
+      "SupplierQuoteComparisonMultiLine": {
+        "type": "object",
+        "required": [
+          "rfqId",
+          "lineGroups"
+        ],
+        "properties": {
+          "rfqId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lineGroups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "rfqLineId",
+                "lineNo",
+                "partNumber",
+                "comparison"
+              ],
+              "properties": {
+                "rfqLineId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "lineNo": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "partNumber": {
+                  "type": "string"
+                },
+                "comparison": {
+                  "$ref": "#/components/schemas/SupplierQuoteComparison"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": true
+      },
       "SupplierQuoteComparisonEnvelope": {
         "type": "object",
         "required": [
@@ -40479,7 +42383,14 @@
             "const": true
           },
           "data": {
-            "$ref": "#/components/schemas/SupplierQuoteComparison"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SupplierQuoteComparison"
+              },
+              {
+                "$ref": "#/components/schemas/SupplierQuoteComparisonMultiLine"
+              }
+            ]
           }
         },
         "additionalProperties": true
@@ -40524,6 +42435,14 @@
           "quantity": {
             "type": "integer",
             "minimum": 1
+          },
+          "quantityUnit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 80
           },
           "unitPrice": {
             "type": "number",
@@ -40579,6 +42498,14 @@
             "type": "integer",
             "minimum": 1
           },
+          "quantityUnit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 80
+          },
           "unitPrice": {
             "type": "number",
             "minimum": 0
@@ -40608,13 +42535,95 @@
               "rejected",
               "expired"
             ]
-          },
-          "isWinner": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false,
         "description": "Updates commercial availability without rewriting captured quotation cost snapshots. Source identity changes require a new supplier quote; sending the unchanged IDs is allowed."
+      },
+      "SupplierQuoteClearWinnerRequest": {
+        "type": "object",
+        "required": [
+          "expectedUpdatedAt"
+        ],
+        "properties": {
+          "expectedUpdatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SupplierQuoteRevisionRequest": {
+        "type": "object",
+        "required": [
+          "expectedUpdatedAt",
+          "revisionReason",
+          "description",
+          "quantity",
+          "quantityUnit",
+          "unitPrice",
+          "currency",
+          "leadTimeDays",
+          "validUntil",
+          "notes"
+        ],
+        "properties": {
+          "expectedUpdatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revisionReason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quantityUnit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "unitPrice": {
+            "type": "number",
+            "minimum": 0
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "USD"
+            ]
+          },
+          "leadTimeDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "validUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "SupplierQuoteCompareRequest": {
         "type": "object",
@@ -47664,6 +49673,7 @@
         "type": "object",
         "required": [
           "type",
+          "items",
           "partNumbers",
           "quantities",
           "urgency",
@@ -47679,6 +49689,48 @@
               "SPAM"
             ]
           },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partNumber": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 1
+                },
+                "quantityUnit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "requiredDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date"
+                },
+                "evidenceText": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "partNumber",
+                "evidenceText"
+              ],
+              "additionalProperties": false
+            }
+          },
           "partNumbers": {
             "type": "array",
             "items": {
@@ -47688,7 +49740,10 @@
           "quantities": {
             "type": "array",
             "items": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "minimum": 1
             }
           },
@@ -47705,6 +49760,10 @@
               "string",
               "null"
             ]
+          },
+          "requiredDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           },
           "ai": {
             "type": "object",
@@ -47728,10 +49787,6 @@
               "model"
             ],
             "additionalProperties": false
-          },
-          "requiredDate": {
-            "type": "string",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           }
         },
         "additionalProperties": true
@@ -59056,12 +61111,499 @@
           "data"
         ],
         "additionalProperties": false
+      },
+      "SourcingActionTaskContent": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "textBody": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "subject",
+          "textBody"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTaskSendResult": {
+        "type": "object",
+        "properties": {
+          "inquiryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inquiryStatus": {
+            "type": "string",
+            "const": "QUEUED"
+          },
+          "outboundEmailId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "outboundEmailStatus": {
+            "type": "string"
+          },
+          "outboxEventId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "inquiryId",
+          "inquiryStatus",
+          "outboundEmailId",
+          "outboundEmailStatus",
+          "outboxEventId"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTaskWinnerResult": {
+        "type": "object",
+        "properties": {
+          "supplierQuoteId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "rfqLineId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "isWinner": {
+            "type": "boolean",
+            "const": true
+          },
+          "status": {
+            "type": "string",
+            "const": "accepted"
+          }
+        },
+        "required": [
+          "supplierQuoteId",
+          "rfqLineId",
+          "isWinner",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTaskOutboundEmail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string"
+          },
+          "deliveryIssue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sentAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "deliveryIssue",
+          "sentAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTask": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "actorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "SEND_INQUIRY",
+              "SELECT_WINNER"
+            ]
+          },
+          "targetType": {
+            "type": "string",
+            "enum": [
+              "INQUIRY",
+              "SUPPLIER_QUOTE"
+            ]
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "targetVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "contentSnapshot": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SourcingActionTaskContent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "WAITING_HUMAN",
+              "COMPLETED",
+              "FAILED",
+              "CANCELLED"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "confirmedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "confirmedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "retriedById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "retryHistory": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "actorId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "attempt": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "actorId",
+                "attempt",
+                "occurredAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "cancelledById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "outboundEmailId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "result": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SourcingActionTaskSendResult"
+              },
+              {
+                "$ref": "#/components/schemas/SourcingActionTaskWinnerResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "errorSummary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outboundEmail": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SourcingActionTaskOutboundEmail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancelledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "actorId",
+          "action",
+          "targetType",
+          "targetId",
+          "targetVersion",
+          "version",
+          "contentSnapshot",
+          "requestId",
+          "idempotencyKey",
+          "status",
+          "attempt",
+          "maxAttempts",
+          "confirmedById",
+          "confirmedAt",
+          "retriedById",
+          "retryHistory",
+          "cancelledById",
+          "outboundEmailId",
+          "result",
+          "errorSummary",
+          "outboundEmail",
+          "createdAt",
+          "completedAt",
+          "cancelledAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTaskCreateSendRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "SEND_INQUIRY"
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "content": {
+            "$ref": "#/components/schemas/SourcingActionTaskContent"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "action",
+          "targetId",
+          "content",
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTaskCreateWinnerRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "SELECT_WINNER"
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedUpdatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "action",
+          "targetId",
+          "idempotencyKey"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTaskCreateRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SourcingActionTaskCreateSendRequest"
+          },
+          {
+            "$ref": "#/components/schemas/SourcingActionTaskCreateWinnerRequest"
+          }
+        ]
+      },
+      "SourcingActionTaskConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "expectedVersion"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTaskEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/SourcingActionTask"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTaskListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourcingActionTask"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
       }
     },
     "x-aerolink-route-catalog": {
       "source": "server/src/index.ts and server/src/routes/*.ts",
-      "mountCount": 62,
-      "operationCount": 375
+      "mountCount": 63,
+      "operationCount": 387
     }
   }
 }

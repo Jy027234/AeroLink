@@ -1,13 +1,17 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import type { AuthRequest } from '../middleware/auth.js';
 import { requireCapability } from '../middleware/capability.js';
 import { validateBody } from '../middleware/validate.js';
 import {
+  captureSourcingAiTaskSourceFingerprint,
   SOURCING_AI_TASK_MAX_ATTEMPTS,
   SUPPLIER_QUOTE_EXTRACTION_TASK,
 } from '../lib/sourcingAiTaskService.js';
+import { confirmSupplierQuoteDraftCommand } from '../lib/supplierQuoteDraftConfirmCommand.js';
+import { supplierQuoteDraftConfirmSchema } from '../lib/validation.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -29,6 +33,7 @@ const taskSelect = {
   maxAttempts: true,
   draftId: true,
   errorSummary: true,
+  sourceFingerprint: true,
   createdAt: true,
   startedAt: true,
   completedAt: true,
@@ -81,19 +86,25 @@ router.post(
     let task;
     let created = true;
     try {
-      task = await prisma.sourcingAiTask.create({
-        data: {
-          actorId: req.user!.id,
-          type: input.type,
-          emailId: input.emailId,
-          inquiryId: input.inquiryId,
-          idempotencyKey: input.idempotencyKey,
-          status: 'PENDING',
-          attempt: 1,
-          maxAttempts: SOURCING_AI_TASK_MAX_ATTEMPTS,
-        },
-        select: taskSelect,
-      });
+      task = await prisma.$transaction(async (tx) => {
+        const sourceFingerprint = await captureSourcingAiTaskSourceFingerprint(
+          req.user!.id, input.emailId, input.inquiryId, tx,
+        );
+        return tx.sourcingAiTask.create({
+          data: {
+            actorId: req.user!.id,
+            type: input.type,
+            emailId: input.emailId,
+            inquiryId: input.inquiryId,
+            idempotencyKey: input.idempotencyKey,
+            status: 'PENDING',
+            attempt: 1,
+            maxAttempts: SOURCING_AI_TASK_MAX_ATTEMPTS,
+            sourceFingerprint,
+          },
+          select: taskSelect,
+        });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'P2002') throw error;
       task = await prisma.sourcingAiTask.findUnique({
@@ -165,28 +176,48 @@ router.post(
     if (existing.status !== 'FAILED' || existing.attempt >= existing.maxAttempts) {
       throw new AppError('当前任务不可重试', 409, 'STATE_CONFLICT');
     }
-    const requeued = await prisma.sourcingAiTask.updateMany({
-      where: {
-        id: existing.id,
-        actorId: existing.actorId,
-        status: 'FAILED',
-        maxAttempts: existing.maxAttempts,
-        attempt: { equals: existing.attempt, lt: existing.maxAttempts },
-      },
-      data: {
-        status: 'PENDING',
-        attempt: { increment: 1 },
-        startedAt: null,
-        completedAt: null,
-        cancelledAt: null,
-        draftId: null,
-        errorSummary: null,
-      },
-    });
-    if (requeued.count !== 1) {
-      throw new AppError('任务状态已变化，请重新加载', 409, 'STATE_CONFLICT');
+    if (!existing.sourceFingerprint) {
+      throw new AppError('任务未记录来源版本，请重新创建任务', 409, 'STATE_CONFLICT');
     }
-    const task = await prisma.sourcingAiTask.findUniqueOrThrow({ where: { id: existing.id }, select: taskSelect });
+    const task = await prisma.$transaction(async (tx) => {
+      const requestFingerprint = await captureSourcingAiTaskSourceFingerprint(
+        req.user!.id, existing.emailId, existing.inquiryId, tx,
+      );
+      if (requestFingerprint !== existing.sourceFingerprint) {
+        throw new AppError('来源在任务入队后已变化，不能重试；请重新创建任务', 409, 'STATE_CONFLICT');
+      }
+      if (existing.actorId !== req.user!.id) {
+        const ownerFingerprint = await captureSourcingAiTaskSourceFingerprint(
+          existing.actorId, existing.emailId, existing.inquiryId, tx,
+        );
+        if (ownerFingerprint !== existing.sourceFingerprint) {
+          throw new AppError('来源在任务入队后已变化，不能重试；请重新创建任务', 409, 'STATE_CONFLICT');
+        }
+      }
+      const requeued = await tx.sourcingAiTask.updateMany({
+        where: {
+          id: existing.id,
+          actorId: existing.actorId,
+          sourceFingerprint: existing.sourceFingerprint,
+          status: 'FAILED',
+          maxAttempts: existing.maxAttempts,
+          attempt: { equals: existing.attempt, lt: existing.maxAttempts },
+        },
+        data: {
+          status: 'PENDING',
+          attempt: { increment: 1 },
+          startedAt: null,
+          completedAt: null,
+          cancelledAt: null,
+          draftId: null,
+          errorSummary: null,
+        },
+      });
+      if (requeued.count !== 1) {
+        throw new AppError('任务状态已变化，请重新加载', 409, 'STATE_CONFLICT');
+      }
+      return tx.sourcingAiTask.findUniqueOrThrow({ where: { id: existing.id }, select: taskSelect });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     res.json({ success: true, data: publicTask(task) });
   }),
 );
@@ -216,6 +247,29 @@ router.post(
     }
     const task = await prisma.sourcingAiTask.findUniqueOrThrow({ where: { id: existing.id }, select: taskSelect });
     res.json({ success: true, data: publicTask(task) });
+  }),
+);
+
+router.post(
+  '/:id/confirm-draft',
+  requireCapability('email', 'read'),
+  requireCapability('supplier_quote', 'create'),
+  requireCapability('supplier_quote', 'update'),
+  validateBody(supplierQuoteDraftConfirmSchema),
+  asyncHandler(async (request, res) => {
+    const req = request as AuthRequest;
+    const task = await prisma.sourcingAiTask.findFirst({
+      where: { id: req.params.id, ...taskScope(req) },
+      select: { type: true, status: true, draftId: true },
+    });
+    if (!task) taskNotFound();
+    if (task.type !== SUPPLIER_QUOTE_EXTRACTION_TASK || task.status !== 'COMPLETED' || !task.draftId) {
+      throw new AppError('任务尚无可确认的报价草稿', 409, 'STATE_CONFLICT');
+    }
+    const data = await confirmSupplierQuoteDraftCommand(
+      req.user!, task.draftId, req.body.expectedVersion, { sourcingAiTaskId: req.params.id },
+    );
+    res.json({ success: true, data });
   }),
 );
 

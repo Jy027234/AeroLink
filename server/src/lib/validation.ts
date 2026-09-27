@@ -500,12 +500,41 @@ const quoteDraftIncotermSchema = z.string().trim().min(2, '贸易术语长度必
   .max(20, '贸易术语长度必须为2-20个字符')
   .transform((value) => value.toUpperCase()).nullable().default(null);
 
+export type QuantityUnitComparison = {
+  compatible: boolean;
+  status: 'compatible' | 'unknown' | 'incompatible';
+  reason: 'MATCH' | 'QUOTE_UNIT_UNKNOWN' | 'DEMAND_UNIT_UNKNOWN' | 'UNIT_MISMATCH';
+};
+
+export function normalizeQuantityUnit(value: string | null | undefined): string | null {
+  const normalized = value?.trim().replace(/\s+/g, ' ').toUpperCase() ?? '';
+  return normalized || null;
+}
+
+export function compareQuantityUnits(
+  quoteUnit: string | null | undefined,
+  demandUnit: string | null | undefined,
+): QuantityUnitComparison {
+  const normalizedQuoteUnit = normalizeQuantityUnit(quoteUnit);
+  const normalizedDemandUnit = normalizeQuantityUnit(demandUnit);
+  if (!normalizedQuoteUnit) {
+    return { compatible: false, status: 'unknown', reason: 'QUOTE_UNIT_UNKNOWN' };
+  }
+  if (!normalizedDemandUnit) {
+    return { compatible: false, status: 'unknown', reason: 'DEMAND_UNIT_UNKNOWN' };
+  }
+  if (normalizedQuoteUnit !== normalizedDemandUnit) {
+    return { compatible: false, status: 'incompatible', reason: 'UNIT_MISMATCH' };
+  }
+  return { compatible: true, status: 'compatible', reason: 'MATCH' };
+}
+
 const supplierQuoteDraftItemSchema = z.object({
   itemKey: z.string().trim().min(1, '报价草稿行标识不能为空').optional(),
   inquiryItemId: z.string().trim().min(1).nullable().optional(),
   partNumber: z.string().trim().min(1).nullable().optional(),
   description: z.string().nullable().optional(),
-  quantityUnit: z.string().trim().min(1).nullable().optional(),
+  quantityUnit: z.string().trim().min(1, '数量单位不能为空').max(80).nullable().optional(),
   quantity: z.number().finite().positive().nullable().optional(),
   unitPrice: z.number().finite().min(0).nullable().optional(),
   currency: z.string().trim().regex(/^[A-Za-z]{3}$/, '币种必须是三位字母代码')
@@ -531,6 +560,7 @@ const supplierQuoteDraftConfirmItemSchema = supplierQuoteDraftItemSchema
     quantity: z.number().int().min(1, '数量必须大于0'),
     unitPrice: z.number().finite().min(0, '单价不能小于0'),
     currency: z.literal('USD', { message: '确认报价仅支持 USD 币种' }),
+    quantityUnit: z.string().trim().min(1, '确认报价必须明确数量单位').max(80, '数量单位不能超过80个字符'),
     leadTimeDays: z.number().int().min(0, '交期不能小于0'),
   }).strict().superRefine((item, context) => {
     if (item.leadTimeMinDays != null || item.leadTimeMaxDays != null) {
@@ -765,12 +795,26 @@ export const supplierQuoteCreateSchema = z.object({
   partNumber: z.string().min(1, '件号不能为空'),
   description: z.string().optional(),
   quantity: z.number().int().min(1, '数量必须大于0'),
+  quantityUnit: z.string().trim().min(1, '数量单位不能为空').max(80).nullable().optional(),
   unitPrice: z.number().min(0, '单价必须大于0'),
   currency: z.string().trim().toUpperCase().default('USD').refine((value) => value === 'USD', '供应商报价仅支持 USD 币种'),
   leadTimeDays: z.number().int().min(0, '交期不能小于0'),
   validUntil: z.string().optional(),
   notes: z.string().optional(),
 });
+
+export const supplierQuoteRevisionSchema = z.object({
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
+  revisionReason: z.string().trim().min(1, '修订理由不能为空').max(2000, '修订理由不能超过2000个字符'),
+  description: z.string().nullable(),
+  quantity: z.number().int().min(1, '数量必须大于0'),
+  quantityUnit: z.string().trim().min(1, '数量单位不能为空').max(80).nullable(),
+  unitPrice: z.number().finite().min(0, '单价不能小于0'),
+  currency: z.literal('USD', { message: '供应商报价仅支持 USD 币种' }),
+  leadTimeDays: z.number().int().min(0, '交期不能小于0'),
+  validUntil: z.string().datetime({ offset: true }).nullable(),
+  notes: z.string().nullable(),
+}).strict();
 
 export const paginationSchema = z.object({
   page: z.string().optional().transform((v) => {
@@ -962,6 +1006,7 @@ export const supplierQuoteUpdateSchema = z.object({
   inquiryItemId: z.string().min(1).optional(),
   partNumber: z.string().min(1).optional(),
   quantity: z.number().int().min(1).optional(),
+  quantityUnit: z.string().trim().min(1, '数量单位不能为空').max(80).nullable().optional(),
   unitPrice: z.number().min(0).optional(),
   currency: z.string().trim().toUpperCase().refine((value) => value === 'USD', '供应商报价仅支持 USD 币种').optional(),
   leadTimeDays: z.number().int().min(0).optional(),
@@ -969,6 +1014,18 @@ export const supplierQuoteUpdateSchema = z.object({
   notes: z.string().optional(),
   status: z.enum(['pending', 'accepted', 'rejected', 'expired']).optional(),
   isWinner: z.boolean().optional(),
+}).superRefine((value, context) => {
+  if (value.isWinner !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['isWinner'],
+      message: '请使用专用中选接口修改中选状态',
+    });
+  }
+});
+
+export const supplierQuoteClearWinnerSchema = z.object({
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
 });
 
 export const agentUpdateSchema = z.object({

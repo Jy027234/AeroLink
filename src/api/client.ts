@@ -412,6 +412,7 @@ export interface SupplierQuoteItem {
   partNumber: string;
   description: string | null;
   quantity: number;
+  quantityUnit?: string | null;
   unitPrice: number;
   totalPrice: number;
   currency: string | null;
@@ -423,6 +424,12 @@ export interface SupplierQuoteItem {
   isWinner: boolean;
   ruleScore: number | null;
   createdAt: string;
+  updatedAt?: string;
+  revisionOfId?: string | null;
+  revisionRootId?: string | null;
+  revisionNumber?: number;
+  revisionReason?: string | null;
+  supersededAt?: string | null;
   supplier: {
     id: string;
     name: string;
@@ -433,8 +440,22 @@ export interface SupplierQuoteItem {
   };
 }
 
+export interface SupplierQuoteRevisionInput {
+  expectedUpdatedAt: string;
+  revisionReason: string;
+  quantity: number;
+  quantityUnit: string | null;
+  unitPrice: number;
+  currency: 'USD';
+  leadTimeDays: number;
+  validUntil: string | null;
+  description: string | null;
+  notes: string | null;
+}
+
 export interface SupplierQuoteComparedItem {
   id: string;
+  updatedAt?: string;
   rfqId?: string | null;
   rfqLineId?: string | null;
   inquiryId?: string | null;
@@ -451,6 +472,9 @@ export interface SupplierQuoteComparedItem {
   currency: string | null;
   currencyStatus: 'VERIFIED' | 'HISTORICAL_UNVERIFIED';
   quantity: number;
+  quantityUnit?: string | null;
+  requiredQuantityUnit?: string | null;
+  quantityUnitComparison?: { status: 'compatible' | 'incompatible' | 'unknown'; compatible: boolean; reason: string; quoteUnit: string | null; demandUnit: string | null };
   validUntil?: string | null;
   comparisonEligibility?: {
     eligible: boolean;
@@ -498,6 +522,7 @@ export interface SupplierQuoteCompareResult {
     comparableQuoteCount?: number;
     expiredQuoteCount?: number;
     requiredQuantity?: number;
+    requiredQuantityUnit?: string | null;
     bestAvailableQuantity?: number;
     remainingQuantityGap?: number;
   };
@@ -882,6 +907,123 @@ export interface RFQSummary {
   quoting: number;
   won: number;
   lost: number;
+}
+
+export interface RfqSourcingCandidates {
+  rfqId: string;
+  rfqNumber: string;
+  lines: Array<{
+    id: string;
+    rfqLineId: string | null;
+    lineNo: number;
+    partNumber: string;
+    sourcingStatus: 'EVIDENCE_FOUND' | 'INQUIRY_REQUIRED';
+    candidateCount: number;
+    candidatesTruncated: boolean;
+    candidates: Array<{
+      supplier: { id: string; name: string; status: string; level: string };
+      evidence: Array<{ type: 'HISTORICAL_SUPPLIER_QUOTE' | 'INVENTORY_SUPPLIER_ATTRIBUTION' | 'SUPPLIER_PROFILE_CATEGORY'; recordId?: string; matchedCategory?: string }>;
+      currentSupplyPromiseVerified: false;
+    }>;
+  }>;
+  limits: { candidatesPerLine: number; evidenceTruncated: boolean };
+}
+
+export interface RfqSourcingTimelineEvent {
+  id: string;
+  type: 'RFQ_STATUS' | 'INQUIRY_CREATED' | 'INQUIRY_SEND_CONFIRMED' | 'OUTBOUND_EMAIL' | 'INBOUND_EMAIL' | 'INBOUND_LINK_CONFIRMED'
+    | 'AI_TASK' | 'QUOTE_DRAFT' | 'QUOTE_DRAFT_REVISED' | 'QUOTE_DRAFT_CONFIRMED'
+    | 'SUPPLIER_QUOTE' | 'WINNER_SELECTED' | 'ACTION_TASK';
+  status: string;
+  occurredAt: string;
+  actor: { id: string; name: string; kind: string } | null;
+  rfqLineId?: string | null;
+  inquiryId?: string | null;
+  emailId?: string | null;
+  outboundEmailId?: string | null;
+  draftId?: string | null;
+  supplierQuoteId?: string | null;
+  actionTaskId?: string | null;
+  originalAiCandidates?: RfqSourcingAiCandidateSnapshot;
+  summary: string;
+}
+
+export interface RfqSourcingAiCandidateSnapshotItem {
+  itemKey: string | null;
+  inquiryItemId: string | null;
+  partNumber: string | null;
+  quantity: number | null;
+  quantityUnit: string | null;
+  unitPrice: number | null;
+  currency: string | null;
+  leadTimeDays: number | null;
+  leadTimeMinDays: number | null;
+  leadTimeMaxDays: number | null;
+  validUntil: string | null;
+  taxIncluded: boolean | null;
+  freightIncluded: boolean | null;
+  incoterm: string | null;
+}
+
+export interface RfqSourcingAiCandidateSnapshot {
+  available: boolean;
+  /** Known original candidate count; null means the legacy record did not store it. */
+  candidateCount: number | null;
+  truncated: boolean;
+  items: RfqSourcingAiCandidateSnapshotItem[];
+}
+
+export interface RfqSourcingTimelineCounts {
+  /** Counts are derived only from explicit InquiryItem/quote foreign keys and active RFQ line IDs; partNumber is never used to infer ownership. */
+  lines: Array<{
+    rfqLineId: string;
+    /** SMTP-accepted (or legacy sentAt/status=SENT) inquiry items without an exact DRAFT/quote item; unsent or uncertain delivery is excluded. */
+    pendingQuoteCount: number;
+    /** DRAFT payload items with a valid inquiryItemId that resolves to this RFQ's active line. */
+    pendingConfirmationCount: number;
+  }>;
+  /** Items that cannot safely be assigned to an active line, plus persisted quote/draft records needing human review. */
+  unassignedNeedsVerification: {
+    pendingQuoteCount: number;
+    pendingConfirmationCount: number;
+    supplierQuoteCount: number;
+    unreadableDraftCount: number;
+  };
+}
+
+export interface RfqSourcingWorkflowState {
+  inquiryId: string;
+  status: 'WAITING_REPLY' | 'WAITING_HUMAN' | 'PROCESSING' | 'FAILED' | 'CANCELLED' | 'NEEDS_VERIFICATION' | 'COMPLETED';
+  nextAction:
+    | 'VERIFY_DELIVERY' | 'VERIFY_REPLY_LINK' | 'VERIFY_RECORD' | 'REVIEW_DRAFT_BINDING'
+    | 'REVIEW_QUOTE_DRAFT' | 'CREATE_MANUAL_DRAFT' | 'WAIT_FOR_PROCESSING'
+    | 'FOLLOW_UP_SUPPLIER' | 'REVIEW_MISSING_ITEMS' | 'REVIEW_COMPARISON'
+    | 'REVIEW_BEFORE_RESEND' | 'STOP_CANCELLED_RFQ' | 'SEND_INQUIRY' | 'NO_ACTION';
+}
+
+export interface RfqSourcingLineWorkflowState extends Omit<RfqSourcingWorkflowState, 'inquiryId'> {
+  rfqLineId: string;
+  inquiryIds: string[];
+  /** Formal quote record coverage only; commercial and quantity sufficiency remain in the comparison view. */
+  quoteCoverage: {
+    currentFormalQuoteCount: number;
+    activeInquiryItemCount: number;
+    quotedInquiryItemCount: number;
+    basis: 'CURRENT_FORMAL_QUOTE_RECORDS_ONLY';
+    quantitySufficiencyAssessed: false;
+    purchasingCommitted: false;
+  };
+}
+
+export interface RfqSourcingTimeline {
+  rfqId: string;
+  events: RfqSourcingTimelineEvent[];
+  /** Derived view, not a second source of state. Optional for compatibility with servers predating the count projection. */
+  counts?: RfqSourcingTimelineCounts;
+  /** Per-Inquiry state rebuilt from persisted sourcing records; it is not an independent task store. */
+  workflowStates?: RfqSourcingWorkflowState[];
+  /** Per-demand-line stage derived from explicit item and current formal-quote links. */
+  lineWorkflowStates?: RfqSourcingLineWorkflowState[];
 }
 
 export interface PaginatedRFQs extends PaginatedList<RFQ[]> {
@@ -1441,6 +1583,10 @@ export const rfqApi = {
   getById: async (id: string) => {
     return request<RFQ>(`/rfqs/${id}`);
   },
+
+  getSourcingCandidates: async (id: string) => request<RfqSourcingCandidates>(`/rfqs/${id}/sourcing-candidates`),
+
+  getSourcingTimeline: async (id: string) => request<RfqSourcingTimeline>(`/rfqs/${id}/sourcing-timeline`),
 
   create: async (data: ApiPayload) => {
     return request<RFQ>('/rfqs', {
@@ -2453,6 +2599,10 @@ export const supplierQuoteApi = {
     });
   },
 
+  revise: async (id: string, data: SupplierQuoteRevisionInput) => request<SupplierQuoteItem>(`/supplier-quotes/${id}/revise`, {
+    method: 'POST', body: JSON.stringify(data),
+  }),
+
   compare: async (body: { rfqId?: string; rfqLineId?: string; inquiryItemId?: string; inquiryId?: string }) => {
     return request<SupplierQuoteCompareResult>('/supplier-quotes/compare', {
       method: 'POST',
@@ -2463,6 +2613,13 @@ export const supplierQuoteApi = {
   selectWinner: async (id: string) => {
     return request<SupplierQuoteItem>(`/supplier-quotes/${id}/select-winner`, {
       method: 'POST',
+    });
+  },
+
+  clearWinner: async (id: string, expectedUpdatedAt: string) => {
+    return request<SupplierQuoteItem>(`/supplier-quotes/${id}/clear-winner`, {
+      method: 'POST',
+      body: JSON.stringify({ expectedUpdatedAt }),
     });
   },
 };
@@ -2554,6 +2711,7 @@ export interface SupplierQuoteDraftItem {
   partNumber?: string | null;
   description?: string | null;
   quantity?: number | null;
+  quantityUnit?: string | null;
   unitPrice?: number | null;
   currency?: string | null;
   leadTimeDays?: number | null;
@@ -2641,6 +2799,41 @@ export interface SourcingAiTaskRecord {
   errorSummary: string | null;
   createdAt: string;
   startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  updatedAt: string;
+}
+
+export type SourcingActionTaskCreateInput =
+  | { action: 'SEND_INQUIRY'; targetId: string; content: { subject: string; textBody: string }; idempotencyKey: string }
+  | { action: 'SELECT_WINNER'; targetId: string; expectedUpdatedAt?: string; idempotencyKey: string };
+
+export interface SourcingActionTaskRecord {
+  id: string;
+  actorId: string;
+  action: 'SEND_INQUIRY' | 'SELECT_WINNER';
+  targetType: 'INQUIRY' | 'SUPPLIER_QUOTE';
+  targetId: string;
+  targetVersion: string;
+  version: number;
+  contentSnapshot: { subject: string; textBody: string } | null;
+  requestId: string;
+  idempotencyKey: string;
+  status: 'WAITING_HUMAN' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  attempt: number;
+  maxAttempts: number;
+  confirmedById: string | null;
+  confirmedAt: string | null;
+  retriedById: string | null;
+  retryHistory: Array<{ actorId: string; attempt: number; occurredAt: string }>;
+  cancelledById: string | null;
+  outboundEmailId: string | null;
+  result: { inquiryId: string; inquiryStatus: string; outboundEmailId: string; outboundEmailStatus: string; outboxEventId: string }
+    | { supplierQuoteId: string; rfqLineId: string | null; isWinner: boolean; status: string }
+    | null;
+  errorSummary: string | null;
+  outboundEmail: { id: string; status: string; deliveryIssue: string | null; sentAt: string | null; createdAt: string; updatedAt: string } | null;
+  createdAt: string;
   completedAt: string | null;
   cancelledAt: string | null;
   updatedAt: string;
@@ -2756,6 +2949,28 @@ export const sourcingAiTaskApi = {
   getById: async (id: string) => request<SourcingAiTaskRecord>(`/sourcing-ai-tasks/${encodeURIComponent(id)}`),
   retry: async (id: string) => request<SourcingAiTaskRecord>(`/sourcing-ai-tasks/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
   cancel: async (id: string) => request<SourcingAiTaskRecord>(`/sourcing-ai-tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  confirmDraft: async (id: string, payload: { expectedVersion: number }) => request<SupplierQuoteDraftConfirmResult>(`/sourcing-ai-tasks/${encodeURIComponent(id)}/confirm-draft`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+};
+
+export const sourcingActionTaskApi = {
+  create: async (payload: SourcingActionTaskCreateInput) => request<SourcingActionTaskRecord>('/sourcing-action-tasks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+  list: async (params: { limit?: number; targetId?: string } = {}) => {
+    const search = new URLSearchParams({ limit: String(params.limit ?? 50) });
+    if (params.targetId) search.set('targetId', params.targetId);
+    return request<SourcingActionTaskRecord[]>(`/sourcing-action-tasks?${search.toString()}`);
+  },
+  getById: async (id: string) => request<SourcingActionTaskRecord>(`/sourcing-action-tasks/${encodeURIComponent(id)}`),
+  confirm: async (id: string, expectedVersion: number) => request<SourcingActionTaskRecord>(`/sourcing-action-tasks/${encodeURIComponent(id)}/confirm`, {
+    method: 'POST', body: JSON.stringify({ expectedVersion }),
+  }),
+  retry: async (id: string) => request<SourcingActionTaskRecord>(`/sourcing-action-tasks/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
+  cancel: async (id: string) => request<SourcingActionTaskRecord>(`/sourcing-action-tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
 };
 
 export const fileApi = {
@@ -2957,8 +3172,15 @@ export interface AICallMetadata {
 
 export interface AIRfqExtraction {
   type: 'AOG' | 'STANDARD' | 'INQUIRY' | 'SPAM';
+  items: Array<{
+    partNumber: string;
+    quantity?: number | null;
+    quantityUnit?: string | null;
+    requiredDate?: string | null;
+    evidenceText: string | null;
+  }>;
   partNumbers: string[];
-  quantities: number[];
+  quantities: Array<number | null>;
   urgency: 'AOG' | 'URGENT' | 'STANDARD';
   aircraftType?: string;
   requiredDate?: string;
@@ -3852,7 +4074,9 @@ export interface InquiryItem {
   certificateRequired: boolean;
 }
 
-export type InquiryDeliveryStatus = 'draft' | 'pending' | 'queued' | 'sent' | 'failed' | 'skipped';
+export type InquiryDeliveryStatus =
+  | 'draft' | 'pending' | 'queued' | 'processing' | 'retrying' | 'smtp_accepted'
+  | 'needs_verification' | 'sent' | 'failed' | 'cancelled' | 'skipped';
 
 export interface Inquiry {
   id: string;
@@ -3869,6 +4093,11 @@ export interface Inquiry {
     status?: InquiryDeliveryStatus | string | null;
     error?: string | null;
     sentAt?: string | null;
+    outboxStatus?: string | null;
+    attemptCount?: number | null;
+    canCancel?: boolean;
+    manualVerificationRequired?: boolean;
+    manualVerificationMessage?: string | null;
   } | null;
   notes?: string;
   createdAt: string;
@@ -3909,6 +4138,10 @@ export const inquiryApi = {
       method: 'POST',
       ...(payload ? { body: JSON.stringify(payload) } : {}),
     });
+  },
+
+  cancelSend: async (id: string) => {
+    return request<Inquiry>(`/inquiries/${id}/cancel-send`, { method: 'POST' });
   },
 };
 

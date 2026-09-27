@@ -154,6 +154,10 @@ model User {
   confirmedInquiryEmailLinks    InquiryEmailLink[] @relation("InquiryEmailLinkConfirmer")
   confirmedSupplierQuoteDrafts  SupplierQuoteDraft[] @relation("SupplierQuoteDraftConfirmer")
   sourcingAiTasks               SourcingAiTask[] @relation("SourcingAiTaskActor")
+  sourcingActionTasksCreated    SourcingActionTask[] @relation("SourcingActionTaskActor")
+  sourcingActionTasksConfirmed  SourcingActionTask[] @relation("SourcingActionTaskConfirmer")
+  sourcingActionTasksRetried    SourcingActionTask[] @relation("SourcingActionTaskRetryActor")
+  sourcingActionTasksCancelled  SourcingActionTask[] @relation("SourcingActionTaskCanceller")
 
   @@map("users")
 }
@@ -774,6 +778,7 @@ model Inquiry {
   emailLinks InquiryEmailLink[]
   quoteDrafts SupplierQuoteDraft[]
   sourcingAiTasks SourcingAiTask[]
+  sourcingActionTasks SourcingActionTask[]
 
   @@index([rfqId, supplierId])
   @@map("inquiries")
@@ -800,6 +805,11 @@ model InquiryItem {
 
 model SupplierQuote {
   id            String    @id @default(uuid())
+  revisionOfId String? @unique
+  revisionRootId String?
+  revisionNumber Int @default(1)
+  supersededAt DateTime?
+  revisionReason String?
   sourceDraftId String?
   sourceDraftItemKey String?
   inquiryId    String?
@@ -810,6 +820,7 @@ model SupplierQuote {
   partNumber   String
   description   String?
   quantity     Int
+  quantityUnit String?
   unitPrice    Float
   totalPrice   Float
   // P1-04 monetary shadows. The Float columns remain the compatibility
@@ -836,9 +847,13 @@ model SupplierQuote {
   inquiryItem    InquiryItem?    @relation(fields: [inquiryItemId], references: [id], onDelete: SetNull)
   supplier Supplier  @relation(fields: [supplierId], references: [id])
   sourceDraft SupplierQuoteDraft? @relation(fields: [sourceDraftId], references: [id], onDelete: Restrict)
+  revisionOf SupplierQuote? @relation("SupplierQuoteRevision", fields: [revisionOfId], references: [id], onDelete: Restrict)
+  revisions SupplierQuote[] @relation("SupplierQuoteRevision")
+  sourcingActionTasks SourcingActionTask[] @relation("SourcingActionTaskTargetSupplierQuote")
   quotationLines QuotationLine[]
   purchaseCommitmentLines PurchaseCommitmentLine[]
 
+  @@index([revisionRootId, revisionNumber])
   @@index([rfqLineId, supplierId, status])
   @@index([inquiryItemId, supplierId, status])
   @@unique([sourceDraftId, sourceDraftItemKey])
@@ -1770,6 +1785,7 @@ model OutboundEmail {
   inquiry   Inquiry?     @relation(fields: [inquiryId], references: [id], onDelete: SetNull)
   customer  Customer?    @relation(fields: [customerId], references: [id])
   account   EmailAccount? @relation(fields: [accountId], references: [id])
+  sourcingActionTask SourcingActionTask?
 
   @@index([quotationId, purpose, status])
   @@index([inquiryId, purpose, createdAt])
@@ -1862,6 +1878,7 @@ model SourcingAiTask {
   idempotencyKey String
   draftId        String?
   errorSummary   String?
+  sourceFingerprint String?
   createdAt      DateTime @default(now())
   startedAt      DateTime?
   completedAt    DateTime?
@@ -1877,6 +1894,53 @@ model SourcingAiTask {
   @@index([actorId, createdAt])
   @@index([status, updatedAt])
   @@map("sourcing_ai_tasks")
+}
+
+// A server-owned action task separates AI/client suggestions from human-confirmed
+// business commands. targetId/targetVersion are polymorphic for bounded future
+// actions; targetInquiryId adds referential integrity for SEND_INQUIRY.
+model SourcingActionTask {
+  id                 String   @id @default(uuid())
+  actorId            String
+  action             String
+  targetType         String
+  targetId           String
+  targetInquiryId    String?
+  targetSupplierQuoteId String?
+  targetVersion      String
+  version            Int      @default(1)
+  contentSnapshotJson String?
+  requestId          String   @unique
+  idempotencyKey     String
+  status             String   @default("WAITING_HUMAN")
+  attempt            Int      @default(1)
+  maxAttempts        Int      @default(3)
+  confirmedById      String?
+  confirmedAt        DateTime?
+  retriedById        String?
+  retryHistoryJson   String   @default("[]")
+  cancelledById      String?
+  outboundEmailId    String?  @unique
+  resultJson         String?
+  errorSummary       String?
+  createdAt          DateTime @default(now())
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  updatedAt          DateTime @updatedAt
+
+  actor         User          @relation("SourcingActionTaskActor", fields: [actorId], references: [id], onDelete: Restrict)
+  confirmedBy   User?         @relation("SourcingActionTaskConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+  retriedBy     User?         @relation("SourcingActionTaskRetryActor", fields: [retriedById], references: [id], onDelete: SetNull)
+  cancelledBy   User?         @relation("SourcingActionTaskCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+  targetInquiry Inquiry?      @relation(fields: [targetInquiryId], references: [id], onDelete: Restrict)
+  targetSupplierQuote SupplierQuote? @relation("SourcingActionTaskTargetSupplierQuote", fields: [targetSupplierQuoteId], references: [id], onDelete: Restrict)
+  outboundEmail OutboundEmail? @relation(fields: [outboundEmailId], references: [id], onDelete: SetNull)
+
+  @@unique([actorId, idempotencyKey])
+  @@index([actorId, createdAt])
+  @@index([status, updatedAt])
+  @@index([targetType, targetId, createdAt])
+  @@map("sourcing_action_tasks")
 }
 
 // Request keys make client retries replayable without duplicating a committed
