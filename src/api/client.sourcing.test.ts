@@ -56,7 +56,7 @@ describe('sourcing reply API contracts', () => {
     await supplierQuoteDraftApi.update('draft-1', { expectedVersion: 2, payload });
     await supplierQuoteDraftApi.confirm('draft-1', { expectedVersion: 3 });
 
-    expect(fetchMock.mock.calls.map(([url, init]) => [new URL(String(url)).pathname, init?.method ?? 'GET'])).toEqual([
+    expect(fetchMock.mock.calls.map(([url, init]) => [new URL(String(url), 'http://localhost').pathname, init?.method ?? 'GET'])).toEqual([
       ['/api/supplier-quote-drafts', 'POST'],
       ['/api/supplier-quote-drafts/extract', 'POST'],
       ['/api/supplier-quote-drafts/draft%2F1', 'GET'],
@@ -93,7 +93,10 @@ describe('sourcing reply API contracts', () => {
     await sourcingAiTaskApi.cancel('task/1');
     await sourcingAiTaskApi.confirmDraft('task/1', { expectedVersion: 4 });
 
-    expect(fetchMock.mock.calls.map(([url, init]) => [new URL(String(url)).pathname + new URL(String(url)).search, init?.method ?? 'GET'])).toEqual([
+    expect(fetchMock.mock.calls.map(([url, init]) => {
+      const parsed = new URL(String(url), 'http://localhost');
+      return [parsed.pathname + parsed.search, init?.method ?? 'GET'];
+    })).toEqual([
       ['/api/sourcing-ai-tasks', 'POST'],
       ['/api/sourcing-ai-tasks?limit=25&emailId=email-1&inquiryId=inquiry-1', 'GET'],
       ['/api/sourcing-ai-tasks/task%2F1', 'GET'],
@@ -136,7 +139,10 @@ describe('sourcing reply API contracts', () => {
     await sourcingActionTaskApi.retry('action/1');
     await sourcingActionTaskApi.cancel('action/1');
 
-    expect(fetchMock.mock.calls.map(([url, init]) => [new URL(String(url)).pathname + new URL(String(url)).search, init?.method ?? 'GET'])).toEqual([
+    expect(fetchMock.mock.calls.map(([url, init]) => {
+      const parsed = new URL(String(url), 'http://localhost');
+      return [parsed.pathname + parsed.search, init?.method ?? 'GET'];
+    })).toEqual([
       ['/api/sourcing-action-tasks', 'POST'],
       ['/api/sourcing-action-tasks', 'POST'],
       ['/api/sourcing-action-tasks?limit=20&targetId=quote%2F1', 'GET'],

@@ -29,7 +29,8 @@ describe('supplier quote monetary shadows', () => {
   let app: express.Application;
   let prismaMock: {
     $transaction: ReturnType<typeof vi.fn>;
-    rFQ: { findUnique: ReturnType<typeof vi.fn> };
+    rFQ: { findUnique: ReturnType<typeof vi.fn>; findFirst: ReturnType<typeof vi.fn> };
+    auditLog: { create: ReturnType<typeof vi.fn> };
     rfqLine: { findUnique: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
     inquiry: { findUnique: ReturnType<typeof vi.fn> };
     inquiryItem: { findUnique: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
@@ -48,7 +49,8 @@ describe('supplier quote monetary shadows', () => {
     vi.resetModules();
     prismaMock = {
       $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(prismaMock)),
-      rFQ: { findUnique: vi.fn() },
+      rFQ: { findUnique: vi.fn(), findFirst: vi.fn() },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
       rfqLine: { findUnique: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
       inquiry: { findUnique: vi.fn() },
       inquiryItem: { findUnique: vi.fn(), findMany: vi.fn() },
@@ -246,6 +248,9 @@ describe('supplier quote monetary shadows', () => {
   });
 
   it('dual-writes the accepted enum when selecting a winner', async () => {
+    prismaMock.rFQ.findFirst.mockResolvedValue({
+      id: 'rfq-001', createdBy: 'admin-1', creator: { department: null },
+    });
     prismaMock.supplierQuote.findUnique.mockResolvedValue(createSupplierQuote({
       rfqId: 'rfq-001', rfqLineId: null, inquiryId: null, inquiryItemId: null,
       quantityUnit: 'EA',
@@ -269,6 +274,9 @@ describe('supplier quote monetary shadows', () => {
     expect(response.body.data).not.toHaveProperty('statusEnum');
     expect(prismaMock.supplierQuote.update).toHaveBeenCalledWith(expect.objectContaining({
       data: { isWinner: true, status: 'accepted', statusEnum: 'accepted' },
+    }));
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ userId: 'admin-1', action: 'APPROVE', resourceId: 'supplier-quote-001' }),
     }));
   });
 });
