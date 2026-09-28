@@ -362,6 +362,39 @@ it('compares each demand line separately and keeps its quote under that line', a
   expect(within(secondLine).getAllByRole('cell').some((cell) => cell.textContent?.includes('USD 240'))).toBe(true);
 });
 
+it('shows natural reply drafts side by side with exact-line isolation and missing-term prompts, without ranking them', async () => {
+  mocks.rfqs = [{ ...rfq, lines: [lineOne, { ...lineTwo, partNumber: 'PN-ALPHA' }] }];
+  const base = {
+    inquiryId: 'sent', inquiryItemId: 'item-1', draftId: 'draft-1', draftVersion: 1, emailId: 'reply-1',
+    source: 'ai' as const, partNumber: 'PN-ALPHA', quantity: null, quantityUnit: null,
+    unitPrice: 100, currency: 'CNY', leadTimeDays: null, leadTimeMinDays: null, leadTimeMaxDays: null,
+    condition: null, certificate: null, taxIncluded: true, freightIncluded: true, validUntil: null,
+  };
+  mocks.rfqApi.getSourcingTimeline.mockResolvedValue({ rfqId: 'rfq-1', events: [], pendingQuoteRows: [
+    { ...base, rfqLineId: 'line-1', supplierName: 'Pending QQ Supplier' },
+    { ...base, rfqLineId: 'line-1', inquiryId: 'hot', inquiryItemId: 'item-2', draftId: 'draft-2', emailId: 'reply-2', supplierName: 'Pending Hotmail Supplier', unitPrice: 150, taxIncluded: null, freightIncluded: null },
+    { ...base, rfqLineId: 'line-1', inquiryId: 'bms', inquiryItemId: 'item-3', draftId: 'draft-3', emailId: 'reply-3', supplierName: 'Pending BMS Supplier', unitPrice: 2560, leadTimeMinDays: 5, leadTimeMaxDays: 10 },
+    { ...base, rfqLineId: 'line-2', inquiryItemId: 'item-4', draftId: 'draft-4', supplierName: 'Other Line Supplier' },
+  ] });
+
+  render(<Sourcing />);
+  selectRfq();
+  const firstLine = await screen.findByRole('region', { name: '需求行 1 · PN-ALPHA' });
+  const secondLine = screen.getByRole('region', { name: '需求行 2 · PN-ALPHA' });
+  const pendingFirst = await within(firstLine).findByRole('region', { name: '需求行待核实报价' });
+  const pendingSecond = within(secondLine).getByRole('region', { name: '需求行待核实报价' });
+  expect(within(pendingFirst).getByText('Pending QQ Supplier')).toBeInTheDocument();
+  expect(within(pendingFirst).getByText('Pending Hotmail Supplier')).toBeInTheDocument();
+  expect(within(pendingFirst).getByText('Pending BMS Supplier')).toBeInTheDocument();
+  expect(within(pendingFirst).queryByText('Other Line Supplier')).toBeNull();
+  expect(within(pendingSecond).getByText('Other Line Supplier')).toBeInTheDocument();
+  expect(within(pendingFirst).getAllByText('非 USD，不能直接参与最低价')).toHaveLength(3);
+  expect(within(pendingFirst).getByText('5–10 天')).toBeInTheDocument();
+  expect(within(pendingFirst).getAllByText('可供数量待核')).toHaveLength(3);
+  expect(within(pendingFirst).queryByRole('button', { name: /中选/ })).toBeNull();
+  expect(within(pendingFirst).getAllByRole('button', { name: '核对原邮件与草稿' })).toHaveLength(3);
+});
+
 it('requires a person to confirm an eligible row-level winner and refreshes persisted comparison and timeline', async () => {
   render(<Sourcing />);
   selectRfq();

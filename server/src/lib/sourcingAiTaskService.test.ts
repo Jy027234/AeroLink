@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppError } from '../middleware/errorHandler.js';
 
 const { state, prismaMock, extractSupplierQuoteEmail } = vi.hoisted(() => {
   const state = {
@@ -161,6 +162,23 @@ describe('sourcing AI task worker service', () => {
 
     expect(state.tasks[0]).toMatchObject({ status: 'FAILED', errorSummary: 'AI 抽取失败，请稍后重试' });
     expect(JSON.stringify(state.tasks[0])).not.toContain('secret API key');
+    expect(state.drafts).toHaveLength(0);
+  });
+
+  it.each([
+    ['AI_PROVIDER_TIMEOUT', '模型服务请求超时，请稍后重新执行抽取'],
+    ['AI_PROVIDER_CONNECTION_ERROR', '模型服务连接失败，请检查网络后重新执行抽取'],
+  ] as const)('stores an actionable safe summary for %s', async (code, errorSummary) => {
+    state.tasks.push(taskRecord());
+    extractSupplierQuoteEmail.mockRejectedValueOnce(new AppError(
+      'private provider URL, prompt and credentials', 502, code,
+    ));
+
+    const { processPendingSourcingAiTasks } = await import('./sourcingAiTaskService.js');
+    await processPendingSourcingAiTasks(10);
+
+    expect(state.tasks[0]).toMatchObject({ status: 'FAILED', errorSummary });
+    expect(JSON.stringify(state.tasks[0])).not.toContain('private provider');
     expect(state.drafts).toHaveLength(0);
   });
 

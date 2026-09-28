@@ -152,6 +152,102 @@ describe('RFQ sourcing timeline', () => {
     }));
   });
 
+  it('projects current pending draft items by explicit inquiry item identity without leaking email evidence', async () => {
+    const createdAt = new Date('2026-09-25T08:08:00.000Z');
+    prismaMock.rFQ.findFirst.mockResolvedValue({
+      id: 'rfq-1', status: 'SOURCING', createdBy: 'sales-1', creator: { department: 'Sales' },
+      lines: [
+        { id: 'line-1', status: 'OPEN', quantity: 10 },
+        { id: 'line-2', status: 'OPEN', quantity: 10 },
+      ],
+    });
+    const inquiry = (id: string, supplierName: string, items: Array<{ id: string; rfqLineId: string; partNumber: string }>, quoteDrafts: Array<Record<string, unknown>>) => ({
+      id, status: 'SENT', sentAt: createdAt, createdAt, supplier: { name: supplierName }, items,
+      outboundEmails: [], emailLinks: [], sourcingAiTasks: [], quoteDrafts: quoteDrafts.map((draft) => ({
+        createdAt, confirmedAt: draft.status === 'CONFIRMED' ? createdAt : null, confirmedBy: null, ...draft,
+      })),
+    });
+    prismaMock.inquiry.findMany.mockResolvedValue([
+      inquiry('inquiry-a', 'Supplier A', [
+        { id: 'item-a1', rfqLineId: 'line-1', partNumber: 'PN-DUP' },
+        { id: 'item-a2', rfqLineId: 'line-2', partNumber: 'PN-DUP' },
+      ], [{
+        id: 'draft-a', version: 4, status: 'DRAFT', emailId: 'email-a', aiModel: 'fixture-model', aiMetadataJson: null,
+        payloadJson: JSON.stringify({ items: [
+          { inquiryItemId: 'item-a2', partNumber: 'PN-DUP', quantity: 2, quantityUnit: 'EA', unitPrice: 40, currency: 'EUR', leadTimeDays: 7 },
+          { inquiryItemId: 'item-a1', partNumber: 'PN-DUP', quantity: 1, unitPrice: 90, currency: 'EUR', condition: 'NE', certificate: '8130-3', freightIncluded: true, evidenceText: 'private supplier email excerpt', notes: 'private note' },
+        ] }),
+      }]),
+      inquiry('inquiry-b', 'Supplier B', [
+        { id: 'item-b1', rfqLineId: 'line-1', partNumber: 'PN-DUP' },
+      ], [{
+        id: 'draft-b', version: 2, status: 'DRAFT', emailId: 'email-b', aiModel: null, aiMetadataJson: null,
+        payloadJson: JSON.stringify({ items: [
+          { inquiryItemId: 'item-b1', partNumber: 'PN-DUP', quantity: 3, quantityUnit: 'EA', unitPrice: 1200, currency: 'CNY', leadTimeDays: 14, taxIncluded: false },
+        ] }),
+      }]),
+      inquiry('inquiry-c', 'Supplier C', [
+        { id: 'item-c1', rfqLineId: 'line-1', partNumber: 'PN-DUP' },
+      ], [{
+        id: 'draft-c', version: 1, status: 'DRAFT', emailId: 'email-c', aiModel: 'fixture-model', aiMetadataJson: null,
+        payloadJson: JSON.stringify({ items: [
+          { inquiryItemId: 'item-c1', partNumber: 'PN-DUP', quantity: 1, quantityUnit: 'EA', currency: 'USD', leadTimeMinDays: 10, leadTimeMaxDays: 20 },
+        ] }),
+      }]),
+      inquiry('inquiry-bad', 'Supplier Bad', [
+        { id: 'item-bad', rfqLineId: 'line-1', partNumber: 'PN-DUP' },
+      ], [{ id: 'draft-bad', version: 1, status: 'DRAFT', emailId: 'email-bad', payloadJson: '{not-json' }]),
+      inquiry('inquiry-confirmed', 'Supplier Confirmed', [
+        { id: 'item-confirmed', rfqLineId: 'line-1', partNumber: 'PN-DUP' },
+      ], [{
+        id: 'draft-confirmed', version: 1, status: 'CONFIRMED', emailId: 'email-confirmed',
+        payloadJson: JSON.stringify({ items: [
+          { inquiryItemId: 'item-confirmed', partNumber: 'PN-DUP', quantity: 1, quantityUnit: 'EA', unitPrice: 1, currency: 'USD', leadTimeDays: 1 },
+        ] }),
+      }]),
+      inquiry('inquiry-unbound', 'Supplier Unbound', [
+        { id: 'item-unbound', rfqLineId: 'line-1', partNumber: 'PN-DUP' },
+      ], [{
+        id: 'draft-unbound', version: 1, status: 'DRAFT', emailId: 'email-unbound', payloadJson: JSON.stringify({ items: [
+          { partNumber: 'PN-DUP', quantity: 1, quantityUnit: 'EA', unitPrice: 1, currency: 'USD', leadTimeDays: 1 },
+        ] }),
+      }]),
+    ]);
+
+    const response = await request(await buildApp()).get('/api/rfqs/rfq-1/sourcing-timeline');
+
+    expect(response.status).toBe(200);
+    const rows = response.body.data.pendingQuoteRows;
+    expect(rows).toHaveLength(4);
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        rfqLineId: 'line-1', inquiryId: 'inquiry-a', inquiryItemId: 'item-a1', draftId: 'draft-a',
+        draftVersion: 4, emailId: 'email-a', supplierName: 'Supplier A', source: 'ai',
+        partNumber: 'PN-DUP', quantity: 1, quantityUnit: null, unitPrice: 90, currency: 'EUR',
+        leadTimeDays: null, leadTimeMinDays: null, leadTimeMaxDays: null,
+        condition: 'NE', certificate: '8130-3', taxIncluded: null, freightIncluded: true, validUntil: null,
+      }),
+      expect.objectContaining({
+        rfqLineId: 'line-2', inquiryId: 'inquiry-a', inquiryItemId: 'item-a2',
+        partNumber: 'PN-DUP', currency: 'EUR', leadTimeDays: 7,
+      }),
+      expect.objectContaining({
+        rfqLineId: 'line-1', inquiryId: 'inquiry-b', draftId: 'draft-b', source: 'manual',
+        quantity: 3, unitPrice: 1200, currency: 'CNY', taxIncluded: false,
+      }),
+      expect.objectContaining({
+        rfqLineId: 'line-1', inquiryId: 'inquiry-c', draftId: 'draft-c', source: 'ai',
+        quantityUnit: 'EA', unitPrice: null, currency: 'USD', leadTimeDays: null,
+        leadTimeMinDays: 10, leadTimeMaxDays: 20,
+      }),
+    ]));
+    expect(rows.map((row: { supplierName: string }) => row.supplierName)).not.toContain('Supplier Bad');
+    expect(rows.map((row: { supplierName: string }) => row.supplierName)).not.toContain('Supplier Confirmed');
+    expect(rows.map((row: { supplierName: string }) => row.supplierName)).not.toContain('Supplier Unbound');
+    expect(JSON.stringify(rows)).not.toContain('private supplier email excerpt');
+    expect(JSON.stringify(rows)).not.toContain('private note');
+  });
+
   it('counts pending items only by explicit RFQ line/inquiry-item bindings and separates unassignable records', async () => {
     const at = new Date('2026-09-25T08:00:00.000Z');
     prismaMock.rFQ.findFirst.mockResolvedValue({

@@ -77,6 +77,7 @@ import type {
   RfqSourcingCandidates,
   RfqSourcingTimeline,
   RfqSourcingTimelineEvent,
+  RfqSourcingPendingQuoteRow,
   RfqSourcingWorkflowState,
   SupplierQuoteCompareResult,
   SupplierQuoteDraftPayload,
@@ -213,6 +214,25 @@ function getQuoteDraftConfirmIssues(payload: SupplierQuoteDraftPayload | null, t
     if (item.leadTimeMinDays != null || item.leadTimeMaxDays != null) issues.push(`${row}: ${tx('当前是交期区间，请填写单一交期。', 'lead time is a range; enter one single value.')}`);
     if (!Number.isInteger(item.leadTimeDays) || (item.leadTimeDays ?? -1) < 0) issues.push(`${row}: ${tx('请填写单一交期天数。', 'enter one lead time in days.')}`);
   });
+  return issues;
+}
+
+function getPendingQuoteIssues(row: RfqSourcingPendingQuoteRow, tx: (zh: string, en: string) => string) {
+  const issues: string[] = [];
+  if (row.unitPrice == null) issues.push(tx('未提供单价', 'Unit price missing'));
+  if (!row.currency) issues.push(tx('币种未说明', 'Currency missing'));
+  else if (row.currency.toUpperCase() !== 'USD') issues.push(tx('非 USD，不能直接参与最低价', 'Non-USD; excluded from lowest-price ranking'));
+  if (row.quantity == null) issues.push(tx('可供数量待核', 'Available quantity unverified'));
+  if (!row.quantityUnit) issues.push(tx('数量单位待核', 'Quantity unit unverified'));
+  if (row.leadTimeMinDays != null || row.leadTimeMaxDays != null) {
+    issues.push(tx('交期为区间，待确认单一交期', 'Lead time is a range; confirm a single value'));
+  } else if (row.leadTimeDays == null) {
+    issues.push(tx('交期未说明', 'Lead time missing'));
+  }
+  if (!row.condition) issues.push(tx('成色未说明', 'Condition missing'));
+  if (row.certificate == null) issues.push(tx('证书未说明', 'Certificate missing'));
+  if (row.taxIncluded == null) issues.push(tx('税费口径未知', 'Tax basis unknown'));
+  if (row.freightIncluded == null) issues.push(tx('运费口径未知', 'Freight basis unknown'));
   return issues;
 }
 
@@ -1954,6 +1974,9 @@ export function Sourcing() {
                     ? sourcingTimeline?.lineWorkflowStates?.find((state) => state.rfqLineId === line.rfqLineId)
                     : undefined;
                   const comparison = comparisonByLine[line.key];
+                  const pendingQuoteRows = line.rfqLineId
+                    ? (sourcingTimeline?.pendingQuoteRows ?? []).filter((row) => row.rfqLineId === line.rfqLineId)
+                    : [];
                   const quotes = comparison?.result?.quotes ?? [];
                   const comparisonSummary = comparison?.result?.summary;
                   const quoteCount = comparisonSummary?.totalQuotes ?? quotes.length;
@@ -2140,6 +2163,44 @@ export function Sourcing() {
                           </div>
                         </section>
 
+                        {pendingQuoteRows.length > 0 && (
+                          <section aria-label={tx('需求行待核实报价', 'Demand line pending quotes')} className="space-y-3 lg:col-span-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h4 className="font-semibold">{tx('待核实回邮报价', 'Pending reply quotes')}</h4>
+                              <Badge variant="outline">{pendingQuoteRows.length} {tx('条草稿报价行', 'draft quote rows')}</Badge>
+                            </div>
+                            <p className="text-xs text-amber-800">{tx('以下为邮件提取或人工录入的原始报价信息，尚未核实，不参与正式最低价、中选或数量覆盖。库存和需求数量不能自动视为供应商承诺的可供数量。', 'These extracted or manually entered reply terms are unverified. They do not enter formal lowest-price ranking, winner selection, or quantity coverage. Stock and requested quantities are not automatically committed offer quantities.')}</p>
+                            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                              {pendingQuoteRows.map((row, rowIndex) => {
+                                const issues = getPendingQuoteIssues(row, tx);
+                                const leadTime = row.leadTimeMinDays != null || row.leadTimeMaxDays != null
+                                  ? `${row.leadTimeMinDays ?? '?'}–${row.leadTimeMaxDays ?? '?'} ${tx('天', 'days')}`
+                                  : row.leadTimeDays != null ? `${row.leadTimeDays} ${tx('天', 'days')}` : '—';
+                                return (
+                                  <article key={`${row.draftId}-${row.inquiryItemId}-${rowIndex}`} className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-sm">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="font-medium">{row.supplierName}</p>
+                                      <Badge variant="outline">{row.source === 'ai' ? tx('AI 起稿', 'AI originated') : tx('人工起稿', 'Manually originated')} · v{row.draftVersion}</Badge>
+                                    </div>
+                                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                                      <dt className="text-muted-foreground">{tx('原币单价', 'Original unit price')}</dt><dd>{row.unitPrice == null ? '—' : `${row.currency || '?'} ${row.unitPrice.toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US')}`}</dd>
+                                      <dt className="text-muted-foreground">{tx('报价数量', 'Quoted quantity')}</dt><dd>{row.quantity == null ? '—' : `${row.quantity} ${row.quantityUnit || '?'}`}</dd>
+                                      <dt className="text-muted-foreground">{tx('交期', 'Lead time')}</dt><dd>{leadTime}</dd>
+                                      <dt className="text-muted-foreground">{tx('成色 / 证书', 'Condition / certificate')}</dt><dd>{row.condition || '—'} / {formatCommercialTerm(row.certificate)}</dd>
+                                      <dt className="text-muted-foreground">{tx('税费 / 运费', 'Tax / freight')}</dt><dd>{row.taxIncluded == null ? '—' : row.taxIncluded ? tx('含税', 'Included') : tx('未含税', 'Excluded')} / {row.freightIncluded == null ? '—' : row.freightIncluded ? tx('含运费', 'Included') : tx('未含运费', 'Excluded')}</dd>
+                                      <dt className="text-muted-foreground">{tx('有效期', 'Valid until')}</dt><dd>{row.validUntil || '—'}</dd>
+                                    </dl>
+                                    {issues.length > 0 && <ul className="list-disc space-y-0.5 pl-4 text-xs text-amber-900" aria-label={tx('待核实缺项', 'Pending quote issues')}>
+                                      {issues.map((issue, index) => <li key={`${row.draftId}-${row.inquiryItemId}-issue-${index}`}>{issue}</li>)}
+                                    </ul>}
+                                    <Button size="sm" variant="outline" onClick={() => setReviewInquiryId(row.inquiryId)}>{tx('核对原邮件与草稿', 'Review email and draft')}</Button>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        )}
+
                         <section aria-label={tx('需求行报价比较', 'Demand line quote comparison')} className="space-y-3">
                           <div className="flex items-center justify-between gap-2">
                             <h4 className="font-semibold">{tx('供应商报价比较', 'Supplier quote comparison')}</h4>
@@ -2171,7 +2232,7 @@ export function Sourcing() {
                               )}
                               {quotes.length === 0 ? (
                                 <p className="rounded border border-dashed p-3 text-sm text-gray-500">
-                                  {tx('此需求行尚无录入报价。', 'No supplier quotes have been recorded for this line.')}
+                                  {tx('此需求行尚无正式报价；待核实草稿不参与比价。', 'No formal supplier quotes exist for this line; pending drafts are excluded from comparison.')}
                                 </p>
                               ) : (
                                 <div className="overflow-x-auto rounded border">

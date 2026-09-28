@@ -103,6 +103,9 @@ const MAX_RFQ_SOURCING_LINES = 100;
 const MAX_RFQ_SOURCING_EVIDENCE_PER_SOURCE = 250;
 const MAX_RFQ_SOURCING_CATEGORY_PROFILES = 250;
 const MAX_RFQ_SOURCING_CANDIDATES_PER_LINE = 30;
+const MAX_RFQ_PENDING_QUOTE_ROWS = 500;
+const MAX_RFQ_PENDING_QUOTE_ITEMS_PER_DRAFT = 100;
+const MAX_RFQ_PENDING_QUOTE_PAYLOAD_LENGTH = 1_000_000;
 
 function normalizeSourcingToken(value: string | null | undefined): string {
   return value?.trim().toLocaleUpperCase() ?? '';
@@ -1149,6 +1152,94 @@ router.get(
     const counts = deriveSourcingCounts(rfq.id, rfq.lines, inquiries, quotes);
     const workflowStates = deriveInquiryWorkflowStates(rfq, inquiries, quotes, actionTasks);
     const lineWorkflowStates = deriveLineWorkflowStates(rfq, rfq.lines, inquiries, quotes, workflowStates);
+    const rfqLineIds = new Set(rfq.lines.map((line) => line.id));
+    const pendingQuoteRows: Array<{
+      rfqLineId: string;
+      inquiryId: string;
+      inquiryItemId: string;
+      draftId: string;
+      draftVersion: number;
+      emailId: string;
+      supplierName: string;
+      source: 'ai' | 'manual';
+      partNumber: string | null;
+      quantity: number | null;
+      quantityUnit: string | null;
+      unitPrice: number | null;
+      currency: string | null;
+      leadTimeDays: number | null;
+      leadTimeMinDays: number | null;
+      leadTimeMaxDays: number | null;
+      condition: string | null;
+      certificate: string | boolean | string[] | null;
+      taxIncluded: boolean | null;
+      freightIncluded: boolean | null;
+      validUntil: string | null;
+    }> = [];
+    const orderedInquiries = [...inquiries].sort((left, right) => left.id.localeCompare(right.id));
+    for (const inquiry of orderedInquiries) {
+      if (pendingQuoteRows.length >= MAX_RFQ_PENDING_QUOTE_ROWS) break;
+      const lineByInquiryItemId = new Map<string, string | null>();
+      const ambiguousItemIds = new Set<string>();
+      for (const item of inquiry.items) {
+        if (lineByInquiryItemId.has(item.id)) ambiguousItemIds.add(item.id);
+        else lineByInquiryItemId.set(item.id, item.rfqLineId);
+      }
+      const orderedDrafts = [...inquiry.quoteDrafts]
+        .filter((draft) => draft.status === 'DRAFT')
+        .sort((left, right) => left.id.localeCompare(right.id));
+      for (const draft of orderedDrafts) {
+        if (pendingQuoteRows.length >= MAX_RFQ_PENDING_QUOTE_ROWS) break;
+        if (!draft.payloadJson || draft.payloadJson.length > MAX_RFQ_PENDING_QUOTE_PAYLOAD_LENGTH) continue;
+        let payload: unknown;
+        try {
+          payload = JSON.parse(draft.payloadJson);
+        } catch {
+          continue;
+        }
+        if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { items?: unknown }).items)) continue;
+        const draftItems = (payload as { items: unknown[] }).items;
+        for (const candidate of draftItems.slice(0, MAX_RFQ_PENDING_QUOTE_ITEMS_PER_DRAFT)) {
+          if (pendingQuoteRows.length >= MAX_RFQ_PENDING_QUOTE_ROWS) break;
+          if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+          const item = candidate as Record<string, unknown>;
+          const inquiryItemId = typeof item.inquiryItemId === 'string' ? item.inquiryItemId : null;
+          if (!inquiryItemId || ambiguousItemIds.has(inquiryItemId)) continue;
+          const rfqLineId = lineByInquiryItemId.get(inquiryItemId);
+          if (!rfqLineId || !rfqLineIds.has(rfqLineId)) continue;
+          const certificate = typeof item.certificate === 'string' || typeof item.certificate === 'boolean'
+            ? item.certificate
+            : Array.isArray(item.certificate) && item.certificate.every((value) => typeof value === 'string')
+              ? item.certificate as string[]
+              : null;
+          const nullableNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+          const nullableString = (value: unknown) => typeof value === 'string' ? value : null;
+          pendingQuoteRows.push({
+            rfqLineId,
+            inquiryId: inquiry.id,
+            inquiryItemId,
+            draftId: draft.id,
+            draftVersion: draft.version,
+            emailId: draft.emailId,
+            supplierName: inquiry.supplier.name,
+            source: draft.aiModel || draft.aiMetadataJson ? 'ai' : 'manual',
+            partNumber: nullableString(item.partNumber),
+            quantity: nullableNumber(item.quantity),
+            quantityUnit: nullableString(item.quantityUnit),
+            unitPrice: nullableNumber(item.unitPrice),
+            currency: nullableString(item.currency),
+            leadTimeDays: nullableNumber(item.leadTimeDays),
+            leadTimeMinDays: nullableNumber(item.leadTimeMinDays),
+            leadTimeMaxDays: nullableNumber(item.leadTimeMaxDays),
+            condition: nullableString(item.condition),
+            certificate,
+            taxIncluded: typeof item.taxIncluded === 'boolean' ? item.taxIncluded : null,
+            freightIncluded: typeof item.freightIncluded === 'boolean' ? item.freightIncluded : null,
+            validUntil: nullableString(item.validUntil),
+          });
+        }
+      }
+    }
     const userActor = (user: { id: string; name: string } | null): TimelineActor =>
       user ? { id: user.id, name: user.name, kind: 'user' } : null;
     for (const entry of history) {
@@ -1364,7 +1455,7 @@ router.get(
       }
     }
     events.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id));
-    res.json({ success: true, data: { rfqId: rfq.id, events, counts, workflowStates, lineWorkflowStates } });
+    res.json({ success: true, data: { rfqId: rfq.id, events, counts, workflowStates, lineWorkflowStates, pendingQuoteRows } });
   }),
 );
 

@@ -302,7 +302,13 @@ async function executeClaimedSourcingAiTask(taskId: string, actorId: string, cla
         },
         { actorId, action: 'business.extract-supplier-quote-email' },
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'AI_PROVIDER_TIMEOUT') {
+        throw new SafeTaskFailure('模型服务请求超时，请稍后重新执行抽取');
+      }
+      if (error instanceof AppError && error.code === 'AI_PROVIDER_CONNECTION_ERROR') {
+        throw new SafeTaskFailure('模型服务连接失败，请检查网络后重新执行抽取');
+      }
       throw new SafeTaskFailure('AI 抽取失败，请稍后重试');
     }
     const payload = buildDraftPayload(extracted.items, snapshot.inquiry.items);

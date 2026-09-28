@@ -991,6 +991,31 @@ export interface RfqSourcingTimelineCounts {
   };
 }
 
+/** Human-review candidates only. These are not formal SupplierQuote records and must not enter ranking or winner actions. */
+export interface RfqSourcingPendingQuoteRow {
+  rfqLineId: string;
+  inquiryId: string;
+  inquiryItemId: string;
+  draftId: string;
+  draftVersion: number;
+  emailId: string;
+  supplierName: string;
+  source: 'ai' | 'manual';
+  partNumber: string | null;
+  quantity: number | null;
+  quantityUnit: string | null;
+  unitPrice: number | null;
+  currency: string | null;
+  leadTimeDays: number | null;
+  leadTimeMinDays: number | null;
+  leadTimeMaxDays: number | null;
+  condition: string | null;
+  certificate: unknown;
+  taxIncluded: boolean | null;
+  freightIncluded: boolean | null;
+  validUntil: string | null;
+}
+
 export interface RfqSourcingWorkflowState {
   inquiryId: string;
   status: 'WAITING_REPLY' | 'WAITING_HUMAN' | 'PROCESSING' | 'FAILED' | 'CANCELLED' | 'NEEDS_VERIFICATION' | 'COMPLETED';
@@ -1018,6 +1043,8 @@ export interface RfqSourcingLineWorkflowState extends Omit<RfqSourcingWorkflowSt
 export interface RfqSourcingTimeline {
   rfqId: string;
   events: RfqSourcingTimelineEvent[];
+  /** Explicitly bound, unconfirmed draft facts; never a formal comparison or winner source. */
+  pendingQuoteRows?: RfqSourcingPendingQuoteRow[];
   /** Derived view, not a second source of state. Optional for compatibility with servers predating the count projection. */
   counts?: RfqSourcingTimelineCounts;
   /** Per-Inquiry state rebuilt from persisted sourcing records; it is not an independent task store. */

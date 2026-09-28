@@ -59,4 +59,21 @@ describe('supplier quote extraction service', () => {
     await expect(extractSupplierQuoteEmail('Supplier quote', 'PN-1 USD 50 each', {}))
       .rejects.toThrow('报价依据无法在原邮件中定位');
   });
+
+  it('does not accept inquiry context as source evidence for supplier quote fields', async () => {
+    mocks.executeBuiltinAgent.mockResolvedValue({
+      output: JSON.stringify({ items: [{
+        partNumber: 'PN-1', quantity: 2, unitPrice: 100, currency: 'USD',
+        evidenceText: 'PN-1 quantity 2 at USD 100 each',
+      }] }),
+      model: 'fixture-model', promptVersion: 1,
+      agentId: 'builtin-supplier_quote_extraction', latency: 10,
+    });
+
+    await expect(extractSupplierQuoteEmail(
+      'Supplier response',
+      'Thanks for your inquiry. We will review it.',
+      { items: [{ partNumber: 'PN-1', quantity: 2, unitPrice: 100, currency: 'USD' }] },
+    )).rejects.toThrow('报价依据无法在原邮件中定位');
+  });
 });

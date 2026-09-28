@@ -60,6 +60,14 @@ export async function generateCompletion(
   } catch (error) {
     if (error instanceof AppError) throw error;
     const status = error instanceof OpenAI.APIError ? error.status : undefined;
+    if (error instanceof OpenAI.APIConnectionTimeoutError) {
+      logger.warn({ modelConfigId: model.id, failureKind: 'timeout' }, 'AI provider request failed');
+      throw new AppError('模型服务请求超时，请稍后重试', 502, 'AI_PROVIDER_TIMEOUT');
+    }
+    if (error instanceof OpenAI.APIConnectionError) {
+      logger.warn({ modelConfigId: model.id, failureKind: 'connection' }, 'AI provider request failed');
+      throw new AppError('模型服务连接失败，请检查网络后重试', 502, 'AI_PROVIDER_CONNECTION_ERROR');
+    }
     // Provider errors can include request headers, prompts, URLs or credentials.
     logger.warn({ modelConfigId: model.id, upstreamStatus: status }, 'AI provider request failed');
     throw new AppError(status === 401 || status === 403
