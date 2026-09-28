@@ -2164,7 +2164,7 @@ export function Sourcing() {
                         </section>
 
                         {pendingQuoteRows.length > 0 && (
-                          <section aria-label={tx('需求行待核实报价', 'Demand line pending quotes')} className="space-y-3 lg:col-span-2">
+                          <section aria-label={tx('需求行待核实报价', 'Demand line pending quotes')} className="space-y-3 lg:col-span-2 lg:order-last">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <h4 className="font-semibold">{tx('待核实回邮报价', 'Pending reply quotes')}</h4>
                               <Badge variant="outline">{pendingQuoteRows.length} {tx('条草稿报价行', 'draft quote rows')}</Badge>
