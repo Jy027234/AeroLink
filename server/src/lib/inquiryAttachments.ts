@@ -256,4 +256,3 @@ export async function persistInquiryAttachment(input: {
     await fs.unlink(input.sourcePath).catch(() => undefined);
   }
 }
-
