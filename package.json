@@ -34,7 +34,7 @@
   "overrides": {
     "@babel/core": "7.29.7",
     "js-yaml": "4.3.2",
-    "undici": "7.29.0",
+    "undici": "7.29.1",
     "ws": "8.21.0"
   },
   "dependencies": {
