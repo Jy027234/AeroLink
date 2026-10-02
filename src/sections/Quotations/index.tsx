@@ -55,7 +55,7 @@ import {
 import { useAcceptQuotation, useApproveQuotation, useCreateQuotation, useQuotation, useQuotations, useSendQuotation, useSubmitQuotation, useWithdrawQuotation } from '@/features/quotations';
 import { useRFQ, useRFQs } from '@/features/rfqs';
 import { useDispatchNotification, useDocumentTemplates } from '@/features/integrations';
-import { documentApi, inventoryAllocationApi, quotationApi, type LineInventoryAvailability } from '@/api/client';
+import { documentApi, inventoryAllocationApi, quotationApi, rfqApi, supplierQuoteApi, type LineInventoryAvailability, type SupplierQuoteItem } from '@/api/client';
 import { useCapabilityStore } from '@/store';
 import { PriceRecommendationPanel } from '@/components/PriceRecommendationPanel';
 import { InventoryAllocationPanel } from '@/components/InventoryAllocationPanel';
@@ -64,11 +64,12 @@ import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { downloadBlob } from '@/lib/downloadBlob';
 import { useListUrlNumberState, useListUrlStringState } from '@/lib/listUrlState';
-import type { DocumentTemplate, Quotation, QuotationLine, QuoteStatus, SaleType, Incoterm } from '@/types';
+import type { DocumentTemplate, Quotation, QuotationLine, QuoteStatus, RFQ, SaleType, Incoterm } from '@/types';
 import { CostSourceFields } from './CostSourceFields';
 import { LineQuotationComposer, type LineQuotationDraft } from './LineQuotationComposer';
 import { createLineQuotationDrafts } from './lineQuotationComposerModel';
 import { buildQuotationRevisionInput, remainingRevisionQuantity, validateRevisionIdentity } from './revisionModel';
+import { parseSourcingQuoteHandoff, type SourcingQuoteHandoff } from './sourcingHandoff';
 
 const statusConfig: Record<QuoteStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
   draft: { label: 'Draft', color: 'text-gray-600', bgColor: 'bg-gray-50', icon: FileText },
@@ -85,6 +86,20 @@ function numeric(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getSourcingQuoteHandoffIssue(quote: SupplierQuoteItem, rfqId: string, line: LineQuotationDraft | undefined) {
+  if (!line) return 'line_missing';
+  if (quote.rfqId !== rfqId || quote.rfqLineId !== line.rfqLineId || quote.partNumber !== line.partNumber) return 'source_mismatch';
+  if (!quote.isWinner || quote.supersededAt) return 'not_current_winner';
+  if (quote.currency !== 'USD' || quote.currencyStatus !== 'VERIFIED') return 'currency_unverified';
+  if (['rejected', 'expired'].includes(quote.status.toLowerCase())) return 'quote_inactive';
+  if (quote.quantity < line.quantity) return 'quantity_insufficient';
+  if (quote.validUntil) {
+    const validUntil = new Date(quote.validUntil).getTime();
+    if (!Number.isFinite(validUntil) || validUntil <= Date.now()) return 'quote_expired';
+  }
+  return null;
 }
 
 const quoteMoneyFormatter = new Intl.NumberFormat('en-US', {
@@ -165,7 +180,7 @@ function QuoteDetailDialog({
   onOpenHistory: (id: string) => void;
 }) {
   const { locale } = useTranslation();
-  const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
+  const tx = useCallback((zh: string, en: string) => (locale === 'zh-CN' ? zh : en), [locale]);
   const detailQuery = useQuotation(isOpen && quote ? quote.id : '');
   const detailQuote = detailQuery.data;
   const detailLoading = detailQuery.loading;
@@ -581,19 +596,23 @@ function QuoteDetailDialog({
   );
 }
 
-function CreateQuoteDialog({
+export function CreateQuoteDialog({
   isOpen,
   onClose,
   onCreated,
   initialQuote = null,
+  initialSourcingContext = null,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onCreated: (quote?: Quotation) => void;
   initialQuote?: Quotation | null;
+  initialSourcingContext?: SourcingQuoteHandoff | null;
 }) {
   const { locale } = useTranslation();
-  const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
+  const tx = useCallback((zh: string, en: string) => (locale === 'zh-CN' ? zh : en), [locale]);
+  const can = useCapabilityStore((state) => state.can);
+  const canReadSupplierQuote = can('supplier_quote.read');
   const { data: rfqs } = useRFQs();
   const { mutate: createQuotation } = useCreateQuotation();
   const revisionDetail = useQuotation(isOpen && initialQuote ? initialQuote.id : '');
@@ -636,12 +655,15 @@ function CreateQuoteDialog({
     commonNote: '',
   });
   const [lineDrafts, setLineDrafts] = useState<LineQuotationDraft[]>([]);
+  const [handoffRfq, setHandoffRfq] = useState<RFQ | null>(null);
+  const [sourcingHandoffStatus, setSourcingHandoffStatus] = useState<'idle' | 'loading' | 'ready' | 'invalid'>('idle');
+  const [sourcingHandoffMessage, setSourcingHandoffMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [revisionLegacyCostTouched, setRevisionLegacyCostTouched] = useState(false);
 
   const selectedRfq = isRevision
     ? (revisionRfqDetail.data ?? rfqs?.find((r) => r.id === formData.rfqId))
-    : rfqs?.find((r) => r.id === formData.rfqId);
+    : (handoffRfq?.id === formData.rfqId ? handoffRfq : rfqs?.find((r) => r.id === formData.rfqId));
   const isAog = selectedRfq?.urgency === 'aog';
   const isModernRfq = isRevision
     ? revisionQuote?.lineItemsMode === true
@@ -651,6 +673,76 @@ function CreateQuoteDialog({
   const revisionQuoteLineCount = revisionQuote?.lines?.length;
   const hasRevisionDetail = Boolean(revisionDetail.data);
   const revisionCustomerName = revisionQuote?.customerName || revisionRfqDetail.data?.customerName || '';
+
+  useEffect(() => {
+    if (!isOpen || isRevision || !initialSourcingContext) return;
+    let cancelled = false;
+    setSourcingHandoffStatus('loading');
+    setSourcingHandoffMessage('');
+    setHandoffRfq(null);
+    void (async () => {
+      try {
+        const rfq = await rfqApi.getById(initialSourcingContext.rfqId);
+        if (cancelled) return;
+        setHandoffRfq(rfq);
+        const line = rfq.lines?.find((candidate) => candidate.id === initialSourcingContext.rfqLineId && candidate.status === 'OPEN');
+        const initialLineDraft = rfq.lineItemsMode === true && line
+          ? createLineQuotationDrafts(rfq, [line.id])[0]
+          : undefined;
+        setFormData((previous) => ({
+          ...previous,
+          rfqId: rfq.id,
+          customerId: rfq.customerId || '',
+          customerName: rfq.customerName || '',
+          partNumber: line?.partNumber || rfq.partNumber,
+          quantity: line?.quantity || rfq.quantity,
+          unitPrice: 0,
+          costPrice: 0,
+          costSourceType: 'MANUAL',
+          costSourceId: '',
+          costSourceReason: '',
+          validityDays: rfq.urgency === 'aog' ? 1 : previous.validityDays,
+        }));
+        setLineDrafts(initialLineDraft ? [initialLineDraft] : []);
+        if (rfq.lineItemsMode !== true || !initialLineDraft) {
+          setSourcingHandoffStatus('invalid');
+          setSourcingHandoffMessage(tx('该 RFQ 没有可用的行级报价上下文；未带入成本来源。', 'This RFQ has no open line-first quotation context; no cost source was prefilled.'));
+          return;
+        }
+
+        const quote = await supplierQuoteApi.getById(initialSourcingContext.supplierQuoteId);
+        if (cancelled) return;
+        const issue = getSourcingQuoteHandoffIssue(quote, rfq.id, initialLineDraft);
+        if (issue) {
+          const messages: Record<string, [string, string]> = {
+            line_missing: ['需求行不存在或已关闭。', 'The demand line does not exist or is no longer open.'],
+            source_mismatch: ['所选报价与 RFQ、需求行或件号不匹配。', 'The supplier quote does not match the RFQ, demand line, or part.'],
+            not_current_winner: ['该报价已不是当前中选版本。', 'This quote is no longer the current selected version.'],
+            currency_unverified: ['报价币种尚未核实为 USD。', 'The quote currency is not verified as USD.'],
+            quote_inactive: ['报价已拒绝或失效。', 'The quote has been rejected or expired.'],
+            quantity_insufficient: ['供应商报价数量不足以覆盖该需求行。', 'The supplier quote does not cover the demand-line quantity.'],
+            quote_expired: ['供应商报价已过期或有效期无效。', 'The supplier quote is expired or has an invalid validity date.'],
+          };
+          const [messageZh, messageEn] = messages[issue] ?? ['未能核实该供应商报价。', 'Could not verify this supplier quote.'];
+          setSourcingHandoffStatus('invalid');
+          setSourcingHandoffMessage(tx(messageZh, messageEn));
+          return;
+        }
+        if (!canReadSupplierQuote) {
+          setSourcingHandoffStatus('invalid');
+          setSourcingHandoffMessage(tx('当前账号无权读取供应商报价，未带入成本来源。', 'Your account cannot read supplier quotes, so no cost source was prefilled.'));
+          return;
+        }
+        setLineDrafts([{ ...initialLineDraft, costSourceType: 'SUPPLIER_QUOTE', costSourceId: quote.id, costSourceReason: '', costPrice: quote.unitPrice }]);
+        setSourcingHandoffStatus('ready');
+      } catch (error) {
+        if (cancelled) return;
+        setSourcingHandoffStatus('invalid');
+        setSourcingHandoffMessage(error instanceof Error ? error.message : tx('无法读取所选需求或供应商报价。', 'Could not load the selected RFQ or supplier quote.'));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [canReadSupplierQuote, initialSourcingContext, isOpen, isRevision, tx]);
 
   useEffect(() => {
     if (!isOpen || !revisionQuote) return;
@@ -742,6 +834,11 @@ function CreateQuoteDialog({
 
   const handleRfqChange = (rfqId: string) => {
     if (isRevision) return;
+    if (initialSourcingContext && rfqId !== initialSourcingContext.rfqId) {
+      setHandoffRfq(null);
+      setSourcingHandoffStatus('idle');
+      setSourcingHandoffMessage('');
+    }
     const rfq = rfqs?.find((r) => r.id === rfqId);
     if (rfq) {
       setFormData((prev) => ({
@@ -992,14 +1089,28 @@ function CreateQuoteDialog({
                 <SelectValue placeholder={tx('请选择 RFQ', 'Select RFQ...')} />
               </SelectTrigger>
               <SelectContent>
-                {rfqs?.map((rfq) => (
+          {rfqs?.map((rfq) => (
                   <SelectItem key={rfq.id} value={rfq.id}>
                     {rfq.rfqNumber} · {rfq.lines?.length ? `${rfq.lines.length} lines` : rfq.partNumber} · {rfq.customerName} {rfq.urgency === 'aog' ? '(AOG)' : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
-            </Select>
+          </Select>
           </div>
+
+          {initialSourcingContext && sourcingHandoffStatus === 'loading' && (
+            <p className="text-sm text-muted-foreground" role="status">{tx('正在核对中选报价与需求行…', 'Verifying the selected supplier quote and demand line…')}</p>
+          )}
+          {initialSourcingContext && sourcingHandoffStatus === 'ready' && (
+            <p className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+              {tx('已将中选报价带入目标需求行的成本来源；客户售价仍需人工填写并确认。', 'The selected quote is prefilled as the cost source for this demand line; enter and review the customer sale price manually.')}
+            </p>
+          )}
+          {initialSourcingContext && sourcingHandoffStatus === 'invalid' && (
+            <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="alert">
+              {sourcingHandoffMessage} {tx('未预选成本来源；请重新选择有效来源或填写有依据的人工成本。', 'No cost source was preselected; choose a valid source or enter a supported manual cost.')}
+            </p>
+          )}
 
           {isAog && (
             <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 p-3 text-red-800 text-sm">
@@ -1028,7 +1139,7 @@ function CreateQuoteDialog({
               rfq={selectedRfq}
               value={lineDrafts}
               onChange={setLineDrafts}
-              disabled={isSubmitting}
+              disabled={isSubmitting || sourcingHandoffStatus === 'loading'}
             />
           ) : (
             <>
@@ -2095,6 +2206,7 @@ function WithdrawQuoteDialog({
 export function Quotations() {
   const { locale } = useTranslation();
   const can = useCapabilityStore((state) => state.can);
+  const [sourcingHandoff] = useState(() => parseSourcingQuoteHandoff(window.location.search));
   const canViewCost = can('quotation.view_cost');
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [activeTab, setActiveTab] = useListUrlStringState('status', 'all');
@@ -2125,7 +2237,7 @@ export function Quotations() {
   const [selectedQuote, setSelectedQuote] = useState<Quotation | null>(null);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(() => Boolean(sourcingHandoff && can('quotation.create')));
   const [isRevisionOpen, setIsRevisionOpen] = useState(false);
   const [isConvertOpen, setIsConvertOpen] = useState(false);
   const [isSendOpen, setIsSendOpen] = useState(false);
@@ -2740,6 +2852,7 @@ export function Quotations() {
       <CreateQuoteDialog
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
+        initialSourcingContext={sourcingHandoff}
         onCreated={() => {
           void refetchQuotes();
         }}

@@ -44,6 +44,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { AGENT_RUNTIME_EXECUTION_ENABLED } from '@/lib/agentOrchestrator';
 import { BusinessChatAssistant } from '@/components/BusinessAiAssistants';
+import { getAgentTaskSourcingHref } from './sourcingLink';
 
 const statusConfig = {
   pending: { label: 'Pending', color: 'text-gray-600', bg: 'bg-gray-50' },
@@ -925,6 +926,7 @@ function TaskTimeline({ task }: { task: AgentTask }) {
   const followUpLogs = allFollowUpLogs.filter((log) => log.taskId === task.id);
   const confirmationTimelineEntries = mergeConfirmationTimelineEntries(confirmationHistory, confirmationAuditLogs, locale);
   const followUpTimelineEntries = mergeFollowUpTimelineEntries(followUpQueue, followUpLogs, locale, tx);
+  const sourcingHref = getAgentTaskSourcingHref(task);
 
   useEffect(() => {
     setFollowUpOutcome(defaultFollowUpOutcome);
@@ -1162,6 +1164,14 @@ function TaskTimeline({ task }: { task: AgentTask }) {
             </Button>
           </div>
         </div>
+
+        {sourcingHref && (
+          <div className="mt-2 pl-11">
+            <Button asChild type="button" variant="link" size="sm" className="h-auto p-0" onClick={(event) => event.stopPropagation()}>
+              <a href={sourcingHref} onClick={(event) => event.stopPropagation()}>{tx('打开关联需求行', 'Open linked demand line')}</a>
+            </Button>
+          </div>
+        )}
 
         {!isExpanded && (completedSteps > 0 || task.type === 'manual_follow_up') && (
           <div className="mt-3 pl-11 flex flex-wrap gap-2">

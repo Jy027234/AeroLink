@@ -13,6 +13,8 @@ import {
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -38,70 +40,30 @@ import {
 } from "@/components/ui/select";
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
-import { supplierQuoteApi, type AnalyticsDataAvailability } from '@/api/client';
-import { useCapabilityStore } from '@/store';
+import { rfqApi, supplierQuoteApi, type AnalyticsDataAvailability, type SupplierQuoteItem, type SupplierQuoteComparedItem } from '@/api/client';
+import { useCapabilityStore, useUIStore } from '@/store';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 import { QuoteAnalysisAssistant } from '@/components/BusinessAiAssistants';
 
-interface SupplierQuote {
-  id: string;
-  rfqId: string | null;
-  inquiryId: string | null;
-  partNumber: string;
-  description: string | null;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
-  currency: string | null;
-  currencyStatus: 'VERIFIED' | 'HISTORICAL_UNVERIFIED';
-  leadTimeDays: number;
-  validUntil: string | null;
-  notes: string | null;
-  status: string;
-  isWinner: boolean;
-  ruleScore: number | null;
-  createdAt: string;
-  supplier: {
-    id: string;
-    name: string;
-    level: string;
-    performanceScore: number | null;
-    contactName: string | null;
-    contactEmail: string | null;
-  };
-}
+type SupplierQuote = SupplierQuoteItem;
+type ComparedQuote = SupplierQuoteComparedItem;
 
-interface ComparedQuote {
-  id: string;
-  partNumber: string;
-  supplier: {
-    id: string;
-    name: string;
-    level: string;
-    performanceScore: number | null;
-  };
-  unitPrice: number;
-  totalPrice: number;
-  currency: string | null;
-  currencyStatus: 'VERIFIED' | 'HISTORICAL_UNVERIFIED';
-  quantity: number;
-  leadTimeDays: number;
-  priceDiff: number | null;
-  isLowestPrice: boolean;
-  scoreComponents: {
-    price: number | null;
-    leadTime: number | null;
-    supplierPerformance: number | null;
-  };
-  ruleScore: number | null;
-  status: string;
-  isWinner: boolean;
-}
+type RevisionForm = {
+  quantity: string;
+  quantityUnit: string;
+  unitPrice: string;
+  leadTimeDays: string;
+  validUntil: string;
+  description: string;
+  notes: string;
+  revisionReason: string;
+};
 
 export function SupplierQuotes() {
   const { locale } = useTranslation();
   const can = useCapabilityStore((state) => state.can);
+  const navigateToPage = useUIStore((state) => state.setCurrentPage);
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
   const [quotes, setQuotes] = useState<SupplierQuote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +83,10 @@ export function SupplierQuotes() {
   } | null>(null);
   const [isComparing, setIsComparing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [revisingQuote, setRevisingQuote] = useState<SupplierQuote | null>(null);
+  const [revisionForm, setRevisionForm] = useState<RevisionForm | null>(null);
+  const [isRevising, setIsRevising] = useState(false);
+  const [revisionError, setRevisionError] = useState('');
   const pageSize = 10;
 
   useEffect(() => {
@@ -149,6 +115,12 @@ export function SupplierQuotes() {
     }
     setIsComparing(true);
     try {
+      const rfq = await rfqApi.getById(rfqId);
+      if ((rfq.lines?.filter((line) => line.status !== 'CANCELLED').length ?? 0) > 1) {
+        window.history.pushState({}, '', `/sourcing?rfqId=${encodeURIComponent(rfqId)}`);
+        navigateToPage('sourcing', { syncUrl: false });
+        return;
+      }
       const data = await supplierQuoteApi.compare({ rfqId });
       setCompareData(data);
       setIsCompareOpen(true);
@@ -170,6 +142,61 @@ export function SupplierQuotes() {
       console.error('Failed to select supplier:', error);
       toast.error(tx('选择供应商失败。', 'Failed to select supplier.'));
     }
+  };
+
+  const openRevision = (quote: SupplierQuote) => {
+    setRevisingQuote(quote);
+    setRevisionForm({
+      quantity: String(quote.quantity),
+      quantityUnit: quote.quantityUnit || '',
+      unitPrice: String(quote.unitPrice),
+      leadTimeDays: String(quote.leadTimeDays),
+      validUntil: quote.validUntil?.slice(0, 10) || '',
+      description: quote.description || '',
+      notes: quote.notes || '',
+      revisionReason: '',
+    });
+    setRevisionError('');
+  };
+
+  const submitRevision = async () => {
+    if (!revisingQuote || !revisionForm || isRevising) return;
+    const quantity = Number(revisionForm.quantity);
+    const unitPrice = Number(revisionForm.unitPrice);
+    const leadTimeDays = Number(revisionForm.leadTimeDays);
+    if (!revisingQuote.updatedAt || !Number.isSafeInteger(quantity) || quantity < 1
+      || !revisionForm.quantityUnit.trim() || !Number.isFinite(unitPrice) || unitPrice < 0
+      || !Number.isSafeInteger(leadTimeDays) || leadTimeDays < 0 || !revisionForm.revisionReason.trim()) {
+      setRevisionError(tx('请填写有效的数量、单位、价格、交期和修订原因。', 'Enter valid quantity, unit, price, lead time and a revision reason.'));
+      return;
+    }
+    setIsRevising(true);
+    setRevisionError('');
+    try {
+      await supplierQuoteApi.revise(revisingQuote.id, {
+        expectedUpdatedAt: revisingQuote.updatedAt,
+        revisionReason: revisionForm.revisionReason.trim(),
+        quantity,
+        quantityUnit: revisionForm.quantityUnit.trim().toUpperCase(),
+        unitPrice,
+        currency: 'USD',
+        leadTimeDays,
+        validUntil: revisionForm.validUntil ? new Date(`${revisionForm.validUntil}T23:59:59.000Z`).toISOString() : null,
+        description: revisionForm.description.trim() || null,
+        notes: revisionForm.notes.trim() || null,
+      });
+      setRevisingQuote(null);
+      setRevisionForm(null);
+      await loadQuotes();
+      toast.success(tx('已创建新版供应商报价；旧版与下游引用保留。', 'New quote revision created; the old version and downstream references remain.'));
+    } catch (error) {
+      setRevisionError(error instanceof Error ? error.message : tx('修订失败', 'Revision failed'));
+    } finally {
+      setIsRevising(false);
+    }
+  };
+  const updateRevisionForm = (field: keyof RevisionForm, value: string) => {
+    setRevisionForm((current) => current ? { ...current, [field]: value } : current);
   };
 
   const filteredQuotes = quotes.filter((quote) => {
@@ -281,12 +308,13 @@ export function SupplierQuotes() {
                 <TableHead>{tx('交期', 'Lead Time')}</TableHead>
                 <TableHead>{tx('规则得分', 'Rule Score')}</TableHead>
                 <TableHead>{tx('状态', 'Status')}</TableHead>
+                <TableHead>{tx('操作', 'Action')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredQuotes.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-12 text-gray-500">
+                  <TableCell colSpan={8} className="text-center py-12 text-gray-500">
                     <Inbox className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                     {tx('暂无供应商报价', 'No supplier quotes')}
                   </TableCell>
@@ -297,7 +325,7 @@ export function SupplierQuotes() {
                     <TableCell>
                       <div>
                         <p className="font-mono font-medium">{quote.partNumber}</p>
-                        <p className="text-xs text-gray-500">{quote.quantity} {tx('件', 'EA')}</p>
+                        <p className="text-xs text-gray-500">{quote.quantity} {quote.quantityUnit || tx('单位待核', 'Unit unknown')} · v{quote.revisionNumber ?? 1}</p>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -342,7 +370,7 @@ export function SupplierQuotes() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {quote.isWinner ? (
+                      {quote.supersededAt ? <Badge variant="outline">{tx('已被新版替代', 'Superseded')}</Badge> : quote.isWinner ? (
                         <Badge className="bg-green-100 text-green-700">
                           <Trophy className="w-3 h-3 mr-1" />
                           {tx('已中选', 'Selected')}
@@ -352,6 +380,12 @@ export function SupplierQuotes() {
                           {quote.status === 'pending' ? tx('待处理报价', 'Pending Quote') : quote.status}
                         </Badge>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {quote.rfqId && <Button asChild type="button" variant="link" size="sm"><a href={`/sourcing?rfqId=${encodeURIComponent(quote.rfqId)}${quote.rfqLineId ? `&rfqLineId=${encodeURIComponent(quote.rfqLineId)}` : ''}&supplierQuoteId=${encodeURIComponent(quote.id)}`}>{tx('查看需求行', 'Open demand line')}</a></Button>}
+                        {can('supplier_quote.update') && !quote.supersededAt && <Button type="button" variant="outline" size="sm" onClick={() => openRevision(quote)}>{tx('修订报价', 'Revise')}</Button>}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -375,6 +409,27 @@ export function SupplierQuotes() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(revisingQuote)} onOpenChange={(open) => { if (!open && !isRevising) { setRevisingQuote(null); setRevisionForm(null); } }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader><DialogTitle>{tx('修订供应商报价', 'Revise supplier quote')} · {revisingQuote?.partNumber}</DialogTitle></DialogHeader>
+          {revisionForm && <div className="space-y-4">
+            <p className="text-sm text-amber-800">{tx('提交将创建新版本，旧版及其已有下游引用保留；新版不会自动中选。', 'Submitting creates a new version. The old version and its downstream references remain; the new version is not auto-selected.')}</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1"><Label htmlFor="revision-quantity">{tx('数量', 'Quantity')}</Label><Input id="revision-quantity" type="number" min="1" step="1" value={revisionForm.quantity} onChange={(event) => updateRevisionForm('quantity', event.target.value)} /></div>
+              <div className="space-y-1"><Label htmlFor="revision-unit">{tx('单位', 'Unit')}</Label><Input id="revision-unit" maxLength={80} value={revisionForm.quantityUnit} onChange={(event) => updateRevisionForm('quantityUnit', event.target.value)} placeholder="EA" /></div>
+              <div className="space-y-1"><Label htmlFor="revision-price">{tx('USD 单价', 'USD unit price')}</Label><Input id="revision-price" type="number" min="0" step="any" value={revisionForm.unitPrice} onChange={(event) => updateRevisionForm('unitPrice', event.target.value)} /></div>
+              <div className="space-y-1"><Label htmlFor="revision-lead">{tx('交期（天）', 'Lead time (days)')}</Label><Input id="revision-lead" type="number" min="0" step="1" value={revisionForm.leadTimeDays} onChange={(event) => updateRevisionForm('leadTimeDays', event.target.value)} /></div>
+              <div className="space-y-1"><Label htmlFor="revision-valid">{tx('有效期至', 'Valid until')}</Label><Input id="revision-valid" type="date" value={revisionForm.validUntil} onChange={(event) => updateRevisionForm('validUntil', event.target.value)} /></div>
+              <div className="space-y-1"><Label htmlFor="revision-description">{tx('说明', 'Description')}</Label><Input id="revision-description" value={revisionForm.description} onChange={(event) => updateRevisionForm('description', event.target.value)} /></div>
+            </div>
+            <div className="space-y-1"><Label htmlFor="revision-notes">{tx('备注', 'Notes')}</Label><Textarea id="revision-notes" value={revisionForm.notes} onChange={(event) => updateRevisionForm('notes', event.target.value)} /></div>
+            <div className="space-y-1"><Label htmlFor="revision-reason">{tx('修订原因', 'Revision reason')} *</Label><Textarea id="revision-reason" value={revisionForm.revisionReason} onChange={(event) => updateRevisionForm('revisionReason', event.target.value)} /></div>
+            {revisionError && <p role="alert" className="text-sm text-red-700">{revisionError}</p>}
+            <DialogFooter><Button type="button" variant="outline" onClick={() => { setRevisingQuote(null); setRevisionForm(null); }} disabled={isRevising}>{tx('取消', 'Cancel')}</Button><Button type="button" onClick={() => void submitRevision()} disabled={isRevising}>{isRevising ? tx('提交中…', 'Submitting…') : tx('创建新版本', 'Create revision')}</Button></DialogFooter>
+          </div>}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isCompareOpen} onOpenChange={setIsCompareOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -477,7 +532,7 @@ export function SupplierQuotes() {
                               <p className="text-2xl font-bold text-purple-600">{quote.ruleScore?.toFixed(0) || '—'}</p>
                               <p className="text-xs text-gray-500">{tx('规则得分', 'Rule Score')}</p>
                             </div>
-                            {!quote.isWinner && quote.currencyStatus === 'VERIFIED' && can('supplier_quote.update') && (
+                            {!quote.isWinner && quote.currencyStatus === 'VERIFIED' && quote.comparisonEligibility?.eligible === true && can('supplier_quote.update') && (
                               <Button
                                 size="sm"
                                 className="bg-green-600 hover:bg-green-700"

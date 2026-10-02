@@ -295,8 +295,35 @@ export function applyTransactionLineContract(paths, core) {
   createOperation.parameters ??= [];
   if (!createOperation.parameters.some(parameter => parameter.name === 'Idempotency-Key')) createOperation.parameters.push({ name: 'Idempotency-Key', in: 'header', required: false, schema: str });
   const send = paths['/api/inquiries/{id}/send'].post;
-  send.deprecated = true;
-  send.description = 'No dispatch channel is implemented. Returns 409 MANUAL_WORKFLOW_REQUIRED without changing status or sentAt.';
-  delete send.responses['200'];
-  send.responses['409'] = { description: 'Manual supplier contact required; inquiry has not been sent.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } };
+  delete send.deprecated;
+  send.description = 'Queues one supplier inquiry email through the transactional outbox. A 202 response means queued, not delivered. SMTP acceptance is not confirmation that the supplier received or read the message. Inquiry delivery errors with an uncertain outcome require manual verification and are not safely replayable.';
+  send.parameters ??= [];
+  if (!send.parameters.some(parameter => parameter.name === 'Idempotency-Key')) send.parameters.push({ name: 'Idempotency-Key', in: 'header', required: false, schema: str });
+
+  const cancelSend = paths['/api/inquiries/{id}/cancel-send'].post;
+  cancelSend.description = 'Cancels a queued inquiry only when its EMAIL Outbox event is still PENDING with attemptCount 0 and no worker lease. A conditional update races safely with worker claiming. SMTP-started, retrying, failed, or otherwise uncertain deliveries cannot be cancelled or replayed here and require manual verification. The original outbound email snapshot is retained.';
+  cancelSend.requestBody = undefined;
+  cancelSend.responses = {
+    '200': { $ref: '#/components/responses/Inquiry' },
+    '403': { $ref: '#/components/responses/Error' },
+    '404': { $ref: '#/components/responses/Error' },
+    '409': { $ref: '#/components/responses/Error' },
+  };
+
+  inquiry.deliveryStatus = {
+    type: 'string',
+    enum: ['draft', 'queued', 'processing', 'retrying', 'smtp_accepted', 'needs_verification', 'failed', 'cancelled', 'skipped'],
+    readOnly: true,
+    description: 'SMTP acceptance is not proof of supplier delivery or reading. needs_verification means replay is unsafe until a person checks the delivery outcome.',
+  };
+  const latestEmail = inquiry.latestOutboundEmail.oneOf[0];
+  latestEmail.properties.status.enum = ['pending', 'sending', 'sent', 'failed', 'needs_verification', 'withdrawn'];
+  Object.assign(latestEmail.properties, {
+    outboxStatus: { type: ['string', 'null'], enum: ['pending', 'processing', 'retrying', 'delivered', 'failed', 'cancelled', null], readOnly: true },
+    attemptCount: { type: ['integer', 'null'], minimum: 0, readOnly: true },
+    canCancel: { type: 'boolean', readOnly: true, description: 'True only before any Worker claim or SMTP attempt.' },
+    manualVerificationRequired: { type: 'boolean', readOnly: true },
+    manualVerificationMessage: { type: ['string', 'null'], readOnly: true },
+  });
+  latestEmail.required.push('outboxStatus', 'attemptCount', 'canCancel', 'manualVerificationRequired', 'manualVerificationMessage');
 }

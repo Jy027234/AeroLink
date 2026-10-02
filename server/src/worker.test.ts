@@ -5,12 +5,14 @@ const processPendingOutboxEvents = vi.fn(async () => ({ processed: 0, delivered:
 const pruneExpiredIdempotencyRecords = vi.fn(async () => undefined);
 const processDueEmailSyncs = vi.fn(async () => ({ processed: 0, succeeded: 0, failed: 0 }));
 const expireUnassignedAllocations = vi.fn(async () => ({ scanned: 0, releasedAllocations: 0, releasedQuantity: 0 }));
+const processPendingSourcingAiTasks = vi.fn(async () => ({ recovered: 0, processed: 0 }));
 
 vi.mock('./lib/webhookService.js', () => ({ processPendingWebhookRetries }));
 vi.mock('./lib/outboxService.js', () => ({ processPendingOutboxEvents }));
 vi.mock('./lib/idempotencyService.js', () => ({ pruneExpiredIdempotencyRecords }));
 vi.mock('./lib/inboundEmailSyncService.js', () => ({ processDueEmailSyncs }));
 vi.mock('./modules/inventoryQuality/allocationExpiry.js', () => ({ expireUnassignedAllocations }));
+vi.mock('./lib/sourcingAiTaskService.js', () => ({ processPendingSourcingAiTasks }));
 
 describe('standalone worker lifecycle', () => {
   afterEach(() => {
@@ -27,6 +29,7 @@ describe('standalone worker lifecycle', () => {
       idempotencyIntervalMs: 500,
       emailSyncIntervalMs: 250,
       allocationExpiryIntervalMs: 250,
+      sourcingAiTaskIntervalMs: 250,
       batchSize: 7,
     });
 
@@ -39,6 +42,7 @@ describe('standalone worker lifecycle', () => {
     expect(pruneExpiredIdempotencyRecords).toHaveBeenCalledTimes(1);
     expect(processDueEmailSyncs).toHaveBeenCalledWith(7, expect.stringMatching(/^worker-/));
     expect(expireUnassignedAllocations).toHaveBeenCalledWith({ limit: 7 });
+    expect(processPendingSourcingAiTasks).toHaveBeenCalledWith(7);
 
     await vi.advanceTimersByTimeAsync(500);
     expect(processPendingWebhookRetries).toHaveBeenCalledTimes(6);
@@ -46,6 +50,7 @@ describe('standalone worker lifecycle', () => {
     expect(pruneExpiredIdempotencyRecords).toHaveBeenCalledTimes(2);
     expect(processDueEmailSyncs).toHaveBeenCalledTimes(3);
     expect(expireUnassignedAllocations).toHaveBeenCalledTimes(3);
+    expect(processPendingSourcingAiTasks).toHaveBeenCalledTimes(3);
 
     await runtime.stop();
     await vi.advanceTimersByTimeAsync(1_000);
@@ -53,6 +58,7 @@ describe('standalone worker lifecycle', () => {
     expect(processPendingOutboxEvents).toHaveBeenCalledTimes(3);
     expect(pruneExpiredIdempotencyRecords).toHaveBeenCalledTimes(2);
     expect(processDueEmailSyncs).toHaveBeenCalledTimes(3);
+    expect(processPendingSourcingAiTasks).toHaveBeenCalledTimes(3);
   });
 
   it('waits for in-flight work during graceful stop', async () => {
@@ -82,6 +88,34 @@ describe('standalone worker lifecycle', () => {
     expect(stopped).toBe(true);
   });
 
+  it('tracks sourcing AI work in-flight and waits for it during graceful stop', async () => {
+    vi.useFakeTimers();
+    let release!: (value: { recovered: number; processed: number }) => void;
+    const pending = new Promise<{ recovered: number; processed: number }>((resolve) => {
+      release = resolve;
+    });
+    processPendingSourcingAiTasks.mockImplementationOnce(() => pending);
+    const { startWorker } = await import('./worker.js');
+    const runtime = startWorker({
+      sourcingAiTaskIntervalMs: 1_000,
+      shutdownTimeoutMs: 5_000,
+      runWebhookRetries: false,
+      runIdempotencyCleanup: false,
+      runEmailSync: false,
+      runAllocationExpiry: false,
+      runSourcingAiTasks: true,
+    });
+
+    let stopped = false;
+    const stopping = runtime.stop().then(() => { stopped = true; });
+    await Promise.resolve();
+    expect(processPendingSourcingAiTasks).toHaveBeenCalledTimes(1);
+    expect(stopped).toBe(false);
+    release({ recovered: 0, processed: 1 });
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+
   it('supports the API socket-only consumer without starting worker-owned queues', async () => {
     vi.useFakeTimers();
     const { startWorker } = await import('./worker.js');
@@ -93,6 +127,7 @@ describe('standalone worker lifecycle', () => {
       runIdempotencyCleanup: false,
       runEmailSync: false,
       runAllocationExpiry: false,
+      runSourcingAiTasks: false,
     });
 
     expect(processPendingOutboxEvents).toHaveBeenCalledWith(5, expect.stringMatching(/^worker-/), {
@@ -102,6 +137,7 @@ describe('standalone worker lifecycle', () => {
     expect(pruneExpiredIdempotencyRecords).not.toHaveBeenCalled();
     expect(processDueEmailSyncs).not.toHaveBeenCalled();
     expect(expireUnassignedAllocations).not.toHaveBeenCalled();
+    expect(processPendingSourcingAiTasks).not.toHaveBeenCalled();
 
     await runtime.stop();
     await vi.advanceTimersByTimeAsync(500);

@@ -45,7 +45,7 @@ function Suggestion<T extends { ai: AICallMetadata }>({ label, request, children
 }
 
 export function RfqExtractionAssistant({ emailId, onApply }: {
-  emailId: string; onApply: (result: AIRfqExtraction, lineIndex: number) => void;
+  emailId: string; onApply: (result: AIRfqExtraction) => void;
 }) {
   const can = useCapabilityStore((state) => state.can);
   const { locale } = useTranslation();
@@ -54,12 +54,14 @@ export function RfqExtractionAssistant({ emailId, onApply }: {
   return <Suggestion key={emailId} label={tx('AI 提取需求建议', 'Extract with AI')} request={() => aiApi.parseEmailById(emailId)}>
     {(result) => <>
       <p className="text-sm">{tx('邮件类型', 'Type')}：{result.type} · {tx('紧急程度', 'Urgency')}：{result.urgency}</p>
-      {!result.partNumbers.length && <p className="text-sm">{tx('未识别出明确件号，请人工确认邮件。', 'No confirmed part number found. Please review the email.')}</p>}
-      {result.partNumbers.length > 1 && <p className="text-sm">{tx('识别到多项需求。当前卡片一次创建一项，选择后请在需求单详情中补齐其他明细。', 'Multiple items found. This card creates one item; add the remaining lines in the RFQ details.')}</p>}
-      {result.partNumbers.map((part, index) => <div key={`${part}-${index}`} className="flex items-center justify-between gap-2 text-sm">
-        <span>{part} × {result.quantities[index]}</span>
-        <Button type="button" size="sm" variant="secondary" onClick={() => onApply(result, index)}>{tx('填入待确认卡片', 'Apply to draft')}</Button>
+      {!result.items.length && <p className="text-sm">{tx('未识别出明确件号，请人工确认邮件。', 'No confirmed part number found. Please review the email.')}</p>}
+      {result.items.map((item, index) => <div key={`${item.partNumber}-${index}`} className="rounded border p-2 text-sm">
+        <p>{item.partNumber} × {item.quantity ?? tx('待确认数量', 'Quantity needed')} {item.quantityUnit || ''} · {item.requiredDate || tx('日期待确认', 'Date needed')}</p>
+        {item.evidenceText && <p className="mt-1 text-xs text-muted-foreground">{tx('原文依据', 'Source')}: {item.evidenceText}</p>}
       </div>)}
+      {result.items.length > 0 && <Button type="button" size="sm" variant="secondary" onClick={() => onApply(result)}>
+        {tx('将全部需求行填入草稿', 'Apply all items to draft')}
+      </Button>}
     </>}
   </Suggestion>;
 }

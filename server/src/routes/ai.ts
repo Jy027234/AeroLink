@@ -6,6 +6,7 @@ import { assertCapability, requireCapability } from '../middleware/capability.js
 import { classifyRFQEmail } from '../lib/aiService.js';
 import { executeBuiltinAgent } from '../lib/aiAgentExecution.js';
 import { buildRfqReadScope } from '../lib/rfqAccess.js';
+import { compareRfqSupplierQuotesDeterministically } from './supplierQuotes.js';
 import prisma from '../lib/prisma.js';
 
 const router = Router();
@@ -46,25 +47,113 @@ router.post('/analyze-quotes', requireCapability('supplier_quote', 'read'), requ
     const rfq = await prisma.rFQ.findFirst({
       where: { AND: [{ id: input.rfqId }, buildRfqReadScope(req.user!)] },
       select: { rfqNumber: true, partNumber: true, quantity: true, requiredDate: true, urgency: true,
-        lines: { where: { status: { not: 'CANCELLED' } }, select: { lineNo: true, partNumber: true, quantity: true } } },
+        lines: { where: { status: { not: 'CANCELLED' } }, select: { id: true, lineNo: true, partNumber: true, quantity: true } } },
     });
     if (!rfq) throw new AppError('需求单不存在或无权访问', 404, 'RESOURCE_NOT_FOUND');
-    const quotes = await prisma.supplierQuote.findMany({
-      where: { rfqId: input.rfqId }, take: 101, orderBy: { createdAt: 'desc' },
-      select: { id: true, partNumber: true, quantity: true, unitPriceDecimal: true, unitPrice: true,
-        totalPriceDecimal: true, totalPrice: true, currency: true, currencyReviewStatus: true,
-        leadTimeDays: true, validUntil: true, status: true, supplier: { select: { name: true } } },
+    const deterministic = await compareRfqSupplierQuotesDeterministically(input.rfqId, { activeLinesOnly: true });
+    const comparisonData = deterministic.data as Record<string, any>;
+    const lineGroups: Array<{
+      rfqLineId: string | null;
+      lineNo: number | null;
+      partNumber: string | null;
+      comparison: Record<string, any>;
+    }> = Array.isArray(comparisonData.lineGroups)
+      ? comparisonData.lineGroups
+      : [{
+        rfqLineId: typeof comparisonData.rfqLineId === 'string' ? comparisonData.rfqLineId : null,
+        lineNo: rfq.lines[0]?.lineNo ?? null,
+        partNumber: rfq.lines[0]?.partNumber ?? rfq.partNumber ?? null,
+        comparison: comparisonData,
+      }];
+    if (lineGroups.length === 0) {
+      throw new AppError('需求单没有可解释的需求行', 409, 'STATE_CONFLICT');
+    }
+    const totalQuoteCount = lineGroups.reduce((sum, line) => sum + (line.comparison.quotes?.length ?? 0), 0);
+    if (totalQuoteCount > 100) throw new AppError('同一需求单报价超过 100 条，请先整理后分析', 400);
+
+    const explainedLines = lineGroups.map((line) => ({
+      rfqLineId: line.rfqLineId,
+      lineNo: line.lineNo,
+      requestedPartNumber: line.partNumber,
+      requiredQuantity: line.comparison.summary?.requiredQuantity ?? rfq.quantity ?? null,
+      requiredQuantityUnit: line.comparison.requiredQuantityUnit ?? null,
+      comparisonStatus: line.comparison.metadata?.status ?? 'unavailable',
+      reason: line.comparison.metadata?.reason ?? null,
+      partNumberGroups: (line.comparison.partNumberGroups ?? []).map((partGroup: Record<string, any>) => ({
+        partNumber: partGroup.partNumber,
+        comparisonStatus: partGroup.metadata?.status ?? 'unavailable',
+        reason: partGroup.metadata?.reason ?? null,
+        commercialBasisGroups: (partGroup.commercialBasisGroups ?? []).map((basis: Record<string, any>) => {
+          let ruleOrder = 0;
+          return {
+            key: basis.key,
+            label: basis.label,
+            terms: basis.terms,
+            comparisonStatus: basis.metadata?.status ?? 'insufficient_data',
+            reason: basis.metadata?.reason ?? null,
+            summary: {
+              quoteCount: basis.summary?.totalQuotes ?? 0,
+              eligibleQuoteCount: basis.summary?.comparableQuoteCount ?? 0,
+              lowestUnitPrice: basis.summary?.lowestPrice ?? null,
+              highestUnitPrice: basis.summary?.highestPrice ?? null,
+              averageUnitPrice: basis.summary?.averagePrice ?? null,
+            },
+            quotes: (basis.quotes ?? []).map((quote: Record<string, any>) => {
+              const deterministicRuleOrder = basis.metadata?.status === 'available' && quote.eligibleForComparison
+                ? ++ruleOrder
+                : null;
+              return {
+                supplierQuoteId: quote.id,
+                source: {
+                  type: quote.inquiryItemId ? 'inquiry_item' : quote.inquiryId ? 'inquiry' : quote.rfqLineId ? 'rfq_line' : 'legacy_rfq',
+                  rfqId: quote.rfqId,
+                  rfqLineId: quote.rfqLineId,
+                  inquiryId: quote.inquiryId,
+                  inquiryItemId: quote.inquiryItemId,
+                },
+                supplier: quote.supplier?.name ?? null,
+                status: quote.status,
+                eligibleForComparison: quote.eligibleForComparison,
+                eligibilityReasons: quote.eligibilityReasons,
+                warnings: quote.warnings,
+                commercialBasisKey: quote.commercialBasisKey,
+                commercialBasisLabel: quote.commercialBasisLabel,
+                commercialTerms: quote.commercialTerms,
+                quantity: quote.quantity,
+                quantityUnit: quote.quantityUnit,
+                currency: quote.currency,
+                currencyStatus: quote.currencyStatus,
+                unitPrice: quote.unitPrice,
+                totalPrice: quote.totalPrice,
+                priceDiffFromSameBasisLowestPercent: quote.priceDiff,
+                leadTimeDays: quote.leadTimeDays,
+                validUntil: quote.validUntil,
+                scoreComponents: quote.scoreComponents,
+                ruleScore: quote.ruleScore,
+                deterministicRuleOrderWithinBasis: deterministicRuleOrder,
+              };
+            }),
+          };
+        }),
+      })),
+    }));
+    rfqDetails = JSON.stringify({
+      rfqId: input.rfqId,
+      rfqNumber: rfq.rfqNumber,
+      urgency: rfq.urgency,
+      requiredDate: rfq.requiredDate,
+      analysisMode: 'deterministic_comparison_explanation',
+      demandLines: explainedLines.map(({ rfqLineId, lineNo, requestedPartNumber, requiredQuantity, requiredQuantityUnit }) => ({
+        rfqLineId, lineNo, partNumber: requestedPartNumber, requiredQuantity, requiredQuantityUnit,
+      })),
     });
-    if (!quotes.length) throw new AppError('该需求单尚无供应商报价', 409, 'STATE_CONFLICT');
-    if (quotes.length > 100) throw new AppError('同一需求单报价超过 100 条，请先整理后分析', 400);
-    rfqDetails = JSON.stringify(rfq);
-    supplierQuotes = JSON.stringify(quotes.map((quote) => ({
-      id: quote.id, supplier: quote.supplier.name, partNumber: quote.partNumber, quantity: quote.quantity,
-      unitPrice: quote.unitPriceDecimal?.toString() ?? quote.unitPrice,
-      totalPrice: quote.totalPriceDecimal?.toString() ?? quote.totalPrice,
-      currency: quote.currency, currencyReviewStatus: quote.currencyReviewStatus,
-      leadTimeDays: quote.leadTimeDays, validUntil: quote.validUntil, status: quote.status,
-    })));
+    supplierQuotes = JSON.stringify({
+      source: 'server_deterministic_supplier_quote_comparison',
+      lineGroups: explainedLines,
+    });
+    if (supplierQuotes.length > 40_000) {
+      throw new AppError('确定性比较结果过大，请先按需求行缩小范围后分析', 400);
+    }
   } else ({ rfqDetails, supplierQuotes } = input);
   const result = await executeBuiltinAgent('quote_analysis', { rfqDetails, supplierQuotes }, actor(req, 'business.analyze-quotes'));
   res.json({ success: true, data: { analysis: result.output, ai: aiMetadata(result) } });

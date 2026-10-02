@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authApi, dashboardApi, quotationApi, inventoryApi, inventoryItemApi, inventoryDetailApi, customerApi, supplierApi, supplierQuoteApi, notificationApi, emailApi, documentTemplateApi, documentApi, certificateApi, certificateTemplateApi, workflowApi, auditLogApi, pricingApi, inventoryAnalyticsApi, auctionApi, inventoryTransactionApi, userApi, notificationPreferenceApi, reportApi, shipmentTrackingApi, inquiryApi, pricingBIApi, blockchainApi, fmvApi, apiKeyApi, consignmentApi, exchangeVmiApi, technicalKitApi, channelBindingApi, notificationTemplateApi, imApi, notificationDispatcherApi, pushApi, agentApi, productFeatureApi } from '@/api/client';
+import { authApi, dashboardApi, quotationApi, inventoryApi, inventoryItemApi, inventoryDetailApi, customerApi, supplierApi, supplierQuoteApi, supplierQuoteDraftApi, notificationApi, emailApi, documentTemplateApi, documentApi, certificateApi, certificateTemplateApi, workflowApi, auditLogApi, pricingApi, inventoryAnalyticsApi, auctionApi, inventoryTransactionApi, userApi, notificationPreferenceApi, reportApi, shipmentTrackingApi, inquiryApi, pricingBIApi, blockchainApi, fmvApi, apiKeyApi, consignmentApi, exchangeVmiApi, technicalKitApi, channelBindingApi, notificationTemplateApi, imApi, notificationDispatcherApi, pushApi, agentApi, productFeatureApi } from '@/api/client';
 import type {
   SupplierQuoteItem,
   Auction,
@@ -10,6 +10,7 @@ import type {
   ReleaseReservationPayload,
   NotificationPreference,
   Inquiry,
+  SendInquiryPayload,
   BlockchainVerificationResult,
   FMVResult,
   ApiKeyItem,
@@ -33,8 +34,9 @@ import type {
   CustomerSummary,
   PaginatedSuppliers,
   SupplierSummary,
+  SupplierQuoteDraftPayload,
 } from '@/api/client';
-import type { User, RFQ, Quotation, Order, Inventory, Customer, Supplier, SupplierFollowUpLog, DocumentTemplate, GeneratedDocument, Certificate, CertificateTemplate, WorkflowDefinition, WorkflowInstance } from '@/types';
+import type { User, RFQ, Quotation, Order, Inventory, Customer, Supplier, SupplierFollowUpLog, DocumentTemplate, GeneratedDocument, Certificate, CertificateTemplate, WorkflowDefinition, WorkflowInstance, Email } from '@/types';
 import { useRfqsQuery, useRfqQuery, useCreateRfqMutation, useUpdateRfqMutation, useUpdateRfqStatusMutation } from '@/features/rfqs';
 import { useAcceptQuotationMutation, useApproveQuotationMutation, useCreateQuotationMutation, useQuotationsQuery, useQuotationQuery, useSendQuotationMutation, useSubmitQuotationMutation, useWithdrawQuotationMutation } from '@/features/quotations';
 import { useOrdersQuery, useOrderQuery, useCreateOrderMutation, useUpdateOrderMutation } from '@/features/orders';
@@ -574,18 +576,18 @@ export const useUpdateSupplierQuote = () => {
 };
 
 export const useCompareSupplierQuotes = () => {
-  const [loading, setLoading] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
-  const compare = useCallback(async (body: { rfqId?: string; inquiryId?: string }) => {
-    setLoading(true);
+  const compare = useCallback(async (body: { rfqId?: string; rfqLineId?: string; inquiryItemId?: string; inquiryId?: string }) => {
+    setPendingCount((count) => count + 1);
     try {
       return await supplierQuoteApi.compare(body);
     } finally {
-      setLoading(false);
+      setPendingCount((count) => Math.max(0, count - 1));
     }
   }, []);
 
-  return { compare, loading };
+  return { compare, loading: pendingCount > 0 };
 };
 
 export const useSelectWinner = () => {
@@ -644,6 +646,8 @@ export const useEmails = (filters?: {
   excludeSpam?: boolean;
   page?: number;
   limit?: number;
+  inquiryId?: string;
+  needsInquiryMatch?: boolean;
 }) => {
   return useQuery(() => emailApi.getAll(filters), [
     filters?.type,
@@ -652,11 +656,40 @@ export const useEmails = (filters?: {
     filters?.excludeSpam,
     filters?.page,
     filters?.limit,
+    filters?.inquiryId,
+    filters?.needsInquiryMatch,
   ]);
 };
 
 export const useEmail = (id: string) => {
   return useQuery(() => emailApi.getById(id), [id]);
+};
+
+export const useInquiryEmails = (inquiryId?: string | null) => {
+  const [data, setData] = useState<Email[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    if (!inquiryId) {
+      setData([]);
+      setLoading(false);
+      setError(null);
+      return () => { current = false; };
+    }
+
+    setData(null);
+    setLoading(true);
+    setError(null);
+    void emailApi.getAll({ inquiryId, page: 1, limit: 100 })
+      .then((result) => { if (current) setData(result.data); })
+      .catch((err: unknown) => { if (current) setError(err instanceof Error ? err.message : '未知错误'); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
+  }, [inquiryId]);
+
+  return { data, loading, error };
 };
 
 // ===== Certificate Hooks =====
@@ -1077,6 +1110,42 @@ export const useInquiries = () => {
 
 export const useCreateInquiry = () => {
   return useMutation<Inquiry[], { rfqId: string; lineIds?: string[]; supplierIds: string[]; isAOG: boolean; notes?: string }>((data) => inquiryApi.create(data));
+};
+
+export const useSendInquiry = () => {
+  return useMutation<Inquiry, { id: string; payload?: SendInquiryPayload }>(
+    ({ id, payload }) => inquiryApi.send(id, payload)
+  );
+};
+
+export const useCreateSupplierQuoteDraft = () => {
+  return useMutation(
+    (data: { emailId: string; inquiryId: string; payload: SupplierQuoteDraftPayload }) => supplierQuoteDraftApi.create(data)
+  );
+};
+
+export const useExtractSupplierQuoteDraft = () => {
+  return useMutation(
+    (data: { emailId: string; inquiryId: string }) => supplierQuoteDraftApi.extract(data)
+  );
+};
+
+export const useUpdateSupplierQuoteDraft = () => {
+  return useMutation(
+    (data: { id: string; expectedVersion: number; payload: SupplierQuoteDraftPayload }) => {
+      const { id, ...payload } = data;
+      return supplierQuoteDraftApi.update(id, payload);
+    }
+  );
+};
+
+export const useConfirmSupplierQuoteDraft = () => {
+  return useMutation(
+    (data: { id: string; expectedVersion: number }) => {
+      const { id, ...payload } = data;
+      return supplierQuoteDraftApi.confirm(id, payload);
+    }
+  );
 };
 
 // ===== Pricing BI Hooks =====

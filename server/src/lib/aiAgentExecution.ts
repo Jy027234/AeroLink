@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from './prisma.js';
 import { generateCompletion } from './aiCompletion.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { parseRfqExtractionOutput } from './aiOutputValidation.js';
+import { assertRfqExtractionEvidence, assertSupplierQuoteEvidence, parseRfqExtractionOutput, parseSupplierQuoteExtractionOutput } from './aiOutputValidation.js';
 import { agentPromptsSchema, agentConfigValidationSchema } from './aiAgentRegistry.js';
 
 const promptSchema = agentPromptsSchema;
@@ -76,7 +76,13 @@ export async function executeAgent(
       temperature: config.temperature,
       maxTokens: config.maxTokens,
     });
-    if (agent.builtinKey === 'rfq_extraction') parseRfqExtractionOutput(result.content);
+    if (agent.builtinKey === 'rfq_extraction') {
+      assertRfqExtractionEvidence(parseRfqExtractionOutput(result.content), input.subject, input.body);
+    }
+    if (agent.builtinKey === 'supplier_quote_extraction') {
+      const parsed = parseSupplierQuoteExtractionOutput(result.content);
+      assertSupplierQuoteEvidence(parsed, input.subject, input.body);
+    }
     await prisma.agentLog.update({ where: { id: log.id }, data: {
       status: 'SUCCESS',
       duration: Date.now() - started,

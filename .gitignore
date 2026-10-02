@@ -4,6 +4,8 @@ dist
 !vendor/pptxgenjs/dist/
 !vendor/pptxgenjs/dist/**
 test-results
+# Synthetic file objects retained by the isolated 2026-10-02 mail acceptance.
+/work/sourcing-mail-next-batch-20261002/
 ppt-screenshots
 server/dist
 server/uploads/

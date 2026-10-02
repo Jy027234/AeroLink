@@ -200,6 +200,8 @@ trap 'rollback' ERR
 docker tag "$BACKEND_IMAGE:$RELEASE_TAG" "$BACKEND_IMAGE:latest"
 docker tag "$WORKER_IMAGE:$RELEASE_TAG" "$WORKER_IMAGE:latest"
 docker tag "$WEB_IMAGE:$RELEASE_TAG" "$WEB_IMAGE:latest"
+# Drain the old worker before the backend starts applying migrations. Its
+# leases must not run against a schema being changed by the new release.
 "${compose[@]}" stop -t 45 worker || true
 "${compose[@]}" up -d --no-build backend web
 
@@ -209,9 +211,7 @@ if ! wait_for_health; then
   exit 1
 fi
 
-# Drain the old worker before the migration/backend switch. The new worker is
-# started only after the new backend is healthy, so pre-lease and post-lease
-# binaries never compete for the same outbox rows during this rollout.
+# Start the new worker only after the migrated backend is healthy.
 "${compose[@]}" up -d --no-build worker
 
 if ! PROJECT_DIR="$PROJECT_DIR" COMPOSE_FILE="$COMPOSE_FILE" ENV_FILE="$ENV_FILE" \

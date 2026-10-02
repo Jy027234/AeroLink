@@ -195,7 +195,7 @@ describeInquiryAcceptance('RFQ lines and inquiry provenance', () => {
     expect([403, 404]).toContain(inquiryRead.status());
   });
 
-  test('keeps DRAFT after the manual-send 409', async () => {
+  test('keeps DRAFT when no outbound mailbox is configured', async () => {
     const draftId = inquiryDrafts[0]?.id;
     const send = await api.post(`inquiries/${draftId}/send`, {
       headers: auth(ownerToken),
@@ -203,7 +203,7 @@ describeInquiryAcceptance('RFQ lines and inquiry provenance', () => {
     });
     expect(send.status()).toBe(409);
     const sendBody = await send.json() as { code?: string };
-    expect(sendBody.code).toBe('MANUAL_WORKFLOW_REQUIRED');
+    expect(sendBody.code).toBe('RESOURCE_CONFLICT');
 
     const afterSend = await api.get(`inquiries/${draftId}`, { headers: auth(ownerToken) });
     expect(afterSend.status()).toBe(200);
@@ -220,15 +220,13 @@ describeInquiryAcceptance('RFQ lines and inquiry provenance', () => {
     await page.locator('#password').fill(fixturePassword());
     await page.locator('form button[type="submit"]').click();
     await page.waitForTimeout(1200);
-    await page.goto(`${webBase}/sourcing`);
-    await page.getByPlaceholder('搜索需求单号、件号或客户...').fill(primaryRfq.partNumber);
-    await expect(page.getByText(primaryRfq.partNumber, { exact: true })).toBeVisible();
-
-    await page.locator('tr').filter({ hasText: primaryRfq.partNumber }).first().click();
+    await page.goto(`${webBase}/sourcing?rfqId=${encodeURIComponent(primaryRfq.id)}`);
+    await expect(page.getByText(primaryRfq.partNumber, { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('region', { name: /需求行 1/ })).toBeVisible();
     await page.locator('[class*="cursor-pointer"]').filter({ hasText: fixture.suppliers[0].name }).first().click();
     await page.getByRole('button', { name: /建立询价草稿/ }).click();
 
-    const notSentDescription = page.getByText('保存已选供应商的询价草稿。请核对后人工联系供应商，草稿尚未发送。', { exact: true });
+    const notSentDescription = page.getByText('保存已选供应商的询价草稿；草稿尚未发送，可逐份预览并确认发送。', { exact: true });
     await expect(notSentDescription).toBeVisible();
     await page.screenshot({ path: process.env.AEROLINK_INQUIRY_SCREENSHOT || testInfo.outputPath('sourcing-draft-dialog.png'), fullPage: true });
     await page.getByPlaceholder('填写询价备注...').fill('browser synthetic source-lines draft');

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Inbox,
@@ -12,14 +12,11 @@ import {
   Edit3,
   X,
   Mail,
-  Calendar,
-  Plane,
-  DollarSign,
-  Hash,
   Loader2,
   MoreHorizontal,
   AlertCircle,
   Ban,
+  Plus,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -99,13 +96,32 @@ function extractRFQFromEmail(email: Email): Partial<RFQ> {
 
   return {
     partNumber: partNumberMatch?.[1] || '',
-    quantity: quantityMatch ? parseInt(quantityMatch[1]) : 1,
-    requiredDate: dateMatch?.[1] || new Date().toISOString().split('T')[0],
+    quantity: quantityMatch ? parseInt(quantityMatch[1], 10) : undefined,
+    requiredDate: dateMatch?.[1],
     aircraftType: aircraftMatch?.[1] || '',
     targetPrice: priceMatch ? parseInt(priceMatch[1].replace(',', '')) : undefined,
     urgency: email.type === 'aog' ? 'aog' : 'standard',
     customerName: email.fromName,
   };
+}
+
+type RfqDraftLine = {
+  partNumber: string;
+  quantity: string;
+  uom: string;
+  requiredDate: string;
+};
+
+function isValidDate(value?: string): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function exactCustomerMatches(customers: Array<{ id: string; name: string }> | null | undefined, name: string) {
+  const normalizedName = name.trim().toLocaleLowerCase();
+  if (!normalizedName) return [];
+  return (customers || []).filter((customer) => customer.name.trim().toLocaleLowerCase() === normalizedName);
 }
 
 export function IngestionHub() {
@@ -119,14 +135,23 @@ export function IngestionHub() {
   });
   const { loading: rfqsLoading, refetch: refetchRFQs } = useRFQs();
   const { mutate: createRFQ } = useCreateRFQ();
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [extractedData, setExtractedData] = useState<Partial<RFQ>>({});
+  const [draftLines, setDraftLines] = useState<RfqDraftLine[]>([]);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [selectedCustomerName, setSelectedCustomerName] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const isCreatingRef = useRef(false);
   const { data: customerMatches } = useCustomers({
-    search: selectedEmail?.fromName,
+    search: selectedEmail ? customerSearch : undefined,
     page: 1,
     limit: 20,
   });
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [extractedData, setExtractedData] = useState<Partial<RFQ>>({});
-  const [isEditing, setIsEditing] = useState(false);
+  const customerOptions = selectedCustomerId && customerMatches?.every((customer) => customer.id !== selectedCustomerId)
+    ? [{ id: selectedCustomerId, name: selectedCustomerName }, ...(customerMatches || [])]
+    : customerMatches || [];
   const { locale } = useTranslation();
   const tx = (zh: string, en: string) => (locale === 'zh-CN' ? zh : en);
 
@@ -155,6 +180,7 @@ export function IngestionHub() {
   }
 
   const handleEmailClick = (email: Email) => {
+    if (isCreatingRef.current) return;
     selectEmail(email);
     if (!email.isRead) {
       markAsRead(email.id);
@@ -164,33 +190,59 @@ export function IngestionHub() {
       });
     }
     const extracted = extractRFQFromEmail(email);
+    setDraftLines([{
+      partNumber: extracted.partNumber || '',
+      quantity: extracted.quantity ? String(extracted.quantity) : '',
+      uom: '',
+      requiredDate: isValidDate(extracted.requiredDate) ? extracted.requiredDate : '',
+    }]);
     setExtractedData(extracted);
+    setCustomerSearch(email.fromName);
+    setSelectedCustomerId('');
+    setSelectedCustomerName('');
+    setIsCreating(false);
     setIsSheetOpen(true);
     setIsEditing(false);
   };
 
   const handleCreateRFQ = async () => {
-    if (!selectedEmail || !extractedData.partNumber) return;
+    if (!selectedEmail || isCreatingRef.current) return;
 
-    const customerId = customerMatches?.find((customer) => (
-      customer.name.includes(selectedEmail.fromName)
-      || selectedEmail.fromName.includes(customer.name)
-    ))?.id || 'unknown';
-    
+    const exactMatches = exactCustomerMatches(customerMatches, selectedEmail.fromName);
+    const customerId = selectedCustomerId || (exactMatches.length === 1 ? exactMatches[0].id : '');
+    const lines = draftLines.map((line) => ({
+      partNumber: line.partNumber.trim(),
+      quantity: Number(line.quantity),
+      uom: line.uom.trim(),
+      requiredDate: line.requiredDate,
+    }));
+    const validLines = lines.length > 0 && draftLines.every((line, index) => (
+      Boolean(line.partNumber.trim())
+      && /^\d+$/.test(line.quantity)
+      && Number.isSafeInteger(lines[index].quantity)
+      && lines[index].quantity > 0
+      && Boolean(line.uom.trim())
+      && isValidDate(line.requiredDate)
+    ));
+    if (!customerId || !validLines) return;
+
     const rfqData = {
       emailId: selectedEmail.id,
       customerId,
-      customerName: selectedEmail.fromName,
-      partNumber: extractedData.partNumber,
-      quantity: extractedData.quantity || 1,
-      requiredDate: extractedData.requiredDate || new Date().toISOString().split('T')[0],
-      aircraftType: extractedData.aircraftType,
-      targetPrice: extractedData.targetPrice,
-      urgency: extractedData.urgency || 'standard',
-      notes: extractedData.notes,
-      createdBy: 'u001',
+      urgency: (extractedData.urgency || 'standard').toUpperCase(),
+      ...(extractedData.notes ? { notes: extractedData.notes } : {}),
+      lines: draftLines.map((line) => ({
+        partNumber: line.partNumber.trim(),
+        quantity: Number(line.quantity),
+        uom: line.uom.trim().toUpperCase(),
+        requiredDate: line.requiredDate,
+        ...(extractedData.aircraftType ? { aircraftType: extractedData.aircraftType } : {}),
+        ...(extractedData.targetPrice !== undefined ? { targetPrice: extractedData.targetPrice } : {}),
+      })),
     };
 
+    isCreatingRef.current = true;
+    setIsCreating(true);
     try {
       const result = await createRFQ(rfqData);
       setIsSheetOpen(false);
@@ -200,8 +252,22 @@ export function IngestionHub() {
       toast.success(tx(`需求单 ${result.rfqNumber} 创建成功。`, `RFQ ${result.rfqNumber} has been created successfully.`));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : tx('创建需求单失败', 'Failed to create RFQ'));
+    } finally {
+      isCreatingRef.current = false;
+      setIsCreating(false);
     }
   };
+
+  const exactMatches = exactCustomerMatches(customerMatches, selectedEmail?.fromName || '');
+  const matchedCustomerId = selectedCustomerId || (exactMatches.length === 1 ? exactMatches[0].id : '');
+  const isDraftValid = draftLines.length > 0 && draftLines.every((line) => (
+    Boolean(line.partNumber.trim())
+    && /^\d+$/.test(line.quantity)
+    && Number.isSafeInteger(Number(line.quantity))
+    && Number(line.quantity) > 0
+    && Boolean(line.uom.trim())
+    && isValidDate(line.requiredDate)
+  ));
 
   const handleClassify = async (email: Email, type: EmailType) => {
     const previousType = email.type;
@@ -455,172 +521,172 @@ export function IngestionHub() {
                 </div>
               </div>
 
-              <RfqExtractionAssistant key={selectedEmail.id} emailId={selectedEmail.id} onApply={(result, index) => {
-                setExtractedData((draft) => ({ ...draft, partNumber: result.partNumbers[index], quantity: result.quantities[index],
+              <RfqExtractionAssistant key={selectedEmail.id} emailId={selectedEmail.id} onApply={(result) => {
+                setDraftLines(result.items.map((item) => ({
+                  partNumber: item.partNumber,
+                  quantity: Number.isSafeInteger(item.quantity) && (item.quantity ?? 0) > 0
+                    ? String(item.quantity)
+                    : '',
+                  uom: item.quantityUnit || '',
+                  requiredDate: isValidDate(item.requiredDate || undefined) ? item.requiredDate! : '',
+                })));
+                setExtractedData((draft) => ({ ...draft,
                   urgency: result.urgency.toLowerCase() as RFQ['urgency'],
                   aircraftType: result.aircraftType || draft.aircraftType,
-                  requiredDate: result.requiredDate || draft.requiredDate,
                 }));
                 setIsEditing(true);
               }} />
-              {/* User-reviewed draft; initial fields are rule-based. */}
+
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-medium flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-500" />
-                    {tx('待确认需求信息（初始为规则提取）', 'RFQ draft (initially rule-based)')}
+                    {tx('待确认需求行', 'Review demand lines')}
                   </h4>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsEditing(!isEditing)}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setIsEditing(!isEditing)}>
                     <Edit3 className="w-4 h-4 mr-1" />
-                    {isEditing ? tx('完成', 'Done') : tx('编辑', 'Edit')}
+                    {isEditing ? tx('完成', 'Done') : tx('编辑其他信息', 'Edit other details')}
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ingestion-customer-search">{tx('客户', 'Customer')} *</Label>
+                  <Input
+                    id="ingestion-customer-search"
+                    aria-label={tx('搜索客户', 'Search customers')}
+                    value={customerSearch}
+                    onChange={(event) => setCustomerSearch(event.target.value)}
+                    placeholder={tx('搜索客户名称', 'Search customer names')}
+                  />
+                  <Select value={matchedCustomerId || undefined} onValueChange={(customerId) => {
+                    const customer = customerMatches?.find((match) => match.id === customerId);
+                    setSelectedCustomerId(customerId);
+                    setSelectedCustomerName(customer?.name || '');
+                  }}>
+                    <SelectTrigger aria-label={tx('选择客户', 'Select customer')}>
+                      <SelectValue placeholder={tx('选择客户', 'Select customer')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customerOptions.map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {!matchedCustomerId && <p className="text-xs text-amber-700">{tx('请选择一个有效客户后才能创建需求单。', 'Select a valid customer before creating the RFQ.')}</p>}
+                  {!selectedCustomerId && exactMatches.length === 1 && (
+                    <p className="text-xs text-muted-foreground">{tx('已按发件人名称匹配客户，可在上方更改。', 'Matched the sender name to a customer. You can change it above.')}</p>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  {draftLines.map((line, index) => (
+                    <div key={index} className="space-y-3 rounded-lg border p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{tx(`需求行 ${index + 1}`, `Demand line ${index + 1}`)}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={tx(`删除需求行 ${index + 1}`, `Remove demand line ${index + 1}`)}
+                          disabled={draftLines.length <= 1}
+                          onClick={() => setDraftLines((lines) => lines.filter((_, lineIndex) => lineIndex !== index))}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                        <div className="space-y-2">
+                          <Label>{tx('件号 (PN)', 'Part Number (PN)')} *</Label>
+                          <Input
+                            aria-label={tx(`件号 (PN) ${index + 1}`, `Part Number (PN) ${index + 1}`)}
+                            value={line.partNumber}
+                            onChange={(event) => setDraftLines((lines) => lines.map((current, lineIndex) => (
+                              lineIndex === index ? { ...current, partNumber: event.target.value } : current
+                            )))}
+                            className="font-mono"
+                            placeholder="PN-123-456"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>{tx('数量 (Qty)', 'Quantity (Qty)')} *</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            step="1"
+                            aria-label={tx(`数量 (Qty) ${index + 1}`, `Quantity (Qty) ${index + 1}`)}
+                            value={line.quantity}
+                            onChange={(event) => setDraftLines((lines) => lines.map((current, lineIndex) => (
+                              lineIndex === index ? { ...current, quantity: event.target.value } : current
+                            )))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>{tx('单位', 'Unit')} *</Label>
+                          <Input
+                            aria-label={tx(`单位 ${index + 1}`, `Unit ${index + 1}`)}
+                            value={line.uom}
+                            maxLength={32}
+                            onChange={(event) => setDraftLines((lines) => lines.map((current, lineIndex) => (
+                              lineIndex === index ? { ...current, uom: event.target.value } : current
+                            )))}
+                            placeholder="EA"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>{tx('需求日期', 'Required Date')} *</Label>
+                          <Input
+                            type="date"
+                            aria-label={tx(`需求日期 ${index + 1}`, `Required Date ${index + 1}`)}
+                            value={line.requiredDate}
+                            onChange={(event) => setDraftLines((lines) => lines.map((current, lineIndex) => (
+                              lineIndex === index ? { ...current, requiredDate: event.target.value } : current
+                            )))}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {!isDraftValid && <p className="text-xs text-amber-700">{tx('每一行都需要有效件号、正整数数量、单位和需求日期。', 'Each line needs a part number, a positive whole quantity, a unit and a required date.')}</p>}
+                  <Button type="button" variant="outline" onClick={() => setDraftLines((lines) => [...lines, { partNumber: '', quantity: '', uom: '', requiredDate: '' }])}>
+                    <Plus className="mr-1 h-4 w-4" />
+                    {tx('添加需求行', 'Add demand line')}
                   </Button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Hash className="w-4 h-4 text-gray-400" />
-                      {tx('件号 (PN)', 'Part Number (PN)')}
-                    </Label>
+                    <Label>{tx('机型', 'Aircraft Type')}</Label>
                     {isEditing ? (
-                      <Input
-                        value={extractedData.partNumber || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, partNumber: e.target.value })}
-                        className="font-mono"
-                      />
-                    ) : (
-                      <div className="p-2 bg-blue-50 rounded border border-blue-100">
-                        <span className="font-mono font-medium">{extractedData.partNumber || tx('未识别', 'Unrecognized')}</span>
-                      </div>
-                    )}
+                      <Input value={extractedData.aircraftType || ''} onChange={(event) => setExtractedData({ ...extractedData, aircraftType: event.target.value })} />
+                    ) : <div className="rounded border bg-blue-50 p-2">{extractedData.aircraftType || tx('未识别', 'Unrecognized')}</div>}
                   </div>
-
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Hash className="w-4 h-4 text-gray-400" />
-                      {tx('数量 (Qty)', 'Quantity (Qty)')}
-                    </Label>
+                    <Label>{tx('目标价格', 'Target Price')}</Label>
                     {isEditing ? (
-                      <Input
-                        type="number"
-                        value={extractedData.quantity || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, quantity: parseInt(e.target.value) })}
-                      />
-                    ) : (
-                      <div className="p-2 bg-blue-50 rounded border border-blue-100">
-                        <span className="font-medium">{extractedData.quantity || tx('未识别', 'Unrecognized')}</span>
-                      </div>
-                    )}
+                      <Input type="number" min="0" value={extractedData.targetPrice ?? ''} onChange={(event) => setExtractedData({ ...extractedData, targetPrice: event.target.value ? Number(event.target.value) : undefined })} />
+                    ) : <div className="rounded border bg-blue-50 p-2">{extractedData.targetPrice ? `$${extractedData.targetPrice}` : tx('未识别', 'Unrecognized')}</div>}
                   </div>
-
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-gray-400" />
-                      {tx('需求日期', 'Required Date')}
-                    </Label>
+                    <Label>{tx('紧急程度', 'Urgency')}</Label>
                     {isEditing ? (
-                      <Input
-                        type="date"
-                        value={extractedData.requiredDate || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, requiredDate: e.target.value })}
-                      />
-                    ) : (
-                      <div className="p-2 bg-blue-50 rounded border border-blue-100">
-                        <span className="font-medium">{extractedData.requiredDate || tx('未识别', 'Unrecognized')}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Plane className="w-4 h-4 text-gray-400" />
-                      {tx('机型', 'Aircraft Type')}
-                    </Label>
-                    {isEditing ? (
-                      <Input
-                        value={extractedData.aircraftType || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, aircraftType: e.target.value })}
-                      />
-                    ) : (
-                      <div className="p-2 bg-blue-50 rounded border border-blue-100">
-                        <span className="font-medium">{extractedData.aircraftType || tx('未识别', 'Unrecognized')}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <DollarSign className="w-4 h-4 text-gray-400" />
-                      {tx('目标价格', 'Target Price')}
-                    </Label>
-                    {isEditing ? (
-                      <Input
-                        type="number"
-                        value={extractedData.targetPrice || ''}
-                        onChange={(e) => setExtractedData({ ...extractedData, targetPrice: parseInt(e.target.value) })}
-                      />
-                    ) : (
-                      <div className="p-2 bg-blue-50 rounded border border-blue-100">
-                        <span className="font-medium">
-                          {extractedData.targetPrice ? `$${extractedData.targetPrice}` : tx('未识别', 'Unrecognized')}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-gray-400" />
-                      {tx('紧急程度', 'Urgency')}
-                    </Label>
-                    {isEditing ? (
-                      <Select
-                        value={extractedData.urgency}
-                        onValueChange={(value) => setExtractedData({ ...extractedData, urgency: value as RFQ['urgency'] })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
+                      <Select value={extractedData.urgency || 'standard'} onValueChange={(value) => setExtractedData({ ...extractedData, urgency: value as RFQ['urgency'] })}>
+                        <SelectTrigger aria-label={tx('紧急程度', 'Urgency')}><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="aog">{tx('AOG 紧急', 'AOG Urgent')}</SelectItem>
                           <SelectItem value="urgent">{tx('紧急', 'Urgent')}</SelectItem>
                           <SelectItem value="standard">{tx('标准', 'Standard')}</SelectItem>
                         </SelectContent>
                       </Select>
-                    ) : (
-                      <div className={cn(
-                        'p-2 rounded border',
-                        extractedData.urgency === 'aog' && 'bg-red-50 border-red-100 text-red-600',
-                        extractedData.urgency === 'urgent' && 'bg-yellow-50 border-yellow-100 text-yellow-600',
-                        extractedData.urgency === 'standard' && 'bg-green-50 border-green-100 text-green-600'
-                      )}>
-                        <span className="font-medium">
-                          {extractedData.urgency === 'aog' && tx('AOG 紧急', 'AOG Urgent')}
-                          {extractedData.urgency === 'urgent' && tx('紧急', 'Urgent')}
-                          {extractedData.urgency === 'standard' && tx('标准', 'Standard')}
-                        </span>
-                      </div>
-                    )}
+                    ) : <div className={cn('rounded border p-2', extractedData.urgency === 'aog' && 'border-red-100 bg-red-50 text-red-600', extractedData.urgency === 'urgent' && 'border-yellow-100 bg-yellow-50 text-yellow-600', extractedData.urgency === 'standard' && 'border-green-100 bg-green-50 text-green-600')}>
+                      {extractedData.urgency === 'aog' ? tx('AOG 紧急', 'AOG Urgent') : extractedData.urgency === 'urgent' ? tx('紧急', 'Urgent') : tx('标准', 'Standard')}
+                    </div>}
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>{tx('备注', 'Notes')}</Label>
-                  {isEditing ? (
-                    <Textarea
-                      value={extractedData.notes || ''}
-                      onChange={(e) => setExtractedData({ ...extractedData, notes: e.target.value })}
-                      placeholder={tx('添加备注...', 'Add notes...')}
-                    />
-                  ) : (
-                    <div className="p-2 bg-gray-50 rounded border">
-                      <span className="text-gray-500">{extractedData.notes || tx('暂无备注', 'No notes')}</span>
-                    </div>
-                  )}
+                  <div className="col-span-2 space-y-2">
+                    <Label>{tx('备注', 'Notes')}</Label>
+                    {isEditing ? (
+                      <Textarea value={extractedData.notes || ''} onChange={(event) => setExtractedData({ ...extractedData, notes: event.target.value })} placeholder={tx('添加备注...', 'Add notes...')} />
+                    ) : <div className="rounded border bg-gray-50 p-2"><span className="text-gray-500">{extractedData.notes || tx('暂无备注', 'No notes')}</span></div>}
+                  </div>
                 </div>
               </div>
             </div>
@@ -641,11 +707,11 @@ export function IngestionHub() {
             </Button>
             <Button
               onClick={handleCreateRFQ}
-              disabled={!extractedData.partNumber || Boolean(selectedEmail?.rfqId || selectedEmail?.processingStatus === 'processed')}
+              disabled={isCreating || !matchedCustomerId || !isDraftValid || Boolean(selectedEmail?.rfqId || selectedEmail?.processingStatus === 'processed')}
               className="bg-brand-primary hover:bg-brand-primary-hover"
             >
               <Send className="w-4 h-4 mr-1" />
-              Create RFQ
+              {isCreating ? tx('正在创建...', 'Creating...') : tx('创建需求单', 'Create RFQ')}
             </Button>
           </SheetFooter>
         </SheetContent>

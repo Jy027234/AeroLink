@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { OutboxEvent, Prisma } from '@prisma/client';
 import { decrypt } from './crypto.js';
-import { sendEmail, type EmailAccountConfig } from './emailService.js';
+import { sendEmail, type EmailAccountConfig, type SyncedEmailAttachment } from './emailService.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { assertImmutableDocumentArtifact, parseQuotationRenderSnapshot, sha256 } from './documentRenderSnapshot.js';
 import prisma from './prisma.js';
@@ -16,6 +16,7 @@ import { logger } from './logger.js';
 import { getRequestId, runWithContext } from './requestContext.js';
 import { getTraceId, traceSpan } from './trace.js';
 import { recordOperationalAlert } from './alerting.js';
+import { objectStorage } from './objectStorage.js';
 
 export const OutboxChannel = {
   WEBHOOK: 'WEBHOOK',
@@ -47,6 +48,7 @@ type EmailPayload = {
   includeQuotationPdf?: boolean;
   attachmentDocumentId?: string;
   attachmentSnapshotHash?: string;
+  inquiryAttachmentSnapshotHash?: string;
 };
 
 export type EnqueueBusinessEventInput = {
@@ -72,6 +74,8 @@ export type EnqueueOutboundEmailInput = {
   attachmentDocumentId?: string;
   /** Hash of the immutable render snapshot stored by the caller. */
   attachmentSnapshotHash?: string;
+  /** Hash for the immutable inquiry attachment selection copied to the email. */
+  inquiryAttachmentSnapshotHash?: string;
   createdById?: string | null;
 };
 
@@ -160,6 +164,11 @@ function parseEmailPayload(payload: string): EmailPayload {
       : typeof parsed.attachmentSnapshotHash === 'string' && parsed.attachmentSnapshotHash
         ? { attachmentSnapshotHash: parsed.attachmentSnapshotHash }
         : (() => { throw new Error('Invalid email attachment snapshot hash'); })()),
+    ...(parsed.inquiryAttachmentSnapshotHash === undefined
+      ? {}
+      : typeof parsed.inquiryAttachmentSnapshotHash === 'string' && /^[a-f0-9]{64}$/.test(parsed.inquiryAttachmentSnapshotHash)
+        ? { inquiryAttachmentSnapshotHash: parsed.inquiryAttachmentSnapshotHash }
+        : (() => { throw new Error('Invalid inquiry attachment snapshot hash'); })()),
   };
 }
 
@@ -182,6 +191,8 @@ function buildMessageId(outboxEventId: string) {
 }
 
 class CancelledOutboxEventError extends Error {}
+class InquiryDeliveryUncertainError extends Error {}
+class OutboundAttachmentIntegrityError extends Error {}
 
 function inferSocketCapability(eventType: string, aggregateType: string) {
   const eventResource = eventType.trim().toLowerCase().split(/[.:]/)[0];
@@ -270,6 +281,7 @@ export async function enqueueOutboundEmail(tx: OutboxTransactionClient, input: E
         includeQuotationPdf: input.includeQuotationPdf === true,
         ...(input.attachmentDocumentId ? { attachmentDocumentId: input.attachmentDocumentId } : {}),
         ...(input.attachmentSnapshotHash ? { attachmentSnapshotHash: input.attachmentSnapshotHash } : {}),
+        ...(input.inquiryAttachmentSnapshotHash ? { inquiryAttachmentSnapshotHash: input.inquiryAttachmentSnapshotHash } : {}),
       }),
       createdById: input.createdById ?? null,
       requestId: getRequestId() ?? null,
@@ -371,6 +383,7 @@ async function buildDocumentSnapshotAttachment(
     filename: `${document.title}.pdf`,
     content,
     contentType: 'application/pdf' as const,
+    contentId: null,
     sha256: sha256(content),
     sizeBytes: content.byteLength,
     snapshotHash,
@@ -382,6 +395,99 @@ async function buildDocumentSnapshotAttachment(
   return artifact;
 }
 
+const MAX_INQUIRY_ATTACHMENT_COUNT = 10;
+const MAX_INQUIRY_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_INQUIRY_ATTACHMENTS_TOTAL_BYTES = 20 * 1024 * 1024;
+
+async function readStoredInquiryAttachment(objectKey: string, expectedBytes: number) {
+  const stream = await objectStorage.createReadStream(objectKey);
+  const chunks: Buffer[] = [];
+  let sizeBytes = 0;
+  for await (const chunk of stream) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+    sizeBytes += buffer.byteLength;
+    if (sizeBytes > expectedBytes || sizeBytes > MAX_INQUIRY_ATTACHMENT_BYTES) {
+      throw new OutboundAttachmentIntegrityError('Inquiry attachment bytes exceed the frozen size');
+    }
+    chunks.push(buffer);
+  }
+  if (sizeBytes !== expectedBytes) {
+    throw new OutboundAttachmentIntegrityError('Inquiry attachment byte size does not match its frozen snapshot');
+  }
+  return Buffer.concat(chunks, sizeBytes);
+}
+
+async function buildInquirySnapshotAttachments(email: { id: string; inquiryId: string | null }, expectedSnapshotHash?: string): Promise<SyncedEmailAttachment[]> {
+  const rows = await prisma.outboundInquiryEmailAttachment.findMany({
+    where: { outboundEmailId: email.id },
+    orderBy: [{ position: 'asc' }, { id: 'asc' }],
+    include: { sourceAttachment: true, storedObject: true },
+  });
+  if (!expectedSnapshotHash && rows.length === 0) return [];
+  if (!expectedSnapshotHash || rows.length === 0 || !email.inquiryId || rows.length > MAX_INQUIRY_ATTACHMENT_COUNT) {
+    throw new OutboundAttachmentIntegrityError('Inquiry attachment snapshot is missing or invalid');
+  }
+
+  const snapshots = rows.map((row) => ({
+    id: row.inquiryAttachmentId,
+    storedObjectId: row.storedObjectId,
+    filename: row.filename,
+    contentType: row.contentType,
+    sizeBytes: row.sizeBytes,
+    sha256: row.sha256,
+    version: row.version,
+    downloadUrl: `/api/files/${encodeURIComponent(row.storedObjectId)}`,
+  }));
+  const actualSnapshotHash = crypto.createHash('sha256').update(JSON.stringify(snapshots)).digest('hex');
+  if (actualSnapshotHash !== expectedSnapshotHash) {
+    throw new OutboundAttachmentIntegrityError('Inquiry attachment snapshot hash does not match the queued email');
+  }
+
+  const totalBytes = rows.reduce((total, row) => total + row.sizeBytes, 0);
+  if (totalBytes > MAX_INQUIRY_ATTACHMENTS_TOTAL_BYTES) {
+    throw new OutboundAttachmentIntegrityError('Inquiry attachment snapshot exceeds the total size limit');
+  }
+
+  const attachments: SyncedEmailAttachment[] = [];
+  for (const row of rows) {
+    const source = row.sourceAttachment;
+    const object = row.storedObject;
+    if (row.sizeBytes <= 0 || row.sizeBytes > MAX_INQUIRY_ATTACHMENT_BYTES
+      || source.inquiryId !== email.inquiryId
+      || source.id !== row.inquiryAttachmentId
+      || source.storedObjectId !== row.storedObjectId
+      || source.filename !== row.filename
+      || source.contentType !== row.contentType
+      || source.sizeBytes !== row.sizeBytes
+      || source.sha256 !== row.sha256
+      || source.version !== row.version
+      || object.id !== row.storedObjectId
+      || object.domain !== 'inquiry_attachment'
+      || object.resourceId !== email.inquiryId
+      || object.status !== 'AVAILABLE'
+      || object.originalName !== row.filename
+      || object.mimeType !== row.contentType
+      || object.sizeBytes !== row.sizeBytes
+      || object.sha256 !== row.sha256
+      || object.version !== row.version) {
+      throw new OutboundAttachmentIntegrityError('Inquiry attachment binding does not match its frozen snapshot');
+    }
+
+    let content: Buffer;
+    try {
+      content = await readStoredInquiryAttachment(object.objectKey, row.sizeBytes);
+    } catch (error) {
+      if (error instanceof OutboundAttachmentIntegrityError) throw error;
+      throw new OutboundAttachmentIntegrityError('Inquiry attachment bytes are unavailable');
+    }
+    if (sha256(content) !== row.sha256) {
+      throw new OutboundAttachmentIntegrityError('Inquiry attachment bytes do not match the frozen SHA-256 hash');
+    }
+    attachments.push({ filename: row.filename, content, contentType: row.contentType, contentId: null });
+  }
+  return attachments;
+}
+
 async function deliverOutboundEmailEvent(event: OutboxEvent) {
   const payload = parseEmailPayload(event.payload);
   const email = await prisma.outboundEmail.findUnique({
@@ -389,6 +495,7 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
     include: {
       account: true,
       quotation: true,
+      inquiry: true,
     },
   });
 
@@ -400,6 +507,12 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
   }
   if (email.status === 'WITHDRAWN') {
     throw new CancelledOutboxEventError('Outbound email was withdrawn');
+  }
+  if (email.purpose === 'INQUIRY_SEND' && ['SENDING', 'NEEDS_VERIFICATION'].includes(email.status)) {
+    // The worker may have crashed after SMTP accepted the message but before
+    // the SENT transaction committed. Retrying this event could deliver a
+    // duplicate, so require manual verification and stop all automatic replay.
+    throw new InquiryDeliveryUncertainError('Inquiry email delivery outcome is uncertain; manual verification is required before any new send');
   }
   if (!email.account || !email.account.isActive) {
     throw new Error('Outbound email account is unavailable');
@@ -414,7 +527,7 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
     throw new CancelledOutboxEventError('Quotation was superseded before email delivery');
   }
 
-  let attachments;
+  let attachments: SyncedEmailAttachment[] | undefined;
   if (payload.includeQuotationPdf) {
     if (!payload.attachmentDocumentId) {
       throw new CancelledOutboxEventError('Quotation PDF attachment snapshot is missing');
@@ -424,14 +537,37 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
     }
     attachments = [await buildDocumentSnapshotAttachment(payload.attachmentDocumentId, email.quotationId, payload.attachmentSnapshotHash)];
   }
-  const sentResult = await sendEmail(buildEmailAccountConfig(email.account), {
-    to: email.toEmail,
-    subject: email.subject,
-    body: email.textBody,
-    html: email.htmlBody || undefined,
-    attachments,
-    messageId: buildMessageId(event.id),
-  });
+  if (email.purpose === 'INQUIRY_SEND') {
+    attachments = await buildInquirySnapshotAttachments(email, payload.inquiryAttachmentSnapshotHash);
+  } else if (payload.inquiryAttachmentSnapshotHash) {
+    throw new OutboundAttachmentIntegrityError('Inquiry attachment snapshot is bound to a different email purpose');
+  }
+  if (email.purpose === 'INQUIRY_SEND') {
+    const beganDelivery = await prisma.outboundEmail.updateMany({
+      where: { id: email.id, status: 'PENDING' },
+      data: { status: 'SENDING', errorMessage: null },
+    });
+    if (beganDelivery.count !== 1) {
+      throw new InquiryDeliveryUncertainError('Inquiry email state changed before SMTP delivery; manual verification is required');
+    }
+  }
+
+  let sentResult: Awaited<ReturnType<typeof sendEmail>>;
+  try {
+    sentResult = await sendEmail(buildEmailAccountConfig(email.account), {
+      to: email.toEmail,
+      subject: email.subject,
+      body: email.textBody,
+      html: email.htmlBody || undefined,
+      attachments,
+      messageId: buildMessageId(event.id),
+    });
+  } catch (error) {
+    if (email.purpose === 'INQUIRY_SEND') {
+      throw new InquiryDeliveryUncertainError(`Inquiry email SMTP result is uncertain; automatic retry stopped: ${errorMessage(error)}`);
+    }
+    throw error;
+  }
   const sentAt = new Date();
 
   await prisma.$transaction(async (tx) => {
@@ -448,9 +584,19 @@ async function deliverOutboundEmailEvent(event: OutboxEvent) {
       },
     });
 
-    if (updateResult.count !== 1 || email.purpose !== 'QUOTATION_SEND' || !email.quotationId) {
+    if (updateResult.count !== 1) {
       return;
     }
+
+    if (email.purpose === 'INQUIRY_SEND' && email.inquiryId) {
+      await tx.inquiry.updateMany({
+        where: { id: email.inquiryId },
+        data: { status: 'SENT', sentAt },
+      });
+      return;
+    }
+
+    if (email.purpose !== 'QUOTATION_SEND' || !email.quotationId) return;
 
     const currentQuotation = await tx.quotation.findUnique({ where: { id: email.quotationId } });
     const currentQuotationStatus = currentQuotation
@@ -537,9 +683,9 @@ async function dispatchOutboxEvent(event: OutboxEvent) {
   throw new Error(`Unsupported outbox channel: ${event.channel}`);
 }
 
-async function markOutboxFailure(event: OutboxEvent, workerId: string, error: unknown) {
+async function markOutboxFailure(event: OutboxEvent, workerId: string, error: unknown, forceTerminal = false) {
   const message = errorMessage(error);
-  const terminal = event.attemptCount >= event.maxAttempts;
+  const terminal = forceTerminal || event.attemptCount >= event.maxAttempts;
   const nextStatus = terminal ? OutboxStatus.FAILED : OutboxStatus.RETRYING;
   let emailPayload: EmailPayload | null = null;
 
@@ -575,28 +721,42 @@ async function markOutboxFailure(event: OutboxEvent, workerId: string, error: un
     await tx.outboundEmail.updateMany({
       where: {
         id: emailPayload.outboundEmailId,
-        status: { notIn: ['SENT', 'WITHDRAWN'] },
+        status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] },
       },
       data: {
-        status: 'FAILED',
+        status: error instanceof InquiryDeliveryUncertainError ? 'NEEDS_VERIFICATION' : 'FAILED',
         errorMessage: message,
       },
     });
 
     if (event.createdById) {
+      const attachmentIntegrityFailure = error instanceof OutboundAttachmentIntegrityError;
       await tx.notification.create({
         data: {
           userId: event.createdById,
           title: '异步邮件投递失败',
-          message: `邮件投递已重试 ${event.attemptCount} 次仍未成功：${message}`,
+          message: error instanceof InquiryDeliveryUncertainError
+            ? `询价邮件投递结果不确定，系统已停止自动重试。请核实供应商是否收到邮件后再决定后续操作：${message}`
+            : attachmentIntegrityFailure
+              ? `询价邮件附件校验失败，系统未发送邮件正文：${message}`
+              : `邮件投递已重试 ${event.attemptCount} 次仍未成功：${message}`,
           type: 'error',
-          link: '/quotations',
+          link: event.aggregateType === 'INQUIRY' ? '/sourcing' : '/quotations',
         },
       });
     }
   });
 
-  if (terminal) {
+  if (error instanceof InquiryDeliveryUncertainError) {
+    recordOperationalAlert({
+      key: `worker.outbox.inquiry-outcome-uncertain.${event.id}`,
+      severity: 'critical',
+      title: 'Inquiry email delivery outcome requires verification',
+      message: 'An inquiry email entered SMTP delivery but its outcome could not be confirmed. Automatic replay was stopped to avoid a duplicate supplier email.',
+      source: 'worker.outbox',
+      metadata: { outboxEventId: event.id, attemptCount: event.attemptCount, outboundEmailId: emailPayload?.outboundEmailId },
+    });
+  } else if (terminal) {
     recordOperationalAlert({
       key: `worker.outbox.retry-exhausted.${event.id}`,
       severity: 'critical',
@@ -637,7 +797,7 @@ async function markOutboxCancelled(event: OutboxEvent, workerId: string, error: 
     await tx.outboundEmail.updateMany({
       where: {
         id: emailPayload.outboundEmailId,
-        status: { notIn: ['SENT', 'WITHDRAWN'] },
+        status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] },
       },
       data: {
         status: 'FAILED',
@@ -739,8 +899,20 @@ export async function processOutboxEvent(
       return released.count === 1;
     }));
   } catch (error) {
+    if (error instanceof InquiryDeliveryUncertainError) {
+      await markOutboxFailure(event, workerId, error, true);
+      logger.warn({ error, outboxEventId: event.id, channel: event.channel, eventType: event.eventType, requestId: event.requestId, traceId: event.traceId }, 'Inquiry email delivery outcome requires manual verification');
+      return false;
+    }
     if (error instanceof CancelledOutboxEventError) {
       await markOutboxCancelled(event, workerId, error);
+      return false;
+    }
+    if (error instanceof OutboundAttachmentIntegrityError) {
+      await markOutboxFailure(event, workerId, error, true);
+      logger.error({ error, outboxEventId: event.id, outboundEmailId: (() => {
+        try { return parseEmailPayload(event.payload).outboundEmailId; } catch { return undefined; }
+      })() }, 'Inquiry attachment integrity check failed; email was not sent');
       return false;
     }
     await markOutboxFailure(event, workerId, error);
@@ -811,6 +983,17 @@ export async function retryOutboxEvent(id: string) {
   }
   if (event.status !== OutboxStatus.FAILED && event.status !== OutboxStatus.RETRYING) {
     throw new AppError('只有失败或等待重试的 Outbox 事件可以人工重试', 409, 'STATE_CONFLICT');
+  }
+
+  if (event.eventType === 'inquiry.email.send' && event.channel === OutboxChannel.EMAIL) {
+    const payload = parseEmailPayload(event.payload);
+    const email = await prisma.outboundEmail.findUnique({
+      where: { id: payload.outboundEmailId },
+      select: { status: true },
+    });
+    if (email?.status === 'NEEDS_VERIFICATION' || email?.status === 'SENDING' || email?.status === 'SENT') {
+      throw new AppError('询价邮件投递结果需要人工核实；此 Outbox 事件禁止重放以避免重复发送', 409, 'STATE_CONFLICT');
+    }
   }
 
   await prisma.$transaction(async (tx) => {
@@ -887,7 +1070,7 @@ export async function cancelOutboxEvent(id: string, reason?: string) {
     await tx.outboundEmail.updateMany({
       where: {
         id: emailPayload.outboundEmailId,
-        status: { notIn: ['SENT', 'WITHDRAWN'] },
+        status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] },
       },
       data: {
         status: 'FAILED',
