@@ -36,7 +36,9 @@ describe('inquiry email dispatch', () => {
       },
       emailAccount: { findFirst: vi.fn().mockResolvedValue({ id: 'acct-1' }) },
       rfqLine: { findMany: vi.fn().mockResolvedValue([{ id: 'rl1', rfqId: 'r1', status: 'OPEN' }]) },
+      inquiryAttachment: { findMany: vi.fn().mockResolvedValue([]) },
       outboundEmail: { create: vi.fn().mockResolvedValue({ id: 'mail-1', status: 'PENDING', errorMessage: null, sentAt: null }) },
+      outboundInquiryEmailAttachment: { create: vi.fn().mockResolvedValue({ id: 'outbound-attachment-1' }) },
       auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-send-1' }) },
       outboxEvent: {
         findMany: vi.fn().mockResolvedValue([{
@@ -137,6 +139,36 @@ describe('inquiry email dispatch', () => {
 
     const invalid = await request(await app()).post('/i1/send').send({ subject: 'x'.repeat(256) });
     expect(invalid.status).toBe(400);
+  });
+
+  it('queues only the explicitly selected inquiry attachment and persists its frozen email association', async () => {
+    const attachment = {
+      id: 'att-1', inquiryId: 'i1', storedObjectId: 'object-1', filename: 'quote.pdf',
+      contentType: 'application/pdf', sizeBytes: 256, sha256: 'a'.repeat(64), version: 2,
+      storedObject: {
+        id: 'object-1', domain: 'inquiry_attachment', resourceId: 'i1', status: 'AVAILABLE',
+        originalName: 'quote.pdf', mimeType: 'application/pdf', sizeBytes: 256,
+        sha256: 'a'.repeat(64), version: 2,
+      },
+    };
+    tx.inquiryAttachment.findMany.mockResolvedValue([attachment]);
+
+    const response = await request(await app()).post('/i1/send').send({ attachmentIds: ['att-1'] });
+
+    expect(response.status).toBe(202);
+    expect(tx.outboundInquiryEmailAttachment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        outboundEmailId: 'mail-1', inquiryAttachmentId: 'att-1', storedObjectId: 'object-1',
+        filename: 'quote.pdf', contentType: 'application/pdf', sizeBytes: 256, sha256: 'a'.repeat(64), version: 2,
+        position: 0,
+      }),
+    });
+    expect(enqueueOutboundEmailMock).toHaveBeenCalledWith(tx, expect.objectContaining({
+      outboundEmailId: 'mail-1', inquiryAttachmentSnapshotHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }));
+    expect(tx.inquiryAttachment.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['att-1'] }, inquiryId: 'i1' },
+    }));
   });
 
   it('reports a missing enabled default email account without changing inquiry state', async () => {

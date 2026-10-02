@@ -153,6 +153,18 @@ describe('sourcing AI task worker service', () => {
     expect(JSON.stringify(metadata.originalAiCandidates)).not.toContain('USD 100, five days');
   });
 
+  it('does not create another AI draft over a partially confirmed draft', async () => {
+    state.tasks.push(taskRecord());
+    state.drafts.push({ id: 'draft-existing', status: 'PARTIALLY_CONFIRMED', version: 3 });
+
+    const { processPendingSourcingAiTasks } = await import('./sourcingAiTaskService.js');
+    await processPendingSourcingAiTasks(10);
+
+    expect(state.tasks[0]).toMatchObject({ status: 'FAILED', draftId: null });
+    expect(state.drafts).toHaveLength(1);
+    expect(state.drafts[0].id).toBe('draft-existing');
+  });
+
   it('stores only a safe error summary when model execution fails', async () => {
     state.tasks.push(taskRecord());
     extractSupplierQuoteEmail.mockRejectedValueOnce(new Error('secret API key and vendor email body'));
@@ -168,6 +180,8 @@ describe('sourcing AI task worker service', () => {
   it.each([
     ['AI_PROVIDER_TIMEOUT', '模型服务请求超时，请稍后重新执行抽取'],
     ['AI_PROVIDER_CONNECTION_ERROR', '模型服务连接失败，请检查网络后重新执行抽取'],
+    ['AI_QUOTE_OUTPUT_INVALID', '模型返回的报价格式无效；可重试或核对原文后手工建稿'],
+    ['AI_QUOTE_EVIDENCE_INVALID', '报价依据无法在本次回信中核实，可能来自引用历史；请核对原文或手工建稿'],
   ] as const)('stores an actionable safe summary for %s', async (code, errorSummary) => {
     state.tasks.push(taskRecord());
     extractSupplierQuoteEmail.mockRejectedValueOnce(new AppError(

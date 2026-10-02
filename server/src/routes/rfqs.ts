@@ -117,10 +117,12 @@ type SourcingCountInquiry = {
   sentAt: Date | null;
   items: Array<{ id: string; rfqLineId: string | null; partNumber: string }>;
   outboundEmails: Array<{ status: string; sentAt: Date | null }>;
-  quoteDrafts: Array<{ status: string; payloadJson: string }>;
+  quoteDrafts: Array<{ id: string; status: string; payloadJson: string }>;
 };
 
 type SourcingCountQuote = {
+  sourceDraftId: string | null;
+  sourceDraftItemKey: string | null;
   rfqId: string | null;
   inquiryId: string | null;
   inquiryItemId: string | null;
@@ -133,9 +135,9 @@ type SourcingCountQuote = {
  * Derive the SQ-08 waiting counts only from persisted, explicit foreign-key bindings.
  * A sent InquiryItem is pending a formal quote only after SMTP acceptance (or the
  * legacy Inquiry.sentAt/status=SENT fact), and only when no exact draft/quote item
- * covers it. DRAFT payload rows count as pending confirmation only when their
- * inquiryItemId points back into that same Inquiry and the item has an active line
- * in this RFQ. A stored inquiryItemId or unique inquiry+line pair is authoritative
+ * covers it. Unconfirmed DRAFT/PARTIALLY_CONFIRMED payload rows count as pending
+ * confirmation only when their inquiryItemId points back into that same Inquiry
+ * and the item has an active line in this RFQ. A stored inquiryItemId or unique inquiry+line pair is authoritative
  * even when the supplier quoted an explicitly linked alternate PN; partNumber is
  * never used to infer ownership.
  *
@@ -229,7 +231,7 @@ function deriveSourcingCounts(
   const draftBoundItemIds = new Set<string>();
   for (const inquiry of inquiries) {
     for (const draft of inquiry.quoteDrafts) {
-      if (normalizeSourcingToken(draft.status) !== 'DRAFT') continue;
+      if (!['DRAFT', 'PARTIALLY_CONFIRMED'].includes(normalizeSourcingToken(draft.status))) continue;
       let payload: unknown;
       try {
         payload = JSON.parse(draft.payloadJson);
@@ -241,12 +243,16 @@ function deriveSourcingCounts(
         unassignedNeedsVerification.unreadableDraftCount += 1;
         continue;
       }
+      const confirmedItemKeys = new Set(quotes
+        .filter((quote) => quote.sourceDraftId === draft.id && quote.sourceDraftItemKey)
+        .map((quote) => quote.sourceDraftItemKey!));
       for (const rawItem of (payload as { items: unknown[] }).items) {
         if (!rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem)) {
           unassignedNeedsVerification.pendingConfirmationCount += 1;
           continue;
         }
         const itemPayload = rawItem as Record<string, unknown>;
+        if (typeof itemPayload.itemKey === 'string' && confirmedItemKeys.has(itemPayload.itemKey)) continue;
         const inquiryItemId = typeof itemPayload.inquiryItemId === 'string' ? itemPayload.inquiryItemId : '';
         const inquiryItem = inquiryItemId ? itemById.get(inquiryItemId) : undefined;
         const explicitLineIds = ['rfqLineId', 'lineId']
@@ -476,10 +482,10 @@ function deriveInquiryWorkflowStates(
     const currentDrafts: SourcingWorkflowInquiry['quoteDrafts'] = [];
     for (const draft of inquiry.quoteDrafts) {
       const draftStatus = normalizeSourcingToken(draft.status);
-      if (draftStatus !== 'DRAFT' && draftStatus !== 'CONFIRMED') continue;
+      if (draftStatus !== 'DRAFT' && draftStatus !== 'PARTIALLY_CONFIRMED' && draftStatus !== 'CONFIRMED') continue;
       if (latestEmailAccepted) {
         if (!effectiveSentAt) {
-          if (draftStatus === 'DRAFT') hasDraftBindingConflict = true;
+          if (draftStatus === 'DRAFT' || draftStatus === 'PARTIALLY_CONFIRMED') hasDraftBindingConflict = true;
           continue;
         }
         const sourceLink = links.find((link) => link.email.id === draft.emailId);
@@ -507,7 +513,7 @@ function deriveInquiryWorkflowStates(
         if (!inquiryItem || !lineReferencesMatch) hasDraftBindingConflict = true;
       }
       currentDrafts.push(draft);
-      if (draftStatus === 'DRAFT') hasCurrentDraft = true;
+      if (draftStatus === 'DRAFT' || draftStatus === 'PARTIALLY_CONFIRMED') hasCurrentDraft = true;
     }
     if (hasDraftBindingConflict) return action('NEEDS_VERIFICATION', 'REVIEW_DRAFT_BINDING');
     if (hasCurrentDraft) return action('WAITING_HUMAN', 'REVIEW_QUOTE_DRAFT');
@@ -1070,7 +1076,7 @@ router.get(
       prisma.supplierQuote.findMany({
         where: { OR: [{ rfqId: rfq.id }, { inquiry: { is: { rfqId: rfq.id } } }] },
         select: {
-          id: true, rfqId: true, rfqLineId: true, inquiryId: true, sourceDraftId: true,
+          id: true, rfqId: true, rfqLineId: true, inquiryId: true, sourceDraftId: true, sourceDraftItemKey: true,
           inquiryItemId: true, partNumber: true, quantity: true, supersededAt: true,
           status: true, isWinner: true, createdAt: true, updatedAt: true,
           supplier: { select: { name: true } },
@@ -1124,6 +1130,20 @@ router.get(
       },
       select: { id: true, resourceId: true, userId: true, userName: true, createdAt: true, changes: true },
     }) : [];
+    const draftConfirmationActions = draftIds.length > 0 ? await prisma.auditLog.findMany({
+      where: {
+        resourceType: 'SUPPLIER_QUOTE_DRAFT', action: 'CONFIRM', status: 'SUCCESS',
+        resourceId: { in: draftIds },
+      },
+      select: { id: true, resourceId: true, userId: true, userName: true, createdAt: true, changes: true },
+    }) : [];
+    const draftConfirmationActionsById = new Map<string, typeof draftConfirmationActions>();
+    for (const action of draftConfirmationActions) {
+      if (!action.resourceId) continue;
+      draftConfirmationActionsById.set(action.resourceId, [
+        ...(draftConfirmationActionsById.get(action.resourceId) ?? []), action,
+      ]);
+    }
     const draftSourceById = new Map(inquiries.flatMap((inquiry) => inquiry.quoteDrafts.map((draft) => [
       draft.id,
       {
@@ -1140,6 +1160,7 @@ router.get(
       id: string; type: string; status: string; occurredAt: string; actor: TimelineActor;
       rfqLineId?: string | null; inquiryId?: string; emailId?: string;
       outboundEmailId?: string; draftId?: string; supplierQuoteId?: string;
+      itemKeys?: string[]; supplierQuoteIds?: string[];
       actionTaskId?: string; summary: string;
       originalAiCandidates?: {
         available: boolean;
@@ -1157,6 +1178,7 @@ router.get(
       rfqLineId: string;
       inquiryId: string;
       inquiryItemId: string;
+      itemKey: string | null;
       draftId: string;
       draftVersion: number;
       emailId: string;
@@ -1186,7 +1208,7 @@ router.get(
         else lineByInquiryItemId.set(item.id, item.rfqLineId);
       }
       const orderedDrafts = [...inquiry.quoteDrafts]
-        .filter((draft) => draft.status === 'DRAFT')
+        .filter((draft) => ['DRAFT', 'PARTIALLY_CONFIRMED'].includes(draft.status))
         .sort((left, right) => left.id.localeCompare(right.id));
       for (const draft of orderedDrafts) {
         if (pendingQuoteRows.length >= MAX_RFQ_PENDING_QUOTE_ROWS) break;
@@ -1199,10 +1221,14 @@ router.get(
         }
         if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { items?: unknown }).items)) continue;
         const draftItems = (payload as { items: unknown[] }).items;
+        const confirmedItemKeys = new Set(quotes
+          .filter((quote) => quote.sourceDraftId === draft.id && quote.sourceDraftItemKey)
+          .map((quote) => quote.sourceDraftItemKey!));
         for (const candidate of draftItems.slice(0, MAX_RFQ_PENDING_QUOTE_ITEMS_PER_DRAFT)) {
           if (pendingQuoteRows.length >= MAX_RFQ_PENDING_QUOTE_ROWS) break;
           if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
           const item = candidate as Record<string, unknown>;
+          if (typeof item.itemKey === 'string' && confirmedItemKeys.has(item.itemKey)) continue;
           const inquiryItemId = typeof item.inquiryItemId === 'string' ? item.inquiryItemId : null;
           if (!inquiryItemId || ambiguousItemIds.has(inquiryItemId)) continue;
           const rfqLineId = lineByInquiryItemId.get(inquiryItemId);
@@ -1218,6 +1244,7 @@ router.get(
             rfqLineId,
             inquiryId: inquiry.id,
             inquiryItemId,
+            itemKey: typeof item.itemKey === 'string' ? item.itemKey : null,
             draftId: draft.id,
             draftVersion: draft.version,
             emailId: draft.emailId,
@@ -1309,17 +1336,47 @@ router.get(
           truncated: originalCandidateSnapshot?.truncated ?? false,
           items: originalCandidateSnapshot?.items ?? [],
         } : undefined;
+        const confirmedRowCount = quotes.filter((quote) => quote.sourceDraftId === draft.id && quote.sourceDraftItemKey).length;
+        const isPartiallyConfirmed = normalizeSourcingToken(draft.status) === 'PARTIALLY_CONFIRMED';
         events.push({
           id: `quote-draft:${draft.id}`, type: 'QUOTE_DRAFT', status: draft.status,
           occurredAt: draft.createdAt.toISOString(), actor: null,
           rfqLineId: onlyLineId, inquiryId: inquiry.id, emailId: draft.emailId,
           draftId: draft.id,
           ...(originalAiCandidates ? { originalAiCandidates } : {}),
-          summary: aiSourced
-            ? `${inquiry.supplier.name} AI 提出${aiCandidateCount === null ? '' : ` ${aiCandidateCount} 条`}报价候选草稿，待人工核对`
-            : `${inquiry.supplier.name} 手工报价草稿已创建`,
+          summary: isPartiallyConfirmed
+            ? `${inquiry.supplier.name} 报价草稿已有 ${confirmedRowCount} 行确认，其余行仍待核对`
+            : aiSourced
+              ? `${inquiry.supplier.name} AI 提出${aiCandidateCount === null ? '' : ` ${aiCandidateCount} 条`}报价候选草稿，待人工核对`
+              : `${inquiry.supplier.name} 手工报价草稿已创建`,
         });
-        if (draft.confirmedAt) {
+        const confirmationActions = draftConfirmationActionsById.get(draft.id) ?? [];
+        for (const action of confirmationActions) {
+          let changes: { status?: { after?: unknown }; itemKeys?: unknown; supplierQuoteIds?: unknown } = {};
+          try {
+            if (action.changes) changes = JSON.parse(action.changes) as typeof changes;
+          } catch { /* Historical audit details may be unreadable. */ }
+          const itemKeys = Array.isArray(changes.itemKeys)
+            ? changes.itemKeys.filter((value): value is string => typeof value === 'string')
+            : [];
+          const supplierQuoteIds = Array.isArray(changes.supplierQuoteIds)
+            ? changes.supplierQuoteIds.filter((value): value is string => typeof value === 'string')
+            : [];
+          const confirmedStatus = changes.status?.after === 'CONFIRMED' || changes.status?.after === 'PARTIALLY_CONFIRMED'
+            ? changes.status.after
+            : draft.status;
+          events.push({
+            id: `quote-draft-confirmed:${action.id}`, type: 'QUOTE_DRAFT_CONFIRMED', status: confirmedStatus,
+            occurredAt: action.createdAt.toISOString(),
+            actor: action.userId ? { id: action.userId, name: action.userName || action.userId, kind: 'user' } : null,
+            rfqLineId: onlyLineId, inquiryId: inquiry.id, emailId: draft.emailId,
+            draftId: draft.id, itemKeys, supplierQuoteIds,
+            summary: confirmedStatus === 'PARTIALLY_CONFIRMED'
+              ? `${inquiry.supplier.name} 已人工确认 ${itemKeys.length || supplierQuoteIds.length} 行正式报价，其余行仍待核对`
+              : `${inquiry.supplier.name} 已人工确认 ${itemKeys.length || supplierQuoteIds.length} 行正式报价`,
+          });
+        }
+        if (draft.confirmedAt && confirmationActions.length === 0) {
           events.push({
             id: `quote-draft-confirmed:${draft.id}`, type: 'QUOTE_DRAFT_CONFIRMED', status: draft.status,
             occurredAt: draft.confirmedAt.toISOString(), actor: userActor(draft.confirmedBy),

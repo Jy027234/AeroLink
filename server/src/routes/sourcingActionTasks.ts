@@ -18,6 +18,7 @@ import {
   SOURCING_ACTION_TASK_MAX_ATTEMPTS,
 } from '../lib/sourcingActionTaskService.js';
 import prisma from '../lib/prisma.js';
+import { freezeInquiryAttachments, type InquiryAttachmentSnapshot } from '../lib/inquiryAttachments.js';
 
 const router: ReturnType<typeof Router> = Router();
 const contentSchema = z.object({
@@ -25,6 +26,8 @@ const contentSchema = z.object({
     !value.includes('\r') && !value.includes('\n') && !value.includes('\u0000'), '主题不能包含换行符'),
   textBody: z.string().trim().min(1).max(20_000).refine(value =>
     !value.includes('\u0000'), '正文包含无效字符'),
+  attachmentIds: z.array(z.string().trim().min(1).max(200)).max(10)
+    .refine(ids => new Set(ids).size === ids.length, '附件选择不能重复').optional(),
 }).strict();
 const createSendSchema = z.object({
   action: z.literal(SEND_INQUIRY_ACTION),
@@ -94,6 +97,11 @@ function iso(value: unknown) {
 
 function publicTask(task: SelectedActionTask) {
   const outboundEmail = task.outboundEmail;
+  const contentSnapshot = parseJson(task.contentSnapshotJson);
+  const attachments = contentSnapshot && typeof contentSnapshot === 'object' && !Array.isArray(contentSnapshot)
+    && Array.isArray((contentSnapshot as { attachments?: unknown }).attachments)
+    ? (contentSnapshot as { attachments: InquiryAttachmentSnapshot[] }).attachments
+    : [];
   return {
     id: task.id,
     actorId: task.actorId,
@@ -102,7 +110,8 @@ function publicTask(task: SelectedActionTask) {
     targetId: task.targetId,
     targetVersion: task.targetVersion,
     version: task.version,
-    contentSnapshot: parseJson(task.contentSnapshotJson),
+    contentSnapshot,
+    attachments,
     requestId: task.requestId,
     idempotencyKey: task.idempotencyKey,
     status: task.status,
@@ -237,7 +246,7 @@ router.post(
     const req = request as AuthRequest;
     const input = req.body as z.infer<typeof createSchema>;
     assertCurrentActionCapability(req, input.action);
-    const contentSnapshotJson = input.action === SEND_INQUIRY_ACTION ? JSON.stringify(input.content) : null;
+    let contentSnapshotJson: string | null = null;
     let task: SelectedActionTask;
     let created = true;
     const requestId = randomUUID();
@@ -253,6 +262,13 @@ router.post(
             throw new AppError('只有草稿询价可以创建发送任务', 409, 'STATE_CONFLICT');
           }
           if (!inquiry.items.length) throw new AppError('询价没有需求明细，无法创建发送任务', 409, 'STATE_CONFLICT');
+          const attachments = await freezeInquiryAttachments(tx, inquiry.id, input.content.attachmentIds ?? []);
+          contentSnapshotJson = JSON.stringify({
+            subject: input.content.subject,
+            textBody: input.content.textBody,
+            attachmentIds: attachments.map((attachment) => attachment.id),
+            attachments,
+          });
           targetVersion = inquiryVersion;
           targetType = 'INQUIRY';
         } else {

@@ -5,6 +5,7 @@ vi.mock('../lib/prisma.js', () => ({
     returnHold: { findFirst: vi.fn() },
     emailAttachment: { findFirst: vi.fn() },
     email: { findUnique: vi.fn() },
+    inquiryAttachment: { findFirst: vi.fn() },
   },
 }));
 import prisma from '../lib/prisma.js';
@@ -32,6 +33,7 @@ describe('email attachment download authorization', () => {
   beforeEach(() => {
     vi.mocked(prisma.emailAttachment.findFirst).mockReset();
     vi.mocked(prisma.email.findUnique).mockReset();
+    vi.mocked(prisma.inquiryAttachment.findFirst).mockReset();
   });
 
   it('requires email:read and a live EmailAttachment-to-Email relationship', async () => {
@@ -64,6 +66,34 @@ describe('email attachment download authorization', () => {
     vi.mocked(prisma.emailAttachment.findFirst).mockResolvedValue({ id: 'attachment-1', emailId: 'email-1' } as never);
     await expect(canReadStoredObjectDownload(tx, object, { id: 'uploader', role: 'FINANCE' })).resolves.toBe(false);
     expect(prisma.email.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('inquiry attachment download authorization', () => {
+  const object = { id: 'stored-inquiry-file', ownerId: 'uploader', domain: 'inquiry_attachment', resourceId: 'inquiry-1', version: 1, sha256: 'b'.repeat(64), status: 'AVAILABLE' };
+
+  it('requires inquiry read capability and a matching attachment within the actor inquiry scope', async () => {
+    const tx = { inquiryAttachment: { findFirst: vi.mocked(prisma.inquiryAttachment.findFirst) } } as unknown as Prisma.TransactionClient;
+    vi.mocked(prisma.inquiryAttachment.findFirst).mockResolvedValue({ id: 'attachment-1' } as never);
+
+    await expect(canReadStoredObjectDownload(tx, object, { id: 'sales-1', role: 'SALES', department: 'Sales' })).resolves.toBe(true);
+    expect(prisma.inquiryAttachment.findFirst).toHaveBeenCalledWith({
+      where: {
+        storedObjectId: object.id,
+        inquiry: { is: expect.objectContaining({ rfq: expect.anything() }) },
+      },
+      select: { id: true },
+    });
+
+    vi.mocked(prisma.inquiryAttachment.findFirst).mockResolvedValue(null);
+    await expect(canReadStoredObjectDownload(tx, object, { id: 'other', role: 'SALES', department: 'Other' })).resolves.toBe(false);
+  });
+
+  it('does not let owner/admin bypass inquiry attachment scope', async () => {
+    const tx = { inquiryAttachment: { findFirst: vi.mocked(prisma.inquiryAttachment.findFirst) } } as unknown as Prisma.TransactionClient;
+    vi.mocked(prisma.inquiryAttachment.findFirst).mockResolvedValue(null);
+    await expect(canReadStoredObjectDownload(tx, object, { id: 'uploader', role: 'ADMIN' })).resolves.toBe(false);
+    expect(canReadStoredObject({ ownerId: 'uploader', domain: 'inquiry_attachment' }, { id: 'uploader', role: 'ADMIN' })).toBe(false);
   });
 });
 

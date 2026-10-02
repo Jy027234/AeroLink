@@ -30,6 +30,7 @@ model User {
   sourcingActionTasksConfirmed SourcingActionTask[] @relation("SourcingActionTaskConfirmer")
   sourcingActionTasksRetried SourcingActionTask[] @relation("SourcingActionTaskRetryActor")
   sourcingActionTasksCancelled SourcingActionTask[] @relation("SourcingActionTaskCanceller")
+  inquiryAttachmentsUploaded InquiryAttachment[] @relation("InquiryAttachmentUploader")
   lastLoginAt DateTime?
 
   createdRFQs       RFQ[]
@@ -554,6 +555,7 @@ model Inquiry {
 
   supplier      Supplier      @relation(fields: [supplierId], references: [id])
   items         InquiryItem[]
+  attachments   InquiryAttachment[]
   supplierQuotes SupplierQuote[]
   outboundEmails OutboundEmail[]
   emailLinks InquiryEmailLink[]
@@ -957,6 +959,7 @@ model OutboundEmail {
   customer  Customer?    @relation(fields: [customerId], references: [id])
   account   EmailAccount? @relation(fields: [accountId], references: [id])
   sourcingActionTask SourcingActionTask?
+  inquiryAttachments OutboundInquiryEmailAttachment[]
 
   @@index([quotationId, purpose, status])
   @@index([inquiryId, purpose, createdAt])
@@ -1002,6 +1005,53 @@ model EmailAttachment {
   @@index([emailId, createdAt])
   @@index([storedObjectId])
   @@map("email_attachments")
+}
+
+// Uploaded files stay attached to one inquiry. Outbound rows freeze the exact
+// source object metadata used by the worker, preserving the sent-file evidence.
+model InquiryAttachment {
+  id             String   @id @default(uuid())
+  inquiryId      String
+  storedObjectId String   @unique
+  filename       String
+  contentType    String
+  sizeBytes      Int
+  sha256         String
+  version        Int
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  inquiry              Inquiry                            @relation(fields: [inquiryId], references: [id], onDelete: Restrict)
+  storedObject         StoredObject                       @relation(fields: [storedObjectId], references: [id], onDelete: Restrict)
+  createdBy            User?                              @relation("InquiryAttachmentUploader", fields: [createdById], references: [id], onDelete: SetNull)
+  outboundAttachments OutboundInquiryEmailAttachment[]
+
+  @@index([inquiryId, createdAt])
+  @@index([createdById, createdAt])
+  @@map("inquiry_attachments")
+}
+
+model OutboundInquiryEmailAttachment {
+  id                 String   @id @default(uuid())
+  outboundEmailId    String
+  inquiryAttachmentId String
+  storedObjectId     String
+  filename           String
+  contentType        String
+  sizeBytes          Int
+  sha256             String
+  version            Int
+  position           Int
+  createdAt          DateTime @default(now())
+
+  outboundEmail    OutboundEmail   @relation(fields: [outboundEmailId], references: [id], onDelete: Restrict)
+  sourceAttachment InquiryAttachment @relation(fields: [inquiryAttachmentId], references: [id], onDelete: Restrict)
+  storedObject     StoredObject    @relation(fields: [storedObjectId], references: [id], onDelete: Restrict)
+
+  @@unique([outboundEmailId, inquiryAttachmentId])
+  @@index([outboundEmailId, position])
+  @@index([storedObjectId])
+  @@map("outbound_inquiry_email_attachments")
 }
 
 model SupplierQuoteDraft {
@@ -1132,6 +1182,8 @@ model StoredObject {
   updatedAt      DateTime @updatedAt
 
   emailAttachments EmailAttachment[]
+  inquiryAttachments InquiryAttachment[]
+  outboundInquiryAttachments OutboundInquiryEmailAttachment[]
 
   @@index([domain, resourceId])
   @@index([ownerId, createdAt])

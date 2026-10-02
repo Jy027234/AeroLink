@@ -4,6 +4,7 @@ import type { AuthRequest } from '../middleware/auth.js';
 import { assertCapability } from '../middleware/capability.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { inquiryReadScope } from './inquirySendCommand.js';
+import type { InquiryAttachmentSnapshot } from './inquiryAttachments.js';
 
 export const SEND_INQUIRY_ACTION = 'SEND_INQUIRY';
 export const SOURCING_ACTION_TASK_MAX_ATTEMPTS = 3;
@@ -11,6 +12,8 @@ export const SOURCING_ACTION_TASK_MAX_ATTEMPTS = 3;
 export type InquirySendContentSnapshot = {
   subject: string;
   textBody: string;
+  attachmentIds: string[];
+  attachments: InquiryAttachmentSnapshot[];
 };
 
 type ActionActor = NonNullable<AuthRequest['user']>;
@@ -95,9 +98,35 @@ export function assertInquirySendTargetOpen(inquiry: Awaited<ReturnType<typeof c
 
 export function parseInquirySendContentSnapshot(value: string): InquirySendContentSnapshot {
   try {
-    const parsed = JSON.parse(value) as Partial<InquirySendContentSnapshot> | null;
+    const parsed = JSON.parse(value) as (Partial<InquirySendContentSnapshot> & { attachmentIds?: unknown; attachments?: unknown }) | null;
     if (parsed && typeof parsed.subject === 'string' && typeof parsed.textBody === 'string') {
-      return { subject: parsed.subject, textBody: parsed.textBody };
+      if ((parsed.attachmentIds !== undefined && !Array.isArray(parsed.attachmentIds))
+        || (parsed.attachments !== undefined && !Array.isArray(parsed.attachments))) {
+        throw new Error('Invalid frozen inquiry attachment snapshot');
+      }
+      const attachmentIds = Array.isArray(parsed.attachmentIds)
+        ? parsed.attachmentIds.filter((id): id is string => typeof id === 'string')
+        : [];
+      const attachments = Array.isArray(parsed.attachments)
+        ? parsed.attachments.filter((attachment): attachment is InquiryAttachmentSnapshot => Boolean(
+          attachment && typeof attachment === 'object'
+          && typeof (attachment as InquiryAttachmentSnapshot).id === 'string'
+          && typeof (attachment as InquiryAttachmentSnapshot).storedObjectId === 'string'
+          && typeof (attachment as InquiryAttachmentSnapshot).filename === 'string'
+          && typeof (attachment as InquiryAttachmentSnapshot).contentType === 'string'
+          && typeof (attachment as InquiryAttachmentSnapshot).sizeBytes === 'number'
+          && typeof (attachment as InquiryAttachmentSnapshot).sha256 === 'string'
+          && typeof (attachment as InquiryAttachmentSnapshot).version === 'number'
+          && typeof (attachment as InquiryAttachmentSnapshot).downloadUrl === 'string'
+        ))
+        : [];
+      if (attachmentIds.length !== (Array.isArray(parsed.attachmentIds) ? parsed.attachmentIds.length : 0)
+        || attachments.length !== (Array.isArray(parsed.attachments) ? parsed.attachments.length : 0)
+        || (attachmentIds.length && JSON.stringify(attachmentIds) !== JSON.stringify(attachments.map((attachment) => attachment.id)))
+        || (!attachmentIds.length && attachments.length)) {
+        throw new Error('Invalid frozen inquiry attachment snapshot');
+      }
+      return { subject: parsed.subject, textBody: parsed.textBody, attachmentIds, attachments };
     }
   } catch {
     // Fall through to the same safe state error as an unsupported legacy snapshot.

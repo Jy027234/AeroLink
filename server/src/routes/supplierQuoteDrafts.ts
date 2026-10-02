@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
@@ -90,6 +91,9 @@ function withStableItemKeys(payload: DraftPayload): DraftPayload {
 
 function serializeSupplierQuoteDraft(draft: SupplierQuoteDraftRecord) {
   const payload = parseStoredDraftPayload(draft.payloadJson);
+  const confirmedQuotes = draft.supplierQuotes.flatMap((quote) => quote.sourceDraftItemKey
+    ? [{ itemKey: quote.sourceDraftItemKey, quoteId: quote.id }]
+    : []);
   let aiMetadata: unknown = null;
   if (draft.aiMetadataJson) {
     try { aiMetadata = JSON.parse(draft.aiMetadataJson); } catch { aiMetadata = null; }
@@ -138,6 +142,8 @@ function serializeSupplierQuoteDraft(draft: SupplierQuoteDraftRecord) {
     },
     supplier: draft.supplier,
     supplierQuotes: draft.supplierQuotes,
+    confirmedItemKeys: confirmedQuotes.map((quote) => quote.itemKey),
+    confirmedQuotes,
   };
 }
 
@@ -183,7 +189,7 @@ async function createDraft(args: {
       orderBy: { version: 'desc' },
       select: { version: true, status: true },
     });
-    if (latestDraft?.status === 'DRAFT') {
+    if (latestDraft && ['DRAFT', 'PARTIALLY_CONFIRMED'].includes(latestDraft.status)) {
       throw new AppError('该邮件与询价单已有未确认报价草稿，请继续编辑现有草稿', 409, 'STATE_CONFLICT');
     }
     const draft = await tx.supplierQuoteDraft.create({
@@ -374,16 +380,36 @@ router.patch(
       updated = await prisma.$transaction(async (tx) => {
       const existing = await tx.supplierQuoteDraft.findUnique({
         where: { id: req.params.id },
-        select: { id: true, emailId: true, inquiryId: true, status: true, version: true },
+        select: { id: true, emailId: true, inquiryId: true, status: true, version: true, payloadJson: true },
       });
       if (!existing) throw new AppError('供应商报价草稿不存在', 404, 'RESOURCE_NOT_FOUND');
       await assertDraftSourceAccess(req.user!, existing.emailId, existing.inquiryId, tx);
-      if (existing.status !== 'DRAFT') throw new AppError('已确认的报价草稿不能修改', 409, 'STATE_CONFLICT');
+      if (!['DRAFT', 'PARTIALLY_CONFIRMED'].includes(existing.status)) {
+        throw new AppError('已确认的报价草稿不能修改', 409, 'STATE_CONFLICT');
+      }
       if (existing.version !== req.body.expectedVersion) {
         throw new AppError('报价草稿已被其他用户修改，请重新加载', 409, 'STATE_CONFLICT');
       }
+      if (existing.status === 'PARTIALLY_CONFIRMED') {
+        const [previousPayload, confirmedQuotes] = await Promise.all([
+          Promise.resolve(parseStoredDraftPayload(existing.payloadJson)),
+          tx.supplierQuote.findMany({
+            where: { sourceDraftId: existing.id },
+            select: { sourceDraftItemKey: true },
+          }),
+        ]);
+        const previousByKey = new Map(previousPayload.items.flatMap((item) => item.itemKey ? [[item.itemKey, item] as const] : []));
+        const nextByKey = new Map(payload.items.flatMap((item) => item.itemKey ? [[item.itemKey, item] as const] : []));
+        for (const itemKey of confirmedQuotes.map((quote) => quote.sourceDraftItemKey).filter((key): key is string => Boolean(key))) {
+          const previousItem = previousByKey.get(itemKey);
+          const nextItem = nextByKey.get(itemKey);
+          if (!previousItem || !nextItem || !isDeepStrictEqual(previousItem, nextItem)) {
+            throw new AppError('已确认的报价行必须保留且不能修改', 409, 'STATE_CONFLICT');
+          }
+        }
+      }
       const result = await tx.supplierQuoteDraft.updateMany({
-        where: { id: existing.id, status: 'DRAFT', version: req.body.expectedVersion },
+        where: { id: existing.id, status: existing.status, version: req.body.expectedVersion },
         data: { payloadJson: JSON.stringify(payload), version: { increment: 1 } },
       });
       if (result.count !== 1) throw new AppError('报价草稿已被其他用户修改，请重新加载', 409, 'STATE_CONFLICT');
@@ -422,8 +448,8 @@ router.post(
   validateBody(supplierQuoteDraftConfirmSchema),
   asyncHandler(async (request, res) => {
     const req = request as AuthRequest;
-    const { expectedVersion } = req.body;
-    const data = await confirmSupplierQuoteDraftCommand(req.user!, req.params.id, expectedVersion);
+    const { expectedVersion, itemKeys } = req.body;
+    const data = await confirmSupplierQuoteDraftCommand(req.user!, req.params.id, expectedVersion, { itemKeys });
     res.json({ success: true, data });
   }),
 );

@@ -94,7 +94,7 @@ describe('supplier quote draft routes', () => {
         findUniqueOrThrow: vi.fn(),
         updateMany: vi.fn(),
       },
-      supplierQuote: { create: vi.fn(), findMany: vi.fn() },
+      supplierQuote: { create: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
       rFQ: { findUnique: vi.fn(), findFirst: vi.fn() },
       rfqLine: { findUnique: vi.fn(), findMany: vi.fn() },
       sourcingAiTask: { findFirst: vi.fn() },
@@ -369,6 +369,73 @@ describe('supplier quote draft routes', () => {
       userId: 'sales-1', action: 'UPDATE', resourceType: 'SUPPLIER_QUOTE_DRAFT', resourceId: 'draft-1',
       changes: JSON.stringify({ version: { before: 1, after: 2 } }),
     }) });
+  });
+
+  it('preserves confirmed draft rows while allowing edits to pending rows', async () => {
+    const confirmedItem = {
+      itemKey: 'offer-a', inquiryItemId: 'item-1', partNumber: 'PN-1', quantity: 2,
+      quantityUnit: 'EA', unitPrice: 50, currency: 'USD', leadTimeDays: 5,
+    };
+    const pendingItem = {
+      itemKey: 'offer-b', inquiryItemId: 'item-2', partNumber: 'PN-1', quantity: 1,
+      quantityUnit: 'EA', unitPrice: 40, currency: 'USD', leadTimeDays: 8,
+    };
+    const oldPayload = JSON.stringify({ items: [confirmedItem, pendingItem] });
+    prismaMock.supplierQuoteDraft.findUnique.mockResolvedValue({
+      id: 'draft-1', emailId: 'email-1', inquiryId: 'inquiry-1', status: 'PARTIALLY_CONFIRMED', version: 3,
+      payloadJson: oldPayload,
+    });
+    prismaMock.supplierQuote.findMany.mockResolvedValue([{ sourceDraftItemKey: 'offer-a' }]);
+    prismaMock.supplierQuoteDraft.updateMany.mockResolvedValue({ count: 1 });
+    let savedPayloadJson = '';
+    prismaMock.supplierQuoteDraft.updateMany.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      savedPayloadJson = data.payloadJson as string;
+      return { count: 1 };
+    });
+    prismaMock.supplierQuoteDraft.findUniqueOrThrow.mockImplementation(async () => draftRecord({ payloadJson: savedPayloadJson }));
+
+    const editedConfirmedRow = await request(app).patch('/api/supplier-quote-drafts/draft-1').send({
+      expectedVersion: 3,
+      payload: { items: [{ ...confirmedItem, unitPrice: 51 }, pendingItem] },
+    });
+    expect(editedConfirmedRow.status).toBe(409);
+    expect(prismaMock.supplierQuoteDraft.updateMany).not.toHaveBeenCalled();
+
+    prismaMock.supplierQuoteDraft.findUnique.mockResolvedValue({
+      id: 'draft-1', emailId: 'email-1', inquiryId: 'inquiry-1', status: 'PARTIALLY_CONFIRMED', version: 3,
+      payloadJson: oldPayload,
+    });
+    const deletedConfirmedRow = await request(app).patch('/api/supplier-quote-drafts/draft-1').send({
+      expectedVersion: 3,
+      payload: { items: [pendingItem] },
+    });
+    expect(deletedConfirmedRow.status).toBe(409);
+    expect(prismaMock.supplierQuoteDraft.updateMany).not.toHaveBeenCalled();
+
+    prismaMock.supplierQuoteDraft.findUnique.mockResolvedValue({
+      id: 'draft-1', emailId: 'email-1', inquiryId: 'inquiry-1', status: 'PARTIALLY_CONFIRMED', version: 3,
+      payloadJson: oldPayload,
+    });
+    const editedPendingRow = await request(app).patch('/api/supplier-quote-drafts/draft-1').send({
+      expectedVersion: 3,
+      payload: { items: [confirmedItem, { ...pendingItem, unitPrice: 41 }] },
+    });
+    expect(editedPendingRow.status).toBe(200);
+    expect(JSON.parse(savedPayloadJson).items).toMatchObject([
+      { itemKey: 'offer-a', unitPrice: 50 }, { itemKey: 'offer-b', unitPrice: 41 },
+    ]);
+  });
+
+  it('does not create a new manual draft over a partially confirmed draft', async () => {
+    prismaMock.supplierQuoteDraft.findFirst.mockResolvedValue({ version: 3, status: 'PARTIALLY_CONFIRMED' });
+
+    const response = await request(app).post('/api/supplier-quote-drafts').send({
+      emailId: 'email-1', inquiryId: 'inquiry-1', payload: { items: [] },
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('STATE_CONFLICT');
+    expect(prismaMock.supplierQuoteDraft.create).not.toHaveBeenCalled();
   });
 
   it('saves AI candidates as a sparse draft, resolves only unique exact inquiry items, and creates no quotes', async () => {
@@ -652,7 +719,7 @@ describe('supplier quote draft routes', () => {
     prismaMock.supplierQuote.create
       .mockResolvedValueOnce(quotes[0])
       .mockResolvedValueOnce(quotes[1]);
-    prismaMock.supplierQuote.findMany.mockResolvedValue(quotes);
+    prismaMock.supplierQuote.findMany.mockResolvedValueOnce([]).mockResolvedValue(quotes);
 
     const first = await request(app)
       .post('/api/supplier-quote-drafts/draft-1/confirm')
@@ -660,6 +727,10 @@ describe('supplier quote draft routes', () => {
     expect(first.status).toBe(200);
     expect(first.body.data).toMatchObject({
       reused: false,
+      status: 'CONFIRMED',
+      version: 2,
+      confirmedItemKeys: ['offer-a', 'offer-b'],
+      confirmedQuotes: [{ itemKey: 'offer-a', quoteId: 'quote-a' }, { itemKey: 'offer-b', quoteId: 'quote-b' }],
       supplierQuoteIds: ['quote-a', 'quote-b'],
       createdSupplierQuoteIds: ['quote-a', 'quote-b'],
       reusedSupplierQuoteIds: [],
@@ -683,7 +754,7 @@ describe('supplier quote draft routes', () => {
       sourceDraftItemKey: 'offer-a',
     });
 
-    prismaMock.supplierQuoteDraft.findUnique.mockResolvedValue({ ...draft, status: 'CONFIRMED' });
+    prismaMock.supplierQuoteDraft.findUnique.mockResolvedValue({ ...draft, status: 'CONFIRMED', version: 2 });
     const repeated = await request(app)
       .post('/api/supplier-quote-drafts/draft-1/confirm')
       .send({ expectedVersion: 1 });
@@ -714,7 +785,7 @@ describe('supplier quote draft routes', () => {
       inquiry: { id: 'inquiry-1', rfqId: 'rfq-1', supplierId: 'supplier-1' },
     });
     prismaMock.supplierQuoteDraft.updateMany.mockResolvedValue({ count: 1 });
-    prismaMock.supplierQuote.findMany.mockResolvedValue([{ id: 'quote-a' }]);
+    prismaMock.supplierQuote.findMany.mockResolvedValueOnce([]).mockResolvedValue([{ id: 'quote-created', sourceDraftItemKey: 'offer-a' }]);
     prismaMock.sourcingAiTask.findFirst.mockResolvedValue({
       actorId: 'sales-1', type: 'supplier_quote_extraction', emailId: 'email-1', inquiryId: 'inquiry-1',
       status: 'COMPLETED', draftId: 'draft-1', sourceFingerprint: 'source-current',
@@ -730,10 +801,10 @@ describe('supplier quote draft routes', () => {
     expect(result).toMatchObject({
       draftId: 'draft-1',
       status: 'CONFIRMED',
-      version: 3,
+      version: 4,
       reused: false,
-      supplierQuoteIds: ['quote-a'],
-      createdSupplierQuoteIds: ['quote-a'],
+      supplierQuoteIds: ['quote-created'],
+      createdSupplierQuoteIds: ['quote-created'],
       reusedSupplierQuoteIds: [],
     });
     expect(prismaMock.supplierQuote.create).toHaveBeenCalledTimes(1);
@@ -743,7 +814,7 @@ describe('supplier quote draft routes', () => {
     expect(captureSourcingAiTaskSourceFingerprint).toHaveBeenCalledWith('sales-1', 'email-1', 'inquiry-1', prismaMock);
     expect(prismaMock.supplierQuoteDraft.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'draft-1', status: 'DRAFT', version: 3 },
-      data: expect.objectContaining({ confirmedById: 'sales-1' }),
+      data: expect.objectContaining({ confirmedById: 'sales-1', version: { increment: 1 } }),
     }));
   });
 
@@ -818,12 +889,97 @@ describe('supplier quote draft routes', () => {
     prismaMock.rfqLine.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
       where.id === firstLine.id ? firstLine : secondLine);
     prismaMock.supplierQuoteDraft.updateMany.mockResolvedValue({ count: 1 });
-    prismaMock.supplierQuote.findMany.mockResolvedValue([{ id: 'quote-1' }, { id: 'quote-2' }]);
+    prismaMock.supplierQuote.create
+      .mockResolvedValueOnce({ id: 'quote-1', sourceDraftItemKey: 'offer-1' })
+      .mockResolvedValueOnce({ id: 'quote-2', sourceDraftItemKey: 'offer-2' });
+    prismaMock.supplierQuote.findMany.mockResolvedValueOnce([]).mockResolvedValue([
+      { id: 'quote-1', sourceDraftItemKey: 'offer-1' }, { id: 'quote-2', sourceDraftItemKey: 'offer-2' },
+    ]);
 
     const response = await request(app).post('/api/supplier-quote-drafts/draft-1/confirm').send({ expectedVersion: 2 });
     expect(response.status).toBe(200);
     expect(response.body.data.supplierQuoteIds).toEqual(['quote-1', 'quote-2']);
     expect(prismaMock.supplierQuote.create.mock.calls.map(([args]) => args.data.rfqLineId)).toEqual(['line-1', 'line-2']);
     expect(prismaMock.rfqLine.findMany).not.toHaveBeenCalled();
+  });
+
+  it('confirms selected complete rows and keeps unselected rows pending', async () => {
+    const completeItem = {
+      itemKey: 'offer-a', inquiryItemId: 'item-1', partNumber: 'PN-1', quantity: 2,
+      quantityUnit: 'EA', unitPrice: 50, currency: 'USD', leadTimeDays: 5,
+    };
+    const incompleteItem = {
+      itemKey: 'offer-b', inquiryItemId: 'item-2', partNumber: 'PN-1', quantity: 1,
+      quantityUnit: 'EA', unitPrice: 40, currency: 'RMB', leadTimeMinDays: 5, leadTimeMaxDays: 10,
+    };
+    const payloadJson = JSON.stringify({ items: [completeItem, incompleteItem] });
+    const draft = {
+      id: 'draft-1', emailId: 'email-1', inquiryId: 'inquiry-1', supplierId: 'supplier-1',
+      status: 'DRAFT', version: 4, payloadJson,
+    };
+    const quote = { id: 'quote-a', sourceDraftId: 'draft-1', sourceDraftItemKey: 'offer-a' };
+    prismaMock.supplierQuoteDraft.findUnique.mockResolvedValue(draft);
+    prismaMock.inquiryItem.findMany.mockResolvedValue([
+      { id: 'item-1', inquiryId: 'inquiry-1', rfqLineId: null, partNumber: 'PN-1', quantity: 4 },
+    ]);
+    prismaMock.inquiryItem.findUnique.mockResolvedValue({
+      id: 'item-1', inquiryId: 'inquiry-1', rfqLineId: null, partNumber: 'PN-1', quantity: 4,
+      inquiry: { id: 'inquiry-1', rfqId: 'rfq-1', supplierId: 'supplier-1' },
+    });
+    prismaMock.supplierQuoteDraft.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.supplierQuote.create.mockResolvedValue(quote);
+    prismaMock.supplierQuote.findMany.mockResolvedValueOnce([]).mockResolvedValue([quote]);
+
+    const response = await request(app).post('/api/supplier-quote-drafts/draft-1/confirm')
+      .send({ expectedVersion: 4, itemKeys: ['offer-a'] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({
+      status: 'PARTIALLY_CONFIRMED',
+      confirmedItemKeys: ['offer-a'],
+      confirmedQuotes: [{ itemKey: 'offer-a', quoteId: 'quote-a' }],
+      supplierQuoteIds: ['quote-a'],
+    });
+    expect(prismaMock.inquiryItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { inquiryId: 'inquiry-1', id: { in: ['item-1'] } },
+    }));
+    expect(prismaMock.supplierQuote.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.supplierQuoteDraft.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'draft-1', status: 'DRAFT', version: 4 },
+      data: expect.objectContaining({ status: 'PARTIALLY_CONFIRMED' }),
+    }));
+    expect(prismaMock.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      userId: 'sales-1', action: 'CONFIRM', resourceType: 'SUPPLIER_QUOTE_DRAFT', resourceId: 'draft-1',
+      changes: JSON.stringify({
+        version: { before: 4, after: 5 },
+        status: { before: 'DRAFT', after: 'PARTIALLY_CONFIRMED' },
+        itemKeys: ['offer-a'], supplierQuoteIds: ['quote-a'],
+      }),
+    }) });
+
+    prismaMock.supplierQuoteDraft.findUnique.mockResolvedValue({ ...draft, status: 'PARTIALLY_CONFIRMED', version: 5 });
+    const repeated = await request(app).post('/api/supplier-quote-drafts/draft-1/confirm')
+      .send({ expectedVersion: 4, itemKeys: ['offer-a'] });
+    expect(repeated.status).toBe(200);
+    expect(repeated.body.data).toMatchObject({ reused: true, confirmedItemKeys: ['offer-a'] });
+    expect(prismaMock.supplierQuote.create).toHaveBeenCalledTimes(1);
+
+    const storedDraft = draftRecord({ payloadJson });
+    Object.assign(storedDraft, {
+      status: 'PARTIALLY_CONFIRMED', version: 5,
+      supplierQuotes: [{ ...quote, inquiryItemId: 'item-1', partNumber: 'PN-1', quantity: 2,
+        quantityUnit: 'EA', unitPrice: 50, totalPrice: 100, currency: 'USD', leadTimeDays: 5,
+        validUntil: null, status: 'pending', createdAt: new Date() }],
+    });
+    prismaMock.supplierQuoteDraft.findUnique
+      .mockResolvedValueOnce({ emailId: 'email-1', inquiryId: 'inquiry-1' })
+      .mockResolvedValueOnce(storedDraft);
+    const getDraft = await request(app).get('/api/supplier-quote-drafts/draft-1');
+    expect(getDraft.status).toBe(200);
+    expect(getDraft.body.data).toMatchObject({
+      status: 'PARTIALLY_CONFIRMED',
+      confirmedItemKeys: ['offer-a'],
+      confirmedQuotes: [{ itemKey: 'offer-a', quoteId: 'quote-a' }],
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from '../middleware/errorHandler.js';
+import { evidencedOfferQuantity, supplierReplyBody } from './supplierReplyEvidence.js';
 
 const extractionBase = {
   type: z.enum(['AOG', 'STANDARD', 'INQUIRY', 'SPAM']),
@@ -123,7 +124,7 @@ export function parseSupplierQuoteExtractionOutput(output: string): SupplierQuot
   try {
     return supplierQuoteExtractionSchema.parse(JSON.parse(output.trim()));
   } catch {
-    throw new AppError('模型返回的供应商报价提取结果不符合格式，请核对原文并重试；未创建报价记录', 502);
+    throw new AppError('模型返回的供应商报价提取结果不符合格式，请核对原文并重试；未创建报价记录', 502, 'AI_QUOTE_OUTPUT_INVALID');
   }
 }
 
@@ -139,9 +140,10 @@ export function assertSupplierQuoteEvidence(
   if (typeof subject !== 'string' || typeof body !== 'string') {
     throw new AppError('供应商报价提取需要邮件主题和正文', 400, 'VALIDATION_ERROR');
   }
-  const source = normalizeEvidenceText(`${subject}\n${body}`);
+  const source = normalizeEvidenceText(`${subject}\n${supplierReplyBody(body)}`);
   if (output.items.some((item) => !source.includes(normalizeEvidenceText(item.evidenceText)))) {
-    throw new AppError('模型返回的报价依据无法在原邮件中定位，请核对原文并重试；未创建报价记录', 502);
+    throw new AppError('模型返回的报价依据无法在原邮件中定位，或仅来自引用历史；请核对本次回信或手工建稿，未创建报价记录', 502, 'AI_QUOTE_EVIDENCE_INVALID');
   }
-  return output;
+  return { ...output, items: output.items.map(item => evidencedOfferQuantity(item.quantity, item.evidenceText)
+    ? item : { ...item, quantity: null, quantityUnit: null }) };
 }

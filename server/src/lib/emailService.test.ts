@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import { simpleParser } from 'mailparser';
+import { createTransport as createNodemailerTransport } from 'nodemailer';
 
 const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
@@ -140,5 +143,52 @@ describe('IMAP mailbox fetch', () => {
         contentId: '<quote-part@example.com>',
       }],
     });
+  });
+});
+
+describe('SMTP MIME attachment delivery', () => {
+  it('passes frozen attachment metadata and bytes through Nodemailer MIME serialization', async () => {
+    let capturedMail: unknown;
+    vi.resetModules();
+    vi.doMock('nodemailer', () => ({
+      createTransport: () => ({
+        sendMail: vi.fn(async (mail: unknown) => {
+          capturedMail = mail;
+          return { messageId: '<fixture@example.test>' };
+        }),
+      }),
+    }));
+    const content = Buffer.from('%PDF-1.7\nfixture bytes\n%%EOF');
+    const expectedHash = createHash('sha256').update(content).digest('hex');
+    const { sendEmail } = await import('./emailService.js');
+    await sendEmail({
+      id: 'fixture-account', email: 'sender@example.test', displayName: 'Fixture',
+      imapServer: 'imap.example.test', imapPort: '143', smtpServer: 'smtp.example.test', smtpPort: '587',
+      authCode: 'fixture-secret', accountType: 'IMAP_SMTP',
+    }, {
+      to: 'supplier@example.test', subject: 'Inquiry with attachment', body: 'Please review the attached file.',
+      attachments: [{ filename: '报价单.pdf', content, contentType: 'application/pdf' }],
+      messageId: '<fixture@example.test>',
+    });
+
+    const transport = createNodemailerTransport({ streamTransport: true, buffer: true, newline: 'unix' });
+    const serialized = await transport.sendMail(capturedMail as never);
+    let serializedBytes: Buffer;
+    if (Buffer.isBuffer(serialized.message)) {
+      serializedBytes = serialized.message;
+    } else {
+      const chunks: Buffer[] = [];
+      for await (const chunk of serialized.message) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      serializedBytes = Buffer.concat(chunks);
+    }
+    const parsed = await simpleParser(serializedBytes);
+    expect(parsed.attachments).toHaveLength(1);
+    const attachment = parsed.attachments?.[0];
+    if (!attachment) throw new Error('Serialized MIME message is missing its attachment');
+    expect(attachment).toMatchObject({ filename: '报价单.pdf', contentType: 'application/pdf', content });
+    expect(createHash('sha256').update(attachment.content).digest('hex')).toBe(expectedHash);
+    expect(parsed.text).toContain('Please review the attached file.');
   });
 });

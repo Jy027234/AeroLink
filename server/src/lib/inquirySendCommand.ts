@@ -6,15 +6,23 @@ import { assertCapability } from '../middleware/capability.js';
 import { buildRfqReadScope } from './rfqAccess.js';
 import { getCapabilityScope } from './capabilityPolicy.js';
 import { enqueueOutboundEmail } from './outboxService.js';
+import {
+  assertFrozenInquiryAttachments,
+  freezeInquiryAttachments,
+  inquiryAttachmentSnapshotHash,
+  type InquiryAttachmentSnapshot,
+} from './inquiryAttachments.js';
 
 type InquirySendActor = NonNullable<AuthRequest['user']>;
 
 export type InquirySendContent = {
   subject?: string;
   textBody?: string;
+  attachmentIds?: string[];
+  attachments?: InquiryAttachmentSnapshot[];
 };
 
-export function inquiryReadScope(actor: InquirySendActor): Prisma.InquiryWhereInput {
+export function inquiryReadScope(actor: Pick<InquirySendActor, 'id' | 'role' | 'department'>): Prisma.InquiryWhereInput {
   const linked = { rfq: { is: buildRfqReadScope(actor) } } satisfies Prisma.InquiryWhereInput;
   // Unknown historical ownership is never inferred from a matching part number.
   return getCapabilityScope(actor, 'rfq.read') === 'all' ? { OR: [linked, { rfqId: null }] } : linked;
@@ -84,6 +92,12 @@ export async function sendInquiryCommand(
     }
   }
   if (!inquiry.items.length) throw new AppError('询价没有需求明细，无法发送', 409, 'STATE_CONFLICT');
+  const attachments = content.attachments === undefined
+    ? await freezeInquiryAttachments(tx, inquiry.id, content.attachmentIds ?? [])
+    : await assertFrozenInquiryAttachments(tx, inquiry.id, content.attachments);
+  if (content.attachmentIds && JSON.stringify(content.attachmentIds) !== JSON.stringify(attachments.map((attachment) => attachment.id))) {
+    throw new AppError('任务中的附件选择与冻结版本不一致', 409, 'STATE_CONFLICT');
+  }
   const selectedLineIds = [...new Set(inquiry.items.map((item) => item.rfqLineId).filter((id): id is string => Boolean(id)))];
   if (selectedLineIds.length > 0) {
     const lines = await tx.rfqLine.findMany({
@@ -125,6 +139,21 @@ export async function sendInquiryCommand(
     },
     select: { id: true, status: true, errorMessage: true, sentAt: true },
   });
+  for (const [position, attachment] of attachments.entries()) {
+    await tx.outboundInquiryEmailAttachment.create({
+      data: {
+        outboundEmailId: outboundEmail.id,
+        inquiryAttachmentId: attachment.id,
+        storedObjectId: attachment.storedObjectId,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        sizeBytes: attachment.sizeBytes,
+        sha256: attachment.sha256,
+        version: attachment.version,
+        position,
+      },
+    });
+  }
   const queuedInquiry = await tx.inquiry.update({
     where: { id: inquiry.id },
     data: { status: 'QUEUED' },
@@ -134,6 +163,7 @@ export async function sendInquiryCommand(
     aggregateType: 'INQUIRY',
     aggregateId: inquiry.id,
     outboundEmailId: outboundEmail.id,
+    ...(attachments.length ? { inquiryAttachmentSnapshotHash: inquiryAttachmentSnapshotHash(attachments) } : {}),
     createdById: actor.id,
   });
   await tx.auditLog.create({
@@ -144,9 +174,9 @@ export async function sendInquiryCommand(
       action: 'APPROVE',
       resourceType: 'OUTBOUND_EMAIL',
       resourceId: outboundEmail.id,
-      details: 'Human confirmed inquiry email version for queued delivery',
+      details: `Human confirmed inquiry email version for queued delivery (${attachments.length} attachment${attachments.length === 1 ? '' : 's'})`,
     },
   });
 
-  return { inquiry, queuedInquiry, outboundEmail, outboxEvent };
+  return { inquiry, queuedInquiry, outboundEmail, outboxEvent, attachments };
 }

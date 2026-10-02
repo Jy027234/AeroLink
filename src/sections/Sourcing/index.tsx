@@ -69,10 +69,11 @@ import {
   useInquiryEmails,
   useEmails,
 } from '@/hooks/useApi';
-import { emailApi, fileApi, inquiryApi, rfqApi, sourcingActionTaskApi, sourcingAiTaskApi, supplierQuoteApi, supplierQuoteDraftApi } from '@/api/client';
+import { emailApi, fileApi, inquiryApi, inquiryAttachmentApi, rfqApi, sourcingActionTaskApi, sourcingAiTaskApi, supplierQuoteApi, supplierQuoteDraftApi } from '@/api/client';
 import type { Email, RFQ, Supplier, InventoryItem } from '@/types';
 import type {
   Inquiry,
+  InquiryAttachment,
   InquiryDeliveryStatus,
   RfqSourcingCandidates,
   RfqSourcingTimeline,
@@ -199,22 +200,77 @@ function createManualQuoteDraft(inquiry: Inquiry): SupplierQuoteDraftPayload {
   };
 }
 
-function getQuoteDraftConfirmIssues(payload: SupplierQuoteDraftPayload | null, tx: (zh: string, en: string) => string) {
-  if (!payload || payload.items.length === 0) return [tx('草稿至少需要一条报价行。', 'The draft must contain at least one quote item.')];
+function getQuoteDraftItemConfirmIssues(
+  item: SupplierQuoteDraftPayload['items'][number],
+  index: number,
+  tx: (zh: string, en: string) => string,
+  evidenceRequirements: { currency: boolean; leadTime: boolean } = { currency: false, leadTime: false },
+) {
   const issues: string[] = [];
-  payload.items.forEach((item, index) => {
-    const row = tx(`第 ${index + 1} 项`, `Item ${index + 1}`);
-    if (!item.itemKey.trim()) issues.push(`${row}: ${tx('缺少稳定行标识。', 'stable item key is missing.')}`);
-    if (!item.inquiryItemId?.trim()) issues.push(`${row}: ${tx('缺少询价需求项。', 'inquiry item is required.')}`);
-    if (!item.partNumber?.trim()) issues.push(`${row}: ${tx('缺少件号。', 'part number is required.')}`);
-    if (!Number.isInteger(item.quantity) || (item.quantity ?? 0) < 1) issues.push(`${row}: ${tx('数量必须是正整数。', 'quantity must be a positive integer.')}`);
-    if (!item.quantityUnit?.trim()) issues.push(`${row}: ${tx('请核对并填写报价数量单位。', 'confirm the quoted quantity unit.')}`);
-    if (typeof item.unitPrice !== 'number' || !Number.isFinite(item.unitPrice) || item.unitPrice < 0) issues.push(`${row}: ${tx('请填写有效单价。', 'enter a valid unit price.')}`);
-    if (item.currency?.trim().toUpperCase() !== 'USD') issues.push(`${row}: ${tx('确认仅支持 USD 币种。', 'confirmation only supports USD.')}`);
-    if (item.leadTimeMinDays != null || item.leadTimeMaxDays != null) issues.push(`${row}: ${tx('当前是交期区间，请填写单一交期。', 'lead time is a range; enter one single value.')}`);
-    if (!Number.isInteger(item.leadTimeDays) || (item.leadTimeDays ?? -1) < 0) issues.push(`${row}: ${tx('请填写单一交期天数。', 'enter one lead time in days.')}`);
-  });
+  const row = tx(`第 ${index + 1} 项`, `Item ${index + 1}`);
+  if (!item.itemKey.trim()) issues.push(`${row}: ${tx('缺少稳定行标识。', 'stable item key is missing.')}`);
+  if (!item.inquiryItemId?.trim()) issues.push(`${row}: ${tx('缺少询价需求项。', 'inquiry item is required.')}`);
+  if (!item.partNumber?.trim()) issues.push(`${row}: ${tx('缺少件号。', 'part number is required.')}`);
+  if (!Number.isInteger(item.quantity) || (item.quantity ?? 0) < 1) issues.push(`${row}: ${tx('数量必须是正整数。', 'quantity must be a positive integer.')}`);
+  if (!item.quantityUnit?.trim()) issues.push(`${row}: ${tx('请核对并填写报价数量单位。', 'confirm the quoted quantity unit.')}`);
+  if (typeof item.unitPrice !== 'number' || !Number.isFinite(item.unitPrice) || item.unitPrice < 0) issues.push(`${row}: ${tx('请填写有效单价。', 'enter a valid unit price.')}`);
+  if (item.currency?.trim().toUpperCase() !== 'USD') issues.push(`${row}: ${tx('正式报价目前仅支持 USD；如供应商报价为其他币种，请先向供应商核实，不要改写币种，此行保持待确认。', 'Formal quotes currently support USD only. If the supplier quoted another currency, verify with them; do not rewrite it, and leave this item pending.')}`);
+  else if (evidenceRequirements.currency && !item.evidenceText?.trim()) issues.push(`${row}: ${tx('请在报价依据中记录供应商确认币种的原文，再保存并确认。', 'Record the supplier’s exact currency confirmation in quote evidence before saving and confirming.')}`);
+  const hasLeadTimeRange = item.leadTimeMinDays != null || item.leadTimeMaxDays != null;
+  const hasValidSingleLeadTime = Number.isInteger(item.leadTimeDays) && (item.leadTimeDays ?? -1) >= 0;
+  if (!hasValidSingleLeadTime) {
+    issues.push(`${row}: ${hasLeadTimeRange
+      ? tx('交期仍是区间；供应商明确确认单值前请保留区间并保持待确认。', 'Lead time is still a range. Keep it pending until the supplier confirms one value.')
+      : tx('请按供应商明确回复填写单一交期天数。', 'Enter a single lead time only when the supplier has confirmed it.')}`);
+  } else if (hasLeadTimeRange && !item.evidenceText?.trim()) {
+    issues.push(`${row}: ${tx('请在报价依据中记录供应商确认单一交期的原文。', 'Record the supplier’s exact confirmation of the single lead time in the quote evidence.')}`);
+  } else if (hasLeadTimeRange) {
+    issues.push(`${row}: ${tx('保存后草稿采用供应商确认的单值；原区间请回看原邮件/AI 候选来源。', 'After saving, the draft uses the supplier-confirmed single value; refer to the original email/AI candidate for the original range.')}`);
+  } else if (evidenceRequirements.leadTime && !item.evidenceText?.trim()) {
+    issues.push(`${row}: ${tx('请在报价依据中记录供应商确认单一交期的原文。', 'Record the supplier’s exact confirmation of the single lead time in the quote evidence.')}`);
+  }
+  if (!item.condition?.trim()) issues.push(`${row}: ${tx('成色/状态未说明，请按供应商回复补录。', 'Condition is missing; enter the supplier’s statement.')}`);
+  const certificateIsEmpty = item.certificate == null
+    || (typeof item.certificate === 'string' && !item.certificate.trim())
+    || (Array.isArray(item.certificate) && item.certificate.length === 0);
+  if (certificateIsEmpty) issues.push(`${row}: ${tx('证书声明未说明，请按供应商回复选择无、有或补录文本。', 'Certificate statement is missing; record none, available, or the supplier’s text.')}`);
   return issues;
+}
+
+function getConfirmedQuoteMappings(draft: SupplierQuoteDraftRecord | null): Array<{ itemKey: string; quoteId: string }> {
+  if (!draft) return [];
+  if (draft.confirmedQuotes?.length) return draft.confirmedQuotes;
+  const quoteMappings = draft.supplierQuotes.flatMap((quote) => quote.sourceDraftItemKey
+    ? [{ itemKey: quote.sourceDraftItemKey, quoteId: quote.id }]
+    : []);
+  if (quoteMappings.length) return quoteMappings;
+  // Older complete-draft responses did not include a row mapping.
+  return draft.status === 'CONFIRMED'
+    ? draft.payload.items.map((item, index) => ({ itemKey: item.itemKey, quoteId: draft.supplierQuotes[index]?.id ?? '' })).filter((mapping) => mapping.quoteId)
+    : [];
+}
+
+function getConfirmedItemKeys(draft: SupplierQuoteDraftRecord | null): string[] {
+  if (!draft) return [];
+  if (draft.confirmedItemKeys) return draft.confirmedItemKeys;
+  return [...new Set([
+    ...(draft.confirmedQuotes ?? []).map((mapping) => mapping.itemKey),
+    ...draft.supplierQuotes.flatMap((quote) => quote.sourceDraftItemKey ? [quote.sourceDraftItemKey] : []),
+    ...(draft.status === 'CONFIRMED' ? draft.payload.items.map((item) => item.itemKey) : []),
+  ])];
+}
+
+function certificateControlValue(value: SupplierQuoteDraftPayload['items'][number]['certificate']): 'unknown' | 'none' | 'provided' | 'details' {
+  if (value == null) return 'unknown';
+  if (value === false) return 'none';
+  if (value === true) return 'provided';
+  return 'details';
+}
+
+function certificateTextValue(value: SupplierQuoteDraftPayload['items'][number]['certificate']): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.join(', ');
+  return '';
 }
 
 function getPendingQuoteIssues(row: RfqSourcingPendingQuoteRow, tx: (zh: string, en: string) => string) {
@@ -302,7 +358,7 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
   const [isDraftDirty, setIsDraftDirty] = useState(false);
   const [busyAction, setBusyAction] = useState<'extract' | 'create' | 'save' | 'confirm' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [confirmedQuoteIds, setConfirmedQuoteIds] = useState<string[]>([]);
+  const [selectedConfirmItemKeys, setSelectedConfirmItemKeys] = useState<string[]>([]);
   const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null);
   const [extractionTask, setExtractionTask] = useState<SourcingAiTaskRecord | null>(null);
   const extractionKeyBySource = useRef<Record<string, string>>({});
@@ -310,7 +366,23 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
   txRef.current = tx;
 
   const selectedEmail = emails?.find((email) => email.id === selectedEmailId) ?? null;
-  const confirmIssues = useMemo(() => getQuoteDraftConfirmIssues(draftPayload, tx), [draftPayload, tx]);
+  const confirmedItemKeys = useMemo(() => new Set(getConfirmedItemKeys(draft)), [draft]);
+  const confirmedQuoteMappings = useMemo(() => getConfirmedQuoteMappings(draft), [draft]);
+  const issuesByItemKey = useMemo(() => new Map((draftPayload?.items ?? []).map((item, index) => {
+    const savedItem = draft?.payload.items.find((candidate) => candidate.itemKey === item.itemKey);
+    const currencyWasUnconfirmed = item.currency?.trim().toUpperCase() === 'USD'
+      && savedItem?.currency?.trim().toUpperCase() !== 'USD';
+    const hasSingleLeadTime = Number.isInteger(item.leadTimeDays) && (item.leadTimeDays ?? -1) >= 0;
+    const leadTimeWasUnconfirmed = hasSingleLeadTime && savedItem?.leadTimeDays == null;
+    return [item.itemKey, getQuoteDraftItemConfirmIssues(item, index, tx, {
+      currency: currencyWasUnconfirmed,
+      leadTime: leadTimeWasUnconfirmed,
+    })] as const;
+  })), [draft, draftPayload, tx]);
+  const selectableItemKeys = useMemo(() => (draftPayload?.items ?? [])
+    .filter((item) => !confirmedItemKeys.has(item.itemKey) && (issuesByItemKey.get(item.itemKey)?.length ?? 0) === 0)
+    .map((item) => item.itemKey), [confirmedItemKeys, draftPayload, issuesByItemKey]);
+  const selectedItemKeys = selectedConfirmItemKeys.filter((itemKey) => selectableItemKeys.includes(itemKey));
   const isBusy = busyAction !== null;
 
   const applyExtractionTask = useCallback(async (task: SourcingAiTaskRecord) => {
@@ -320,7 +392,7 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
       setDraft(extracted);
       setDraftPayload(extracted.payload);
       setIsDraftDirty(false);
-      setConfirmedQuoteIds([]);
+      setSelectedConfirmItemKeys([]);
       setActionError(null);
       return;
     }
@@ -341,7 +413,7 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
     setDraftPayload(null);
     setIsDraftDirty(false);
     setActionError(null);
-    setConfirmedQuoteIds([]);
+    setSelectedConfirmItemKeys([]);
     setExtractionTask(null);
   }, [inquiry?.id]);
 
@@ -365,17 +437,16 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
         setDraft(latest);
         setDraftPayload(latest?.payload ?? null);
         setIsDraftDirty(false);
-        setConfirmedQuoteIds(latest?.status === 'CONFIRMED'
-          ? latest.supplierQuotes.map((quote) => quote.id)
-          : []);
+        setSelectedConfirmItemKeys([]);
         const recoveredTask = tasks.find((task) => task.emailId === selectedEmailId && task.inquiryId === inquiry.id) ?? null;
         if (!latest && recoveredTask) await applyExtractionTask(recoveredTask);
         else setExtractionTask(recoveredTask);
       })
       .catch((error) => {
         if (!active) return;
-        setDraft(null);
-        setDraftPayload(null);
+      setDraft(null);
+      setDraftPayload(null);
+      setSelectedConfirmItemKeys([]);
         setActionError(error instanceof Error ? error.message : '报价草稿恢复失败。');
       })
       .finally(() => {
@@ -411,7 +482,7 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
       setDraft(created);
       setDraftPayload(created.payload);
       setIsDraftDirty(false);
-      setConfirmedQuoteIds([]);
+      setSelectedConfirmItemKeys([]);
       setExtractionTask(null);
       void onPersistedChange?.();
     } catch (error) {
@@ -479,10 +550,37 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
     setBusyAction('save');
     setActionError(null);
     try {
-      const updated = await supplierQuoteDraftApi.update(draft.id, { expectedVersion: draft.version, payload: draftPayload });
+      const savedItemsByKey = new Map(draft.payload.items.map((item) => [item.itemKey, item]));
+      const missingSupplierEvidence = draftPayload.items.some((item) => {
+        const savedItem = savedItemsByKey.get(item.itemKey);
+        const currencyChangedFromUnknownOrOther = item.currency?.trim().toUpperCase() === 'USD'
+          && savedItem?.currency?.trim().toUpperCase() !== 'USD';
+        const leadTimeChangedFromUnknownOrRange = Number.isInteger(item.leadTimeDays)
+          && (item.leadTimeDays ?? -1) >= 0
+          && (savedItem?.leadTimeDays == null || savedItem.leadTimeMinDays != null || savedItem.leadTimeMaxDays != null);
+        return (currencyChangedFromUnknownOrOther || leadTimeChangedFromUnknownOrRange) && !item.evidenceText?.trim();
+      });
+      if (missingSupplierEvidence) {
+        throw new Error(tx('币种或交期从未知值/区间改为 USD 或单值前，请先记录供应商确认原文。', 'Record the supplier’s exact confirmation before replacing an unknown currency or lead-time range with USD or one value.'));
+      }
+      const payloadToSave: SupplierQuoteDraftPayload = {
+        items: draftPayload.items.map((item) => {
+          if (confirmedItemKeys.has(item.itemKey)) return item;
+          const hasLeadTimeRange = item.leadTimeMinDays != null || item.leadTimeMaxDays != null;
+          const hasConfirmedSingleLeadTime = Number.isInteger(item.leadTimeDays)
+            && (item.leadTimeDays ?? -1) >= 0
+            && Boolean(item.evidenceText?.trim());
+          if (!hasLeadTimeRange || !hasConfirmedSingleLeadTime) return item;
+          const { leadTimeMinDays: _min, leadTimeMaxDays: _max, ...confirmedItem } = item;
+          return confirmedItem;
+        }),
+      };
+      const updated = await supplierQuoteDraftApi.update(draft.id, { expectedVersion: draft.version, payload: payloadToSave });
       setDraft(updated);
       setDraftPayload(updated.payload);
       setIsDraftDirty(false);
+      setSelectedConfirmItemKeys((current) => current.filter((itemKey) => updated.payload.items.some((item) => item.itemKey === itemKey)
+        && !getConfirmedItemKeys(updated).includes(itemKey)));
       void onPersistedChange?.();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : tx('保存失败，请检查草稿版本后重试。', 'Save failed. Check the draft version and try again.'));
@@ -492,27 +590,47 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
   };
 
   const handleConfirmDraft = async () => {
-    if (!draft || !draftPayload || isDraftDirty || confirmIssues.length > 0) return;
+    if (!draft || !draftPayload || isDraftDirty || selectedItemKeys.length === 0
+      || selectedItemKeys.some((itemKey) => (issuesByItemKey.get(itemKey)?.length ?? 0) > 0)) return;
     setBusyAction('confirm');
     setActionError(null);
     try {
-      const result = extractionTask?.status === 'COMPLETED' && extractionTask.draftId === draft.id
-        ? await sourcingAiTaskApi.confirmDraft(extractionTask.id, { expectedVersion: draft.version })
-        : await supplierQuoteDraftApi.confirm(draft.id, { expectedVersion: draft.version });
-      if (result.draftId !== draft.id || !Array.isArray(result.supplierQuoteIds) || result.supplierQuoteIds.length === 0) {
-        throw new Error(tx('服务端未返回正式报价 ID，暂不能确认成功。', 'The server did not return supplier quote IDs, so confirmation cannot be reported as successful.'));
+      const result = await supplierQuoteDraftApi.confirm(draft.id, {
+        expectedVersion: draft.version,
+        itemKeys: selectedItemKeys,
+      });
+      let resultMappings = result.confirmedQuotes?.length
+        ? result.confirmedQuotes
+        : result.supplierQuotes.flatMap((quote) => quote.sourceDraftItemKey
+          ? [{ itemKey: quote.sourceDraftItemKey, quoteId: quote.id }]
+          : []);
+      // Older complete-draft responses omitted per-item mappings. Only infer
+      // positional mappings when the server says the whole draft is confirmed
+      // and returns exactly one quote for every draft row.
+      if (!resultMappings.length && result.status === 'CONFIRMED'
+        && result.supplierQuotes.length === draft.payload.items.length) {
+        resultMappings = draft.payload.items.map((item, index) => ({ itemKey: item.itemKey, quoteId: result.supplierQuotes[index].id }));
+      }
+      const returnedItemKeys = new Set([
+        ...(result.confirmedItemKeys ?? []),
+        ...resultMappings.map((mapping) => mapping.itemKey),
+      ]);
+      if (result.draftId !== draft.id || !selectedItemKeys.every((itemKey) => returnedItemKeys.has(itemKey))
+        || !resultMappings.some((mapping) => selectedItemKeys.includes(mapping.itemKey) && Boolean(mapping.quoteId))) {
+        throw new Error(tx('服务端未返回所选需求项的正式报价映射，暂不能报告确认成功。', 'The server did not return formal quote mappings for the selected items, so confirmation cannot be reported as successful.'));
       }
       setDraft((current) => current ? {
         ...current,
         status: result.status,
         version: result.version,
         supplierQuotes: result.supplierQuotes,
+        confirmedItemKeys: result.confirmedItemKeys ?? [...new Set([...getConfirmedItemKeys(current), ...resultMappings.map((mapping) => mapping.itemKey)])],
+        confirmedQuotes: result.confirmedQuotes ?? [...getConfirmedQuoteMappings(current), ...resultMappings.filter((mapping) => selectedItemKeys.includes(mapping.itemKey))],
       } : current);
-      setConfirmedQuoteIds(result.supplierQuoteIds);
+      setSelectedConfirmItemKeys((current) => current.filter((itemKey) => !selectedItemKeys.includes(itemKey)));
       void onConfirmed();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : tx('确认报价失败。', 'Could not confirm the quote.'));
-      setConfirmedQuoteIds([]);
     } finally {
       setBusyAction(null);
     }
@@ -531,14 +649,19 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
   };
 
   const updateDraftItem = (itemKey: string, updater: (item: SupplierQuoteDraftPayload['items'][number]) => SupplierQuoteDraftPayload['items'][number]) => {
+    if (confirmedItemKeys.has(itemKey)) return;
     setDraftPayload((current) => current ? ({ ...current, items: current.items.map((item) => item.itemKey === itemKey ? updater(item) : item) }) : current);
     setIsDraftDirty(true);
-    setConfirmedQuoteIds([]);
   };
   const numericValue = (value: string) => value.trim() === '' ? null : Number(value);
   const selectedInquiryLink = selectedEmail?.inquiryLinks?.find((link) => link.inquiryId === inquiry?.id);
   const hasLeadTimeRange = draftPayload?.items.some((item) => item.leadTimeMinDays != null || item.leadTimeMaxDays != null) ?? false;
   const hasNonUsd = draftPayload?.items.some((item) => item.currency?.trim().toUpperCase() !== 'USD') ?? false;
+  const allItemsConfirmed = Boolean(draftPayload?.items.length)
+    && draftPayload!.items.every((item) => confirmedItemKeys.has(item.itemKey));
+  const pendingQuoteIssues = draftPayload?.items.flatMap((item, index) => confirmedItemKeys.has(item.itemKey)
+    ? []
+    : getQuoteDraftItemConfirmIssues(item, index, tx)) ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -557,7 +680,7 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
             {emails!.length > 1 && <div className="space-y-1">
               <Label htmlFor="reply-email-select">{tx('选择回邮', 'Select reply')}</Label>
               <select id="reply-email-select" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={selectedEmailId} onChange={(event) => {
-                setSelectedEmailId(event.target.value); setDraft(null); setDraftPayload(null); setIsDraftDirty(false); setActionError(null); setConfirmedQuoteIds([]); setExtractionTask(null);
+                setSelectedEmailId(event.target.value); setDraft(null); setDraftPayload(null); setIsDraftDirty(false); setActionError(null); setSelectedConfirmItemKeys([]); setExtractionTask(null);
               }}>
                 {emails!.map((email) => <option key={email.id} value={email.id}>{email.fromName || email.from} · {email.subject}</option>)}
               </select>
@@ -609,40 +732,63 @@ function ReplyReviewDialog({ inquiry, open, onOpenChange, tx, onConfirmed, onPer
           {draft && draftPayload && <section className="space-y-4 rounded-lg border p-4" aria-label={tx('报价草稿编辑', 'Quote draft editor')}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div><h3 className="font-semibold">{tx('报价草稿', 'Quote draft')} · v{draft.version}</h3><p className="text-xs text-gray-500">{tx('状态', 'Status')}: {draft.status}</p></div>
-              {confirmedQuoteIds.length > 0 && <Badge className="bg-green-100 text-green-800"><BadgeCheck className="mr-1 h-4 w-4" />{tx('已确认', 'Confirmed')}</Badge>}
+              {confirmedItemKeys.size > 0 && <Badge className="bg-green-100 text-green-800"><BadgeCheck className="mr-1 h-4 w-4" />{tx(`已确认 ${confirmedItemKeys.size}/${draftPayload.items.length} 项`, `${confirmedItemKeys.size}/${draftPayload.items.length} items confirmed`)}</Badge>}
             </div>
-            {hasNonUsd && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{tx('草稿中有非 USD 或未填写币种的行，需改为 USD 才能确认。', 'At least one item is not USD or has no currency. Set it to USD before confirmation.')}</p>}
-            {hasLeadTimeRange && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{tx('草稿中包含交期区间。确认报价前请为每项填写单一交期天数。', 'The draft contains a lead-time range. Enter one lead-time value for each item before confirmation.')}</p>}
+            {hasNonUsd && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{tx('正式报价目前只接受 USD。请保留供应商原币种；只有供应商明确确认报价为 USD 后才更新该字段，否则此行保持待确认。', 'Formal quotes currently accept USD only. Preserve the supplier’s quoted currency; update it to USD only after the supplier confirms it, otherwise leave this item pending.')}</p>}
+            {hasLeadTimeRange && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{tx('交期区间会作为来源信息保留。只有供应商明确确认单一交期并在“报价依据”记录原文后，保存草稿才会采用该单值；否则该行保持待确认。', 'The original lead-time range is retained as source information. A single value is used only after the supplier confirms it and the exact wording is recorded in quote evidence; otherwise leave the item pending.')}</p>}
             <div className="space-y-4">
-              {draftPayload.items.map((item, index) => <fieldset key={item.itemKey} className="space-y-3 rounded border p-3">
-                <legend className="px-1 text-sm font-medium">{tx(`报价项 ${index + 1}`, `Quote item ${index + 1}`)}</legend>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div className="space-y-1"><Label htmlFor={`draft-item-${index}`}>{tx('询价需求项', 'Inquiry item')} {index + 1}</Label><Input id={`draft-item-${index}`} value={item.inquiryItemId ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, inquiryItemId: event.target.value || null }))} /></div>
-                  <div className="space-y-1"><Label htmlFor={`draft-part-${index}`}>{tx('件号', 'Part number')} {index + 1}</Label><Input id={`draft-part-${index}`} value={item.partNumber ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, partNumber: event.target.value || null }))} /></div>
-                  <div className="space-y-1"><Label htmlFor={`draft-qty-${index}`}>{tx('数量', 'Quantity')} {index + 1}</Label><Input id={`draft-qty-${index}`} type="number" min="1" step="1" value={item.quantity ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, quantity: numericValue(event.target.value) }))} /></div>
-                  <div className="space-y-1"><Label htmlFor={`draft-unit-${index}`}>{tx('报价数量单位', 'Quoted unit')} {index + 1}</Label><Input id={`draft-unit-${index}`} maxLength={80} value={item.quantityUnit ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, quantityUnit: event.target.value.trim().toUpperCase() || null }))} placeholder="EA" /></div>
-                  <div className="space-y-1"><Label htmlFor={`draft-price-${index}`}>{tx('单价', 'Unit price')} {index + 1}</Label><Input id={`draft-price-${index}`} type="number" min="0" step="any" value={item.unitPrice ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, unitPrice: numericValue(event.target.value) }))} /></div>
-                  <div className="space-y-1"><Label htmlFor={`draft-currency-${index}`}>{tx('币种', 'Currency')} {index + 1}</Label><Input id={`draft-currency-${index}`} maxLength={3} value={item.currency ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, currency: event.target.value.toUpperCase() || null }))} /></div>
-                  <div className="space-y-1"><Label htmlFor={`draft-lead-${index}`}>{tx('交期（天，单值）', 'Lead time (days, single value)')} {index + 1}</Label><Input id={`draft-lead-${index}`} type="number" min="0" step="1" value={item.leadTimeDays ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => {
-                    const next = { ...current, leadTimeDays: numericValue(event.target.value) };
-                    delete next.leadTimeMinDays;
-                    delete next.leadTimeMaxDays;
-                    return next;
-                  })} />{(item.leadTimeMinDays != null || item.leadTimeMaxDays != null) && <span className="text-xs text-amber-700">{tx('原提取交期区间', 'Extracted range')}: {item.leadTimeMinDays ?? '—'}–{item.leadTimeMaxDays ?? '—'} {tx('天', 'days')}</span>}</div>
-                  <div className="space-y-1"><Label htmlFor={`draft-valid-${index}`}>{tx('有效期至', 'Valid until')} {index + 1}</Label><Input id={`draft-valid-${index}`} type="date" value={item.validUntil ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, validUntil: event.target.value || null }))} /></div>
-                  <div className="space-y-1"><Label htmlFor={`draft-tax-${index}`}>{tx('税费口径', 'Tax basis')} {index + 1}</Label><select id={`draft-tax-${index}`} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={item.taxIncluded == null ? 'unknown' : item.taxIncluded ? 'included' : 'excluded'} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, taxIncluded: event.target.value === 'unknown' ? null : event.target.value === 'included' }))}><option value="unknown">{tx('未说明', 'Unknown')}</option><option value="included">{tx('含税', 'Tax included')}</option><option value="excluded">{tx('未含税', 'Tax excluded')}</option></select></div>
-                  <div className="space-y-1"><Label htmlFor={`draft-freight-${index}`}>{tx('运费口径', 'Freight basis')} {index + 1}</Label><select id={`draft-freight-${index}`} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={item.freightIncluded == null ? 'unknown' : item.freightIncluded ? 'included' : 'excluded'} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, freightIncluded: event.target.value === 'unknown' ? null : event.target.value === 'included' }))}><option value="unknown">{tx('未说明', 'Unknown')}</option><option value="included">{tx('含运费', 'Freight included')}</option><option value="excluded">{tx('未含运费', 'Freight excluded')}</option></select></div>
-                  <div className="space-y-1"><Label htmlFor={`draft-incoterm-${index}`}>{tx('贸易术语', 'Incoterm')} {index + 1}</Label><Input id={`draft-incoterm-${index}`} minLength={2} maxLength={20} value={item.incoterm ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, incoterm: event.target.value.toUpperCase() || null }))} placeholder="EXW / FCA / DDP" /></div>
-                </div>
-                <div className="space-y-1"><Label htmlFor={`draft-evidence-${index}`}>{tx('报价依据', 'Evidence')} {index + 1}</Label><Textarea id={`draft-evidence-${index}`} value={item.evidenceText ?? ''} maxLength={10000} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, evidenceText: event.target.value || null }))} placeholder={tx('摘录邮件中的报价依据或相关说明', 'Quote evidence or supporting text from the email')} /></div>
-              </fieldset>)}
+              {draftPayload.items.map((item, index) => {
+                const rowConfirmed = confirmedItemKeys.has(item.itemKey);
+                const rowIssues = issuesByItemKey.get(item.itemKey) ?? [];
+                const certificateMode = certificateControlValue(item.certificate);
+                return <div key={item.itemKey} className="space-y-3 rounded border p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <Label className="flex items-center gap-2 text-sm font-medium">
+                      <Checkbox
+                        aria-label={tx(`选择报价项 ${index + 1} 确认`, `Select quote item ${index + 1} for confirmation`)}
+                        checked={selectedItemKeys.includes(item.itemKey)}
+                        disabled={rowConfirmed || rowIssues.length > 0 || isBusy}
+                        onCheckedChange={(checked) => setSelectedConfirmItemKeys((current) => checked === true
+                          ? [...new Set([...current, item.itemKey])]
+                          : current.filter((key) => key !== item.itemKey))}
+                      />
+                      {tx(`报价项 ${index + 1}`, `Quote item ${index + 1}`)}
+                    </Label>
+                    {rowConfirmed && <Badge className="bg-green-100 text-green-800"><BadgeCheck className="mr-1 h-4 w-4" />{tx('已确认', 'Confirmed')} · {confirmedQuoteMappings.find((mapping) => mapping.itemKey === item.itemKey)?.quoteId ?? ''}</Badge>}
+                  </div>
+                  <fieldset disabled={rowConfirmed || isBusy} className="space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="space-y-1"><Label htmlFor={`draft-item-${index}`}>{tx('询价需求项', 'Inquiry item')} {index + 1}</Label><Input id={`draft-item-${index}`} value={item.inquiryItemId ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, inquiryItemId: event.target.value || null }))} /></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-part-${index}`}>{tx('件号', 'Part number')} {index + 1}</Label><Input id={`draft-part-${index}`} value={item.partNumber ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, partNumber: event.target.value || null }))} /></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-qty-${index}`}>{tx('数量', 'Quantity')} {index + 1}</Label><Input id={`draft-qty-${index}`} type="number" min="1" step="1" value={item.quantity ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, quantity: numericValue(event.target.value) }))} /></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-unit-${index}`}>{tx('报价数量单位', 'Quoted unit')} {index + 1}</Label><Input id={`draft-unit-${index}`} maxLength={80} value={item.quantityUnit ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, quantityUnit: event.target.value.trim().toUpperCase() || null }))} placeholder="EA" /></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-price-${index}`}>{tx('单价', 'Unit price')} {index + 1}</Label><Input id={`draft-price-${index}`} type="number" min="0" step="any" value={item.unitPrice ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, unitPrice: numericValue(event.target.value) }))} /></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-currency-${index}`}>{tx('币种', 'Currency')} {index + 1}</Label><Input id={`draft-currency-${index}`} maxLength={3} value={item.currency ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, currency: event.target.value.toUpperCase() || null }))} /><p className="text-xs text-gray-500">{tx('按供应商原文记录；USD 以外的币种不自动换算。', 'Record the supplier’s stated currency; non-USD values are not converted automatically.')}</p></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-lead-${index}`}>{tx('交期（天，供应商确认单值）', 'Lead time (days, supplier-confirmed value)')} {index + 1}</Label><Input id={`draft-lead-${index}`} type="number" min="0" step="1" value={item.leadTimeDays ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, leadTimeDays: numericValue(event.target.value) }))} />{(item.leadTimeMinDays != null || item.leadTimeMaxDays != null) && <span className="text-xs text-amber-700">{tx('原交期区间', 'Original range')}: {item.leadTimeMinDays ?? '—'}–{item.leadTimeMaxDays ?? '—'} {tx('天；只有供应商明确确认单值后才填写。', 'days; enter a single value only after supplier confirmation.')}</span>}</div>
+                      <div className="space-y-1"><Label htmlFor={`draft-condition-${index}`}>{tx('成色/状态', 'Condition')} {index + 1}</Label><Input id={`draft-condition-${index}`} maxLength={200} value={item.condition ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, condition: event.target.value || null }))} placeholder={tx('未知时留空；按供应商原文补录', 'Leave blank if unknown; enter the supplier’s wording')} /></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-certificate-${index}`}>{tx('证书声明', 'Certificate statement')} {index + 1}</Label><select id={`draft-certificate-${index}`} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={certificateMode} onChange={(event) => updateDraftItem(item.itemKey, (current) => {
+                        const mode = event.target.value;
+                        const certificate = mode === 'none' ? false : mode === 'provided' ? true : mode === 'unknown' ? null : certificateTextValue(current.certificate) || '';
+                        return { ...current, certificate };
+                      })}><option value="unknown">{tx('未知 / 未说明', 'Unknown / not stated')}</option><option value="none">{tx('无证书', 'No certificate')}</option><option value="provided">{tx('有证书', 'Certificate available')}</option><option value="details">{tx('按供应商说明补录', 'Enter supplier statement')}</option></select>{certificateMode === 'details' && <Input aria-label={tx(`证书文本 ${index + 1}`, `Certificate text ${index + 1}`)} value={certificateTextValue(item.certificate)} maxLength={500} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, certificate: event.target.value || '' }))} placeholder={tx('按供应商原文填写证书类型/编号', 'Enter certificate type or number as stated by the supplier')} />}</div>
+                      <div className="space-y-1"><Label htmlFor={`draft-valid-${index}`}>{tx('有效期至', 'Valid until')} {index + 1}</Label><Input id={`draft-valid-${index}`} type="date" value={item.validUntil ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, validUntil: event.target.value || null }))} /></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-tax-${index}`}>{tx('税费口径', 'Tax basis')} {index + 1}</Label><select id={`draft-tax-${index}`} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={item.taxIncluded == null ? 'unknown' : item.taxIncluded ? 'included' : 'excluded'} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, taxIncluded: event.target.value === 'unknown' ? null : event.target.value === 'included' }))}><option value="unknown">{tx('未说明', 'Unknown')}</option><option value="included">{tx('含税', 'Tax included')}</option><option value="excluded">{tx('未含税', 'Tax excluded')}</option></select></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-freight-${index}`}>{tx('运费口径', 'Freight basis')} {index + 1}</Label><select id={`draft-freight-${index}`} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={item.freightIncluded == null ? 'unknown' : item.freightIncluded ? 'included' : 'excluded'} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, freightIncluded: event.target.value === 'unknown' ? null : event.target.value === 'included' }))}><option value="unknown">{tx('未说明', 'Unknown')}</option><option value="included">{tx('含运费', 'Freight included')}</option><option value="excluded">{tx('未含运费', 'Freight excluded')}</option></select></div>
+                      <div className="space-y-1"><Label htmlFor={`draft-incoterm-${index}`}>{tx('贸易术语', 'Incoterm')} {index + 1}</Label><Input id={`draft-incoterm-${index}`} minLength={2} maxLength={20} value={item.incoterm ?? ''} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, incoterm: event.target.value.toUpperCase() || null }))} placeholder="EXW / FCA / DDP" /></div>
+                    </div>
+                    <div className="space-y-1"><Label htmlFor={`draft-evidence-${index}`}>{tx('报价依据', 'Evidence')} {index + 1}</Label><Textarea id={`draft-evidence-${index}`} value={item.evidenceText ?? ''} maxLength={10000} onChange={(event) => updateDraftItem(item.itemKey, (current) => ({ ...current, evidenceText: event.target.value || null }))} placeholder={tx('摘录供应商邮件；涉及币种或交期修正时记录明确确认原文', 'Quote the supplier email; record explicit confirmation when updating currency or lead time')} /></div>
+                  </fieldset>
+                  {rowIssues.length > 0 && <ul className="list-inside list-disc rounded bg-amber-50 p-2 text-xs text-amber-900">{rowIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>}
+                </div>;
+              })}
             </div>
-            {confirmIssues.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p className="mb-1 font-medium">{tx('以下缺项或格式不符合确认要求：', 'Complete or correct these fields before confirming:')}</p><ul className="list-inside list-disc">{confirmIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div>}
+            {pendingQuoteIssues.length > 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{tx('不完整行继续保持待确认；可逐行选择已完整且符合约束的报价项。', 'Incomplete items stay pending. Select complete items individually for confirmation.')}</p>}
             {isDraftDirty && <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{tx('草稿有未保存的修改，请先保存后再确认。', 'The draft has unsaved edits. Save it before confirming.')}</p>}
-            {confirmedQuoteIds.length > 0 && <p className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-900" role="status">{tx('已创建正式报价并刷新逐行比价。报价 ID：', 'Supplier quotes created and line comparison refreshed. Quote IDs:')} {confirmedQuoteIds.join(', ')}</p>}
+            {confirmedQuoteMappings.length > 0 && <p className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-900" role="status">{tx('已逐行创建正式报价，未确认行仍保留在草稿中。报价 ID：', 'Formal quotes were created for the confirmed items; unconfirmed items remain in the draft. Quote IDs:')} {confirmedQuoteMappings.map((mapping) => mapping.quoteId).filter(Boolean).join(', ')}</p>}
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => void handleSaveDraft()} disabled={isBusy || confirmedQuoteIds.length > 0}><Save className="mr-1 h-4 w-4" />{busyAction === 'save' ? tx('保存中…', 'Saving…') : tx('保存草稿', 'Save draft')}</Button>
-              <Button type="button" onClick={() => void handleConfirmDraft()} disabled={isBusy || isDraftDirty || confirmIssues.length > 0 || confirmedQuoteIds.length > 0}>{busyAction === 'confirm' ? tx('确认中…', 'Confirming…') : tx('确认并录入比价', 'Confirm into comparison')}</Button>
+              <Button type="button" variant="outline" onClick={() => void handleSaveDraft()} disabled={isBusy || allItemsConfirmed}><Save className="mr-1 h-4 w-4" />{busyAction === 'save' ? tx('保存中…', 'Saving…') : tx('保存草稿', 'Save draft')}</Button>
+              <span className="text-xs text-gray-500">{tx(`已选 ${selectedItemKeys.length} 项`, `${selectedItemKeys.length} selected`)}</span>
+              <Button type="button" onClick={() => void handleConfirmDraft()} disabled={isBusy || isDraftDirty || selectedItemKeys.length === 0}>{busyAction === 'confirm' ? tx('确认中…', 'Confirming…') : tx('确认并录入比价', 'Confirm into comparison')}</Button>
             </DialogFooter>
           </section>}
         </div>}
@@ -856,6 +1002,12 @@ export function Sourcing() {
   const [reviewInquiryId, setReviewInquiryId] = useState<string | null>(null);
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
+  const [inquiryAttachments, setInquiryAttachments] = useState<InquiryAttachment[]>([]);
+  const [selectedInquiryAttachmentIds, setSelectedInquiryAttachmentIds] = useState<string[]>([]);
+  const [inquiryAttachmentsLoading, setInquiryAttachmentsLoading] = useState(false);
+  const [inquiryAttachmentError, setInquiryAttachmentError] = useState('');
+  const [uploadingInquiryAttachment, setUploadingInquiryAttachment] = useState(false);
+  const [downloadingInquiryAttachmentId, setDownloadingInquiryAttachmentId] = useState<string | null>(null);
   const [sendTask, setSendTask] = useState<SourcingActionTaskRecord | null>(null);
   const [sendLoading, setSendLoading] = useState(false);
   const [sendTaskLoading, setSendTaskLoading] = useState(false);
@@ -1013,16 +1165,25 @@ export function Sourcing() {
     ? resolvedInquiries.find((inquiry) => inquiry.id === reviewInquiryId) ?? null
     : null;
   const selectedRfqId = selectedRFQ?.id;
+  const inquiryAttachmentControlsLocked = Boolean(sendTask) || sendTaskLoading || sendLoading;
+  const selectedInquiryAttachments = inquiryAttachments.filter((attachment) => selectedInquiryAttachmentIds.includes(attachment.id));
+  const selectedInquiryAttachmentBytes = selectedInquiryAttachments.reduce((total, attachment) => total + attachment.sizeBytes, 0);
 
   useEffect(() => {
     if (!previewInquiryId) {
       setSendTask(null);
       setSendTaskLoading(false);
+      setInquiryAttachments([]);
+      setSelectedInquiryAttachmentIds([]);
+      setInquiryAttachmentError('');
       return;
     }
     let active = true;
     setSendTask(null);
     setSendError('');
+    setInquiryAttachments([]);
+    setSelectedInquiryAttachmentIds([]);
+    setInquiryAttachmentError('');
     setSendTaskLoading(true);
     void sourcingActionTaskApi.list({ targetId: previewInquiryId, limit: 20 }).then((tasks) => {
       if (!active) return;
@@ -1032,10 +1193,36 @@ export function Sourcing() {
       if (task?.contentSnapshot && !sendTaskKey.current) {
         setEmailSubject(task.contentSnapshot.subject);
         setEmailBody(task.contentSnapshot.textBody);
+        const snapshotAttachments = task.contentSnapshot.attachments ?? task.attachments ?? [];
+        setSelectedInquiryAttachmentIds(snapshotAttachments.map((attachment) => attachment.id));
+        setInquiryAttachments((current) => {
+          const merged = new Map(current.map((attachment) => [attachment.id, attachment]));
+          snapshotAttachments.forEach((attachment) => merged.set(attachment.id, attachment));
+          return [...merged.values()];
+        });
       }
     }).catch((error: unknown) => {
       if (active) setSendError(error instanceof Error ? error.message : tx('无法恢复待确认任务，请刷新后重试。', 'Could not restore the pending task. Refresh and retry.'));
     }).finally(() => { if (active) setSendTaskLoading(false); });
+    return () => { active = false; };
+  }, [previewInquiryId, tx]);
+
+  useEffect(() => {
+    if (!previewInquiryId) return;
+    let active = true;
+    setInquiryAttachmentsLoading(true);
+    void inquiryAttachmentApi.getAll(previewInquiryId).then((attachments) => {
+      if (!active) return;
+      setInquiryAttachments((current) => {
+        const merged = new Map(current.map((attachment) => [attachment.id, attachment]));
+        attachments.forEach((attachment) => merged.set(attachment.id, attachment));
+        return [...merged.values()];
+      });
+    }).catch((error: unknown) => {
+      if (active) setInquiryAttachmentError(error instanceof Error
+        ? error.message
+        : tx('无法加载此询价的附件。', 'Could not load attachments for this inquiry.'));
+    }).finally(() => { if (active) setInquiryAttachmentsLoading(false); });
     return () => { active = false; };
   }, [previewInquiryId, tx]);
 
@@ -1210,7 +1397,62 @@ export function Sourcing() {
     const email = createInquiryEmail(inquiry, selectedRFQ, progressLines, locale);
     setEmailSubject(email.subject);
     setEmailBody(email.textBody);
+    setInquiryAttachments([]);
+    setSelectedInquiryAttachmentIds([]);
+    setInquiryAttachmentError('');
+    sendTaskKey.current = null;
     setPreviewInquiryId(inquiry.id);
+  };
+
+  const handleInquiryAttachmentUpload = async (file?: File) => {
+    if (!file || !previewInquiry || sendTask || sendTaskLoading || sendLoading) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setInquiryAttachmentError(tx('单个附件不能超过 10 MiB。', 'Each attachment must be 10 MiB or smaller.'));
+      return;
+    }
+    setUploadingInquiryAttachment(true);
+    setInquiryAttachmentError('');
+    try {
+      const uploaded = await inquiryAttachmentApi.upload(previewInquiry.id, file);
+      setInquiryAttachments((current) => [...current.filter((attachment) => attachment.id !== uploaded.id), uploaded]);
+      const selected = inquiryAttachments.filter((attachment) => selectedInquiryAttachmentIds.includes(attachment.id));
+      if (selected.length >= 10 || selected.reduce((total, attachment) => total + attachment.sizeBytes, uploaded.sizeBytes) > 20 * 1024 * 1024) {
+        setInquiryAttachmentError(tx('附件已上传但未自动选入：每封邮件最多选择 10 个附件、合计不超过 20 MiB。', 'The file uploaded but was not selected: choose at most 10 attachments totaling no more than 20 MiB per email.'));
+      } else {
+        setSelectedInquiryAttachmentIds((current) => [...new Set([...current, uploaded.id])]);
+      }
+    } catch (error) {
+      setInquiryAttachmentError(error instanceof Error ? error.message : tx('附件上传失败。', 'Could not upload the attachment.'));
+    } finally {
+      setUploadingInquiryAttachment(false);
+    }
+  };
+
+  const handleInquiryAttachmentSelection = (attachment: InquiryAttachment, checked: boolean) => {
+    if (checked) {
+      const selected = inquiryAttachments.filter((candidate) => selectedInquiryAttachmentIds.includes(candidate.id));
+      if (selected.length >= 10 || selected.reduce((total, candidate) => total + candidate.sizeBytes, attachment.sizeBytes) > 20 * 1024 * 1024) {
+        setInquiryAttachmentError(tx('每封邮件最多选择 10 个附件、合计不超过 20 MiB。', 'Choose at most 10 attachments totaling no more than 20 MiB per email.'));
+        return;
+      }
+      setInquiryAttachmentError('');
+      setSelectedInquiryAttachmentIds((current) => [...new Set([...current, attachment.id])]);
+      return;
+    }
+    setSelectedInquiryAttachmentIds((current) => current.filter((id) => id !== attachment.id));
+    setInquiryAttachmentError('');
+  };
+
+  const handleInquiryAttachmentDownload = async (attachment: InquiryAttachment) => {
+    setDownloadingInquiryAttachmentId(attachment.id);
+    setInquiryAttachmentError('');
+    try {
+      downloadBlob(await fileApi.download(attachment.storedObjectId), attachment.filename);
+    } catch (error) {
+      setInquiryAttachmentError(error instanceof Error ? error.message : tx('附件下载失败。', 'Could not download the attachment.'));
+    } finally {
+      setDownloadingInquiryAttachmentId(null);
+    }
   };
 
   const handleSendInquiry = async () => {
@@ -1227,13 +1469,14 @@ export function Sourcing() {
         return;
       }
       if (!sendTask) {
-        const signature = JSON.stringify([previewInquiry.id, emailSubject.trim(), emailBody.trim()]);
+        const attachmentIds = [...selectedInquiryAttachmentIds].sort();
+        const signature = JSON.stringify([previewInquiry.id, emailSubject.trim(), emailBody.trim(), attachmentIds]);
         if (sendTaskKey.current?.signature !== signature) {
           sendTaskKey.current = { signature, key: crypto.randomUUID() };
         }
         const staged = await sourcingActionTaskApi.create({
           action: 'SEND_INQUIRY', targetId: previewInquiry.id,
-          content: { subject: emailSubject, textBody: emailBody },
+          content: { subject: emailSubject, textBody: emailBody, ...(attachmentIds.length ? { attachmentIds } : {}) },
           idempotencyKey: sendTaskKey.current.key,
         });
         setSendTask(staged);
@@ -1259,6 +1502,18 @@ export function Sourcing() {
           setSendTask(null);
           throw new Error(tx('原待确认任务已取消，请重新核对后创建新任务。', 'The prior task was cancelled. Review and create a new one.'));
         }
+        const stagedAttachments = staged.contentSnapshot?.attachments ?? staged.attachments ?? [];
+        const stagedAttachmentIds = stagedAttachments.map((attachment) => attachment.id).sort();
+        if (attachmentIds.length && attachmentIds.some((id) => !stagedAttachmentIds.includes(id))) {
+          setSendTask(staged);
+          throw new Error(tx('服务端没有返回所选附件的冻结清单，请取消待确认任务并重新核对。', 'The server did not return a frozen list for the selected attachments. Cancel the pending task and review it again.'));
+        }
+        setInquiryAttachments((current) => {
+          const merged = new Map(current.map((attachment) => [attachment.id, attachment]));
+          stagedAttachments.forEach((attachment) => merged.set(attachment.id, attachment));
+          return [...merged.values()];
+        });
+        setSelectedInquiryAttachmentIds(stagedAttachmentIds);
         setEmailSubject(staged.contentSnapshot?.subject ?? emailSubject);
         setEmailBody(staged.contentSnapshot?.textBody ?? emailBody);
         if (staged.status === 'FAILED') {
@@ -1271,7 +1526,9 @@ export function Sourcing() {
       }
       if (sendTask.status !== 'WAITING_HUMAN' || !sendTask.contentSnapshot
         || sendTask.contentSnapshot.subject !== emailSubject.trim()
-        || sendTask.contentSnapshot.textBody !== emailBody.trim()) {
+        || sendTask.contentSnapshot.textBody !== emailBody.trim()
+        || JSON.stringify([...(sendTask.contentSnapshot.attachments ?? [])].map((attachment) => attachment.id).sort())
+          !== JSON.stringify([...selectedInquiryAttachmentIds].sort())) {
         throw new Error(tx('待确认任务与当前邮件内容不一致，请取消任务后重新核对。', 'The staged task differs from the email. Cancel it and review again.'));
       }
       const completed = await sourcingActionTaskApi.confirm(sendTask.id, sendTask.version);
@@ -2549,7 +2806,7 @@ export function Sourcing() {
                   id="inquiry-email-subject"
                   value={emailSubject}
                   onChange={(event) => setEmailSubject(event.target.value)}
-                  disabled={Boolean(sendTask) || sendTaskLoading}
+                  disabled={inquiryAttachmentControlsLocked}
                 />
               </div>
               <div className="space-y-2">
@@ -2559,9 +2816,50 @@ export function Sourcing() {
                   className="min-h-[240px] font-mono text-sm"
                   value={emailBody}
                   onChange={(event) => setEmailBody(event.target.value)}
-                  disabled={Boolean(sendTask) || sendTaskLoading}
+                  disabled={inquiryAttachmentControlsLocked}
                 />
               </div>
+              <section className="space-y-3 rounded border p-3" aria-label={tx('询价附件', 'Inquiry attachments')}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{tx('发送附件', 'Attachments to send')} · {selectedInquiryAttachments.length}/{inquiryAttachments.length}</p>
+                    <p className="text-xs text-gray-500">{tx('每封最多选 10 个、合计不超过 20 MiB；单个文件最多 10 MiB。取消勾选只会从本次发送中移除，不会删除已上传文件。', 'Choose up to 10 files totaling 20 MiB; each file is limited to 10 MiB. Unchecking a file removes it from this send only and does not delete it.')}</p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <span>{uploadingInquiryAttachment ? tx('上传中…', 'Uploading…') : tx('上传附件', 'Upload attachment')}</span>
+                    <input
+                      aria-label={tx('上传询价附件', 'Upload inquiry attachment')}
+                      type="file"
+                      disabled={inquiryAttachmentControlsLocked || uploadingInquiryAttachment || inquiryAttachmentsLoading}
+                      onChange={(event) => {
+                        void handleInquiryAttachmentUpload(event.target.files?.[0]);
+                        event.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+                {inquiryAttachmentsLoading && <p className="text-sm text-gray-500" role="status">{tx('正在加载此询价的已上传附件…', 'Loading files uploaded for this inquiry…')}</p>}
+                {inquiryAttachments.length === 0 && !inquiryAttachmentsLoading && <p className="text-sm text-gray-500">{tx('此询价还没有上传附件。', 'No files have been uploaded for this inquiry.')}</p>}
+                {inquiryAttachments.length > 0 && <ul className="space-y-2">
+                  {inquiryAttachments.map((attachment) => <li key={attachment.id} className="flex flex-wrap items-center justify-between gap-3 rounded bg-gray-50 px-3 py-2 text-sm">
+                    <label className="flex min-w-0 flex-1 items-start gap-2">
+                      <Checkbox
+                        aria-label={tx(`选择附件 ${attachment.filename}`, `Select attachment ${attachment.filename}`)}
+                        checked={selectedInquiryAttachmentIds.includes(attachment.id)}
+                        disabled={inquiryAttachmentControlsLocked || inquiryAttachmentsLoading}
+                        onCheckedChange={(checked) => handleInquiryAttachmentSelection(attachment, checked === true)}
+                      />
+                      <span className="min-w-0 break-all">{attachment.filename}<span className="ml-2 text-gray-500">({Math.ceil(attachment.sizeBytes / 1024)} KB)</span><span className="block truncate font-mono text-xs text-gray-500" title={attachment.sha256}>SHA-256: {attachment.sha256}</span></span>
+                    </label>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void handleInquiryAttachmentDownload(attachment)} disabled={downloadingInquiryAttachmentId === attachment.id}>
+                      <Download className="mr-1 h-4 w-4" />{downloadingInquiryAttachmentId === attachment.id ? tx('下载中…', 'Downloading…') : tx('下载核对', 'Download and review')}
+                    </Button>
+                  </li>)}
+                </ul>}
+                <p className="text-xs text-gray-500">{tx(`本次选择 ${selectedInquiryAttachments.length} 个，合计 ${Math.ceil(selectedInquiryAttachmentBytes / 1024)} KB。`, `${selectedInquiryAttachments.length} selected, ${Math.ceil(selectedInquiryAttachmentBytes / 1024)} KB total.`)}</p>
+                {inquiryAttachmentError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{inquiryAttachmentError}</p>}
+                {sendTask && <p className="text-sm text-amber-800">{tx('待确认任务已冻结主题、正文和附件清单。如需更改附件，请取消任务后重新核对。', 'The pending task freezes the subject, body, and attachment list. Cancel it before changing attachments.')}</p>}
+              </section>
               {sendTaskLoading && <p className="text-sm text-gray-500">{tx('正在恢复待确认发送任务…', 'Restoring the pending send task…')}</p>}
               {sendTask && (
                 <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm" aria-label={tx('受控发送任务', 'Controlled send task')}>

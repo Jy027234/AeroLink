@@ -6,7 +6,8 @@ import { buildRfqReadScope } from './rfqAccess.js';
 import { getCapabilityScope } from './capabilityPolicy.js';
 import {
   compareQuantityUnits,
-  supplierQuoteDraftConfirmPayloadSchema,
+  supplierQuoteDraftConfirmItemSchema,
+  supplierQuoteDraftPayloadSchema,
 } from './validation.js';
 import { calculateMoneyTotal, normalizeMoney } from './money.js';
 import { resolveSupplierQuoteSourceBinding } from './supplierQuoteSourceBinding.js';
@@ -21,9 +22,11 @@ type DraftSource = { id: string; emailId: string; inquiryId: string };
 
 type ConfirmSupplierQuoteDraftData = {
   draftId: string;
-  status: 'CONFIRMED';
+  status: 'PARTIALLY_CONFIRMED' | 'CONFIRMED';
   version: number;
   reused: boolean;
+  confirmedItemKeys: string[];
+  confirmedQuotes: Array<{ itemKey: string; quoteId: string }>;
   supplierQuoteIds: string[];
   createdSupplierQuoteIds: string[];
   reusedSupplierQuoteIds: string[];
@@ -73,20 +76,52 @@ async function assertDraftSourceAccess(
   return inquiry;
 }
 
-function confirmedPayload(payloadJson: string) {
+function parseDraftPayload(payloadJson: string) {
   let value: unknown;
   try { value = JSON.parse(payloadJson); } catch {
     throw new AppError('报价草稿内容无法读取，请重新编辑后再确认', 409, 'STATE_CONFLICT');
   }
-  const parsed = supplierQuoteDraftConfirmPayloadSchema.safeParse(value);
+  const parsed = supplierQuoteDraftPayloadSchema.safeParse(value);
   if (!parsed.success) {
-    throw new AppError('报价草稿仍有缺项或交期范围未归一，请补全询价项、件号、数量、数量单位、USD 单价和单一交期后再确认', 409, 'VALIDATION_ERROR');
+    throw new AppError('报价草稿内容无法读取，请重新编辑后再确认', 409, 'STATE_CONFLICT');
   }
   return parsed.data;
 }
 
+function selectedItemKeys(payload: ReturnType<typeof parseDraftPayload>, requested?: string[]) {
+  const payloadKeys = payload.items.map((item) => item.itemKey).filter((key): key is string => Boolean(key));
+  if (!requested) {
+    if (payloadKeys.length !== payload.items.length) {
+      throw new AppError('报价草稿行标识缺失，请重新编辑后再确认', 409, 'STATE_CONFLICT');
+    }
+    return payloadKeys;
+  }
+  const available = new Set(payloadKeys);
+  const unknown = requested.find((key) => !available.has(key));
+  if (unknown) throw new AppError('所选报价草稿行已不存在，请重新加载', 409, 'STATE_CONFLICT');
+  return requested;
+}
+
+function confirmableItems(payload: ReturnType<typeof parseDraftPayload>, itemKeys: string[]) {
+  const byKey = new Map(payload.items.flatMap((item) => item.itemKey ? [[item.itemKey, item] as const] : []));
+  return itemKeys.map((itemKey) => {
+    const item = byKey.get(itemKey);
+    const parsed = supplierQuoteDraftConfirmItemSchema.safeParse(item);
+    if (!parsed.success) {
+      throw new AppError('报价草稿仍有缺项或交期范围未归一，请补全询价项、件号、数量、数量单位、USD 单价和单一交期后再确认', 409, 'VALIDATION_ERROR');
+    }
+    return parsed.data;
+  });
+}
+
 function isRetryableTransactionConflict(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
+}
+
+function isDraftClaimConflict(error: unknown) {
+  return error instanceof AppError
+    && error.code === 'STATE_CONFLICT'
+    && error.message === '报价草稿已被其他用户确认或修改';
 }
 
 async function assertCompletedExtractionTaskSource(
@@ -124,19 +159,25 @@ async function assertCompletedExtractionTaskSource(
 }
 
 function toResponseData(
-  draft: { id: string; version: number },
+  draft: { id: string; status: string; version: number },
   quotes: Prisma.SupplierQuoteGetPayload<Record<string, never>>[],
-  reused: boolean,
+  createdQuoteIds: string[],
 ): ConfirmSupplierQuoteDraftData {
   const supplierQuoteIds = quotes.map((quote) => quote.id);
+  const createdQuoteIdSet = new Set(createdQuoteIds);
+  const confirmedQuotes = quotes.flatMap((quote) => quote.sourceDraftItemKey
+    ? [{ itemKey: quote.sourceDraftItemKey, quoteId: quote.id }]
+    : []);
   return {
     draftId: draft.id,
-    status: 'CONFIRMED',
+    status: draft.status === 'CONFIRMED' ? 'CONFIRMED' : 'PARTIALLY_CONFIRMED',
     version: draft.version,
-    reused,
+    reused: createdQuoteIds.length === 0,
+    confirmedItemKeys: confirmedQuotes.map((quote) => quote.itemKey),
+    confirmedQuotes,
     supplierQuoteIds,
-    createdSupplierQuoteIds: reused ? [] : supplierQuoteIds,
-    reusedSupplierQuoteIds: reused ? supplierQuoteIds : [],
+    createdSupplierQuoteIds: createdQuoteIds,
+    reusedSupplierQuoteIds: supplierQuoteIds.filter((id) => !createdQuoteIdSet.has(id)),
     supplierQuotes: quotes,
   };
 }
@@ -150,7 +191,7 @@ export async function confirmSupplierQuoteDraftCommand(
   actor: SupplierQuoteDraftActor,
   draftId: string,
   expectedVersion: number,
-  options: { sourcingAiTaskId?: string } = {},
+  options: { sourcingAiTaskId?: string; itemKeys?: string[] } = {},
 ): Promise<ConfirmSupplierQuoteDraftData> {
   assertCapability(actor, 'email', 'read');
   assertCapability(actor, 'supplier_quote', 'create');
@@ -178,18 +219,33 @@ export async function confirmSupplierQuoteDraftCommand(
       if (scopedInquiry.supplierId !== draft.supplierId) {
         throw new AppError('报价草稿与询价供应商不一致，不能确认', 409, 'RESOURCE_CONFLICT');
       }
+      if (!['DRAFT', 'PARTIALLY_CONFIRMED', 'CONFIRMED'].includes(draft.status)) {
+        throw new AppError('当前报价草稿状态不能确认', 409, 'STATE_CONFLICT');
+      }
+
+      const payload = parseDraftPayload(draft.payloadJson);
+      const requestedItemKeys = selectedItemKeys(payload, options.itemKeys);
+      const existingQuotes = await tx.supplierQuote.findMany({
+        where: { sourceDraftId: draft.id },
+        orderBy: { sourceDraftItemKey: 'asc' },
+      });
+      const existingItemKeys = new Set(existingQuotes
+        .map((quote) => quote.sourceDraftItemKey)
+        .filter((itemKey): itemKey is string => Boolean(itemKey)));
+      const unconfirmedItemKeys = requestedItemKeys.filter((itemKey) => !existingItemKeys.has(itemKey));
       if (draft.version !== expectedVersion) {
+        if ((draft.status === 'PARTIALLY_CONFIRMED' || draft.status === 'CONFIRMED')
+          && requestedItemKeys.every((itemKey) => existingItemKeys.has(itemKey))) {
+          return { draft, quotes: existingQuotes, createdQuoteIds: [] };
+        }
         throw new AppError('报价草稿版本已变化，请重新加载后确认', 409, 'STATE_CONFLICT');
       }
       if (draft.status === 'CONFIRMED') {
-        const quotes = await tx.supplierQuote.findMany({
-          where: { sourceDraftId: draft.id },
-          orderBy: { sourceDraftItemKey: 'asc' },
-        });
-        if (quotes.length === 0) throw new AppError('已确认草稿缺少报价记录，请联系管理员', 409, 'STATE_CONFLICT');
-        return { draft, quotes, reused: true };
+        if (existingQuotes.length === 0 || unconfirmedItemKeys.length > 0) {
+          throw new AppError('已确认草稿缺少报价记录，请联系管理员', 409, 'STATE_CONFLICT');
+        }
+        return { draft, quotes: existingQuotes, createdQuoteIds: [] };
       }
-      if (draft.status !== 'DRAFT') throw new AppError('当前报价草稿状态不能确认', 409, 'STATE_CONFLICT');
 
       const [link, email, inquiry] = await Promise.all([
         tx.inquiryEmailLink.findUnique({
@@ -209,8 +265,13 @@ export async function confirmSupplierQuoteDraftCommand(
         throw new AppError('报价草稿与询价供应商不一致，不能确认', 409, 'RESOURCE_CONFLICT');
       }
 
-      const payload = confirmedPayload(draft.payloadJson);
-      const itemIds = [...new Set(payload.items.map((item) => item.inquiryItemId))];
+      if (unconfirmedItemKeys.length === 0) {
+        if (existingQuotes.length === 0) throw new AppError('报价草稿尚无已确认行', 409, 'STATE_CONFLICT');
+        return { draft, quotes: existingQuotes, createdQuoteIds: [] };
+      }
+
+      const itemsToConfirm = confirmableItems(payload, unconfirmedItemKeys);
+      const itemIds = [...new Set(itemsToConfirm.map((item) => item.inquiryItemId))];
       const inquiryItems = await tx.inquiryItem.findMany({
         where: { inquiryId: inquiry.id, id: { in: itemIds } },
         select: { id: true, inquiryId: true, rfqLineId: true, partNumber: true, quantity: true },
@@ -220,7 +281,7 @@ export async function confirmSupplierQuoteDraftCommand(
         throw new AppError('报价草稿包含不属于当前询价单的需求项', 409, 'RESOURCE_CONFLICT');
       }
       const sourceBindings = new Map<string, Awaited<ReturnType<typeof resolveSupplierQuoteSourceBinding>>>();
-      for (const item of payload.items) {
+      for (const item of itemsToConfirm) {
         const inquiryItem = inquiryItemsById.get(item.inquiryItemId);
         if (!inquiryItem || inquiryItem.partNumber !== item.partNumber) {
           throw new AppError('报价件号必须与选定的询价需求项完全一致', 409, 'RESOURCE_CONFLICT');
@@ -254,20 +315,29 @@ export async function confirmSupplierQuoteDraftCommand(
         sourceBindings.set(item.itemKey, source);
       }
 
+      const confirmedItemKeys = new Set([...existingItemKeys, ...unconfirmedItemKeys]);
+      const everyDraftRowConfirmed = payload.items.every((item) =>
+        Boolean(item.itemKey) && confirmedItemKeys.has(item.itemKey!));
+      const nextStatus = everyDraftRowConfirmed ? 'CONFIRMED' : 'PARTIALLY_CONFIRMED';
       const confirmedAt = new Date();
       const claimed = await tx.supplierQuoteDraft.updateMany({
-        where: { id: draft.id, status: 'DRAFT', version: expectedVersion },
-        data: { status: 'CONFIRMED', confirmedAt, confirmedById: actor.id },
+        where: { id: draft.id, status: draft.status, version: expectedVersion },
+        data: {
+          status: nextStatus,
+          version: { increment: 1 },
+          ...(nextStatus === 'CONFIRMED' ? { confirmedAt, confirmedById: actor.id } : {}),
+        },
       });
       if (claimed.count !== 1) {
         throw new AppError('报价草稿已被其他用户确认或修改', 409, 'STATE_CONFLICT');
       }
 
-      for (const item of payload.items) {
+      const createdQuotes: Prisma.SupplierQuoteGetPayload<Record<string, never>>[] = [];
+      for (const item of itemsToConfirm) {
         const source = sourceBindings.get(item.itemKey)!;
         const unitPriceDecimal = normalizeMoney(item.unitPrice);
         const totalPriceDecimal = calculateMoneyTotal(unitPriceDecimal, item.quantity);
-        await tx.supplierQuote.create({
+        const quote = await tx.supplierQuote.create({
           data: {
             sourceDraftId: draft.id,
             sourceDraftItemKey: item.itemKey,
@@ -293,22 +363,43 @@ export async function confirmSupplierQuoteDraftCommand(
             statusEnum: toSupplierQuoteStatusEnum('pending')!,
           },
         });
+        createdQuotes.push(quote);
       }
+      const createdQuoteIds = createdQuotes.map((quote) => quote.id);
+      await tx.auditLog.create({
+        data: {
+          userId: actor.id,
+          userName: actor.name || null,
+          userRole: actor.role,
+          action: 'CONFIRM',
+          resourceType: 'SUPPLIER_QUOTE_DRAFT',
+          resourceId: draft.id,
+          status: 'SUCCESS',
+          changes: JSON.stringify({
+            version: { before: expectedVersion, after: expectedVersion + 1 },
+            status: { before: draft.status, after: nextStatus },
+            itemKeys: itemsToConfirm.map((item) => item.itemKey),
+            supplierQuoteIds: createdQuoteIds,
+          }),
+          details: 'Human confirmed supplier quote draft rows',
+        },
+      });
       const quotes = await tx.supplierQuote.findMany({
         where: { sourceDraftId: draft.id },
         orderBy: { sourceDraftItemKey: 'asc' },
       });
-      return { draft, quotes, reused: false };
+      return { draft: { ...draft, status: nextStatus, version: expectedVersion + 1 }, quotes, createdQuoteIds };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    return toResponseData(result.draft, result.quotes, result.reused);
+    return toResponseData(result.draft, result.quotes, result.createdQuoteIds);
   } catch (error) {
-    if (!isRetryableTransactionConflict(error)) throw error;
+    if (!isRetryableTransactionConflict(error) && !isDraftClaimConflict(error)) throw error;
     const draft = await prisma.supplierQuoteDraft.findUnique({
       where: { id: draftId },
-      select: { id: true, emailId: true, inquiryId: true, supplierId: true, status: true, version: true },
+      select: { id: true, emailId: true, inquiryId: true, supplierId: true, status: true, version: true, payloadJson: true },
     });
-    if (!draft || draft.status !== 'CONFIRMED' || draft.version !== expectedVersion) throw error;
+    if (!draft || !['PARTIALLY_CONFIRMED', 'CONFIRMED'].includes(draft.status)
+      || (draft.version !== expectedVersion && draft.version !== expectedVersion + 1)) throw error;
     if (options.sourcingAiTaskId) {
       await prisma.$transaction((tx) => assertCompletedExtractionTaskSource(actor, options.sourcingAiTaskId!, draft, tx), {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -318,12 +409,15 @@ export async function confirmSupplierQuoteDraftCommand(
     if (inquiry.supplierId !== draft.supplierId) {
       throw new AppError('报价草稿与询价供应商不一致，不能确认', 409, 'RESOURCE_CONFLICT');
     }
+    const payload = parseDraftPayload(draft.payloadJson);
+    const requestedKeys = selectedItemKeys(payload, options.itemKeys);
     const quotes = await prisma.supplierQuote.findMany({
       where: { sourceDraftId: draft.id },
       orderBy: { sourceDraftItemKey: 'asc' },
     });
-    if (!quotes.length) throw error;
-    return toResponseData(draft, quotes, true);
+    const currentKeys = new Set(quotes.map((quote) => quote.sourceDraftItemKey).filter((key): key is string => Boolean(key)));
+    if (!quotes.length || requestedKeys.some((key) => !currentKeys.has(key))) throw error;
+    return toResponseData(draft, quotes, []);
   }
 }
 

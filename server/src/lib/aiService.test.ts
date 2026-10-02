@@ -76,4 +76,28 @@ describe('supplier quote extraction service', () => {
       { items: [{ partNumber: 'PN-1', quantity: 2, unitPrice: 100, currency: 'USD' }] },
     )).rejects.toThrow('报价依据无法在原邮件中定位');
   });
+
+  it('does not expose quoted inquiry/history to the model or accept it as current offer evidence', async () => {
+    mocks.executeBuiltinAgent.mockResolvedValue({
+      output: JSON.stringify({ items: [{ partNumber: 'PN-1', quantity: 2, unitPrice: 100,
+        currency: 'USD', evidenceText: 'PN-1 Qty 2 EA USD 100' }] }),
+      model: 'fixture-model', promptVersion: 1, agentId: 'builtin-supplier_quote_extraction',
+    });
+    await expect(extractSupplierQuoteEmail('Re: RFQ',
+      'We will check.\n-----Original Message-----\nPN-1 Qty 2 EA USD 100', {}))
+      .rejects.toThrow('仅来自引用历史');
+    expect(mocks.executeBuiltinAgent.mock.calls[0][1].body).toBe('We will check.\n');
+  });
+
+  it('keeps natural reply price/lead evidence but clears an inventory/request-derived quantity', async () => {
+    const evidenceText = 'M3-TEST-PN-001\n需求数量 2\n库存数量 6\n单价 845.20\n币种 USD\n交期 2周';
+    mocks.executeBuiltinAgent.mockResolvedValue({
+      output: JSON.stringify({ items: [{ partNumber: 'M3-TEST-PN-001', quantity: 2, quantityUnit: 'EA',
+        unitPrice: 845.2, currency: 'USD', leadTimeDays: 14, evidenceText }] }),
+      model: 'fixture-model', promptVersion: 1, agentId: 'builtin-supplier_quote_extraction',
+    });
+    const result = await extractSupplierQuoteEmail('Quote', evidenceText, {});
+    expect(result.items[0]).toMatchObject({ quantity: null, quantityUnit: null,
+      unitPrice: 845.2, currency: 'USD', leadTimeDays: 14, evidenceText });
+  });
 });

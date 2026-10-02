@@ -1,5 +1,9 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
@@ -11,8 +15,47 @@ import { applyIdempotencyHeaders, buildIdempotencyContext, runIdempotentOperatio
 import { inquiryReadScope, sendInquiryCommand } from '../lib/inquirySendCommand.js';
 import { legacyRfqLineData } from '../modules/rfqSourcing/index.js';
 import prisma from '../lib/prisma.js';
+import { MAX_INQUIRY_ATTACHMENT_BYTES, listInquiryAttachmentSnapshots, persistInquiryAttachment } from '../lib/inquiryAttachments.js';
+import { isUploadSizeAllowed, verifyFileSignature } from './upload.js';
+import { hasUnsafeInquiryAttachmentContent, isSafeInquiryAttachmentFilename } from '../lib/inquiryAttachmentSafety.js';
 
 const router = Router();
+
+const attachmentMimeTypes = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+
+const inquiryAttachmentUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, callback) => {
+      const stagingDirectory = path.resolve(process.env.UPLOAD_STAGING_DIR || path.join(os.tmpdir(), 'aerolink-upload-staging'));
+      fs.mkdir(stagingDirectory, { recursive: true }, (error) => callback(error, stagingDirectory));
+    },
+    filename: (_req, _file, callback) => callback(null, `inquiry-attachment-${randomUUID()}`),
+  }),
+  fileFilter: (_req, file, callback) => {
+    if (attachmentMimeTypes.has(file.mimetype) && isSafeInquiryAttachmentFilename(file.originalname, file.mimetype)) callback(null, true);
+    else callback(new AppError('不支持的文件类型', 400, 'VALIDATION_ERROR'));
+  },
+  limits: { fileSize: MAX_INQUIRY_ATTACHMENT_BYTES, files: 1 },
+});
+const receiveInquiryAttachment = (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
+  inquiryAttachmentUpload.single('file')(req, res, (error) => {
+    if (error instanceof multer.MulterError) {
+      next(new AppError(error.code === 'LIMIT_FILE_SIZE' ? '单个附件不能超过 10 MB' : '附件上传请求无效', 400, 'VALIDATION_ERROR'));
+      return;
+    }
+    next(error);
+  });
+};
 
 function generateInquiryNumber(): string {
   return `INQ-${new Date().getFullYear()}-${randomUUID().slice(0, 12).toUpperCase()}`;
@@ -28,6 +71,8 @@ const sendInquirySchema = z.object({
   subject: z.string().max(255).trim().min(1).refine(value =>
     !value.includes('\r') && !value.includes('\n') && !value.includes('\u0000'), '主题不能包含换行符').optional(),
   textBody: z.string().max(20_000).trim().min(1).refine(value => !value.includes('\u0000'), '正文包含无效字符').optional(),
+  attachmentIds: z.array(z.string().min(1).max(200)).max(10)
+    .refine(ids => new Set(ids).size === ids.length, '附件选择不能重复').optional(),
 }).strict().default({});
 
 function inquiryDeliveryStatus(inquiryStatus: string, emailStatus?: string) {
@@ -272,6 +317,54 @@ router.get(
   })
 );
 
+router.get(
+  '/:id/attachments',
+  requireCapability('supplier_quote', 'read'),
+  asyncHandler(async (req, res) => {
+    const actor = (req as AuthRequest).user!;
+    const attachments = await prisma.$transaction((tx) => listInquiryAttachmentSnapshots(tx, actor, req.params.id));
+    res.json({ success: true, data: { attachments } });
+  }),
+);
+
+router.post(
+  '/:id/attachments',
+  requireCapability('supplier_quote', 'create'),
+  receiveInquiryAttachment,
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw new AppError('没有上传文件', 400, 'VALIDATION_ERROR');
+    try {
+      if (!isUploadSizeAllowed(req.file.size)) {
+        throw new AppError('文件大小超出限制', 400, 'VALIDATION_ERROR');
+      }
+      const baseFilename = req.file.originalname
+        .replace(/\\/g, '/')
+        .split('/')
+        .at(-1)!;
+      const filename = Array.from(baseFilename)
+        .filter(character => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127)
+        .join('').trim();
+      const safeFilename = Array.from(filename).slice(0, 255).join('') || 'attachment';
+      const content = await fs.promises.readFile(req.file.path);
+      if (!isSafeInquiryAttachmentFilename(safeFilename, req.file.mimetype)
+        || !verifyFileSignature(req.file.path, req.file.mimetype)
+        || hasUnsafeInquiryAttachmentContent(safeFilename, req.file.mimetype, content)) {
+        throw new AppError('文件内容与声明的类型不匹配', 400, 'VALIDATION_ERROR');
+      }
+      const attachment = await persistInquiryAttachment({
+        sourcePath: req.file.path,
+        inquiryId: req.params.id,
+        actor: (req as AuthRequest).user!,
+        filename: safeFilename,
+        contentType: req.file.mimetype,
+      });
+      res.status(201).json({ success: true, data: { attachment } });
+    } finally {
+      await fs.promises.unlink(req.file.path).catch(() => undefined);
+    }
+  }),
+);
+
 router.post(
   '/',
   requireCapability('supplier_quote', 'create'),
@@ -339,7 +432,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const actor = (req as AuthRequest).user!;
     const inquiryId = req.params.id;
-    const { subject, textBody } = req.body as z.infer<typeof sendInquirySchema>;
+    const { subject, textBody, attachmentIds } = req.body as z.infer<typeof sendInquirySchema>;
     const execution = await runIdempotentOperation(
       buildIdempotencyContext(req, actor.id, `POST:/inquiries/${inquiryId}/send`),
       async tx => {
@@ -347,7 +440,7 @@ router.post(
           tx,
           actor,
           inquiryId,
-          { subject, textBody },
+          { subject, textBody, attachmentIds },
         );
 
         return {

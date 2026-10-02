@@ -1,5 +1,6 @@
 import { executeBuiltinAgent, type AgentExecutionContext } from './aiAgentExecution.js';
 import { assertRfqExtractionEvidence, assertSupplierQuoteEvidence, parseRfqExtractionOutput, parseSupplierQuoteExtractionOutput } from './aiOutputValidation.js';
+import { supplierReplyBody } from './supplierReplyEvidence.js';
 export { generateCompletion, type AICompletionOptions, type AICompletionResult } from './aiCompletion.js';
 
 export async function classifyRFQEmail(subject: string, body: string, context?: AgentExecutionContext) {
@@ -13,7 +14,8 @@ export async function extractSupplierQuoteEmail(
   inquiryContext: unknown,
   context?: AgentExecutionContext,
 ) {
-  const result = await executeBuiltinAgent('supplier_quote_extraction', { subject, body, inquiryContext }, context);
+  const replyBody = supplierReplyBody(body);
+  const result = await executeBuiltinAgent('supplier_quote_extraction', { subject, body: replyBody, inquiryContext }, context);
   return {
     ...assertSupplierQuoteEvidence(parseSupplierQuoteExtractionOutput(result.output), subject, body),
     ai: { agentId: result.agentId, promptVersion: result.promptVersion, model: result.model },

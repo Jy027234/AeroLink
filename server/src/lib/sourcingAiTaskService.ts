@@ -309,6 +309,12 @@ async function executeClaimedSourcingAiTask(taskId: string, actorId: string, cla
       if (error instanceof AppError && error.code === 'AI_PROVIDER_CONNECTION_ERROR') {
         throw new SafeTaskFailure('模型服务连接失败，请检查网络后重新执行抽取');
       }
+      if (error instanceof AppError && error.code === 'AI_QUOTE_OUTPUT_INVALID') {
+        throw new SafeTaskFailure('模型返回的报价格式无效；可重试或核对原文后手工建稿');
+      }
+      if (error instanceof AppError && error.code === 'AI_QUOTE_EVIDENCE_INVALID') {
+        throw new SafeTaskFailure('报价依据无法在本次回信中核实，可能来自引用历史；请核对原文或手工建稿');
+      }
       throw new SafeTaskFailure('AI 抽取失败，请稍后重试');
     }
     const payload = buildDraftPayload(extracted.items, snapshot.inquiry.items);
@@ -331,7 +337,7 @@ async function executeClaimedSourcingAiTask(taskId: string, actorId: string, cla
         orderBy: { version: 'desc' },
         select: { version: true, status: true },
       });
-      if (latestDraft?.status === 'DRAFT') {
+      if (latestDraft && ['DRAFT', 'PARTIALLY_CONFIRMED'].includes(latestDraft.status)) {
         throw new SafeTaskFailure('已有未确认报价草稿，请在草稿中继续编辑');
       }
 

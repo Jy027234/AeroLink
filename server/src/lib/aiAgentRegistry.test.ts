@@ -79,6 +79,7 @@ describe('AI agent registry', () => {
     expect(quoteExtraction?.prompts[0].content).toContain('不可信数据');
     expect(quoteExtraction?.prompts[0].content).toContain('绝不声称或尝试创建、修改、确认报价');
     expect(quoteExtraction?.prompts[0].content).toContain('回复中引用或转发的原询价及历史邮件不构成供应商报价依据');
+    expect(quoteExtraction?.prompts[0].content).toContain('库存数量、需求数量、询价数量不是供应商承诺的报价数量');
     expect(quoteExtraction?.prompts[1].content).toContain('taxIncluded');
     expect(quoteExtraction?.prompts[1].content).toContain('freightIncluded');
     expect(quoteExtraction?.prompts[1].content).toContain('incoterm');

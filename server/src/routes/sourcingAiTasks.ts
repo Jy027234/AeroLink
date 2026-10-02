@@ -267,7 +267,10 @@ router.post(
       throw new AppError('任务尚无可确认的报价草稿', 409, 'STATE_CONFLICT');
     }
     const data = await confirmSupplierQuoteDraftCommand(
-      req.user!, task.draftId, req.body.expectedVersion, { sourcingAiTaskId: req.params.id },
+      req.user!, task.draftId, req.body.expectedVersion, {
+        sourcingAiTaskId: req.params.id,
+        itemKeys: req.body.itemKeys,
+      },
     );
     res.json({ success: true, data });
   }),

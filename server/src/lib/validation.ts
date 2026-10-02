@@ -552,7 +552,7 @@ const supplierQuoteDraftItemSchema = z.object({
   notes: z.string().nullable().optional(),
 }).strict();
 
-const supplierQuoteDraftConfirmItemSchema = supplierQuoteDraftItemSchema
+export const supplierQuoteDraftConfirmItemSchema = supplierQuoteDraftItemSchema
   .extend({
     itemKey: z.string().trim().min(1, '报价草稿行标识不能为空'),
     inquiryItemId: z.string().trim().min(1, '询价需求项ID不能为空'),
@@ -602,6 +602,15 @@ export const supplierQuoteDraftPatchSchema = z.object({
 
 export const supplierQuoteDraftConfirmSchema = z.object({
   expectedVersion: z.number().int().positive('草稿版本必须为正整数'),
+  itemKeys: z.array(z.string().trim().min(1, '报价草稿行标识不能为空'))
+    .min(1, '至少选择一条报价草稿行')
+    .max(100, '最多选择100条报价草稿行')
+    .superRefine((itemKeys, ctx) => {
+      if (new Set(itemKeys).size !== itemKeys.length) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: '报价草稿行不能重复选择' });
+      }
+    })
+    .optional(),
 }).strict();
 
 export const supplierQuoteDraftExtractSchema = z.object({

@@ -25934,6 +25934,172 @@
         }
       }
     },
+    "/api/inquiries/{id}/attachments": {
+      "get": {
+        "operationId": "getInquiriesIdAttachments",
+        "tags": [
+          "inquiries"
+        ],
+        "summary": "GET /api/inquiries/:id/attachments",
+        "description": "List inquiry-bound files available for explicit selection; no cross-inquiry auto-attachment.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "sourcing/inquiries",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inquiries.ts",
+          "line": 313
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Files bound to this inquiry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InquiryAttachmentListEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "postInquiriesIdAttachments",
+        "tags": [
+          "inquiries"
+        ],
+        "summary": "POST /api/inquiries/:id/attachments",
+        "description": "Upload real inquiry attachment bytes. Bound to inquiry/RFQ read scope and frozen into the human-confirmed send version; does not send email.",
+        "x-aerolink-contract-status": "contracted",
+        "x-aerolink-owner": "sourcing/inquiries",
+        "x-aerolink-source": {
+          "file": "server/src/routes/inquiries.ts",
+          "line": 323
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Saved inquiry file; no email sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InquiryAttachmentUploadEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/inquiries/{id}/send": {
       "post": {
         "operationId": "postInquiriesIdSend",
@@ -36176,6 +36342,143 @@
         },
         "additionalProperties": false
       },
+      "InquiryAttachment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "storedObjectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "contentType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10485760
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "downloadUrl": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "storedObjectId",
+          "filename",
+          "contentType",
+          "sizeBytes",
+          "sha256",
+          "version",
+          "downloadUrl"
+        ],
+        "additionalProperties": false
+      },
+      "InquiryAttachmentListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/InquiryAttachment"
+                }
+              }
+            },
+            "required": [
+              "attachments"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "InquiryAttachmentUploadEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "attachment": {
+                "$ref": "#/components/schemas/InquiryAttachment"
+              }
+            },
+            "required": [
+              "attachment"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "SourcingActionTaskSendContentInput": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "textBody": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "attachmentIds": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        },
+        "required": [
+          "subject",
+          "textBody"
+        ],
+        "additionalProperties": false
+      },
       "InquirySendRequest": {
         "type": "object",
         "required": [],
@@ -36189,6 +36492,16 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 20000
+          },
+          "attachmentIds": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
           }
         },
         "additionalProperties": false
@@ -37527,6 +37840,22 @@
                 },
                 "summary": {
                   "type": "string"
+                },
+                "itemKeys": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "supplierQuoteIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
                 }
               },
               "additionalProperties": false
@@ -37747,6 +38076,184 @@
                   "additionalProperties": false
                 }
               },
+              "additionalProperties": false
+            }
+          },
+          "pendingQuoteRows": {
+            "type": "array",
+            "description": "Unconfirmed draft candidates only; not formal quotes and never eligible for ranking or winner selection.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rfqLineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "inquiryId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "inquiryItemId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "itemKey": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "draftId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "draftVersion": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "emailId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "supplierName": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "ai",
+                    "manual"
+                  ]
+                },
+                "partNumber": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "quantityUnit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitPrice": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "leadTimeDays": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "leadTimeMinDays": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "leadTimeMaxDays": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "condition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "certificate": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "taxIncluded": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "freightIncluded": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "validUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                }
+              },
+              "required": [
+                "rfqLineId",
+                "inquiryId",
+                "inquiryItemId",
+                "itemKey",
+                "draftId",
+                "draftVersion",
+                "emailId",
+                "supplierName",
+                "source",
+                "partNumber",
+                "quantity",
+                "quantityUnit",
+                "unitPrice",
+                "currency",
+                "leadTimeDays",
+                "leadTimeMinDays",
+                "leadTimeMaxDays",
+                "condition",
+                "certificate",
+                "taxIncluded",
+                "freightIncluded",
+                "validUntil"
+              ],
               "additionalProperties": false
             }
           }
@@ -60632,6 +61139,7 @@
             "type": "string",
             "enum": [
               "DRAFT",
+              "PARTIALLY_CONFIRMED",
               "CONFIRMED"
             ]
           },
@@ -60715,6 +61223,37 @@
             "items": {
               "type": "object",
               "additionalProperties": true
+            }
+          },
+          "confirmedItemKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "confirmedQuotes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemKey": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "quoteId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "itemKey",
+                "quoteId"
+              ],
+              "additionalProperties": false
             }
           }
         },
@@ -60850,6 +61389,17 @@
           "expectedVersion": {
             "type": "integer",
             "minimum": 1
+          },
+          "itemKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true
           }
         },
         "required": [
@@ -60867,7 +61417,10 @@
           },
           "status": {
             "type": "string",
-            "const": "CONFIRMED"
+            "enum": [
+              "PARTIALLY_CONFIRMED",
+              "CONFIRMED"
+            ]
           },
           "version": {
             "type": "integer",
@@ -60904,6 +61457,37 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SupplierQuote"
+            }
+          },
+          "confirmedItemKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "confirmedQuotes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemKey": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "quoteId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "itemKey",
+                "quoteId"
+              ],
+              "additionalProperties": false
             }
           }
         },
@@ -61124,6 +61708,23 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 20000
+          },
+          "attachmentIds": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/InquiryAttachment"
+            }
           }
         },
         "required": [
@@ -61494,7 +62095,7 @@
             "maxLength": 200
           },
           "content": {
-            "$ref": "#/components/schemas/SourcingActionTaskContent"
+            "$ref": "#/components/schemas/SourcingActionTaskSendContentInput"
           },
           "idempotencyKey": {
             "type": "string",

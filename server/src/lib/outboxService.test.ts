@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildQuotationRenderSnapshot, serializeQuotationRenderSnapshot } from './documentRenderSnapshot.js';
 
@@ -54,6 +55,7 @@ function createPrismaMock() {
     notification: { create: vi.fn() },
     quotation: { findUnique: vi.fn() },
     transactionStatusHistory: { create: vi.fn() },
+    outboundInquiryEmailAttachment: { create: vi.fn() },
   };
 
   return {
@@ -66,6 +68,7 @@ function createPrismaMock() {
     },
     outboundEmail: { findUnique: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     generatedDocument: { findUnique: vi.fn() },
+    outboundInquiryEmailAttachment: { findMany: vi.fn().mockResolvedValue([]) },
     customer: { findUnique: vi.fn() },
     $transaction: vi.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
     __tx: tx,
@@ -78,6 +81,7 @@ describe('outboxService', () => {
   let emitToRoomMock: ReturnType<typeof vi.fn>;
   let emitScopedSocketEventMock: ReturnType<typeof vi.fn>;
   let sendEmailMock: ReturnType<typeof vi.fn>;
+  let objectStorageMock: { createReadStream: ReturnType<typeof vi.fn> };
   let enqueueBusinessEvent: typeof import('./outboxService.js').enqueueBusinessEvent;
   let processOutboxEvent: typeof import('./outboxService.js').processOutboxEvent;
   let processPendingOutboxEvents: typeof import('./outboxService.js').processPendingOutboxEvents;
@@ -91,6 +95,7 @@ describe('outboxService', () => {
     emitToRoomMock = vi.fn().mockReturnValue(true);
     emitScopedSocketEventMock = vi.fn().mockResolvedValue(true);
     sendEmailMock = vi.fn();
+    objectStorageMock = { createReadStream: vi.fn() };
 
     vi.doMock('./prisma.js', () => ({ default: prismaMock }));
     vi.doMock('./webhookService.js', () => ({ queueWebhookEvent: queueWebhookEventMock }));
@@ -99,6 +104,7 @@ describe('outboxService', () => {
       emitScopedSocketEvent: emitScopedSocketEventMock,
     }));
     vi.doMock('./emailService.js', () => ({ sendEmail: sendEmailMock }));
+    vi.doMock('./objectStorage.js', () => ({ objectStorage: objectStorageMock }));
     vi.doMock('./crypto.js', () => ({ decrypt: vi.fn((value: string) => value) }));
     vi.doMock('./pdfService.js', () => ({ generateQuotationPDF: vi.fn(), generatePDF: vi.fn().mockResolvedValue(Buffer.from('rendered-pdf')) }));
 
@@ -308,6 +314,120 @@ describe('outboxService', () => {
       where: { id: 'i1' },
       data: expect.objectContaining({ status: 'SENT', sentAt: expect.any(Date) }),
     });
+  });
+
+  it('loads the exact frozen inquiry bytes and passes them to SMTP with attachment metadata', async () => {
+    const content = Buffer.from('%PDF-1.7\nworker fixture\n%%EOF');
+    const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+    const rows = [{
+      id: 'outbound-attachment-1', outboundEmailId: 'mail-inquiry-attachment', inquiryAttachmentId: 'source-attachment-1',
+      storedObjectId: 'stored-object-1', filename: 'supplier quote.pdf', contentType: 'application/pdf',
+      sizeBytes: content.byteLength, sha256: contentHash, version: 2, position: 0,
+      sourceAttachment: {
+        id: 'source-attachment-1', inquiryId: 'i-attachment', storedObjectId: 'stored-object-1',
+        filename: 'supplier quote.pdf', contentType: 'application/pdf', sizeBytes: content.byteLength,
+        sha256: contentHash, version: 2,
+      },
+      storedObject: {
+        id: 'stored-object-1', objectKey: 'inquiry/i-attachment/one', domain: 'inquiry_attachment',
+        resourceId: 'i-attachment', status: 'AVAILABLE', originalName: 'supplier quote.pdf',
+        mimeType: 'application/pdf', sizeBytes: content.byteLength, sha256: contentHash, version: 2,
+      },
+    }];
+    const expectedSnapshot = [{
+      id: 'source-attachment-1', storedObjectId: 'stored-object-1', filename: 'supplier quote.pdf',
+      contentType: 'application/pdf', sizeBytes: content.byteLength, sha256: contentHash, version: 2,
+      downloadUrl: '/api/files/stored-object-1',
+    }];
+    const snapshotHash = crypto.createHash('sha256').update(JSON.stringify(expectedSnapshot)).digest('hex');
+    const event = createOutboxEvent({
+      channel: 'EMAIL', eventType: 'inquiry.email.send', aggregateType: 'INQUIRY', aggregateId: 'i-attachment',
+      payload: JSON.stringify({ outboundEmailId: 'mail-inquiry-attachment', inquiryAttachmentSnapshotHash: snapshotHash }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-inquiry-attachment', status: 'PENDING', purpose: 'INQUIRY_SEND', inquiryId: 'i-attachment',
+      toEmail: 'quotes@supplier.example', subject: 'RFQ request', textBody: 'Please quote PN-100', htmlBody: null,
+      account: {
+        id: 'acct-1', email: 'sales@aerolink.com', displayName: null,
+        imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com',
+        smtpPort: '465', authCode: 'secret', accountType: 'IMAP_SMTP', isActive: true,
+      },
+      quotation: null,
+      inquiry: { id: 'i-attachment', status: 'QUEUED' },
+    });
+    prismaMock.outboundInquiryEmailAttachment.findMany.mockResolvedValue(rows);
+    objectStorageMock.createReadStream.mockResolvedValue(Readable.from([content]));
+    sendEmailMock.mockResolvedValue({ messageId: 'provider-inquiry-attachment' });
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.outboundEmail.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.inquiry.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(true);
+
+    expect(objectStorageMock.createReadStream).toHaveBeenCalledWith('inquiry/i-attachment/one');
+    expect(sendEmailMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      attachments: [{ filename: 'supplier quote.pdf', content, contentType: 'application/pdf', contentId: null }],
+    }));
+  });
+
+  it('fails closed before SMTP when frozen inquiry attachment bytes do not match their SHA-256', async () => {
+    const expectedContent = Buffer.from('%PDF-1.7\nexpected bytes\n%%EOF');
+    const wrongContent = Buffer.from('%PDF-1.7\nchanged  bytes\n%%EOF');
+    expect(wrongContent.byteLength).toBe(expectedContent.byteLength);
+    const contentHash = crypto.createHash('sha256').update(expectedContent).digest('hex');
+    const rows = [{
+      id: 'outbound-attachment-2', outboundEmailId: 'mail-bad-attachment', inquiryAttachmentId: 'source-attachment-2',
+      storedObjectId: 'stored-object-2', filename: 'supplier quote.pdf', contentType: 'application/pdf',
+      sizeBytes: expectedContent.byteLength, sha256: contentHash, version: 1, position: 0,
+      sourceAttachment: {
+        id: 'source-attachment-2', inquiryId: 'i-bad-attachment', storedObjectId: 'stored-object-2',
+        filename: 'supplier quote.pdf', contentType: 'application/pdf', sizeBytes: expectedContent.byteLength,
+        sha256: contentHash, version: 1,
+      },
+      storedObject: {
+        id: 'stored-object-2', objectKey: 'inquiry/i-bad-attachment/tampered', domain: 'inquiry_attachment',
+        resourceId: 'i-bad-attachment', status: 'AVAILABLE', originalName: 'supplier quote.pdf',
+        mimeType: 'application/pdf', sizeBytes: expectedContent.byteLength, sha256: contentHash, version: 1,
+      },
+    }];
+    const snapshot = [{
+      id: 'source-attachment-2', storedObjectId: 'stored-object-2', filename: 'supplier quote.pdf',
+      contentType: 'application/pdf', sizeBytes: expectedContent.byteLength, sha256: contentHash, version: 1,
+      downloadUrl: '/api/files/stored-object-2',
+    }];
+    const snapshotHash = crypto.createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+    const event = createOutboxEvent({
+      id: 'outbox-bad-attachment', channel: 'EMAIL', eventType: 'inquiry.email.send',
+      aggregateType: 'INQUIRY', aggregateId: 'i-bad-attachment', attemptCount: 0, maxAttempts: 5,
+      payload: JSON.stringify({ outboundEmailId: 'mail-bad-attachment', inquiryAttachmentSnapshotHash: snapshotHash }),
+    });
+    prismaMock.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.outboxEvent.findUnique.mockResolvedValue(event);
+    prismaMock.outboundEmail.findUnique.mockResolvedValue({
+      id: 'mail-bad-attachment', status: 'PENDING', purpose: 'INQUIRY_SEND', inquiryId: 'i-bad-attachment',
+      toEmail: 'quotes@supplier.example', subject: 'Request', textBody: 'Body', htmlBody: null,
+      account: { id: 'acct-1', email: 'sales@aerolink.com', imapServer: 'imap.example.com', imapPort: '993', smtpServer: 'smtp.example.com', smtpPort: '465', authCode: 'secret', isActive: true },
+      quotation: null, inquiry: { id: 'i-bad-attachment', status: 'QUEUED' },
+    });
+    prismaMock.outboundInquiryEmailAttachment.findMany.mockResolvedValue(rows);
+    objectStorageMock.createReadStream.mockResolvedValue(Readable.from([wrongContent]));
+    prismaMock.__tx.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.outboundEmail.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.__tx.notification.create.mockResolvedValue({ id: 'notification-attachment-failed' });
+
+    await expect(processOutboxEvent(event.id)).resolves.toBe(false);
+
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(prismaMock.__tx.outboxEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: event.id, status: 'PROCESSING', workerId: expect.stringMatching(/^worker-/) },
+      data: expect.objectContaining({ status: 'FAILED', lastError: expect.stringContaining('SHA-256') }),
+    }));
+    expect(prismaMock.__tx.outboundEmail.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'mail-bad-attachment', status: { notIn: ['SENT', 'WITHDRAWN', 'NEEDS_VERIFICATION'] } },
+      data: expect.objectContaining({ status: 'FAILED' }),
+    }));
   });
 
   it('stops after recovering an inquiry email left SENDING by a worker crash and requires manual verification', async () => {

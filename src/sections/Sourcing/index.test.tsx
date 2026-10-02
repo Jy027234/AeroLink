@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   refetchPendingEmails: vi.fn(),
   requestedInquiryIds: [] as Array<string | null | undefined>,
   emailApi: { linkToInquiry: vi.fn() },
+  inquiryAttachmentApi: { getAll: vi.fn(), upload: vi.fn() },
   rfqApi: { getSourcingCandidates: vi.fn(), getSourcingTimeline: vi.fn() },
   supplierQuoteApi: { selectWinner: vi.fn(), clearWinner: vi.fn() },
   inquiryApi: { cancelSend: vi.fn(), getById: vi.fn() },
@@ -65,7 +66,7 @@ vi.mock('@/hooks/useApi', () => ({
   },
 }));
 
-vi.mock('@/api/client', () => ({ emailApi: mocks.emailApi, rfqApi: mocks.rfqApi, supplierQuoteApi: mocks.supplierQuoteApi, inquiryApi: mocks.inquiryApi, fileApi: mocks.fileApi, sourcingActionTaskApi: mocks.sourcingActionTaskApi, sourcingAiTaskApi: mocks.sourcingAiTaskApi, supplierQuoteDraftApi: mocks.supplierQuoteDraftApi }));
+vi.mock('@/api/client', () => ({ emailApi: mocks.emailApi, inquiryAttachmentApi: mocks.inquiryAttachmentApi, rfqApi: mocks.rfqApi, supplierQuoteApi: mocks.supplierQuoteApi, inquiryApi: mocks.inquiryApi, fileApi: mocks.fileApi, sourcingActionTaskApi: mocks.sourcingActionTaskApi, sourcingAiTaskApi: mocks.sourcingAiTaskApi, supplierQuoteDraftApi: mocks.supplierQuoteDraftApi }));
 vi.mock('@/lib/downloadBlob', () => ({ downloadBlob: mocks.downloadBlob }));
 
 vi.mock('@/i18n', () => ({ useTranslation: () => ({ locale: 'zh-CN' }) }));
@@ -270,6 +271,9 @@ beforeEach(() => {
   mocks.requestedInquiryIds = [];
   mocks.emailApi.linkToInquiry.mockReset();
   mocks.emailApi.linkToInquiry.mockResolvedValue({ id: 'link-1' });
+  mocks.inquiryAttachmentApi.getAll.mockReset();
+  mocks.inquiryAttachmentApi.getAll.mockResolvedValue([]);
+  mocks.inquiryAttachmentApi.upload.mockReset();
   mocks.rfqApi.getSourcingCandidates.mockResolvedValue({ rfqId: 'rfq-1', rfqNumber: 'RFQ-TEST', lines: [], limits: { candidatesPerLine: 20, evidenceTruncated: false } });
   mocks.rfqApi.getSourcingTimeline.mockResolvedValue({ rfqId: 'rfq-1', events: [] });
   mocks.supplierQuoteApi.selectWinner.mockReset();
@@ -730,6 +734,69 @@ it('stages the edited message for a second human confirmation and preserves queu
   expect(within(firstLine).queryByText('已发送')).toBeNull();
 });
 
+it('uploads, reviews, freezes and sends only the selected inquiry attachment', async () => {
+  const draft = inquiry('draft', lineOne, 'draft');
+  const attachment = {
+    id: 'inquiry-attachment-1', storedObjectId: 'stored-inquiry-1', filename: 'supplier-quote.pdf',
+    contentType: 'application/pdf', sizeBytes: 512, sha256: 'sha256-proof', downloadUrl: '/api/files/stored-inquiry-1',
+  };
+  mocks.inquiries = [draft];
+  mocks.inquiryAttachmentApi.upload.mockResolvedValue(attachment);
+  mocks.sourcingActionTaskApi.create.mockImplementation(async (payload: { action: string; targetId: string; content?: { subject: string; textBody: string; attachmentIds?: string[] } }) => ({
+    id: 'send-with-attachment', action: payload.action, targetId: payload.targetId, status: 'WAITING_HUMAN', version: 1,
+    contentSnapshot: {
+      subject: payload.content?.subject.trim() ?? '', textBody: payload.content?.textBody.trim() ?? '',
+      attachments: (payload.content?.attachmentIds ?? []).map(() => attachment),
+    },
+  }));
+  mocks.inquiryApi.getById.mockResolvedValue({ ...draft, status: 'queued', deliveryStatus: 'queued' });
+  render(<Sourcing />);
+  selectRfq();
+  fireEvent.click(await screen.findByRole('button', { name: '预览 Supplier draft 的询价邮件' }));
+
+  const file = new File(['vendor quote'], 'supplier-quote.pdf', { type: 'application/pdf' });
+  await waitFor(() => expect(screen.getByLabelText('上传询价附件')).toBeEnabled());
+  fireEvent.change(screen.getByLabelText('上传询价附件'), { target: { files: [file] } });
+  expect(await screen.findByText(/SHA-256: sha256-proof/)).toBeInTheDocument();
+  expect(mocks.inquiryAttachmentApi.upload).toHaveBeenCalledWith('draft', file);
+  expect(screen.getByRole('checkbox', { name: '选择附件 supplier-quote.pdf' })).toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: '下载核对' }));
+  await waitFor(() => expect(mocks.fileApi.download).toHaveBeenCalledWith('stored-inquiry-1'));
+
+  fireEvent.click(screen.getByRole('button', { name: '保存待确认邮件版本' }));
+  await waitFor(() => expect(mocks.sourcingActionTaskApi.create).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'SEND_INQUIRY', targetId: 'draft',
+    content: expect.objectContaining({ attachmentIds: ['inquiry-attachment-1'] }),
+  })));
+  expect(screen.getByRole('checkbox', { name: '选择附件 supplier-quote.pdf' })).toBeDisabled();
+  fireEvent.click(await screen.findByRole('button', { name: '确认此版本并入队' }));
+  await waitFor(() => expect(mocks.sourcingActionTaskApi.confirm).toHaveBeenCalledWith('send-with-attachment', 1));
+});
+
+it('keeps inquiry attachments scoped to the inquiry and resets the selection on preview change', async () => {
+  const first = inquiry('first', lineOne, 'draft');
+  const second = inquiry('second', lineTwo, 'draft');
+  const attachment = {
+    id: 'first-only-file', storedObjectId: 'stored-first', filename: 'first.pdf', contentType: 'application/pdf',
+    sizeBytes: 100, sha256: 'first-hash', downloadUrl: '/api/files/stored-first',
+  };
+  mocks.inquiries = [first, second];
+  mocks.inquiryAttachmentApi.getAll.mockImplementation(async (inquiryId: string) => inquiryId === 'first' ? [attachment] : []);
+  render(<Sourcing />);
+  selectRfq();
+
+  fireEvent.click(await screen.findByRole('button', { name: '预览 Supplier first 的询价邮件' }));
+  const firstFile = await screen.findByRole('checkbox', { name: '选择附件 first.pdf' });
+  fireEvent.click(firstFile);
+  expect(firstFile).toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: '返回' }));
+
+  fireEvent.click(await screen.findByRole('button', { name: '预览 Supplier second 的询价邮件' }));
+  expect(await screen.findByText('此询价还没有上传附件。')).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: '选择附件 first.pdf' })).toBeNull();
+  expect(mocks.inquiryAttachmentApi.getAll).toHaveBeenCalledWith('second');
+});
+
 it('restores a staged send after reopening and confirms its immutable content without restaging', async () => {
   const draft = inquiry('draft', lineOne, 'draft');
   mocks.inquiries = [draft];
@@ -917,7 +984,7 @@ it('blocks incomplete, non-USD and ranged-lead-time drafts, then uses expected v
     items: [{
       itemKey: 'item-1', inquiryItemId: 'inquiry-item-sent', partNumber: 'PN-ALPHA', quantity: 2,
       unitPrice: 125, currency: 'EUR', leadTimeMinDays: 8, leadTimeMaxDays: 12,
-      validUntil: '2026-10-01', evidenceText: 'Vendor email body',
+      validUntil: '2026-10-01', evidenceText: null,
     }],
   };
   mocks.inquiries = [inquiry('sent', lineOne, 'sent')];
@@ -925,7 +992,7 @@ it('blocks incomplete, non-USD and ranged-lead-time drafts, then uses expected v
   mocks.sourcingAiTaskApi.create.mockResolvedValue(extractionTask());
   mocks.supplierQuoteDraftApi.getById.mockResolvedValue(quoteDraft(rangePayload, 2));
   mocks.supplierQuoteDraftApi.update.mockImplementation(async (_id: string, input: { payload: SupplierQuoteDraftPayload }) => quoteDraft(input.payload, 3));
-  mocks.sourcingAiTaskApi.confirmDraft.mockRejectedValue(new Error('草稿版本冲突'));
+  mocks.supplierQuoteDraftApi.confirm.mockRejectedValue(new Error('草稿版本冲突'));
   render(<Sourcing />);
   selectRfq();
   fireEvent.click(await screen.findByRole('button', { name: '核对 Supplier sent 的回邮' }));
@@ -933,66 +1000,74 @@ it('blocks incomplete, non-USD and ranged-lead-time drafts, then uses expected v
 
   const confirmButton = await screen.findByRole('button', { name: '确认并录入比价' });
   expect(confirmButton).toBeDisabled();
-  expect(screen.getByText(/非 USD/)).toBeTruthy();
+  expect(screen.getByText(/正式报价目前只接受 USD/)).toBeTruthy();
   expect(screen.getAllByText(/交期区间/).length).toBeGreaterThan(0);
-  expect(screen.getByText(/缺项或格式不符合确认要求/)).toBeTruthy();
+  expect(screen.getAllByText(/币种/).length).toBeGreaterThan(0);
 
   fireEvent.change(screen.getByLabelText('币种 1'), { target: { value: 'USD' } });
   fireEvent.change(screen.getByLabelText('报价数量单位 1'), { target: { value: 'EA' } });
-  fireEvent.change(screen.getByLabelText('交期（天，单值） 1'), { target: { value: '10' } });
+  fireEvent.change(screen.getByLabelText('交期（天，供应商确认单值） 1'), { target: { value: '10' } });
+  fireEvent.change(screen.getByLabelText('成色/状态 1'), { target: { value: 'NE' } });
+  fireEvent.change(screen.getByLabelText('证书声明 1'), { target: { value: 'provided' } });
+  fireEvent.change(screen.getByLabelText('报价依据 1'), { target: { value: 'Supplier confirmed USD and a 10-day lead time.' } });
   fireEvent.change(screen.getByLabelText('税费口径 1'), { target: { value: 'included' } });
   fireEvent.change(screen.getByLabelText('运费口径 1'), { target: { value: 'excluded' } });
   fireEvent.change(screen.getByLabelText('贸易术语 1'), { target: { value: 'fca' } });
   expect(confirmButton).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
-  const savedItem = { ...rangePayload.items[0], quantityUnit: 'EA', currency: 'USD', leadTimeDays: 10, taxIncluded: true, freightIncluded: false, incoterm: 'FCA' };
+  const savedItem = { ...rangePayload.items[0], quantityUnit: 'EA', currency: 'USD', leadTimeDays: 10, evidenceText: 'Supplier confirmed USD and a 10-day lead time.', condition: 'NE', certificate: true, taxIncluded: true, freightIncluded: false, incoterm: 'FCA' };
   delete savedItem.leadTimeMinDays;
   delete savedItem.leadTimeMaxDays;
   await waitFor(() => expect(mocks.supplierQuoteDraftApi.update).toHaveBeenCalledWith('draft-1', {
     expectedVersion: 2,
     payload: { items: [savedItem] },
   }));
+  expect(confirmButton).toBeDisabled();
+  fireEvent.click(screen.getByRole('checkbox', { name: '选择报价项 1 确认' }));
   await waitFor(() => expect(confirmButton).toBeEnabled());
   fireEvent.click(confirmButton);
   expect(await screen.findByRole('alert')).toHaveTextContent('草稿版本冲突');
-  expect(mocks.sourcingAiTaskApi.confirmDraft).toHaveBeenCalledWith('task-1', { expectedVersion: 3 });
-  expect(mocks.supplierQuoteDraftApi.confirm).not.toHaveBeenCalled();
+  expect(mocks.supplierQuoteDraftApi.confirm).toHaveBeenCalledWith('draft-1', { expectedVersion: 3, itemKeys: ['item-1'] });
+  expect(mocks.sourcingAiTaskApi.confirmDraft).not.toHaveBeenCalled();
   expect(mocks.refetchInquiries).not.toHaveBeenCalled();
-  expect(screen.queryByText(/已创建正式报价并刷新逐行比价/)).toBeNull();
+  expect(screen.queryByText(/已逐行创建正式报价/)).toBeNull();
 });
 
 it('refreshes per-line comparisons only after the server confirms supplier quote creation', async () => {
   const completePayload: SupplierQuoteDraftPayload = {
-    items: [{ itemKey: 'item-1', inquiryItemId: 'inquiry-item-sent', partNumber: 'PN-ALPHA', quantity: 2, quantityUnit: 'EA', unitPrice: 125, currency: 'USD', leadTimeDays: 8 }],
+    items: [{ itemKey: 'item-1', inquiryItemId: 'inquiry-item-sent', partNumber: 'PN-ALPHA', quantity: 2, quantityUnit: 'EA', unitPrice: 125, currency: 'USD', leadTimeDays: 8, condition: 'NE', certificate: true }],
   };
   const extracted = quoteDraft(completePayload, 4);
   mocks.inquiries = [inquiry('sent', lineOne, 'sent')];
   mocks.emails = [replyEmail()];
   mocks.sourcingAiTaskApi.create.mockResolvedValue(extractionTask());
   mocks.supplierQuoteDraftApi.getById.mockResolvedValue(extracted);
-  mocks.sourcingAiTaskApi.confirmDraft.mockResolvedValue({
+  mocks.supplierQuoteDraftApi.confirm.mockResolvedValue({
     draftId: 'draft-1', status: 'CONFIRMED', version: 5, reused: false,
     supplierQuoteIds: ['quote-confirmed'], createdSupplierQuoteIds: ['quote-confirmed'],
-    reusedSupplierQuoteIds: [], supplierQuotes: [],
+    reusedSupplierQuoteIds: [], supplierQuotes: [], confirmedItemKeys: ['item-1'],
+    confirmedQuotes: [{ itemKey: 'item-1', quoteId: 'quote-confirmed' }],
   });
   render(<Sourcing />);
   selectRfq();
   fireEvent.click(await screen.findByRole('button', { name: '核对 Supplier sent 的回邮' }));
   fireEvent.click(await screen.findByRole('button', { name: 'AI 提取草稿' }));
   const confirmButton = await screen.findByRole('button', { name: '确认并录入比价' });
+  expect(confirmButton).toBeDisabled();
+  fireEvent.click(screen.getByRole('checkbox', { name: '选择报价项 1 确认' }));
   expect(confirmButton).toBeEnabled();
   fireEvent.click(confirmButton);
 
-  expect(await screen.findByText(/已创建正式报价并刷新逐行比价/)).toHaveTextContent('quote-confirmed');
-  expect(mocks.sourcingAiTaskApi.confirmDraft).toHaveBeenCalledWith('task-1', { expectedVersion: 4 });
-  expect(mocks.supplierQuoteDraftApi.confirm).not.toHaveBeenCalled();
+  expect(await screen.findByText(/已逐行创建正式报价/)).toHaveTextContent('quote-confirmed');
+  expect(mocks.supplierQuoteDraftApi.confirm).toHaveBeenCalledWith('draft-1', { expectedVersion: 4, itemKeys: ['item-1'] });
+  expect(mocks.sourcingAiTaskApi.confirmDraft).not.toHaveBeenCalled();
   await waitFor(() => expect(mocks.refetchInquiries).toHaveBeenCalled());
   await waitFor(() => expect(mocks.compare).toHaveBeenCalledTimes(4));
 });
 
 it('keeps manual quote drafts on the same direct human confirmation command', async () => {
   const completePayload: SupplierQuoteDraftPayload = {
-    items: [{ itemKey: 'manual-item', inquiryItemId: 'inquiry-item-sent', partNumber: 'PN-ALPHA', quantity: 2, quantityUnit: 'EA', unitPrice: 125, currency: 'USD', leadTimeDays: 8 }],
+    items: [{ itemKey: 'manual-item', inquiryItemId: 'inquiry-item-sent', partNumber: 'PN-ALPHA', quantity: 2, quantityUnit: 'EA', unitPrice: 125, currency: 'USD', leadTimeDays: 8, condition: 'NE', certificate: true }],
   };
   mocks.inquiries = [inquiry('sent', lineOne, 'sent')];
   mocks.emails = [replyEmail()];
@@ -1000,18 +1075,111 @@ it('keeps manual quote drafts on the same direct human confirmation command', as
   mocks.supplierQuoteDraftApi.confirm.mockResolvedValue({
     draftId: 'draft-1', status: 'CONFIRMED', version: 2, reused: false,
     supplierQuoteIds: ['manual-quote'], createdSupplierQuoteIds: ['manual-quote'],
-    reusedSupplierQuoteIds: [], supplierQuotes: [],
+    reusedSupplierQuoteIds: [], supplierQuotes: [], confirmedItemKeys: ['manual-item'],
+    confirmedQuotes: [{ itemKey: 'manual-item', quoteId: 'manual-quote' }],
   });
   render(<Sourcing />);
   selectRfq();
   fireEvent.click(await screen.findByRole('button', { name: '核对 Supplier sent 的回邮' }));
   fireEvent.click(await screen.findByRole('button', { name: '新建手工草稿' }));
   const confirmButton = await screen.findByRole('button', { name: '确认并录入比价' });
+  expect(confirmButton).toBeDisabled();
+  fireEvent.click(screen.getByRole('checkbox', { name: '选择报价项 1 确认' }));
   await waitFor(() => expect(confirmButton).toBeEnabled());
   fireEvent.click(confirmButton);
 
-  await waitFor(() => expect(mocks.supplierQuoteDraftApi.confirm).toHaveBeenCalledWith('draft-1', { expectedVersion: 1 }));
+  await waitFor(() => expect(mocks.supplierQuoteDraftApi.confirm).toHaveBeenCalledWith('draft-1', { expectedVersion: 1, itemKeys: ['manual-item'] }));
   expect(mocks.sourcingAiTaskApi.confirmDraft).not.toHaveBeenCalled();
+});
+
+it('confirms a complete quote row while leaving an incomplete row pending and immutable rows locked', async () => {
+  const payload: SupplierQuoteDraftPayload = {
+    items: [
+      {
+        itemKey: 'complete-item', inquiryItemId: 'inquiry-item-sent', partNumber: 'PN-ALPHA', quantity: 2,
+        quantityUnit: 'EA', unitPrice: 125, currency: 'USD', leadTimeDays: 8, condition: 'NE', certificate: true,
+      },
+      {
+        itemKey: 'pending-item', inquiryItemId: 'inquiry-item-sent', partNumber: 'PN-BETA', quantity: 4,
+        quantityUnit: null, unitPrice: null, currency: 'USD', leadTimeDays: 10,
+      },
+    ],
+  };
+  mocks.inquiries = [inquiry('sent', lineOne, 'sent')];
+  mocks.emails = [replyEmail()];
+  mocks.sourcingAiTaskApi.create.mockResolvedValue(extractionTask());
+  mocks.supplierQuoteDraftApi.getById.mockResolvedValue(quoteDraft(payload, 2));
+  mocks.supplierQuoteDraftApi.confirm.mockResolvedValue({
+    draftId: 'draft-1', status: 'PARTIALLY_CONFIRMED', version: 3, reused: false,
+    supplierQuoteIds: ['quote-complete'], createdSupplierQuoteIds: ['quote-complete'], reusedSupplierQuoteIds: [],
+    supplierQuotes: [], confirmedItemKeys: ['complete-item'],
+    confirmedQuotes: [{ itemKey: 'complete-item', quoteId: 'quote-complete' }],
+  });
+  render(<Sourcing />);
+  selectRfq();
+  fireEvent.click(await screen.findByRole('button', { name: '核对 Supplier sent 的回邮' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'AI 提取草稿' }));
+
+  const completeSelection = await screen.findByRole('checkbox', { name: '选择报价项 1 确认' });
+  const pendingSelection = screen.getByRole('checkbox', { name: '选择报价项 2 确认' });
+  expect(completeSelection).toBeEnabled();
+  expect(completeSelection).not.toBeChecked();
+  expect(pendingSelection).toBeDisabled();
+  expect(screen.getByLabelText('报价数量单位 2')).toHaveValue('');
+  fireEvent.click(completeSelection);
+  fireEvent.click(screen.getByRole('button', { name: '确认并录入比价' }));
+
+  await waitFor(() => expect(mocks.supplierQuoteDraftApi.confirm).toHaveBeenCalledWith('draft-1', {
+    expectedVersion: 2, itemKeys: ['complete-item'],
+  }));
+  expect(await screen.findByText(/已确认 1\/2 项/)).toBeInTheDocument();
+  expect(screen.getByLabelText('报价数量单位 1')).toBeDisabled();
+  expect(screen.getByLabelText('报价数量单位 2')).toBeEnabled();
+  expect(screen.getByRole('checkbox', { name: '选择报价项 2 确认' })).toBeDisabled();
+  expect(screen.getByText(/未确认行仍保留在草稿中/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '确认并录入比价' })).toBeDisabled();
+});
+
+it('keeps condition and certificate unknown until manually recorded and supports certificate text', async () => {
+  const payload: SupplierQuoteDraftPayload = {
+    items: [{
+      itemKey: 'manual-item', inquiryItemId: 'inquiry-item-sent', partNumber: 'PN-ALPHA', quantity: 2,
+      quantityUnit: 'EA', unitPrice: 125, currency: 'USD', leadTimeDays: 8, condition: null, certificate: null,
+    }],
+  };
+  mocks.inquiries = [inquiry('sent', lineOne, 'sent')];
+  mocks.emails = [replyEmail()];
+  mocks.supplierQuoteDraftApi.create.mockResolvedValue(quoteDraft(payload, 1));
+  mocks.supplierQuoteDraftApi.update.mockImplementation(async (_id: string, input: { payload: SupplierQuoteDraftPayload }) => quoteDraft(input.payload, 2));
+  mocks.supplierQuoteDraftApi.confirm.mockResolvedValue({
+    draftId: 'draft-1', status: 'CONFIRMED', version: 3, reused: false,
+    supplierQuoteIds: ['quote-text-certificate'], createdSupplierQuoteIds: ['quote-text-certificate'], reusedSupplierQuoteIds: [],
+    supplierQuotes: [], confirmedItemKeys: ['manual-item'],
+    confirmedQuotes: [{ itemKey: 'manual-item', quoteId: 'quote-text-certificate' }],
+  });
+  render(<Sourcing />);
+  selectRfq();
+  fireEvent.click(await screen.findByRole('button', { name: '核对 Supplier sent 的回邮' }));
+  fireEvent.click(await screen.findByRole('button', { name: '新建手工草稿' }));
+
+  expect(await screen.findByLabelText('成色/状态 1')).toHaveValue('');
+  expect(screen.getByLabelText('证书声明 1')).toHaveValue('unknown');
+  expect(screen.getByRole('checkbox', { name: '选择报价项 1 确认' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('成色/状态 1'), { target: { value: 'NE' } });
+  fireEvent.change(screen.getByLabelText('证书声明 1'), { target: { value: 'details' } });
+  fireEvent.change(screen.getByLabelText('证书文本 1'), { target: { value: 'FAA Form 1, certificate no. 12345' } });
+  expect(screen.getByRole('checkbox', { name: '选择报价项 1 确认' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('checkbox', { name: '选择报价项 1 确认' }));
+  fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+
+  await waitFor(() => expect(mocks.supplierQuoteDraftApi.update).toHaveBeenCalledWith('draft-1', {
+    expectedVersion: 1,
+    payload: { items: [{ ...payload.items[0], condition: 'NE', certificate: 'FAA Form 1, certificate no. 12345' }] },
+  }));
+  fireEvent.click(await screen.findByRole('button', { name: '确认并录入比价' }));
+  await waitFor(() => expect(mocks.supplierQuoteDraftApi.confirm).toHaveBeenCalledWith('draft-1', {
+    expectedVersion: 2, itemKeys: ['manual-item'],
+  }));
 });
 
 it('shows exact server-derived waiting counts separately from comparison quantity metrics', async () => {

@@ -142,9 +142,10 @@ describe('sourcing action task routes', () => {
         findFirst: vi.fn(async ({ where }: { where: Record<string, any> }) =>
           targetVisible && where.id === sourceInquiry.id ? sourceInquiry : null),
       },
+      inquiryAttachment: { findMany: vi.fn().mockResolvedValue([]) },
       $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(prismaMock)),
     };
-    sendInquiryCommand.mockReset().mockImplementation(async (tx: unknown, actor: Record<string, unknown>, inquiryId: string, content: Record<string, string>) => {
+    sendInquiryCommand.mockReset().mockImplementation(async (tx: unknown, actor: Record<string, unknown>, inquiryId: string, content: Record<string, unknown>) => {
       if (inquiryId !== sourceInquiry.id) throw new Error('wrong Inquiry');
       const outboundEmail = {
         id: `outbound-${outboundEmails.length + 1}`, status: 'PENDING', errorMessage: null,
@@ -239,9 +240,54 @@ describe('sourcing action task routes', () => {
     expect(sendInquiryCommand).toHaveBeenCalledTimes(1);
     expect(sendInquiryCommand.mock.calls[0][0]).toBe(prismaMock);
     expect(sendInquiryCommand.mock.calls[0][1]).toMatchObject({ id: 'sales-1' });
-    expect(sendInquiryCommand.mock.calls[0][3]).toEqual({ subject: 'Updated RFQ request', textBody: 'Please quote PN-1.' });
+    expect(sendInquiryCommand.mock.calls[0][3]).toEqual({
+      subject: 'Updated RFQ request', textBody: 'Please quote PN-1.', attachmentIds: [], attachments: [],
+    });
     expect(prismaMock.$transaction.mock.calls.some((call: unknown[]) =>
       JSON.stringify(call[1]) === JSON.stringify({ isolationLevel: 'Serializable' }))).toBe(true);
+  });
+
+  it('stages attachment bytes metadata into the exact review snapshot and confirms that frozen selection', async () => {
+    const frozenAttachment = {
+      id: 'attachment-1', storedObjectId: 'stored-object-1', filename: 'supplier.pdf',
+      contentType: 'application/pdf', sizeBytes: 4096, sha256: 'a'.repeat(64), version: 2,
+      downloadUrl: '/api/files/stored-object-1',
+    };
+    prismaMock.inquiryAttachment.findMany.mockResolvedValue([{
+      id: frozenAttachment.id, inquiryId: 'inquiry-1', storedObjectId: frozenAttachment.storedObjectId,
+      filename: frozenAttachment.filename, contentType: frozenAttachment.contentType,
+      sizeBytes: frozenAttachment.sizeBytes, sha256: frozenAttachment.sha256, version: frozenAttachment.version,
+      storedObject: {
+        id: frozenAttachment.storedObjectId, domain: 'inquiry_attachment', resourceId: 'inquiry-1',
+        status: 'AVAILABLE', originalName: frozenAttachment.filename, mimeType: frozenAttachment.contentType,
+        sizeBytes: frozenAttachment.sizeBytes, sha256: frozenAttachment.sha256, version: frozenAttachment.version,
+      },
+    }]);
+    const created = await request(app).post('/api/sourcing-action-tasks').send({
+      ...payload('send-with-attachment'), content: { ...payload().content, attachmentIds: ['attachment-1'] },
+    }).expect(201);
+
+    expect(created.body.data).toMatchObject({
+      status: 'WAITING_HUMAN',
+      contentSnapshot: { attachmentIds: ['attachment-1'], attachments: [frozenAttachment] },
+      attachments: [frozenAttachment],
+    });
+    const confirmed = await request(app).post(`/api/sourcing-action-tasks/${created.body.data.id}/confirm`)
+      .send({ expectedVersion: 1 }).expect(200);
+    expect(confirmed.body.data.attachments).toEqual([frozenAttachment]);
+    expect(sendInquiryCommand.mock.calls[0][3]).toEqual({
+      subject: 'Updated RFQ request', textBody: 'Please quote PN-1.',
+      attachmentIds: ['attachment-1'], attachments: [frozenAttachment],
+    });
+  });
+
+  it('rejects staging a file outside the target inquiry attachment scope', async () => {
+    prismaMock.inquiryAttachment.findMany.mockResolvedValue([]);
+    await request(app).post('/api/sourcing-action-tasks').send({
+      ...payload('foreign-attachment'), content: { ...payload().content, attachmentIds: ['foreign-file'] },
+    }).expect(404);
+    expect(tasks).toHaveLength(0);
+    expect(sendInquiryCommand).not.toHaveBeenCalled();
   });
 
   it('fails a stale source snapshot and requires a new task instead of refreshing it', async () => {

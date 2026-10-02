@@ -84,9 +84,12 @@ describe('RFQ sourcing timeline', () => {
       retryHistoryJson: '[]', actor: { id: 'sales-1', name: 'Sales' },
       confirmedBy: { id: 'sales-1', name: 'Sales' }, cancelledBy: null,
     }]);
-    prismaMock.auditLog.findMany.mockImplementation(async ({ where }: { where: { resourceType: string } }) => {
+    prismaMock.auditLog.findMany.mockImplementation(async ({ where }: { where: { resourceType: string; action: string } }) => {
       if (where.resourceType === 'OUTBOUND_EMAIL') return [{ id: 'send-audit-1', resourceId: 'outbound-1', userId: 'sales-1', userName: 'Sales', createdAt: at(2) }];
-      if (where.resourceType === 'SUPPLIER_QUOTE_DRAFT') return [{ id: 'draft-audit-1', resourceId: 'draft-1', userId: 'sales-1', userName: 'Sales', createdAt: at(9), changes: JSON.stringify({ version: { before: 1, after: 2 } }) }];
+      if (where.resourceType === 'SUPPLIER_QUOTE_DRAFT' && where.action === 'UPDATE') {
+        return [{ id: 'draft-audit-1', resourceId: 'draft-1', userId: 'sales-1', userName: 'Sales', createdAt: at(9), changes: JSON.stringify({ version: { before: 1, after: 2 } }) }];
+      }
+      if (where.resourceType === 'SUPPLIER_QUOTE_DRAFT') return [];
       return [{ id: 'winner-audit-1', resourceId: 'quote-1', userId: 'sales-1', userName: 'Sales', createdAt: at(11) }];
     });
 
@@ -246,6 +249,68 @@ describe('RFQ sourcing timeline', () => {
     expect(rows.map((row: { supplierName: string }) => row.supplierName)).not.toContain('Supplier Unbound');
     expect(JSON.stringify(rows)).not.toContain('private supplier email excerpt');
     expect(JSON.stringify(rows)).not.toContain('private note');
+  });
+
+  it('projects only unconfirmed rows from a partially confirmed draft and counts them as pending', async () => {
+    const createdAt = new Date('2026-09-25T08:08:00.000Z');
+    prismaMock.rFQ.findFirst.mockResolvedValue({
+      id: 'rfq-1', status: 'SOURCING', createdBy: 'sales-1', creator: { department: 'Sales' },
+      lines: [
+        { id: 'line-1', status: 'OPEN', quantity: 10 },
+        { id: 'line-2', status: 'OPEN', quantity: 10 },
+      ],
+    });
+    prismaMock.inquiry.findMany.mockResolvedValue([{
+      id: 'inquiry-1', status: 'SENT', sentAt: createdAt, createdAt,
+      supplier: { name: 'Supplier A' },
+      items: [
+        { id: 'item-1', rfqLineId: 'line-1', partNumber: 'PN-1' },
+        { id: 'item-2', rfqLineId: 'line-2', partNumber: 'PN-2' },
+      ],
+      outboundEmails: [{ id: 'outbound-1', purpose: 'INQUIRY_SEND', status: 'SENT', createdAt, sentAt: createdAt, withdrawnAt: null }],
+      emailLinks: [], sourcingAiTasks: [],
+      quoteDrafts: [{
+        id: 'draft-1', version: 3, status: 'PARTIALLY_CONFIRMED', emailId: 'email-1',
+        aiModel: null, aiMetadataJson: null,
+        payloadJson: JSON.stringify({ items: [
+          { itemKey: 'offer-1', inquiryItemId: 'item-1', partNumber: 'PN-1', quantity: 2, quantityUnit: 'EA', unitPrice: 50, currency: 'USD', leadTimeDays: 5 },
+          { itemKey: 'offer-2', inquiryItemId: 'item-2', partNumber: 'PN-2', quantity: 1, quantityUnit: 'EA', unitPrice: null, currency: 'RMB', leadTimeMinDays: 5, leadTimeMaxDays: 10 },
+        ] }),
+        createdAt, confirmedAt: createdAt, confirmedBy: { id: 'sales-1', name: 'Sales' },
+      }],
+    }]);
+    prismaMock.supplierQuote.findMany.mockResolvedValue([{
+      id: 'quote-1', rfqId: 'rfq-1', rfqLineId: 'line-1', inquiryId: 'inquiry-1', inquiryItemId: 'item-1',
+      sourceDraftId: 'draft-1', sourceDraftItemKey: 'offer-1', partNumber: 'PN-1', quantity: 2,
+      supersededAt: null, status: 'pending', isWinner: false, createdAt, updatedAt: createdAt,
+      supplier: { name: 'Supplier A' },
+    }]);
+    prismaMock.auditLog.findMany.mockImplementation(async ({ where }: { where: { action: string } }) =>
+      where.action === 'CONFIRM' ? [{
+        id: 'confirm-audit-1', resourceId: 'draft-1', userId: 'sales-1', userName: 'Sales', createdAt,
+        changes: JSON.stringify({
+          version: 3,
+          status: { before: 'DRAFT', after: 'PARTIALLY_CONFIRMED' },
+          itemKeys: ['offer-1'], supplierQuoteIds: ['quote-1'],
+        }),
+      }] : []);
+
+    const response = await request(await buildApp()).get('/api/rfqs/rfq-1/sourcing-timeline');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.pendingQuoteRows).toEqual([expect.objectContaining({
+      draftId: 'draft-1', draftVersion: 3, itemKey: 'offer-2',
+      inquiryItemId: 'item-2', rfqLineId: 'line-2', currency: 'RMB',
+    })]);
+    expect(response.body.data.counts.lines).toEqual([
+      { rfqLineId: 'line-1', pendingQuoteCount: 0, pendingConfirmationCount: 0 },
+      { rfqLineId: 'line-2', pendingQuoteCount: 0, pendingConfirmationCount: 1 },
+    ]);
+    expect(response.body.data.events).toContainEqual(expect.objectContaining({
+      type: 'QUOTE_DRAFT_CONFIRMED', status: 'PARTIALLY_CONFIRMED',
+      itemKeys: ['offer-1'], supplierQuoteIds: ['quote-1'],
+      summary: 'Supplier A 已人工确认 1 行正式报价，其余行仍待核对',
+    }));
   });
 
   it('counts pending items only by explicit RFQ line/inquiry-item bindings and separates unassignable records', async () => {

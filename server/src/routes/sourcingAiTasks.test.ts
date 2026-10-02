@@ -406,12 +406,14 @@ describe('sourcing AI task routes', () => {
   it('routes explicit confirmation of a completed task to the shared versioned quote command', async () => {
     tasks.push(taskRecord({ id: 'completed-task', status: 'COMPLETED', draftId: 'draft-1' }));
 
-    const confirmed = await request(app).post('/api/sourcing-ai-tasks/completed-task/confirm-draft').send({ expectedVersion: 4 });
+    const confirmed = await request(app).post('/api/sourcing-ai-tasks/completed-task/confirm-draft')
+      .send({ expectedVersion: 4, itemKeys: ['offer-1'] });
 
     expect(confirmed.status).toBe(200);
     expect(confirmed.body.data).toMatchObject({ draftId: 'draft-1', supplierQuoteIds: ['quote-1'] });
     expect(confirmSupplierQuoteDraftCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'sales-1' }), 'draft-1', 4, { sourcingAiTaskId: 'completed-task' },
+      expect.objectContaining({ id: 'sales-1' }), 'draft-1', 4,
+      { sourcingAiTaskId: 'completed-task', itemKeys: ['offer-1'] },
     );
   });
 

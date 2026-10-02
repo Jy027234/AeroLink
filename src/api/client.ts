@@ -943,6 +943,8 @@ export interface RfqSourcingTimelineEvent {
   outboundEmailId?: string | null;
   draftId?: string | null;
   supplierQuoteId?: string | null;
+  itemKeys?: string[];
+  supplierQuoteIds?: string[];
   actionTaskId?: string | null;
   originalAiCandidates?: RfqSourcingAiCandidateSnapshot;
   summary: string;
@@ -979,7 +981,7 @@ export interface RfqSourcingTimelineCounts {
     rfqLineId: string;
     /** SMTP-accepted (or legacy sentAt/status=SENT) inquiry items without an exact DRAFT/quote item; unsent or uncertain delivery is excluded. */
     pendingQuoteCount: number;
-    /** DRAFT payload items with a valid inquiryItemId that resolves to this RFQ's active line. */
+    /** Unconfirmed DRAFT/PARTIALLY_CONFIRMED items explicitly bound to this active line. */
     pendingConfirmationCount: number;
   }>;
   /** Items that cannot safely be assigned to an active line, plus persisted quote/draft records needing human review. */
@@ -996,6 +998,7 @@ export interface RfqSourcingPendingQuoteRow {
   rfqLineId: string;
   inquiryId: string;
   inquiryItemId: string;
+  itemKey?: string | null;
   draftId: string;
   draftVersion: number;
   emailId: string;
@@ -2797,6 +2800,10 @@ export interface SupplierQuoteDraftRecord {
   };
   supplier: { id: string; name: string; email: string | null };
   supplierQuotes: SupplierQuoteDraftQuote[];
+  /** Stable draft item keys already converted into formal quotes. */
+  confirmedItemKeys?: string[];
+  /** Cumulative mapping from draft item keys to formal supplier quote IDs. */
+  confirmedQuotes?: Array<{ itemKey: string; quoteId: string }>;
   createdAt: string;
   updatedAt: string;
   confirmedAt: string | null;
@@ -2811,6 +2818,8 @@ export interface SupplierQuoteDraftConfirmResult {
   createdSupplierQuoteIds: string[];
   reusedSupplierQuoteIds: string[];
   supplierQuotes: SupplierQuoteDraftQuote[];
+  confirmedItemKeys?: string[];
+  confirmedQuotes?: Array<{ itemKey: string; quoteId: string }>;
 }
 
 export interface SourcingAiTaskRecord {
@@ -2832,7 +2841,7 @@ export interface SourcingAiTaskRecord {
 }
 
 export type SourcingActionTaskCreateInput =
-  | { action: 'SEND_INQUIRY'; targetId: string; content: { subject: string; textBody: string }; idempotencyKey: string }
+  | { action: 'SEND_INQUIRY'; targetId: string; content: { subject: string; textBody: string; attachmentIds?: string[] }; idempotencyKey: string }
   | { action: 'SELECT_WINNER'; targetId: string; expectedUpdatedAt?: string; idempotencyKey: string };
 
 export interface SourcingActionTaskRecord {
@@ -2843,7 +2852,8 @@ export interface SourcingActionTaskRecord {
   targetId: string;
   targetVersion: string;
   version: number;
-  contentSnapshot: { subject: string; textBody: string } | null;
+  contentSnapshot: { subject: string; textBody: string; attachments?: InquiryAttachment[] } | null;
+  attachments?: InquiryAttachment[];
   requestId: string;
   idempotencyKey: string;
   status: 'WAITING_HUMAN' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
@@ -2952,7 +2962,7 @@ export const supplierQuoteDraftApi = {
     });
   },
 
-  confirm: async (id: string, payload: { expectedVersion: number }) => {
+  confirm: async (id: string, payload: { expectedVersion: number; itemKeys?: string[] }) => {
     return request<SupplierQuoteDraftConfirmResult>(`/supplier-quote-drafts/${encodeURIComponent(id)}/confirm`, {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -3005,6 +3015,33 @@ export const fileApi = {
     method: 'GET',
     headers: { Accept: 'application/octet-stream' },
   }),
+};
+
+export interface InquiryAttachment {
+  id: string;
+  storedObjectId: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  sha256: string;
+  downloadUrl: string;
+  version?: number;
+}
+
+export const inquiryAttachmentApi = {
+  getAll: async (inquiryId: string) => {
+    const result = await request<{ attachments: InquiryAttachment[] }>(`/inquiries/${encodeURIComponent(inquiryId)}/attachments`);
+    return result.attachments;
+  },
+  upload: async (inquiryId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const result = await request<{ attachment: InquiryAttachment }>(`/inquiries/${encodeURIComponent(inquiryId)}/attachments`, {
+      method: 'POST',
+      body: formData,
+    });
+    return result.attachment;
+  },
 };
 
 // ===== Email Account API =====

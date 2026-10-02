@@ -6230,6 +6230,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/inquiries/{id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/inquiries/:id/attachments
+         * @description List inquiry-bound files available for explicit selection; no cross-inquiry auto-attachment.
+         */
+        get: operations["getInquiriesIdAttachments"];
+        put?: never;
+        /**
+         * POST /api/inquiries/:id/attachments
+         * @description Upload real inquiry attachment bytes. Bound to inquiry/RFQ read scope and frozen into the human-confirmed send version; does not send email.
+         */
+        post: operations["postInquiriesIdAttachments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/inquiries/{id}/send": {
         parameters: {
             query?: never;
@@ -8370,9 +8394,39 @@ export interface components {
             notes?: string;
             lineIds?: string[];
         };
+        InquiryAttachment: {
+            id: string;
+            storedObjectId: string;
+            filename: string;
+            contentType: string;
+            sizeBytes: number;
+            sha256: string;
+            version: number;
+            downloadUrl: string;
+        };
+        InquiryAttachmentListEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                attachments: components["schemas"]["InquiryAttachment"][];
+            };
+        };
+        InquiryAttachmentUploadEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                attachment: components["schemas"]["InquiryAttachment"];
+            };
+        };
+        SourcingActionTaskSendContentInput: {
+            subject: string;
+            textBody: string;
+            attachmentIds?: string[];
+        };
         InquirySendRequest: {
             subject?: string;
             textBody?: string;
+            attachmentIds?: string[];
         };
         NotificationPreference: {
             id: string;
@@ -8757,6 +8811,8 @@ export interface components {
                     }[];
                 };
                 summary: string;
+                itemKeys?: string[];
+                supplierQuoteIds?: string[];
             }[];
             counts: {
                 /** @description Per-active-RFQ-line derived counts. Ownership requires explicit InquiryItem/quote foreign keys; partNumber is never used to infer a line. */
@@ -8808,6 +8864,32 @@ export interface components {
                     /** @constant */
                     purchasingCommitted: false;
                 };
+            }[];
+            /** @description Unconfirmed draft candidates only; not formal quotes and never eligible for ranking or winner selection. */
+            pendingQuoteRows?: {
+                rfqLineId: string;
+                inquiryId: string;
+                inquiryItemId: string;
+                itemKey: string | null;
+                draftId: string;
+                draftVersion: number;
+                emailId: string;
+                supplierName: string;
+                /** @enum {string} */
+                source: "ai" | "manual";
+                partNumber: string | null;
+                quantity: number | null;
+                quantityUnit: string | null;
+                unitPrice: number | null;
+                currency: string | null;
+                leadTimeDays: number | null;
+                leadTimeMinDays: number | null;
+                leadTimeMaxDays: number | null;
+                condition: string | null;
+                certificate: string | boolean | null | string[];
+                taxIncluded: boolean | null;
+                freightIncluded: boolean | null;
+                validUntil: string | null;
             }[];
         } & {
             [key: string]: unknown;
@@ -14651,7 +14733,7 @@ export interface components {
             inquiryId: string;
             supplierId: string;
             /** @enum {string} */
-            status: "DRAFT" | "CONFIRMED";
+            status: "DRAFT" | "PARTIALLY_CONFIRMED" | "CONFIRMED";
             version: number;
             payload: components["schemas"]["SupplierQuoteDraftPayload"];
             aiProvider: string | null;
@@ -14680,6 +14762,11 @@ export interface components {
             supplierQuotes: {
                 [key: string]: unknown;
             }[];
+            confirmedItemKeys?: string[];
+            confirmedQuotes?: {
+                itemKey: string;
+                quoteId: string;
+            }[];
         };
         SupplierQuoteDraftEnvelope: {
             /** @constant */
@@ -14706,17 +14793,23 @@ export interface components {
         };
         SupplierQuoteDraftConfirmRequest: {
             expectedVersion: number;
+            itemKeys?: string[];
         };
         SupplierQuoteDraftConfirmResult: {
             draftId: string;
-            /** @constant */
-            status: "CONFIRMED";
+            /** @enum {string} */
+            status: "PARTIALLY_CONFIRMED" | "CONFIRMED";
             version: number;
             reused: boolean;
             supplierQuoteIds: string[];
             createdSupplierQuoteIds: string[];
             reusedSupplierQuoteIds: string[];
             supplierQuotes: components["schemas"]["SupplierQuote"][];
+            confirmedItemKeys?: string[];
+            confirmedQuotes?: {
+                itemKey: string;
+                quoteId: string;
+            }[];
         };
         SupplierQuoteDraftConfirmEnvelope: {
             /** @constant */
@@ -14767,6 +14860,8 @@ export interface components {
         SourcingActionTaskContent: {
             subject: string;
             textBody: string;
+            attachmentIds?: string[];
+            attachments?: components["schemas"]["InquiryAttachment"][];
         };
         SourcingActionTaskSendResult: {
             inquiryId: string;
@@ -14840,7 +14935,7 @@ export interface components {
             /** @constant */
             action: "SEND_INQUIRY";
             targetId: string;
-            content: components["schemas"]["SourcingActionTaskContent"];
+            content: components["schemas"]["SourcingActionTaskSendContentInput"];
             idempotencyKey: string;
         };
         SourcingActionTaskCreateWinnerRequest: {
@@ -26024,6 +26119,77 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    getInquiriesIdAttachments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Files bound to this inquiry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InquiryAttachmentListEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            415: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    postInquiriesIdAttachments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved inquiry file; no email sent */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InquiryAttachmentUploadEnvelope"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            415: components["responses"]["Error"];
             422: components["responses"]["Error"];
             429: components["responses"]["Error"];
             500: components["responses"]["Error"];

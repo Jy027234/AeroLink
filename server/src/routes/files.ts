@@ -6,6 +6,7 @@ import { objectStorage } from '../lib/objectStorage.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { recordOperationalAlert } from '../lib/alerting.js';
 import { hasCapability, type CapabilityActor } from '../lib/capabilityPolicy.js';
+import { inquiryReadScope } from '../lib/inquirySendCommand.js';
 import { assertCanReadReceiptEvidence, assertCanReadDirectShipmentEvidence, assertCanReadSettlementEvidence, canReadPurchaseEvidence } from '../modules/procurementSettlement/index.js';
 
 const router = Router();
@@ -16,7 +17,7 @@ export function canReadStoredObject(
 ) {
   // Commercial documents require current order scope and cost access, even
   // for their uploader or a manager using an old /uploads link.
-  if (['email', 'purchase_commitment', 'stock_receipt', 'supplier_direct_shipment', 'settlement_account'].includes(storedObject.domain ?? '')) return false;
+  if (['email', 'inquiry_attachment', 'purchase_commitment', 'stock_receipt', 'supplier_direct_shipment', 'settlement_account'].includes(storedObject.domain ?? '')) return false;
   const role = user?.role?.toLowerCase();
   const privileged = role === 'admin' || role === 'manager';
   return privileged || Boolean(user?.id && storedObject.ownerId === user.id);
@@ -82,6 +83,17 @@ export async function canReadStoredObjectDownload(
       select: { id: true },
     });
     return Boolean(email);
+  }
+  if (storedObject.domain === 'inquiry_attachment') {
+    if (!user || !hasCapability(user, 'supplier_quote', 'read')) return false;
+    const attachment = await tx.inquiryAttachment.findFirst({
+      where: {
+        storedObjectId: storedObject.id,
+        inquiry: { is: inquiryReadScope(user) },
+      },
+      select: { id: true },
+    });
+    return Boolean(attachment);
   }
   return canReadStoredObject(storedObject, user) || await canReadReturnEvidence(storedObject, user);
 }

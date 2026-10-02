@@ -35,6 +35,45 @@ export function applySourcingEmailContract(paths, core) {
   const dateTime = { type: ['string', 'null'], format: 'date-time' };
   const optionalNumber = { type: ['number', 'null'], minimum: 0 };
   const optionalInteger = { type: ['integer', 'null'], minimum: 0 };
+  const attachmentIds = { type: 'array', maxItems: 10, uniqueItems: true, items: id };
+  const confirmedItemKeys = { type: 'array', items: id };
+  const confirmedQuotes = { type: 'array', items: objectSchema({ itemKey: id, quoteId: id }) };
+  const timeline = core.schemas.RfqSourcingTimeline.properties;
+  Object.assign(timeline.events.items.properties, {
+    itemKeys: confirmedItemKeys,
+    supplierQuoteIds: { type: 'array', items: id },
+  });
+  timeline.pendingQuoteRows = {
+    type: 'array',
+    description: 'Unconfirmed draft candidates only; not formal quotes and never eligible for ranking or winner selection.',
+    items: objectSchema({
+      rfqLineId: id, inquiryId: id, inquiryItemId: id, itemKey: nullableId,
+      draftId: id, draftVersion: { type: 'integer', minimum: 1 }, emailId: id,
+      supplierName: { type: 'string' }, source: { type: 'string', enum: ['ai', 'manual'] },
+      partNumber: nullableText, quantity: optionalNumber, quantityUnit: nullableText,
+      unitPrice: optionalNumber, currency: nullableText, leadTimeDays: optionalNumber,
+      leadTimeMinDays: optionalNumber, leadTimeMaxDays: optionalNumber,
+      condition: nullableText,
+      certificate: { oneOf: [{ type: 'string' }, { type: 'boolean' }, { type: 'null' },
+        { type: 'array', items: { type: 'string' } }] },
+      taxIncluded: { type: ['boolean', 'null'] }, freightIncluded: { type: ['boolean', 'null'] },
+      validUntil: date,
+    }),
+  };
+  core.schemas.InquiryAttachment = objectSchema({
+    id, storedObjectId: id,
+    filename: { type: 'string', minLength: 1, maxLength: 255 },
+    contentType: { type: 'string', minLength: 1 },
+    sizeBytes: { type: 'integer', minimum: 1, maximum: 10485760 },
+    sha256: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+    version: { type: 'integer', minimum: 1 },
+    downloadUrl: { type: 'string', minLength: 1 },
+  });
+  core.schemas.InquiryAttachmentListEnvelope = successEnvelope(objectSchema({
+    attachments: { type: 'array', items: schemaRef('InquiryAttachment') },
+  }));
+  core.schemas.InquiryAttachmentUploadEnvelope = successEnvelope(objectSchema({ attachment: schemaRef('InquiryAttachment') }));
+  core.schemas.InquirySendRequest.properties.attachmentIds = attachmentIds;
 
   core.schemas.InquiryEmailLink = objectSchema({
     id,
@@ -134,7 +173,7 @@ export function applySourcingEmailContract(paths, core) {
     emailId: id,
     inquiryId: id,
     supplierId: id,
-    status: { type: 'string', enum: ['DRAFT', 'CONFIRMED'] },
+    status: { type: 'string', enum: ['DRAFT', 'PARTIALLY_CONFIRMED', 'CONFIRMED'] },
     version: { type: 'integer', minimum: 1 },
     payload: schemaRef('SupplierQuoteDraftPayload'),
     aiProvider: nullableText,
@@ -150,6 +189,8 @@ export function applySourcingEmailContract(paths, core) {
     inquiry: { type: 'object', additionalProperties: true },
     supplier: { type: 'object', additionalProperties: true },
     supplierQuotes: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    confirmedItemKeys,
+    confirmedQuotes,
   }, [
     'id', 'emailId', 'inquiryId', 'supplierId', 'status', 'version', 'payload',
     'aiProvider', 'aiModel', 'aiPromptVersion', 'aiConfidence', 'aiMetadata',
@@ -170,17 +211,22 @@ export function applySourcingEmailContract(paths, core) {
     expectedVersion: { type: 'integer', minimum: 1 },
     payload: schemaRef('SupplierQuoteDraftPayload'),
   });
-  core.schemas.SupplierQuoteDraftConfirmRequest = objectSchema({ expectedVersion: { type: 'integer', minimum: 1 } });
+  core.schemas.SupplierQuoteDraftConfirmRequest = objectSchema({
+    expectedVersion: { type: 'integer', minimum: 1 },
+    itemKeys: { ...confirmedItemKeys, minItems: 1, maxItems: 100, uniqueItems: true },
+  }, ['expectedVersion']);
   core.schemas.SupplierQuoteDraftConfirmResult = objectSchema({
     draftId: id,
-    status: { type: 'string', const: 'CONFIRMED' },
+    status: { type: 'string', enum: ['PARTIALLY_CONFIRMED', 'CONFIRMED'] },
     version: { type: 'integer', minimum: 1 },
     reused: { type: 'boolean' },
     supplierQuoteIds: { type: 'array', items: id },
     createdSupplierQuoteIds: { type: 'array', items: id },
     reusedSupplierQuoteIds: { type: 'array', items: id },
     supplierQuotes: { type: 'array', items: schemaRef('SupplierQuote') },
-  });
+    confirmedItemKeys,
+    confirmedQuotes,
+  }, ['draftId', 'status', 'version', 'reused', 'supplierQuoteIds', 'createdSupplierQuoteIds', 'reusedSupplierQuoteIds', 'supplierQuotes']);
   core.schemas.SupplierQuoteDraftConfirmEnvelope = successEnvelope(schemaRef('SupplierQuoteDraftConfirmResult'));
 
   core.schemas.SourcingAiTask = objectSchema({
@@ -212,10 +258,15 @@ export function applySourcingEmailContract(paths, core) {
     items: schemaRef('SourcingAiTask'),
   });
 
-  core.schemas.SourcingActionTaskContent = objectSchema({
+  core.schemas.SourcingActionTaskSendContentInput = objectSchema({
     subject: { type: 'string', minLength: 1, maxLength: 255 },
     textBody: { type: 'string', minLength: 1, maxLength: 20000 },
-  });
+    attachmentIds,
+  }, ['subject', 'textBody']);
+  core.schemas.SourcingActionTaskContent = objectSchema({
+    ...core.schemas.SourcingActionTaskSendContentInput.properties,
+    attachments: { type: 'array', maxItems: 10, items: schemaRef('InquiryAttachment') },
+  }, ['subject', 'textBody']);
   core.schemas.SourcingActionTaskSendResult = objectSchema({
     inquiryId: id,
     inquiryStatus: { type: 'string', const: 'QUEUED' },
@@ -284,7 +335,7 @@ export function applySourcingEmailContract(paths, core) {
   core.schemas.SourcingActionTaskCreateSendRequest = objectSchema({
     action: { type: 'string', const: 'SEND_INQUIRY' },
     targetId: id,
-    content: schemaRef('SourcingActionTaskContent'),
+    content: schemaRef('SourcingActionTaskSendContentInput'),
     idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 },
   });
   core.schemas.SourcingActionTaskCreateWinnerRequest = objectSchema({
@@ -313,6 +364,8 @@ export function applySourcingEmailContract(paths, core) {
   core.responses.SourcingAiTaskList = resourceResponse('Visible server-owned sourcing AI tasks', 'SourcingAiTaskListEnvelope');
   core.responses.SourcingActionTask = resourceResponse('Server-owned sourcing action task; SEND_INQUIRY completion means queued, while SELECT_WINNER completion means an internal selection was committed', 'SourcingActionTaskEnvelope');
   core.responses.SourcingActionTaskList = resourceResponse('Visible server-owned sourcing action tasks', 'SourcingActionTaskListEnvelope');
+  core.responses.InquiryAttachmentList = resourceResponse('Inquiry-bound files available for selection', 'InquiryAttachmentListEnvelope');
+  core.responses.InquiryAttachmentUpload = resourceResponse('Uploaded inquiry file; no email sent', 'InquiryAttachmentUploadEnvelope');
 
   const errorResponses = Object.fromEntries([400, 401, 403, 404, 409, 422, 429, 500]
     .map((status) => [String(status), responseRef('Error')]));
@@ -327,6 +380,13 @@ export function applySourcingEmailContract(paths, core) {
   };
 
   const emailList = paths['/api/emails']?.get;
+  configure('/api/inquiries/{id}/attachments', 'get',
+    'Lists only files bound to the readable inquiry; selection for sending is explicit.', null, 'InquiryAttachmentList');
+  configure('/api/inquiries/{id}/attachments', 'post',
+    'Uploads safe real file content into the draft inquiry scope; sending freezes file metadata and hashes.', null, 'InquiryAttachmentUpload', '201');
+  paths['/api/inquiries/{id}/attachments'].post.requestBody = {
+    required: true, content: { 'multipart/form-data': { schema: objectSchema({ file: { type: 'string', format: 'binary' } }) } },
+  };
   if (!emailList) throw new Error('Missing GET /api/emails');
   emailList.parameters = [
     ...emailList.parameters.filter((parameter) => !['inquiryId', 'needsInquiryMatch'].includes(parameter.name)),
@@ -385,14 +445,14 @@ export function applySourcingEmailContract(paths, core) {
   configure(
     '/api/supplier-quote-drafts/{id}',
     'patch',
-    'Revises an unconfirmed supplier quote draft using optimistic version checking. Confirmed drafts are immutable.',
+    'Revises unconfirmed draft rows using optimistic version checking. Already confirmed rows must be retained byte-equivalently; their formal quote terms cannot change.',
     schemaRef('SupplierQuoteDraftPatchRequest'),
     'SupplierQuoteDraft',
   );
   configure(
     '/api/supplier-quote-drafts/{id}/confirm',
     'post',
-    'Explicitly confirms one complete draft version. Every item must bind to an immutable inquiry item and provide USD price, positive quantity and one lead-time value. Replays return the same formal quotes.',
+    'Explicitly confirms selected itemKeys in the reviewed draft version, or all rows when omitted. Selected unconfirmed items must bind to an inquiry item and provide USD price, positive quantity/unit and one lead-time value. Incomplete unselected rows remain pending; replays do not create duplicate quotes.',
     schemaRef('SupplierQuoteDraftConfirmRequest'),
     'SupplierQuoteDraftConfirm',
   );
